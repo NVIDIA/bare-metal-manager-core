@@ -399,11 +399,6 @@ func expectedPowerShelfToFlowComponent(eps *cwssaws.ExpectedPowerShelf) *flowv1.
 		component.Info.Description = eps.Description
 	}
 
-	// Firmware version
-	if fv := eps.GetFirmwareVersion(); fv != "" {
-		component.FirmwareVersion = fv
-	}
-
 	// Rack position
 	if eps.SlotId != nil || eps.TrayIdx != nil || eps.HostId != nil {
 		pos := &flowv1.RackPosition{}

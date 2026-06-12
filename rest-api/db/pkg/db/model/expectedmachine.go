@@ -63,7 +63,6 @@ type ExpectedMachine struct {
 	Manufacturer             *string   `bun:"manufacturer"`
 	Model                    *string   `bun:"model"`
 	Description              *string   `bun:"description"`
-	FirmwareVersion          *string   `bun:"firmware_version"`
 	SlotID                   *int32    `bun:"slot_id"`
 	TrayIdx                  *int32    `bun:"tray_idx"`
 	HostID                   *int32    `bun:"host_id"`
@@ -111,9 +110,6 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	if em.Description != nil {
 		proto.Description = em.Description
 	}
-	if em.FirmwareVersion != nil {
-		proto.FirmwareVersion = em.FirmwareVersion
-	}
 	if em.SlotID != nil {
 		proto.SlotId = em.SlotID
 	}
@@ -133,13 +129,12 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 
 	metadata := &cwssaws.Metadata{
 		Labels: expectedComponentLabelsInput{
-			Manufacturer:    em.Manufacturer,
-			Model:           em.Model,
-			FirmwareVersion: em.FirmwareVersion,
-			SlotID:          em.SlotID,
-			TrayIdx:         em.TrayIdx,
-			HostID:          em.HostID,
-			Labels:          em.Labels,
+			Manufacturer: em.Manufacturer,
+			Model:        em.Model,
+			SlotID:       em.SlotID,
+			TrayIdx:      em.TrayIdx,
+			HostID:       em.HostID,
+			Labels:       em.Labels,
 		}.ToProto(),
 	}
 	if em.Name != nil {
@@ -184,7 +179,6 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.Manufacturer = proto.Manufacturer
 	em.Model = proto.Model
 	em.Description = proto.Description
-	em.FirmwareVersion = proto.FirmwareVersion
 	em.SlotID = proto.SlotId
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
@@ -206,7 +200,6 @@ type ExpectedMachineCreateInput struct {
 	Manufacturer             *string
 	Model                    *string
 	Description              *string
-	FirmwareVersion          *string
 	SlotID                   *int32
 	TrayIdx                  *int32
 	HostID                   *int32
@@ -228,7 +221,6 @@ type ExpectedMachineUpdateInput struct {
 	Manufacturer             *string
 	Model                    *string
 	Description              *string
-	FirmwareVersion          *string
 	SlotID                   *int32
 	TrayIdx                  *int32
 	HostID                   *int32
@@ -247,7 +239,6 @@ type ExpectedMachineClearInput struct {
 	Manufacturer             bool
 	Model                    bool
 	Description              bool
-	FirmwareVersion          bool
 	SlotID                   bool
 	TrayIdx                  bool
 	HostID                   bool
@@ -371,7 +362,6 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			Manufacturer:             input.Manufacturer,
 			Model:                    input.Model,
 			Description:              input.Description,
-			FirmwareVersion:          input.FirmwareVersion,
 			SlotID:                   input.SlotID,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
@@ -661,10 +651,6 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			em.Description = input.Description
 			columnsSet["description"] = true
 		}
-		if input.FirmwareVersion != nil {
-			em.FirmwareVersion = input.FirmwareVersion
-			columnsSet["firmware_version"] = true
-		}
 		if input.SlotID != nil {
 			em.SlotID = input.SlotID
 			columnsSet["slot_id"] = true
@@ -780,10 +766,6 @@ func (emsd ExpectedMachineSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Ex
 	if input.Description {
 		em.Description = nil
 		updatedFields = append(updatedFields, "description")
-	}
-	if input.FirmwareVersion {
-		em.FirmwareVersion = nil
-		updatedFields = append(updatedFields, "firmware_version")
 	}
 	if input.SlotID {
 		em.SlotID = nil

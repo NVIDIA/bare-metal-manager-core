@@ -40,8 +40,6 @@ type APIExpectedPowerShelfCreateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected power shelf
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected power shelf
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -83,8 +81,6 @@ func (epcr *APIExpectedPowerShelfCreateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&epcr.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&epcr.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -122,8 +118,6 @@ type APIExpectedPowerShelfUpdateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected power shelf
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected power shelf
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -179,8 +173,6 @@ func (epur *APIExpectedPowerShelfUpdateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&epur.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&epur.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -218,8 +210,6 @@ type APIExpectedPowerShelf struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected power shelf
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected power shelf
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -247,7 +237,6 @@ func NewAPIExpectedPowerShelf(dbModel *cdbm.ExpectedPowerShelf) *APIExpectedPowe
 		Manufacturer:      dbModel.Manufacturer,
 		Model:             dbModel.Model,
 		Description:       dbModel.Description,
-		FirmwareVersion:   dbModel.FirmwareVersion,
 		SlotID:            dbModel.SlotID,
 		TrayIdx:           dbModel.TrayIdx,
 		HostID:            dbModel.HostID,

@@ -532,11 +532,6 @@ func expectedMachineToFlowComponent(em *cwssaws.ExpectedMachine) *flowv1.Compone
 		component.Info.Description = em.Description
 	}
 
-	// Firmware version
-	if fv := em.GetFirmwareVersion(); fv != "" {
-		component.FirmwareVersion = fv
-	}
-
 	// Rack position
 	if em.SlotId != nil || em.TrayIdx != nil || em.HostId != nil {
 		pos := &flowv1.RackPosition{}

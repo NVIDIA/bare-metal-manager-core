@@ -730,7 +730,6 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 			Manufacturer:        strPtr("NVIDIA"),
 			Model:               strPtr("DGX-H100"),
 			Description:         strPtr("GPU compute node"),
-			FirmwareVersion:     strPtr("v2.1.0"),
 			SlotId:              int32Ptr(1),
 			TrayIdx:             int32Ptr(2),
 			HostId:              int32Ptr(3),
@@ -744,7 +743,6 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 		assert.Equal(t, "DGX-H100", *component.Info.Model)
 		assert.Equal(t, "GPU compute node", *component.Info.Description)
 		assert.Equal(t, "em-001", component.ComponentId)
-		assert.Equal(t, "v2.1.0", component.FirmwareVersion)
 		assert.NotNil(t, component.Position)
 		assert.Equal(t, int32(1), component.Position.SlotId)
 		assert.Equal(t, int32(2), component.Position.TrayIdx)
@@ -768,7 +766,6 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 		assert.Empty(t, component.Info.Manufacturer)
 		assert.Nil(t, component.Info.Model)
 		assert.Nil(t, component.Info.Description)
-		assert.Empty(t, component.FirmwareVersion)
 		assert.Nil(t, component.Position)
 		assert.Nil(t, component.RackId)
 	})
