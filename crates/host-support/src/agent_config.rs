@@ -463,183 +463,274 @@ impl Default for IterationTime {
 mod tests {
     use std::fs;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test");
 
-    #[test]
-    fn machine_identity_config_validate_accepts_defaults() {
-        assert!(MachineIdentityConfig::default().validate().is_ok());
+    /// PEM file that ships in-tree and parses to at least one certificate.
+    const VALID_PEM_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../dev/certs/forge_root.pem"
+    );
+
+    // Convenience: a `MachineIdentityConfig` with all numeric fields at defaults
+    // and the two proxy options threaded through.
+    fn mid(
+        requests_per_second: u8,
+        burst: u8,
+        wait_timeout_secs: u8,
+        sign_timeout_secs: u8,
+        sign_proxy_url: Option<&str>,
+        sign_proxy_tls_root_ca: Option<&str>,
+    ) -> MachineIdentityConfig {
+        MachineIdentityConfig {
+            requests_per_second,
+            burst,
+            wait_timeout_secs,
+            sign_timeout_secs,
+            sign_proxy_url: sign_proxy_url.map(ToString::to_string),
+            sign_proxy_tls_root_ca: sign_proxy_tls_root_ca.map(ToString::to_string),
+        }
     }
 
+    // `MachineIdentityConfig::validate` — one row per branch/boundary. The
+    // operation returns `Result<(), String>`; rows whose exact message is part
+    // of the contract use `FailsWith`, the rest assert only Ok-vs-Err.
     #[test]
-    fn machine_identity_config_validate_rejects_rps_out_of_range() {
-        let c = MachineIdentityConfig {
-            requests_per_second: 0,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-        let c = MachineIdentityConfig {
-            requests_per_second: 21,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_burst_out_of_range() {
-        let c = MachineIdentityConfig {
-            burst: 0,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-        let c = MachineIdentityConfig {
-            burst: 41,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_accepts_boundary_values() {
-        let c = MachineIdentityConfig {
-            requests_per_second: 20,
-            burst: 40,
-            wait_timeout_secs: 10,
-            sign_timeout_secs: 1,
-            ..Default::default()
-        };
-        assert!(c.validate().is_ok());
-        let c = MachineIdentityConfig {
-            sign_timeout_secs: 60,
-            ..c
-        };
-        assert!(c.validate().is_ok());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_sign_timeout_out_of_range() {
-        let c = MachineIdentityConfig {
-            sign_timeout_secs: 0,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-        let c = MachineIdentityConfig {
-            sign_timeout_secs: 61,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_accepts_sign_proxy_url() {
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("https://idp.example.com/prefix".to_string()),
-            ..Default::default()
-        };
-        assert!(c.validate().is_ok());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_sign_proxy_url_whitespace_only() {
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("   ".to_string()),
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_sign_proxy_url_scheme() {
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("ftp://x".to_string()),
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_without_url() {
-        let c = MachineIdentityConfig {
-            sign_proxy_tls_root_ca: Some("/etc/forge/sign_proxy_ca.pem".to_string()),
-            ..Default::default()
-        };
-        let err = c.validate().unwrap_err();
-        assert!(err.contains("sign-proxy-url"));
-    }
-
-    #[test]
-    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_whitespace_only() {
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("https://x.example".to_string()),
-            sign_proxy_tls_root_ca: Some("  \t  ".to_string()),
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-    }
-
-    #[test]
-    fn machine_identity_config_validate_accepts_sign_proxy_tls_root_ca_with_pem_file() {
-        let pem_path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../dev/certs/forge_root.pem"
+    fn machine_identity_config_validate() {
+        let d = MachineIdentityConfig::default();
+        check_cases(
+            [
+                // ----- accepts -----
+                Case {
+                    scenario: "defaults are valid",
+                    input: MachineIdentityConfig::default(),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "all-min boundary",
+                    input: mid(1, 1, 1, 1, None, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "all-max boundary (sign-timeout low end)",
+                    input: mid(20, 40, 10, 1, None, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "sign-timeout at max",
+                    input: mid(20, 40, 10, 60, None, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "https sign-proxy-url accepted",
+                    input: mid(3, 8, 2, 5, Some("https://idp.example.com/prefix"), None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "http sign-proxy-url accepted",
+                    input: mid(3, 8, 2, 5, Some("http://idp.example.com"), None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "tls-root-ca with valid pem and url accepted",
+                    input: mid(
+                        3,
+                        8,
+                        2,
+                        5,
+                        Some("https://sign-proxy.example"),
+                        Some(VALID_PEM_PATH),
+                    ),
+                    expect: Yields(()),
+                },
+                // ----- requests-per-second range -----
+                Case {
+                    scenario: "rps below min (0)",
+                    input: mid(0, 8, 2, 5, None, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "rps above max (21)",
+                    input: mid(21, 8, 2, 5, None, None),
+                    expect: Fails,
+                },
+                // ----- burst range -----
+                Case {
+                    scenario: "burst below min (0)",
+                    input: mid(3, 0, 2, 5, None, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "burst above max (41)",
+                    input: mid(3, 41, 2, 5, None, None),
+                    expect: Fails,
+                },
+                // ----- wait-timeout range -----
+                Case {
+                    scenario: "wait-timeout below min (0)",
+                    input: mid(3, 8, 0, 5, None, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wait-timeout above max (11)",
+                    input: mid(3, 8, 11, 5, None, None),
+                    expect: Fails,
+                },
+                // ----- sign-timeout range -----
+                Case {
+                    scenario: "sign-timeout below min (0)",
+                    input: mid(3, 8, 2, 0, None, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "sign-timeout above max (61)",
+                    input: mid(3, 8, 2, 61, None, None),
+                    expect: Fails,
+                },
+                // ----- sign-proxy-url -----
+                Case {
+                    scenario: "sign-proxy-url whitespace-only rejected",
+                    input: mid(3, 8, 2, 5, Some("   "), None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "sign-proxy-url empty rejected",
+                    input: mid(3, 8, 2, 5, Some(""), None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "sign-proxy-url unsupported scheme rejected",
+                    input: mid(3, 8, 2, 5, Some("ftp://x"), None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "sign-proxy-url unparseable rejected",
+                    input: mid(3, 8, 2, 5, Some("not a url"), None),
+                    expect: Fails,
+                },
+                // ----- sign-proxy-tls-root-ca -----
+                Case {
+                    scenario: "tls-root-ca without url rejected (exact message mentions sign-proxy-url)",
+                    input: mid(3, 8, 2, 5, None, Some("/etc/forge/sign_proxy_ca.pem")),
+                    expect: FailsWith(
+                        "machine-identity.sign-proxy-tls-root-ca: requires machine-identity.sign-proxy-url"
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "tls-root-ca whitespace-only rejected",
+                    input: mid(3, 8, 2, 5, Some("https://x.example"), Some("  \t  ")),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tls-root-ca empty rejected",
+                    input: mid(3, 8, 2, 5, Some("https://x.example"), Some("")),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tls-root-ca path that does not exist rejected",
+                    input: mid(
+                        3,
+                        8,
+                        2,
+                        5,
+                        Some("https://x.example"),
+                        Some("/nonexistent/path/to/ca.pem"),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |c| c.validate(),
         );
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("https://sign-proxy.example".to_string()),
-            sign_proxy_tls_root_ca: Some(pem_path.to_string()),
-            ..Default::default()
-        };
-        assert!(c.validate().is_ok());
+        // `d` proves the default is reusable / unmodified by the table above.
+        assert!(d.validate().is_ok());
     }
 
+    // `validate` rejects a tls-root-ca file whose contents are not a certificate.
+    // Kept out of the table because it needs a runtime-created temp file.
     #[test]
-    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_invalid_pem() {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
+    fn machine_identity_config_validate_rejects_invalid_pem_contents() {
         use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
         f.write_all(b"not a certificate").unwrap();
-        let c = MachineIdentityConfig {
-            sign_proxy_url: Some("https://x".to_string()),
-            sign_proxy_tls_root_ca: Some(f.path().to_string_lossy().into_owned()),
-            ..Default::default()
-        };
+        let c = mid(
+            3,
+            8,
+            2,
+            5,
+            Some("https://x"),
+            Some(&f.path().to_string_lossy()),
+        );
         assert!(c.validate().is_err());
     }
 
+    // `validate` rejects a tls-root-ca file that exists but is empty.
     #[test]
-    fn machine_identity_config_validate_rejects_wait_timeout_out_of_range() {
-        let c = MachineIdentityConfig {
-            wait_timeout_secs: 0,
-            ..Default::default()
-        };
-        assert!(c.validate().is_err());
-        let c = MachineIdentityConfig {
-            wait_timeout_secs: 11,
-            ..Default::default()
-        };
+    fn machine_identity_config_validate_rejects_empty_pem_file() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        let c = mid(
+            3,
+            8,
+            2,
+            5,
+            Some("https://x"),
+            Some(&f.path().to_string_lossy()),
+        );
         assert!(c.validate().is_err());
     }
 
+    // `is_default` predicates (total ops).
     #[test]
-    // Load up the input, which is a minimum barebones
-    // config, and then dump it back out to a string,
-    // which should then have defaults set (and match
-    // the expected output config).
-    fn test_load_forge_agent_config_defaults() {
-        let input_config: AgentConfig = toml::from_str(
-            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/input.toml"))
-                .unwrap()
-                .as_str(),
-        )
-        .unwrap();
-        let observed_output = toml::to_string(&input_config).unwrap();
-        let expected_output =
-            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/output.toml")).unwrap();
-        assert_eq!(observed_output, expected_output);
+    fn config_is_default_predicates() {
+        check_values(
+            [
+                Check {
+                    scenario: "machine-identity default is default",
+                    input: MachineIdentityConfig::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "machine-identity with changed rps is not default",
+                    input: mid(7, 8, 2, 5, None, None),
+                    expect: false,
+                },
+                Check {
+                    scenario: "machine-identity with proxy url is not default",
+                    input: mid(3, 8, 2, 5, Some("https://x"), None),
+                    expect: false,
+                },
+            ],
+            |c| c.is_default(),
+        );
+
+        check_values(
+            [
+                Check {
+                    scenario: "update default is default",
+                    input: UpdateConfig::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "update with override cmd is not default",
+                    input: UpdateConfig {
+                        override_upgrade_cmd: Some("update".to_string()),
+                    },
+                    expect: false,
+                },
+            ],
+            |c| c.is_default(),
+        );
     }
 
+    // TOML deserialization of `AgentConfig`: well-formed inputs parse, malformed
+    // ones fail. The operation is `toml::from_str::<AgentConfig>` (fallible).
     #[test]
-    fn test_load_forge_agent_config_full() {
-        let config = r#"[forge-system]
+    fn agent_config_from_toml() {
+        const FULL: &str = r#"[forge-system]
 api-server = "https://127.0.0.1:1234"
 root-ca = "/opt/forge/forge_root.pem"
 
@@ -673,30 +764,15 @@ override-upgrade-cmd = "update"
 addresses = ["168.254.169.254/30"]
 "#;
 
-        let config: AgentConfig = toml::from_str(config).unwrap();
+        const MIN_NO_SERVICES: &str = "[forge-system]
+api-server = \"https://127.0.0.1:1234\"
+root-ca = \"/opt/forge/forge_root.pem\"
 
-        assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
-        assert_eq!(
-            config.machine.interface_id,
-            Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))
-        );
-        assert!(config.machine.is_fake_dpu);
+[machine]
+interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
+";
 
-        assert_eq!(config.metadata_service.address, "0.0.0.0:7777");
-        assert_eq!(config.telemetry.metrics_address, "0.0.0.0:8888");
-
-        assert_eq!(config.hbn.root_dir, PathBuf::from("/tmp/hbn-root"));
-        assert!(config.hbn.skip_reload);
-
-        assert_eq!(
-            config.updates.override_upgrade_cmd,
-            Some("update".to_string())
-        );
-    }
-
-    #[test]
-    fn test_load_forge_agent_config_machine_identity_section() {
-        let raw = r#"[forge-system]
+        const MID_SECTION: &str = r#"[forge-system]
 api-server = "https://127.0.0.1:1234"
 root-ca = "/opt/forge/forge_root.pem"
 
@@ -710,44 +786,362 @@ wait-timeout-secs = 4
 sign-timeout-secs = 9
 "#;
 
-        let config: AgentConfig = toml::from_str(raw).unwrap();
-
-        assert_eq!(config.machine_identity.requests_per_second, 7);
-        assert_eq!(config.machine_identity.burst, 12);
-        assert_eq!(config.machine_identity.wait_timeout_secs, 4);
-        assert_eq!(config.machine_identity.sign_timeout_secs, 9);
-        assert!(config.machine_identity.sign_proxy_url.is_none());
-        assert!(config.machine_identity.sign_proxy_tls_root_ca.is_none());
-
-        config.machine_identity.validate().unwrap();
+        check_cases(
+            [
+                Case {
+                    scenario: "full config parses",
+                    input: FULL,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "minimal config without optional service sections parses",
+                    input: MIN_NO_SERVICES,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "machine-identity section parses",
+                    input: MID_SECTION,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "completely empty config is rejected (a required field is missing)",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unknown top-level key is rejected (deny_unknown_fields)",
+                    input: "totally-unknown-key = 5\n",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "interface-id not a uuid fails",
+                    input: "[machine]\ninterface-id = \"not-a-uuid\"\n",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "machine-identity rps wrong type fails",
+                    input: "[machine-identity]\nrequests-per-second = \"seven\"\n",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "rps that overflows u8 fails",
+                    input: "[machine-identity]\nrequests-per-second = 999\n",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "syntactically invalid toml fails",
+                    input: "this is not = = toml",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "fmds addresses with bad cidr fails",
+                    input: "[fmds-armos-networking.config]\naddresses = [\"not-a-cidr\"]\n",
+                    expect: Fails,
+                },
+            ],
+            |raw| toml::from_str::<AgentConfig>(raw).map(drop).map_err(drop),
+        );
     }
 
+    // Field-level assertions on the FULL parse: each original `assert_eq!` becomes
+    // a `Yields(true)` row over a derived boolean, so one parse covers them all.
     #[test]
-    fn test_load_forge_agent_config_without_services() {
-        let config = "[forge-system]
+    fn agent_config_full_fields() {
+        const FULL: &str = r#"[forge-system]
+api-server = "https://127.0.0.1:1234"
+root-ca = "/opt/forge/forge_root.pem"
+
+[machine]
+is-fake-dpu = true
+interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
+
+[metadata-service]
+address = "0.0.0.0:7777"
+
+[telemetry]
+metrics-address = "0.0.0.0:8888"
+
+[hbn]
+root-dir = "/tmp/hbn-root"
+skip-reload = true
+
+[period]
+main-loop-active-secs = 10
+main-loop-idle-secs = 30
+network-config-fetch-secs = 20
+version-check-secs = 600
+inventory-update-secs = 3600
+discovery-retry-secs = 1
+discovery-retries-max = 1000
+
+[updates]
+override-upgrade-cmd = "update"
+
+[fmds-armos-networking.config]
+addresses = ["168.254.169.254/30"]
+"#;
+        let c: AgentConfig = toml::from_str(FULL).unwrap();
+        let expected_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+
+        check_values(
+            [
+                Check {
+                    scenario: "api-server",
+                    input: c.forge_system.api_server == "https://127.0.0.1:1234",
+                    expect: true,
+                },
+                Check {
+                    scenario: "interface-id",
+                    input: c.machine.interface_id == Some(expected_id),
+                    expect: true,
+                },
+                Check {
+                    scenario: "is-fake-dpu",
+                    input: c.machine.is_fake_dpu,
+                    expect: true,
+                },
+                Check {
+                    scenario: "metadata-service address",
+                    input: c.metadata_service.address == "0.0.0.0:7777",
+                    expect: true,
+                },
+                Check {
+                    scenario: "telemetry metrics-address",
+                    input: c.telemetry.metrics_address == "0.0.0.0:8888",
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn root-dir",
+                    input: c.hbn.root_dir == Path::new("/tmp/hbn-root"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn skip-reload",
+                    input: c.hbn.skip_reload,
+                    expect: true,
+                },
+                Check {
+                    scenario: "updates override-upgrade-cmd",
+                    input: c.updates.override_upgrade_cmd == Some("update".to_string()),
+                    expect: true,
+                },
+            ],
+            |b| b,
+        );
+    }
+
+    // The machine-identity section parse yields exactly the supplied values, and
+    // the proxy options remain unset.
+    #[test]
+    fn agent_config_machine_identity_fields() {
+        const MID_SECTION: &str = r#"[forge-system]
+api-server = "https://127.0.0.1:1234"
+root-ca = "/opt/forge/forge_root.pem"
+
+[machine]
+interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
+
+[machine-identity]
+requests-per-second = 7
+burst = 12
+wait-timeout-secs = 4
+sign-timeout-secs = 9
+"#;
+        let c: AgentConfig = toml::from_str(MID_SECTION).unwrap();
+        let m = &c.machine_identity;
+
+        check_values(
+            [
+                Check {
+                    scenario: "requests-per-second",
+                    input: m.requests_per_second == 7,
+                    expect: true,
+                },
+                Check {
+                    scenario: "burst",
+                    input: m.burst == 12,
+                    expect: true,
+                },
+                Check {
+                    scenario: "wait-timeout-secs",
+                    input: m.wait_timeout_secs == 4,
+                    expect: true,
+                },
+                Check {
+                    scenario: "sign-timeout-secs",
+                    input: m.sign_timeout_secs == 9,
+                    expect: true,
+                },
+                Check {
+                    scenario: "sign-proxy-url unset",
+                    input: m.sign_proxy_url.is_none(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "sign-proxy-tls-root-ca unset",
+                    input: m.sign_proxy_tls_root_ca.is_none(),
+                    expect: true,
+                },
+            ],
+            |b| b,
+        );
+
+        // The parsed section validates.
+        c.machine_identity.validate().unwrap();
+    }
+
+    // The minimal (no optional service sections) parse defaults every omitted
+    // section, and validates.
+    #[test]
+    fn agent_config_minimal_defaults() {
+        const MIN_NO_SERVICES: &str = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
 root-ca = \"/opt/forge/forge_root.pem\"
 
 [machine]
 interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
 ";
+        let c: AgentConfig = toml::from_str(MIN_NO_SERVICES).unwrap();
+        let expected_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 
-        let config: AgentConfig = toml::from_str(config).unwrap();
-
-        assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
-        assert_eq!(
-            config.machine.interface_id,
-            Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))
+        check_values(
+            [
+                Check {
+                    scenario: "api-server preserved",
+                    input: c.forge_system.api_server == "https://127.0.0.1:1234",
+                    expect: true,
+                },
+                Check {
+                    scenario: "interface-id preserved",
+                    input: c.machine.interface_id == Some(expected_id),
+                    expect: true,
+                },
+                Check {
+                    scenario: "is-fake-dpu defaults false",
+                    input: c.machine.is_fake_dpu,
+                    expect: false,
+                },
+                Check {
+                    scenario: "metadata-service defaults",
+                    input: c.metadata_service == MetadataServiceConfig::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "telemetry defaults",
+                    input: c.telemetry == TelemetryConfig::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "machine-identity defaults",
+                    input: c.machine_identity == MachineIdentityConfig::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn root-dir defaults",
+                    input: c.hbn.root_dir == Path::new(HBN_DEFAULT_ROOT),
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn skip-reload defaults false",
+                    input: c.hbn.skip_reload,
+                    expect: false,
+                },
+                Check {
+                    scenario: "updates override-upgrade-cmd defaults unset",
+                    input: c.updates.override_upgrade_cmd.is_none(),
+                    expect: true,
+                },
+            ],
+            |b| b,
         );
-        assert!(!config.machine.is_fake_dpu);
+    }
 
-        assert_eq!(config.metadata_service, MetadataServiceConfig::default());
-        assert_eq!(config.telemetry, TelemetryConfig::default());
-        assert_eq!(config.machine_identity, MachineIdentityConfig::default());
+    // Default constructors expose the documented default values.
+    #[test]
+    fn config_defaults() {
+        check_values(
+            [
+                Check {
+                    scenario: "forge-system api-server",
+                    input: ForgeSystemConfig::default().api_server == DEFAULT_API_SERVER,
+                    expect: true,
+                },
+                Check {
+                    scenario: "metadata-service address",
+                    input: MetadataServiceConfig::default().address
+                        == INSTANCE_METADATA_SERVICE_ADDRESS,
+                    expect: true,
+                },
+                Check {
+                    scenario: "telemetry metrics-address",
+                    input: TelemetryConfig::default().metrics_address
+                        == TELEMETRY_METRICS_SERVICE_ADDRESS,
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn root-dir",
+                    input: HBNConfig::default().root_dir == Path::new(HBN_DEFAULT_ROOT),
+                    expect: true,
+                },
+                Check {
+                    scenario: "hbn skip-reload",
+                    input: HBNConfig::default().skip_reload,
+                    expect: false,
+                },
+                Check {
+                    scenario: "machine-identity requests-per-second",
+                    input: MachineIdentityConfig::default().requests_per_second
+                        == REQUESTS_PER_SECOND,
+                    expect: true,
+                },
+                Check {
+                    scenario: "machine-identity burst",
+                    input: MachineIdentityConfig::default().burst == BURST,
+                    expect: true,
+                },
+                Check {
+                    scenario: "machine-identity wait-timeout-secs",
+                    input: MachineIdentityConfig::default().wait_timeout_secs == WAIT_TIMEOUT_SECS,
+                    expect: true,
+                },
+                Check {
+                    scenario: "machine-identity sign-timeout-secs",
+                    input: MachineIdentityConfig::default().sign_timeout_secs == SIGN_TIMEOUT_SECS,
+                    expect: true,
+                },
+                Check {
+                    scenario: "iteration-time inventory-update-secs",
+                    input: IterationTime::default().inventory_update_secs == 3600,
+                    expect: true,
+                },
+                Check {
+                    scenario: "iteration-time discovery-retry-secs",
+                    input: IterationTime::default().discovery_retry_secs == 60,
+                    expect: true,
+                },
+                Check {
+                    scenario: "iteration-time discovery-retries-max",
+                    input: IterationTime::default().discovery_retries_max == 10080,
+                    expect: true,
+                },
+            ],
+            |b| b,
+        );
+    }
 
-        assert_eq!(config.hbn.root_dir, PathBuf::from(HBN_DEFAULT_ROOT));
-        assert!(!config.hbn.skip_reload);
-
-        assert!(config.updates.override_upgrade_cmd.is_none());
+    // Load the barebones config and round-trip it back out; the dumped string
+    // (with defaults filled in) must match the recorded expected output.
+    #[test]
+    fn test_load_forge_agent_config_defaults() {
+        let input_config: AgentConfig = toml::from_str(
+            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/input.toml"))
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let observed_output = toml::to_string(&input_config).unwrap();
+        let expected_output =
+            fs::read_to_string(format!("{TEST_DATA_DIR}/min_agent_config/output.toml")).unwrap();
+        assert_eq!(observed_output, expected_output);
     }
 }

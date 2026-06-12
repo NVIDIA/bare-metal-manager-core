@@ -334,28 +334,155 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use crate::hardware_enumeration::dpu;
 
+    // `is_lldp_working` is currently stubbed to always return `false` (the
+    // firmware-version parse is commented out pending a real LLDP fix). Every
+    // input -- valid versions, boundary `40`, and garbage -- must yield `false`.
     #[test]
-    fn check_fw_versions_for_lldp() {
-        assert!(!dpu::is_lldp_working("xx.39.yyyy"));
-        assert!(!dpu::is_lldp_working("xx.40.yyyy"));
-        assert!(!dpu::is_lldp_working("xx.41.yyyy"));
-
-        //broken data should return false
-        assert!(!dpu::is_lldp_working("xx.zz.yyyy"));
-        assert!(!dpu::is_lldp_working("junk"));
+    fn is_lldp_working_always_false() {
+        check_values(
+            [
+                Check {
+                    scenario: "below the 40 boundary",
+                    input: "xx.39.yyyy",
+                    expect: false,
+                },
+                Check {
+                    scenario: "at the 40 boundary",
+                    input: "xx.40.yyyy",
+                    expect: false,
+                },
+                Check {
+                    scenario: "above the 40 boundary",
+                    input: "xx.41.yyyy",
+                    expect: false,
+                },
+                Check {
+                    scenario: "non-numeric middle chunk",
+                    input: "xx.zz.yyyy",
+                    expect: false,
+                },
+                Check {
+                    scenario: "no dots at all",
+                    input: "junk",
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty string",
+                    input: "",
+                    expect: false,
+                },
+                Check {
+                    scenario: "well-formed high version",
+                    input: "22.99.1000",
+                    expect: false,
+                },
+                Check {
+                    scenario: "single leading dot",
+                    input: ".40.",
+                    expect: false,
+                },
+            ],
+            dpu::is_lldp_working,
+        );
     }
 
+    // `get_port_lldp_info` reads the `test/lldp_query.json` fixture (in `cfg(test)`
+    // it ignores the live `lldpcli` command) and then looks the requested port up
+    // in `lldp.interface`. The lookup, the `OneOrMany` mgmt-ip flattening, and the
+    // tor/port field formatting are all pure given that fixture, so we pin the
+    // facts each known port produces and the not-found rejection path.
+    //
+    // The yielded value for each row is `(first_ip, ip_count, name, remote_port)`.
     #[test]
-    fn validate_mgmt_ip_lldp_with_mixed_mgmt_ip_results() {
-        let oob_lldp = dpu::get_port_lldp_info("oob_net0").unwrap();
-        let p0_lldp = dpu::get_port_lldp_info("p0").unwrap();
+    fn get_port_lldp_info_translates_fixture() {
+        check_cases(
+            [
+                Case {
+                    scenario: "oob_net0: single (scalar) mgmt-ip",
+                    input: "oob_net0",
+                    expect: Yields((
+                        "10.180.253.66".to_string(),
+                        1,
+                        "RNO1-M03-B17-IPMI-01".to_string(),
+                        "ifname=swp7".to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "p0: array mgmt-ip keeps first (v4) and counts both",
+                    input: "p0",
+                    expect: Yields((
+                        "10.180.253.67".to_string(),
+                        2,
+                        "RNO1-M03-B17-IPMI-01".to_string(),
+                        "ifname=swp7".to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "p1: distinct array mgmt-ip, first is v4",
+                    input: "p1",
+                    expect: Yields((
+                        "10.180.253.66".to_string(),
+                        2,
+                        "RNO1-M03-B17-IPMI-01".to_string(),
+                        "ifname=swp7".to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "unknown port: not present in the fixture interface map",
+                    input: "p99",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty port name: also absent",
+                    input: "",
+                    expect: Fails,
+                },
+            ],
+            |port| {
+                let info = dpu::get_port_lldp_info(port).map_err(drop)?;
+                let first_ip = info.ip_address.first().cloned().unwrap_or_default();
+                Ok::<_, ()>((first_ip, info.ip_address.len(), info.name, info.remote_port))
+            },
+        );
+    }
 
-        assert_eq!(oob_lldp.ip_address[0], "10.180.253.66");
-        assert_eq!(oob_lldp.ip_address.len(), 1);
-
-        assert_eq!(p0_lldp.ip_address[0], "10.180.253.67");
-        assert_eq!(p0_lldp.ip_address.len(), 2);
+    // The tor-id and description formatting on the resolved switch is its own
+    // contract: `id` is rendered `"{id_type}={value}"` and `description`/`local_port`
+    // are copied verbatim. Token-contains keeps this robust to fixture churn.
+    //
+    // The yielded value is whether every expected token appears in the rendered field.
+    #[test]
+    fn get_port_lldp_info_formats_fields() {
+        check_cases(
+            [
+                Case {
+                    scenario: "id renders mac type=value for oob_net0",
+                    input: ("oob_net0", &["mac=", "0c:29:ef:d9:1c:20"][..]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "description carried verbatim for p0",
+                    input: ("p0", &["Cumulus Linux", "DELL S3048ON"][..]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "local_port echoes the requested port",
+                    input: ("p1", &["p1"][..]),
+                    expect: Yields(true),
+                },
+            ],
+            |(port, tokens): (&str, &[&str])| {
+                let info = dpu::get_port_lldp_info(port).map_err(drop)?;
+                // Concatenate the formatted fields this row may inspect; every token
+                // must appear somewhere across id / description / local_port.
+                let haystack = format!("{} {} {}", info.id, info.description, info.local_port);
+                Ok::<_, ()>(tokens.iter().all(|t| haystack.contains(t)))
+            },
+        );
     }
 }
