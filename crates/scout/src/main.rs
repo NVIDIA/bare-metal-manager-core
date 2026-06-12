@@ -95,7 +95,7 @@ async fn main() -> Result<(), eyre::Report> {
 
     check_if_running_in_qemu().await;
 
-    carbide_host_support::init_logging()?;
+    carbide_host_support::init_logging("nico-scout")?;
 
     tracing::info!("Running as {}...{}", config.mode, config.version);
 

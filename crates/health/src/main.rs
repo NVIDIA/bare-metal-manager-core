@@ -31,7 +31,12 @@ async fn main() -> Result<(), HealthError> {
         .from_env_lossy();
 
     tracing_subscriber::registry()
-        .with(logfmt::layer())
+        .with(
+            logfmt::layer().with_event_fields([logfmt::EventField::with_default(
+                "component",
+                "nico-hardware-health",
+            )]),
+        )
         .with(env_filter)
         .init();
 

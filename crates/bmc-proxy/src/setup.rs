@@ -49,7 +49,14 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
     );
 
     tracing_subscriber::registry()
-        .with(logfmt::layer().with_filter(log_filter))
+        .with(
+            logfmt::layer()
+                .with_event_fields([logfmt::EventField::with_default(
+                    "component",
+                    "nico-bmc-proxy",
+                )])
+                .with_filter(log_filter),
+        )
         .try_init()?;
 
     tracing::info!("current log level: {}", LevelFilter::current());

@@ -213,6 +213,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             span_id,
             carbide.trace_root = true,
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            component = IO::LOG_SPAN_CONTROLLER_NAME,
         );
 
         async {
