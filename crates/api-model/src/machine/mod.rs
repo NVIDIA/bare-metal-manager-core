@@ -1482,12 +1482,16 @@ pub enum HostReprovisionState {
         power_drains_needed: Option<u32>,
         delay_until: Option<i64>,
         last_power_drain_operation: Option<PowerDrainState>,
+        #[serde(default)]
+        reset_retry_count: u32,
     },
     NewFirmwareReportedWait {
         final_version: String,
         firmware_type: FirmwareComponentType,
         firmware_number: Option<u32>,
         previous_reset_time: Option<i64>,
+        #[serde(default)]
+        reset_retry_count: u32,
     },
     FailedFirmwareUpgrade {
         firmware_type: FirmwareComponentType,

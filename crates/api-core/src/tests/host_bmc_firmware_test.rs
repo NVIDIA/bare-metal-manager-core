@@ -23,7 +23,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use carbide_machine_controller::config::{FirmwareGlobal, TimePeriod};
-use carbide_machine_controller::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
+use carbide_machine_controller::handler::{
+    MAX_FIRMWARE_UPGRADE_RETRIES, MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES,
+};
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
@@ -3373,6 +3375,100 @@ async fn put_in_waiting_for_scout_upgrade(
         .await
         .unwrap();
     txn.commit().await.unwrap();
+}
+
+async fn put_in_new_firmware_reported_wait(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    previous_reset_time: i64,
+    reset_retry_count: u32,
+) {
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = mh.host().db_machine(&mut txn).await;
+    let state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::NewFirmwareReportedWait {
+            firmware_type: FirmwareComponentType::Uefi,
+            firmware_number: Some(0),
+            final_version: "1.13.2".to_string(),
+            previous_reset_time: Some(previous_reset_time),
+            reset_retry_count,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&machine, &mut txn, &state, None)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_new_firmware_reported_wait_retries_reset_after_timeout(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    put_in_new_firmware_reported_wait(&env, &mh, chrono::Utc::now().timestamp() - 31 * 60, 0).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::NewFirmwareReportedWait {
+        reset_retry_count, ..
+    } = reprovision_state
+    else {
+        panic!("expected NewFirmwareReportedWait, got {reprovision_state:?}");
+    };
+    assert_eq!(*reset_retry_count, 1);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_new_firmware_reported_wait_fails_after_reset_retry_limit(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    put_in_new_firmware_reported_wait(
+        &env,
+        &mh,
+        chrono::Utc::now().timestamp() - 31 * 60,
+        MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::FailedFirmwareUpgrade { reason, .. } = reprovision_state else {
+        panic!("expected FailedFirmwareUpgrade, got {reprovision_state:?}");
+    };
+    let reason = reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("Firmware version did not converge after completed update"),
+        "unexpected reason: {reason}",
+    );
+    assert!(
+        reason.contains("expected 1.13.2"),
+        "unexpected reason: {reason}",
+    );
+    assert!(reason.contains("1.12.0"), "unexpected reason: {reason}",);
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
