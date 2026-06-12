@@ -30,6 +30,8 @@ type UpdatePowerStateRequest struct {
 	State string `json:"state"`
 	// Optional Operation Rule UUID. When set, pins this operation to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
+	// When true, proceed even if one or more target components (or hosts on the owning rack for rack-scoped components) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
+	OverrideReadinessCheck *bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 type _UpdatePowerStateRequest UpdatePowerStateRequest
@@ -42,6 +44,8 @@ func NewUpdatePowerStateRequest(siteId string, state string) *UpdatePowerStateRe
 	this := UpdatePowerStateRequest{}
 	this.SiteId = siteId
 	this.State = state
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -50,6 +54,8 @@ func NewUpdatePowerStateRequest(siteId string, state string) *UpdatePowerStateRe
 // but it doesn't guarantee that properties required by API are set
 func NewUpdatePowerStateRequestWithDefaults() *UpdatePowerStateRequest {
 	this := UpdatePowerStateRequest{}
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -133,6 +139,38 @@ func (o *UpdatePowerStateRequest) SetRuleId(v string) {
 	o.RuleId = &v
 }
 
+// GetOverrideReadinessCheck returns the OverrideReadinessCheck field value if set, zero value otherwise.
+func (o *UpdatePowerStateRequest) GetOverrideReadinessCheck() bool {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		var ret bool
+		return ret
+	}
+	return *o.OverrideReadinessCheck
+}
+
+// GetOverrideReadinessCheckOk returns a tuple with the OverrideReadinessCheck field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *UpdatePowerStateRequest) GetOverrideReadinessCheckOk() (*bool, bool) {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		return nil, false
+	}
+	return o.OverrideReadinessCheck, true
+}
+
+// HasOverrideReadinessCheck returns a boolean if a field has been set.
+func (o *UpdatePowerStateRequest) HasOverrideReadinessCheck() bool {
+	if o != nil && !IsNil(o.OverrideReadinessCheck) {
+		return true
+	}
+
+	return false
+}
+
+// SetOverrideReadinessCheck gets a reference to the given bool and assigns it to the OverrideReadinessCheck field.
+func (o *UpdatePowerStateRequest) SetOverrideReadinessCheck(v bool) {
+	o.OverrideReadinessCheck = &v
+}
+
 func (o UpdatePowerStateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -147,6 +185,9 @@ func (o UpdatePowerStateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["state"] = o.State
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId
+	}
+	if !IsNil(o.OverrideReadinessCheck) {
+		toSerialize["overrideReadinessCheck"] = o.OverrideReadinessCheck
 	}
 	return toSerialize, nil
 }
