@@ -22,8 +22,8 @@ How NICo components emit logs, where they go, what format they use and how to tu
 
 ## 1. Where logs go
 
-Every NICo binary writes logs to **stdout**. There is no file-based logging option - the
-expectation is Kubernetes-native log collection.
+Every NICo binary writes its own service logs to **stdout**. There is no file-based logging
+for service logs - the expectation is Kubernetes-native log collection.
 
 In a Kubernetes cluster:
 
@@ -33,6 +33,10 @@ In a Kubernetes cluster:
 
 This is the standard Kubernetes pattern. NICo does not require any special log driver or
 sidecar - just configure your collector to read pod logs.
+
+> **Note**: nico-ssh-console is an exception - in addition to stdout, it writes **machine
+> console output** (BMC serial console streams) to local files. These are not service logs
+> but captured output from managed machines. See section 2.5 for details.
 
 ---
 
