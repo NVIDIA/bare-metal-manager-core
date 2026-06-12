@@ -1349,3 +1349,1012 @@ impl TryFrom<MlxValueTypePb> for MlxValueType {
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use serde_yaml::Value as Yaml;
+
+    use super::*;
+
+    // Small helper to build a variable around a spec for `with`/validate tests.
+    fn var(name: &str, spec: MlxVariableSpec) -> MlxConfigVariable {
+        MlxConfigVariable {
+            name: name.to_string(),
+            description: format!("desc: {name}"),
+            read_only: false,
+            spec,
+        }
+    }
+
+    // ----- MlxValueType::to_display_string for scalar (non-array) variants -----
+    // The array variants are already covered by the sibling tests/ file; here we
+    // pin every scalar arm of `to_display_string`.
+    #[test]
+    fn display_string_for_scalar_value_types() {
+        // We build the value directly, wrapping in an MlxConfigValue via a matching
+        // spec, then read back to_display_string.
+        check_values(
+            [
+                Check {
+                    scenario: "boolean true",
+                    input: MlxValueType::Boolean(true),
+                    expect: "true".to_string(),
+                },
+                Check {
+                    scenario: "boolean false",
+                    input: MlxValueType::Boolean(false),
+                    expect: "false".to_string(),
+                },
+                Check {
+                    scenario: "integer negative",
+                    input: MlxValueType::Integer(-5),
+                    expect: "-5".to_string(),
+                },
+                Check {
+                    scenario: "string verbatim",
+                    input: MlxValueType::String("hi there".to_string()),
+                    expect: "hi there".to_string(),
+                },
+                Check {
+                    scenario: "binary hex-encoded",
+                    input: MlxValueType::Binary(vec![0x1a, 0x2b]),
+                    expect: "0x1a2b".to_string(),
+                },
+                Check {
+                    scenario: "bytes reports length",
+                    input: MlxValueType::Bytes(vec![0x00, 0x01, 0x02]),
+                    expect: "3 bytes".to_string(),
+                },
+                Check {
+                    scenario: "untyped array joins elements",
+                    input: MlxValueType::Array(vec!["a".to_string(), "b".to_string()]),
+                    expect: "[a, b]".to_string(),
+                },
+                Check {
+                    scenario: "enum verbatim",
+                    input: MlxValueType::Enum("selected".to_string()),
+                    expect: "selected".to_string(),
+                },
+                Check {
+                    scenario: "preset prefixed",
+                    input: MlxValueType::Preset(4),
+                    expect: "preset_4".to_string(),
+                },
+                Check {
+                    scenario: "opaque reports byte count",
+                    input: MlxValueType::Opaque(vec![0x01, 0x02, 0x03]),
+                    expect: "opaque(3 bytes)".to_string(),
+                },
+                // Binary array with all-None still reports total/set counts.
+                Check {
+                    scenario: "binary array all unset",
+                    input: MlxValueType::BinaryArray(vec![None, None]),
+                    expect: "[2 binary values, 0 set]".to_string(),
+                },
+            ],
+            |value| {
+                MlxConfigValue {
+                    variable: var("v", MlxVariableSpec::Boolean),
+                    value,
+                }
+                .to_display_string()
+            },
+        );
+    }
+
+    // The Display impl just forwards to to_display_string; confirm parity once.
+    #[test]
+    fn display_impl_matches_to_display_string() {
+        let value = MlxConfigValue {
+            variable: var("v", MlxVariableSpec::Integer),
+            value: MlxValueType::Integer(99),
+        };
+        assert_eq!(format!("{value}"), value.to_display_string());
+        assert_eq!(format!("{value}"), "99");
+    }
+
+    // ----- MlxConfigValue accessors -----
+    #[test]
+    fn accessors_project_the_backing_variable() {
+        let variable = MlxConfigVariable {
+            name: "the_name".to_string(),
+            description: "the_desc".to_string(),
+            read_only: true,
+            spec: MlxVariableSpec::Boolean,
+        };
+        let value = MlxConfigValue {
+            variable,
+            value: MlxValueType::Boolean(true),
+        };
+        assert_eq!(value.name(), "the_name");
+        assert_eq!(value.description(), "the_desc");
+        assert!(value.is_read_only());
+        assert_eq!(value.spec(), &MlxVariableSpec::Boolean);
+    }
+
+    // ----- MlxValueError Display strings (the contract for each variant) -----
+    #[test]
+    fn error_display_strings() {
+        check_values(
+            [
+                Check {
+                    scenario: "type mismatch",
+                    input: MlxValueError::TypeMismatch {
+                        expected: "A".to_string(),
+                        got: "B".to_string(),
+                    },
+                    expect: "Type mismatch: expected A, got B".to_string(),
+                },
+                Check {
+                    scenario: "invalid enum option",
+                    input: MlxValueError::InvalidEnumOption {
+                        value: "x".to_string(),
+                        allowed: vec!["a".to_string(), "b".to_string()],
+                    },
+                    expect: "Invalid enum option 'x', allowed: [a, b]".to_string(),
+                },
+                Check {
+                    scenario: "preset out of range",
+                    input: MlxValueError::PresetOutOfRange {
+                        value: 9,
+                        max_allowed: 5,
+                    },
+                    expect: "Preset value 9 exceeds maximum 5".to_string(),
+                },
+                Check {
+                    scenario: "array size mismatch",
+                    input: MlxValueError::ArraySizeMismatch {
+                        expected: 4,
+                        got: 2,
+                    },
+                    expect: "Array size mismatch: expected 4, got 2".to_string(),
+                },
+                Check {
+                    scenario: "invalid enum array option",
+                    input: MlxValueError::InvalidEnumArrayOption {
+                        position: 1,
+                        value: "z".to_string(),
+                        allowed: vec!["a".to_string()],
+                    },
+                    expect: "Invalid enum option 'z' at position 1, allowed: [a]".to_string(),
+                },
+                Check {
+                    scenario: "read only variable",
+                    input: MlxValueError::ReadOnlyVariable {
+                        variable_name: "RO".to_string(),
+                    },
+                    expect: "Variable 'RO' is read-only".to_string(),
+                },
+            ],
+            |err| err.to_string(),
+        );
+    }
+
+    // ----- MlxConfigValue::new / validate -----
+    // new() runs validate_internal; cover both the happy path and the validation
+    // failures that map spec<->value. The exact errors are pinned where derivable.
+    #[test]
+    fn new_validates_spec_against_value() {
+        check_cases(
+            [
+                Case {
+                    scenario: "matching boolean",
+                    input: (MlxVariableSpec::Boolean, MlxValueType::Boolean(true)),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "matching opaque",
+                    input: (MlxVariableSpec::Opaque, MlxValueType::Opaque(vec![1, 2])),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "matching untyped array",
+                    input: (
+                        MlxVariableSpec::Array,
+                        MlxValueType::Array(vec!["a".to_string()]),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "spec/value type mismatch",
+                    input: (MlxVariableSpec::Boolean, MlxValueType::Integer(1)),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "enum value not in options",
+                    input: (
+                        MlxVariableSpec::Enum {
+                            options: vec!["a".to_string()],
+                        },
+                        MlxValueType::Enum("nope".to_string()),
+                    ),
+                    expect: FailsWith(MlxValueError::InvalidEnumOption {
+                        value: "nope".to_string(),
+                        allowed: vec!["a".to_string()],
+                    }),
+                },
+                Case {
+                    scenario: "enum value in options",
+                    input: (
+                        MlxVariableSpec::Enum {
+                            options: vec!["a".to_string()],
+                        },
+                        MlxValueType::Enum("a".to_string()),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "preset over max",
+                    input: (
+                        MlxVariableSpec::Preset { max_preset: 3 },
+                        MlxValueType::Preset(4),
+                    ),
+                    expect: FailsWith(MlxValueError::PresetOutOfRange {
+                        value: 4,
+                        max_allowed: 3,
+                    }),
+                },
+                Case {
+                    scenario: "preset at max",
+                    input: (
+                        MlxVariableSpec::Preset { max_preset: 3 },
+                        MlxValueType::Preset(3),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "boolean array wrong size",
+                    input: (
+                        MlxVariableSpec::BooleanArray { size: 2 },
+                        MlxValueType::BooleanArray(vec![Some(true)]),
+                    ),
+                    expect: FailsWith(MlxValueError::ArraySizeMismatch {
+                        expected: 2,
+                        got: 1,
+                    }),
+                },
+                Case {
+                    scenario: "integer array right size",
+                    input: (
+                        MlxVariableSpec::IntegerArray { size: 2 },
+                        MlxValueType::IntegerArray(vec![Some(1), None]),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "binary array wrong size",
+                    input: (
+                        MlxVariableSpec::BinaryArray { size: 1 },
+                        MlxValueType::BinaryArray(vec![None, None]),
+                    ),
+                    expect: FailsWith(MlxValueError::ArraySizeMismatch {
+                        expected: 1,
+                        got: 2,
+                    }),
+                },
+                Case {
+                    scenario: "enum array wrong size",
+                    input: (
+                        MlxVariableSpec::EnumArray {
+                            options: vec!["a".to_string()],
+                            size: 2,
+                        },
+                        MlxValueType::EnumArray(vec![Some("a".to_string())]),
+                    ),
+                    expect: FailsWith(MlxValueError::ArraySizeMismatch {
+                        expected: 2,
+                        got: 1,
+                    }),
+                },
+                Case {
+                    scenario: "enum array invalid element",
+                    input: (
+                        MlxVariableSpec::EnumArray {
+                            options: vec!["a".to_string()],
+                            size: 2,
+                        },
+                        MlxValueType::EnumArray(vec![Some("a".to_string()), Some("b".to_string())]),
+                    ),
+                    expect: FailsWith(MlxValueError::InvalidEnumArrayOption {
+                        position: 1,
+                        value: "b".to_string(),
+                        allowed: vec!["a".to_string()],
+                    }),
+                },
+                Case {
+                    scenario: "enum array None elements skipped in validation",
+                    input: (
+                        MlxVariableSpec::EnumArray {
+                            options: vec!["a".to_string()],
+                            size: 2,
+                        },
+                        MlxValueType::EnumArray(vec![Some("a".to_string()), None]),
+                    ),
+                    expect: Yields(()),
+                },
+            ],
+            |(spec, value)| MlxConfigValue::new(var("v", spec), value).map(|_| ()),
+        );
+    }
+
+    // ----- IntoMlxValue for i64: preset conversion paths -----
+    #[test]
+    fn i64_into_value_for_spec() {
+        let preset = MlxVariableSpec::Preset { max_preset: 5 };
+        check_cases(
+            [
+                Case {
+                    scenario: "integer spec",
+                    input: (MlxVariableSpec::Integer, 42i64),
+                    expect: Yields(MlxValueType::Integer(42)),
+                },
+                Case {
+                    scenario: "preset in range",
+                    input: (preset.clone(), 3i64),
+                    expect: Yields(MlxValueType::Preset(3)),
+                },
+                Case {
+                    scenario: "preset negative rejected",
+                    input: (preset.clone(), -1i64),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "preset above u8::MAX rejected",
+                    input: (preset.clone(), 300i64),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "preset over max rejected",
+                    input: (preset.clone(), 10i64),
+                    expect: FailsWith(MlxValueError::PresetOutOfRange {
+                        value: 10,
+                        max_allowed: 5,
+                    }),
+                },
+                Case {
+                    scenario: "mismatched spec",
+                    input: (MlxVariableSpec::Boolean, 1i64),
+                    expect: Fails,
+                },
+            ],
+            |(spec, n)| n.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // i32 delegates to i64.
+    #[test]
+    fn i32_delegates_to_i64() {
+        Case {
+            scenario: "i32 integer",
+            input: 7i32,
+            expect: Yields(MlxValueType::Integer(7)),
+        }
+        .check(|n| n.into_mlx_value_for_spec(&MlxVariableSpec::Integer));
+    }
+
+    // ----- IntoMlxValue for u8: Preset vs Integer vs mismatch -----
+    #[test]
+    fn u8_into_value_for_spec() {
+        let preset = MlxVariableSpec::Preset { max_preset: 5 };
+        check_cases(
+            [
+                Case {
+                    scenario: "preset in range",
+                    input: (preset.clone(), 5u8),
+                    expect: Yields(MlxValueType::Preset(5)),
+                },
+                Case {
+                    scenario: "preset over max",
+                    input: (preset.clone(), 6u8),
+                    expect: FailsWith(MlxValueError::PresetOutOfRange {
+                        value: 6,
+                        max_allowed: 5,
+                    }),
+                },
+                Case {
+                    scenario: "integer spec widens to i64",
+                    input: (MlxVariableSpec::Integer, 200u8),
+                    expect: Yields(MlxValueType::Integer(200)),
+                },
+                Case {
+                    scenario: "mismatched spec",
+                    input: (MlxVariableSpec::String, 1u8),
+                    expect: Fails,
+                },
+            ],
+            |(spec, n)| n.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // ----- IntoMlxValue for bool: only Boolean spec, else mismatch -----
+    #[test]
+    fn bool_into_value_for_spec() {
+        check_cases(
+            [
+                Case {
+                    scenario: "boolean spec",
+                    input: (MlxVariableSpec::Boolean, true),
+                    expect: Yields(MlxValueType::Boolean(true)),
+                },
+                Case {
+                    scenario: "mismatched spec",
+                    input: (MlxVariableSpec::Integer, false),
+                    expect: Fails,
+                },
+            ],
+            |(spec, b)| b.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // ----- IntoMlxValue for Vec<u8>: Binary / Bytes / Opaque / mismatch -----
+    #[test]
+    fn vec_u8_into_value_for_spec() {
+        check_cases(
+            [
+                Case {
+                    scenario: "binary spec",
+                    input: (MlxVariableSpec::Binary, vec![1u8, 2, 3]),
+                    expect: Yields(MlxValueType::Binary(vec![1, 2, 3])),
+                },
+                Case {
+                    scenario: "bytes spec",
+                    input: (MlxVariableSpec::Bytes, vec![1u8, 2, 3]),
+                    expect: Yields(MlxValueType::Bytes(vec![1, 2, 3])),
+                },
+                Case {
+                    scenario: "opaque spec",
+                    input: (MlxVariableSpec::Opaque, vec![1u8, 2, 3]),
+                    expect: Yields(MlxValueType::Opaque(vec![1, 2, 3])),
+                },
+                Case {
+                    scenario: "mismatched spec",
+                    input: (MlxVariableSpec::Boolean, vec![1u8]),
+                    expect: Fails,
+                },
+            ],
+            |(spec, bytes)| bytes.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // ----- String IntoMlxValue: the spec branches not in the sibling file -----
+    // Binary/Bytes/Opaque hex parsing (bare + 0x prefix), and the catch-all array
+    // rejection.
+    #[test]
+    fn string_into_value_hex_and_array_rejection() {
+        check_cases(
+            [
+                Case {
+                    scenario: "binary bare hex",
+                    input: (MlxVariableSpec::Binary, "1a2b".to_string()),
+                    expect: Yields(MlxValueType::Binary(vec![0x1a, 0x2b])),
+                },
+                Case {
+                    scenario: "bytes 0X prefix",
+                    input: (MlxVariableSpec::Bytes, "0XFF00".to_string()),
+                    expect: Yields(MlxValueType::Bytes(vec![0xff, 0x00])),
+                },
+                Case {
+                    scenario: "opaque bad hex rejected",
+                    input: (MlxVariableSpec::Opaque, "zz".to_string()),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "integer-array spec rejects single string",
+                    input: (MlxVariableSpec::IntegerArray { size: 2 }, "5".to_string()),
+                    expect: Fails,
+                },
+            ],
+            |(spec, s)| s.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // &str and &String both wrap the String impl.
+    #[test]
+    fn str_and_string_ref_delegate() {
+        let s = "hello".to_string();
+        Case {
+            scenario: "&str",
+            input: "hello",
+            expect: Yields(MlxValueType::String("hello".to_string())),
+        }
+        .check(|raw: &str| raw.into_mlx_value_for_spec(&MlxVariableSpec::String));
+        Case {
+            scenario: "&String",
+            input: &s,
+            expect: Yields(MlxValueType::String("hello".to_string())),
+        }
+        .check(|raw: &String| raw.into_mlx_value_for_spec(&MlxVariableSpec::String));
+    }
+
+    // ----- Direct sparse-input IntoMlxValue impls (size + mismatch arms) -----
+    #[test]
+    fn sparse_vec_inputs_validate_size_and_spec() {
+        // Vec<Option<bool>>
+        check_cases(
+            [
+                Case {
+                    scenario: "bool sparse right size",
+                    input: (
+                        MlxVariableSpec::BooleanArray { size: 2 },
+                        vec![Some(true), None],
+                    ),
+                    expect: Yields(MlxValueType::BooleanArray(vec![Some(true), None])),
+                },
+                Case {
+                    scenario: "bool sparse wrong size",
+                    input: (MlxVariableSpec::BooleanArray { size: 3 }, vec![Some(true)]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "bool sparse wrong spec",
+                    input: (MlxVariableSpec::Boolean, vec![Some(true)]),
+                    expect: Fails,
+                },
+            ],
+            |(spec, v)| v.into_mlx_value_for_spec(&spec),
+        );
+
+        // Vec<Option<i64>>
+        check_cases(
+            [
+                Case {
+                    scenario: "int sparse right size",
+                    input: (
+                        MlxVariableSpec::IntegerArray { size: 2 },
+                        vec![Some(1i64), None],
+                    ),
+                    expect: Yields(MlxValueType::IntegerArray(vec![Some(1), None])),
+                },
+                Case {
+                    scenario: "int sparse wrong size",
+                    input: (MlxVariableSpec::IntegerArray { size: 1 }, vec![None, None]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "int sparse wrong spec",
+                    input: (MlxVariableSpec::Integer, vec![Some(1i64)]),
+                    expect: Fails,
+                },
+            ],
+            |(spec, v)| v.into_mlx_value_for_spec(&spec),
+        );
+
+        // Vec<Option<Vec<u8>>>
+        check_cases(
+            [
+                Case {
+                    scenario: "binary sparse right size",
+                    input: (
+                        MlxVariableSpec::BinaryArray { size: 2 },
+                        vec![Some(vec![1u8]), None],
+                    ),
+                    expect: Yields(MlxValueType::BinaryArray(vec![Some(vec![1]), None])),
+                },
+                Case {
+                    scenario: "binary sparse wrong size",
+                    input: (MlxVariableSpec::BinaryArray { size: 3 }, vec![None]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "binary sparse wrong spec",
+                    input: (MlxVariableSpec::Bytes, vec![Some(vec![1u8])]),
+                    expect: Fails,
+                },
+            ],
+            |(spec, v)| v.into_mlx_value_for_spec(&spec),
+        );
+
+        // Vec<Option<String>> for enum arrays: size, invalid option, wrong spec.
+        let enum_spec = MlxVariableSpec::EnumArray {
+            options: vec!["a".to_string(), "b".to_string()],
+            size: 2,
+        };
+        check_cases(
+            [
+                Case {
+                    scenario: "enum sparse valid",
+                    input: (enum_spec.clone(), vec![Some("a".to_string()), None]),
+                    expect: Yields(MlxValueType::EnumArray(vec![Some("a".to_string()), None])),
+                },
+                Case {
+                    scenario: "enum sparse wrong size",
+                    input: (enum_spec.clone(), vec![Some("a".to_string())]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "enum sparse invalid option pins position",
+                    input: (
+                        enum_spec.clone(),
+                        vec![Some("a".to_string()), Some("zzz".to_string())],
+                    ),
+                    expect: FailsWith(MlxValueError::InvalidEnumArrayOption {
+                        position: 1,
+                        value: "zzz".to_string(),
+                        allowed: vec!["a".to_string(), "b".to_string()],
+                    }),
+                },
+                Case {
+                    scenario: "enum sparse wrong spec",
+                    input: (MlxVariableSpec::String, vec![Some("a".to_string())]),
+                    expect: Fails,
+                },
+            ],
+            |(spec, v)| v.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // ----- Dense Vec inputs: the mismatched-spec arms (size arms are covered) -----
+    #[test]
+    fn dense_vec_inputs_reject_mismatched_specs() {
+        // Vec<bool> against non-BooleanArray.
+        Case {
+            scenario: "Vec<bool> wrong spec",
+            input: vec![true, false],
+            expect: Fails,
+        }
+        .check(|v| v.into_mlx_value_for_spec(&MlxVariableSpec::Boolean));
+
+        // Vec<i64> against non-IntegerArray.
+        Case {
+            scenario: "Vec<i64> wrong spec",
+            input: vec![1i64, 2],
+            expect: Fails,
+        }
+        .check(|v| v.into_mlx_value_for_spec(&MlxVariableSpec::Integer));
+
+        // Vec<i32> delegates to Vec<i64>; right size succeeds.
+        Case {
+            scenario: "Vec<i32> integer array",
+            input: vec![1i32, 2],
+            expect: Yields(MlxValueType::IntegerArray(vec![Some(1), Some(2)])),
+        }
+        .check(|v| v.into_mlx_value_for_spec(&MlxVariableSpec::IntegerArray { size: 2 }));
+
+        // Vec<Vec<u8>> against non-BinaryArray.
+        Case {
+            scenario: "Vec<Vec<u8>> wrong spec",
+            input: vec![vec![1u8]],
+            expect: Fails,
+        }
+        .check(|v| v.into_mlx_value_for_spec(&MlxVariableSpec::Binary));
+
+        // Vec<&str> delegates to Vec<String>; trims into an untyped Array.
+        Case {
+            scenario: "Vec<&str> into untyped array",
+            input: vec![" a ", "b"],
+            expect: Yields(MlxValueType::Array(vec!["a".to_string(), "b".to_string()])),
+        }
+        .check(|v| v.into_mlx_value_for_spec(&MlxVariableSpec::Array));
+    }
+
+    // ----- IntoMlxValue for serde_yaml::Value -----
+    #[test]
+    fn yaml_value_into_value_for_spec() {
+        check_cases(
+            [
+                Case {
+                    scenario: "bool",
+                    input: (MlxVariableSpec::Boolean, Yaml::Bool(true)),
+                    expect: Yields(MlxValueType::Boolean(true)),
+                },
+                Case {
+                    scenario: "number to integer",
+                    input: (MlxVariableSpec::Integer, Yaml::Number(42.into())),
+                    expect: Yields(MlxValueType::Integer(42)),
+                },
+                Case {
+                    scenario: "number to preset in range",
+                    input: (
+                        MlxVariableSpec::Preset { max_preset: 5 },
+                        Yaml::Number(3.into()),
+                    ),
+                    expect: Yields(MlxValueType::Preset(3)),
+                },
+                Case {
+                    scenario: "negative number for preset rejected",
+                    input: (
+                        MlxVariableSpec::Preset { max_preset: 5 },
+                        Yaml::Number((-1).into()),
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "string to enum",
+                    input: (
+                        MlxVariableSpec::Enum {
+                            options: vec!["a".to_string()],
+                        },
+                        Yaml::String("a".to_string()),
+                    ),
+                    expect: Yields(MlxValueType::Enum("a".to_string())),
+                },
+                Case {
+                    scenario: "sequence to untyped array",
+                    input: (
+                        MlxVariableSpec::Array,
+                        Yaml::Sequence(vec![
+                            Yaml::String("x".to_string()),
+                            Yaml::Number(2.into()),
+                            Yaml::Bool(true),
+                        ]),
+                    ),
+                    expect: Yields(MlxValueType::Array(vec![
+                        "x".to_string(),
+                        "2".to_string(),
+                        "true".to_string(),
+                    ])),
+                },
+                Case {
+                    scenario: "unsupported yaml type rejected",
+                    input: (MlxVariableSpec::String, Yaml::Null),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "sequence with complex element rejected",
+                    input: (
+                        MlxVariableSpec::Array,
+                        Yaml::Sequence(vec![Yaml::Sequence(vec![])]),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(spec, y)| y.into_mlx_value_for_spec(&spec),
+        );
+    }
+
+    // yaml_value_to_string helper directly: simple values stringify, complex fails.
+    #[test]
+    fn yaml_value_to_string_helper() {
+        assert_eq!(yaml_value_to_string(Yaml::Bool(true)).unwrap(), "true");
+        assert_eq!(
+            yaml_value_to_string(Yaml::Number(7.into())).unwrap(),
+            "7".to_string()
+        );
+        assert_eq!(
+            yaml_value_to_string(Yaml::String("s".to_string())).unwrap(),
+            "s".to_string()
+        );
+        assert!(yaml_value_to_string(Yaml::Null).is_err());
+    }
+
+    // ----- MlxValueType::to_yaml_value: every arm -----
+    #[test]
+    fn to_yaml_value_for_each_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "boolean",
+                    input: MlxValueType::Boolean(true),
+                    expect: Yaml::Bool(true),
+                },
+                Check {
+                    scenario: "integer",
+                    input: MlxValueType::Integer(7),
+                    expect: Yaml::Number(7.into()),
+                },
+                Check {
+                    scenario: "string",
+                    input: MlxValueType::String("s".to_string()),
+                    expect: Yaml::String("s".to_string()),
+                },
+                Check {
+                    scenario: "enum",
+                    input: MlxValueType::Enum("e".to_string()),
+                    expect: Yaml::String("e".to_string()),
+                },
+                Check {
+                    scenario: "preset as number",
+                    input: MlxValueType::Preset(3),
+                    expect: Yaml::Number(3.into()),
+                },
+                Check {
+                    scenario: "binary as hex string",
+                    input: MlxValueType::Binary(vec![0x1a, 0x2b]),
+                    expect: Yaml::String("0x1a2b".to_string()),
+                },
+                Check {
+                    scenario: "bytes as hex string",
+                    input: MlxValueType::Bytes(vec![0xff]),
+                    expect: Yaml::String("0xff".to_string()),
+                },
+                Check {
+                    scenario: "opaque as hex string",
+                    input: MlxValueType::Opaque(vec![0x00]),
+                    expect: Yaml::String("0x00".to_string()),
+                },
+                Check {
+                    scenario: "untyped array as sequence",
+                    input: MlxValueType::Array(vec!["a".to_string(), "b".to_string()]),
+                    expect: Yaml::Sequence(vec![
+                        Yaml::String("a".to_string()),
+                        Yaml::String("b".to_string()),
+                    ]),
+                },
+                Check {
+                    scenario: "boolean array with None as dash",
+                    input: MlxValueType::BooleanArray(vec![Some(true), None]),
+                    expect: Yaml::Sequence(vec![Yaml::Bool(true), Yaml::String("-".to_string())]),
+                },
+                Check {
+                    scenario: "integer array with None as dash",
+                    input: MlxValueType::IntegerArray(vec![Some(5), None]),
+                    expect: Yaml::Sequence(vec![
+                        Yaml::Number(5.into()),
+                        Yaml::String("-".to_string()),
+                    ]),
+                },
+                Check {
+                    scenario: "enum array with None as dash",
+                    input: MlxValueType::EnumArray(vec![Some("x".to_string()), None]),
+                    expect: Yaml::Sequence(vec![
+                        Yaml::String("x".to_string()),
+                        Yaml::String("-".to_string()),
+                    ]),
+                },
+                Check {
+                    scenario: "binary array with None as dash",
+                    input: MlxValueType::BinaryArray(vec![Some(vec![0x1a]), None]),
+                    expect: Yaml::Sequence(vec![
+                        Yaml::String("0x1a".to_string()),
+                        Yaml::String("-".to_string()),
+                    ]),
+                },
+            ],
+            |value| value.to_yaml_value(),
+        );
+    }
+
+    // ----- Proto round-trips for MlxValueType: From then TryFrom returns input -----
+    // Each variant that round-trips cleanly (no Some("") enum-array element, which
+    // the proto bridge collapses to None) should survive the trip unchanged.
+    #[test]
+    fn value_type_proto_round_trips() {
+        check_cases(
+            [
+                Case {
+                    scenario: "boolean",
+                    input: MlxValueType::Boolean(true),
+                    expect: Yields(MlxValueType::Boolean(true)),
+                },
+                Case {
+                    scenario: "integer",
+                    input: MlxValueType::Integer(-9),
+                    expect: Yields(MlxValueType::Integer(-9)),
+                },
+                Case {
+                    scenario: "string",
+                    input: MlxValueType::String("s".to_string()),
+                    expect: Yields(MlxValueType::String("s".to_string())),
+                },
+                Case {
+                    scenario: "binary",
+                    input: MlxValueType::Binary(vec![1, 2]),
+                    expect: Yields(MlxValueType::Binary(vec![1, 2])),
+                },
+                Case {
+                    scenario: "bytes",
+                    input: MlxValueType::Bytes(vec![3, 4]),
+                    expect: Yields(MlxValueType::Bytes(vec![3, 4])),
+                },
+                Case {
+                    scenario: "untyped array",
+                    input: MlxValueType::Array(vec!["a".to_string()]),
+                    expect: Yields(MlxValueType::Array(vec!["a".to_string()])),
+                },
+                Case {
+                    scenario: "enum",
+                    input: MlxValueType::Enum("e".to_string()),
+                    expect: Yields(MlxValueType::Enum("e".to_string())),
+                },
+                Case {
+                    scenario: "preset",
+                    input: MlxValueType::Preset(7),
+                    expect: Yields(MlxValueType::Preset(7)),
+                },
+                Case {
+                    scenario: "boolean array sparse",
+                    input: MlxValueType::BooleanArray(vec![Some(true), None, Some(false)]),
+                    expect: Yields(MlxValueType::BooleanArray(vec![
+                        Some(true),
+                        None,
+                        Some(false),
+                    ])),
+                },
+                Case {
+                    scenario: "integer array sparse",
+                    input: MlxValueType::IntegerArray(vec![Some(1), None]),
+                    expect: Yields(MlxValueType::IntegerArray(vec![Some(1), None])),
+                },
+                Case {
+                    scenario: "enum array sparse (None survives empty-string bridge)",
+                    input: MlxValueType::EnumArray(vec![Some("x".to_string()), None]),
+                    expect: Yields(MlxValueType::EnumArray(vec![Some("x".to_string()), None])),
+                },
+                Case {
+                    scenario: "binary array sparse",
+                    input: MlxValueType::BinaryArray(vec![Some(vec![9]), None]),
+                    expect: Yields(MlxValueType::BinaryArray(vec![Some(vec![9]), None])),
+                },
+                Case {
+                    scenario: "opaque",
+                    input: MlxValueType::Opaque(vec![5, 6]),
+                    expect: Yields(MlxValueType::Opaque(vec![5, 6])),
+                },
+            ],
+            |value| {
+                let pb: MlxValueTypePb = value.into();
+                MlxValueType::try_from(pb).map_err(drop)
+            },
+        );
+    }
+
+    // TryFrom<MlxValueTypePb> with an empty value_type is the missing-argument path.
+    #[test]
+    fn value_type_try_from_missing_value_type_fails() {
+        Case {
+            scenario: "no value_type",
+            input: MlxValueTypePb { value_type: None },
+            expect: Fails,
+        }
+        .check(|pb| MlxValueType::try_from(pb).map_err(drop));
+    }
+
+    // ----- MlxConfigValue proto round-trip (From then TryFrom) -----
+    #[test]
+    fn config_value_proto_round_trip() {
+        let original = MlxConfigValue {
+            variable: var("vrr", MlxVariableSpec::Integer),
+            value: MlxValueType::Integer(11),
+        };
+        Case {
+            scenario: "config value survives proto round-trip",
+            input: original.clone(),
+            expect: Yields(original),
+        }
+        .check(|cv| {
+            let pb: MlxConfigValuePb = cv.into();
+            MlxConfigValue::try_from(pb).map_err(drop)
+        });
+    }
+
+    // TryFrom<MlxConfigValuePb> missing-argument and invalid-argument paths.
+    #[test]
+    fn config_value_try_from_failure_paths() {
+        // Missing variable.
+        Case {
+            scenario: "missing variable",
+            input: MlxConfigValuePb {
+                variable: None,
+                value: Some(MlxValueType::Integer(1).into()),
+            },
+            expect: Fails,
+        }
+        .check(|pb| MlxConfigValue::try_from(pb).map_err(drop));
+
+        // Missing value.
+        let variable_pb: ::rpc::protos::mlx_device::MlxConfigVariable =
+            var("v", MlxVariableSpec::Integer).into();
+        Case {
+            scenario: "missing value",
+            input: MlxConfigValuePb {
+                variable: Some(variable_pb.clone()),
+                value: None,
+            },
+            expect: Fails,
+        }
+        .check(|pb| MlxConfigValue::try_from(pb).map_err(drop));
+
+        // Present but spec/value-incompatible -> new() validation fails -> InvalidArgument.
+        Case {
+            scenario: "spec/value mismatch surfaces as invalid argument",
+            input: MlxConfigValuePb {
+                variable: Some(variable_pb),
+                value: Some(MlxValueType::Boolean(true).into()),
+            },
+            expect: Fails,
+        }
+        .check(|pb| MlxConfigValue::try_from(pb).map_err(drop));
+    }
+}

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package model
+package sqltypes
 
 import (
 	"testing"
@@ -12,7 +12,7 @@ import (
 // TestIPAddrScan covers (*IPAddr).Scan, with emphasis on the CIDR-notation
 // stripping that PostgreSQL's inet type can return (e.g. "192.168.1.100/24").
 // The strip is implemented with strings.LastIndexByte, so these cases pin that
-// behavior — including the IPv6 path (a single '/' prefix delimiter, never a
+// behavior, including the IPv6 path (a single '/' prefix delimiter, never a
 // colon) and the bare "/" edge case, which strips to "" and is then rejected
 // by net.ParseIP.
 func TestIPAddrScan(t *testing.T) {

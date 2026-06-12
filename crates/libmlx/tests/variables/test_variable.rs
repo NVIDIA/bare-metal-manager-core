@@ -30,7 +30,7 @@ fn test_mlx_config_variable_builder_basic() {
     assert_eq!(variable.name, "cpu_frequency");
     assert_eq!(variable.description, "CPU frequency in MHz");
     assert!(!variable.read_only);
-    matches!(variable.spec, MlxVariableSpec::Integer);
+    assert!(matches!(variable.spec, MlxVariableSpec::Integer));
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn test_mlx_config_variable_builder_read_only() {
     assert_eq!(variable.name, "firmware_version");
     assert_eq!(variable.description, "Current firmware version");
     assert!(variable.read_only);
-    matches!(variable.spec, MlxVariableSpec::String);
+    assert!(matches!(variable.spec, MlxVariableSpec::String));
 }
 
 #[test]
@@ -311,15 +311,15 @@ fn test_multiple_variables_with_different_specs() {
     // Verify each variable has the expected properties
     assert_eq!(variables[0].name, "boolean_var");
     assert!(!variables[0].read_only);
-    matches!(variables[0].spec, MlxVariableSpec::Boolean);
+    assert!(matches!(variables[0].spec, MlxVariableSpec::Boolean));
 
     assert_eq!(variables[1].name, "integer_var");
     assert!(!variables[1].read_only);
-    matches!(variables[1].spec, MlxVariableSpec::Integer);
+    assert!(matches!(variables[1].spec, MlxVariableSpec::Integer));
 
     assert_eq!(variables[2].name, "string_var");
     assert!(variables[2].read_only);
-    matches!(variables[2].spec, MlxVariableSpec::String);
+    assert!(matches!(variables[2].spec, MlxVariableSpec::String));
 
     assert_eq!(variables[3].name, "enum_var");
     assert!(!variables[3].read_only);

@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 #[cfg(feature = "ipnetwork")]
 use ipnetwork::IpNetwork;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
 /// doesn't send it to NICo (which it never does), or if the NICo API
@@ -56,6 +57,38 @@ pub enum VpcVirtualizationType {
     Flat,
 }
 
+impl VpcVirtualizationType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => "etv",
+            Self::Fnn => "fnn",
+            Self::Flat => "flat",
+        }
+    }
+}
+
+/// Custom Serialize implementation to use our custom string representation
+impl Serialize for VpcVirtualizationType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+/// Custom Deserialize implementation to use our custom string representation
+impl<'de> Deserialize<'de> for VpcVirtualizationType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        <String>::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 // Per-variant policy ("how does this type behave with respect to segments,
 // peering, routing profiles, IPv6, host fabric interfaces") is declared
 // as data in `carbide_api_model::vpc::capability` and consulted via the
@@ -80,12 +113,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for VpcVirtualizationType {
         &self,
         buf: &mut sqlx::postgres::PgArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let s = match self {
-            Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => "etv",
-            Self::Fnn => "fnn",
-            Self::Flat => "flat",
-        };
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode(s, buf)
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str(), buf)
     }
 }
 
@@ -100,14 +128,7 @@ impl sqlx::postgres::PgHasArrayType for VpcVirtualizationType {
 impl sqlx::Decode<'_, sqlx::Postgres> for VpcVirtualizationType {
     fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        match s {
-            "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizer),
-            "fnn" => Ok(Self::Fnn),
-            "flat" => Ok(Self::Flat),
-            other => {
-                Err(format!("invalid value {:?} for enum VpcVirtualizationType", other).into())
-            }
-        }
+        s.parse().map_err(sqlx::error::BoxDynError::from)
     }
 }
 

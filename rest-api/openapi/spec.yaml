@@ -13123,12 +13123,17 @@ components:
       description: Provide operational stats for Tenant
       examples:
         - instance:
-            total: 12
+            total: 18
             pending: 2
             provisioning: 1
+            configuring: 2
             ready: 8
+            rebooting: 1
+            repairing: 1
             terminating: 2
             error: 1
+            updating: 0
+            unknown: 0
           vpc:
             total: 4
             pending: 1
@@ -13167,12 +13172,17 @@ components:
       type: object
       description: Describes count of Instances in various statuses
       examples:
-        - total: 12
+        - total: 18
           pending: 2
           provisioning: 1
+          configuring: 2
           ready: 8
+          rebooting: 1
+          repairing: 1
           terminating: 2
           error: 1
+          updating: 0
+          unknown: 0
       properties:
         total:
           type: integer
@@ -13183,15 +13193,30 @@ components:
         provisioning:
           type: integer
           description: 'Number of Instances in Provisioning status'
+        configuring:
+          type: integer
+          description: 'Number of Instances in Configuring status'
         ready:
           type: integer
           description: 'Number of Instances in Ready status'
+        rebooting:
+          type: integer
+          description: 'Number of Instances in Rebooting status'
+        repairing:
+          type: integer
+          description: 'Number of Instances in Repairing status'
         terminating:
           type: integer
           description: 'Number of Instances in Terminating status'
         error:
           type: integer
           description: 'Number of Instances in Error status'
+        updating:
+          type: integer
+          description: 'Number of Instances in Updating status'
+        unknown:
+          type: integer
+          description: 'Number of Instances in Unknown status'
     VpcCountByStatus:
       title: VpcCountByStatus
       type: object
@@ -14651,8 +14676,10 @@ components:
       type: string
       description: Status values for VPC Prefix objects
       enum:
+        - Provisioning
         - Ready
         - Deleting
+        - Deleted
         - Error
     VpcPrefixCreateRequest:
       title: VpcPrefixCreateRequest

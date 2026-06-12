@@ -3,16 +3,18 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::compute_tray_manager::Backend;
+use crate::compute_tray_manager::Backend as ComputeBackend;
+use crate::nv_switch_manager::Backend as NvSwitchBackend;
+use crate::power_shelf_manager::Backend as PowerShelfBackend;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ComponentManagerConfig {
-    #[serde(default = "default_nsm_backend")]
-    pub nv_switch_backend: String,
-    #[serde(default = "default_psm_backend")]
-    pub power_shelf_backend: String,
     #[serde(default)]
-    pub compute_tray_backend: Backend,
+    pub nv_switch_backend: NvSwitchBackend,
+    #[serde(default)]
+    pub power_shelf_backend: PowerShelfBackend,
+    #[serde(default)]
+    pub compute_tray_backend: ComputeBackend,
 
     #[serde(default)]
     pub nsm: Option<BackendEndpointConfig>,
@@ -104,32 +106,17 @@ impl BackendTlsConfig {
     }
 }
 
-fn default_nsm_backend() -> String {
-    "nsm".into()
-}
-
-fn default_psm_backend() -> String {
-    "psm".into()
-}
-
-impl Default for ComponentManagerConfig {
-    fn default() -> Self {
-        Self {
-            nv_switch_backend: default_nsm_backend(),
-            power_shelf_backend: default_psm_backend(),
-            compute_tray_backend: Backend::default(),
-            nsm: None,
-            psm: None,
-            nv_switch_use_state_controller: false,
-            power_shelf_use_state_controller: false,
-            compute_tray_use_state_controller: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_backends_are_rms() {
+        let cfg = ComponentManagerConfig::default();
+        assert_eq!(cfg.nv_switch_backend, NvSwitchBackend::Rms);
+        assert_eq!(cfg.power_shelf_backend, PowerShelfBackend::Rms);
+        assert_eq!(cfg.compute_tray_backend, ComputeBackend::Rms);
+    }
 
     fn tls_config(
         cert_dir: Option<&str>,

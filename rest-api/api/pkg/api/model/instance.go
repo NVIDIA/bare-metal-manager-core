@@ -1817,7 +1817,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 		apiInstance.TpmEkCertificate = dbinst.TpmEkCertificate
 	}
 
-	apiInstance.Status = getAggregatedInstanceStatus(dbinst.Status, dbinst.PowerStatus)
+	apiInstance.Status = cdbm.AggregatedInstanceStatus(dbinst.Status, dbinst.PowerStatus)
 
 	secondaryVpcIDs := goset.NewSet[string]()
 
@@ -1891,7 +1891,7 @@ func NewAPIInstanceSummary(dbist *cdbm.Instance) *APIInstanceSummary {
 		Name:                     dbist.Name,
 		InfrastructureProviderID: dbist.InfrastructureProviderID.String(),
 		SiteID:                   dbist.SiteID.String(),
-		Status:                   dbist.Status,
+		Status:                   cdbm.AggregatedInstanceStatus(dbist.Status, dbist.PowerStatus),
 	}
 
 	// Check if the instance type is set.  If so, use it.  If not set, it's a targeted Instance.
@@ -1904,44 +1904,4 @@ func NewAPIInstanceSummary(dbist *cdbm.Instance) *APIInstanceSummary {
 	}
 
 	return &ins
-}
-
-// APIInstanceStats is a data structure to capture information about Instancestats at the API layer
-type APIInstanceStats struct {
-	// Total is the total number of the Instances
-	Total int `json:"total"`
-	// Pending is the total number of pending Instances
-	Pending int `json:"pending"`
-	// Terminating is the total number of provisioning InstanceS
-	Terminating int `json:"terminating"`
-	// Ready is the total number of ready Instances
-	Ready int `json:"ready"`
-	// Updating is the total number of Instances receiving system updates
-	Updating int `json:"updating"`
-	// Registering is the total number of registering Instances
-	Registering int `json:"registering"`
-	// Error is the total number of error Instances
-	Error int `json:"error"`
-}
-
-// getAggregatedInstanceStatus returns the aggregated status of the Instance by consulting the Instance status and Instance power status
-func getAggregatedInstanceStatus(status string, powerStatus *string) string {
-	agStatus := status
-
-	if powerStatus == nil {
-		return agStatus
-	}
-
-	if status != cdbm.InstanceStatusReady {
-		return agStatus
-	}
-
-	switch *powerStatus {
-	case cdbm.InstancePowerStatusRebooting:
-		agStatus = cdbm.InstancePowerStatusRebooting
-	case cdbm.InstancePowerStatusError:
-		agStatus = cdbm.InstancePowerStatusError
-	}
-
-	return agStatus
 }

@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use super::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use super::{CollectorEvent, DataSink, EventContext, MetricSample};
 use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
@@ -65,7 +65,7 @@ impl PrometheusSink {
         )
     }
 
-    fn metric_reading_key(sample: &SensorHealthData) -> String {
+    fn metric_reading_key(sample: &MetricSample) -> String {
         const KEY_SEPARATOR: &str = "::";
         let separators_len = KEY_SEPARATOR.len() * 2;
         let mut key = String::with_capacity(

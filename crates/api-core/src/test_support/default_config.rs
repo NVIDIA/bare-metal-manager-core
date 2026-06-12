@@ -85,6 +85,7 @@ pub fn get() -> CarbideConfig {
         auth: None,
         pools: None,
         networks: None,
+        vpcs: None,
         dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),

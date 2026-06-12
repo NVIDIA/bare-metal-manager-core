@@ -45,8 +45,10 @@ use carbide_secrets::credentials::Credentials;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
-use component_manager::compute_tray_manager::Backend;
+use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
+use component_manager::nv_switch_manager::Backend as NvSwitchBackend;
+use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::{expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf};
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
@@ -89,13 +91,13 @@ async fn build_test_component_manager(
     rms_client: Option<Arc<dyn librms::RmsApi>>,
 ) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
     let config = ComponentManagerConfig {
-        nv_switch_backend: "mock".into(),
+        nv_switch_backend: NvSwitchBackend::Mock,
         power_shelf_backend: if rms_client.is_some() {
-            "rms".into()
+            PowerShelfBackend::Rms
         } else {
-            "mock".into()
+            PowerShelfBackend::Mock
         },
-        compute_tray_backend: Backend::Mock,
+        compute_tray_backend: ComputeBackend::Mock,
         ..Default::default()
     };
     component_manager::component_manager::build_component_manager(

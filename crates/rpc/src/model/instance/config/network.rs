@@ -419,6 +419,8 @@ impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkD
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use carbide_uuid::network::NetworkSegmentId;
     use carbide_uuid::vpc::VpcPrefixId;
     use model::instance::config::network::{INTERFACE_VFID_MAX, INTERFACE_VFID_MIN};
@@ -603,111 +605,73 @@ mod tests {
         ]
     }
 
+    // Converting an rpc config validates virtual-function ids and assigns them.
+    // Each row starts from `get_rpc_instance_network_config()`, optionally mutated,
+    // and the op converts then projects the sorted VF ids out of the model (or
+    // fails when the VF ids are invalid). The error type isn't pinned here -- a
+    // duplicate or a mix of None/valid just `Fails`.
     #[test]
     fn test_validate_virtual_function_ids() {
-        let interfaces = get_rpc_instance_network_config();
+        let all = get_rpc_instance_network_config();
 
-        let network_config = rpc::InstanceNetworkConfig {
-            interfaces,
-            auto: false,
-        };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
+        let only_physical = vec![all[0].clone()];
 
-        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
-            if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                Some(id)
-            } else {
-                None
-            }
-        });
+        let mut missing_1 = get_rpc_instance_network_config();
+        missing_1.remove(2);
 
-        let vf_ids = vf_ids.sorted().collect_vec();
+        let mut duplicate = get_rpc_instance_network_config();
+        duplicate[2].virtual_function_id = Some(0);
 
-        // All VF ids should be present after converting.
-        let expected = vec![0, 1, 2];
-        assert_eq!(expected, vf_ids);
-    }
+        let mut mix = get_rpc_instance_network_config();
+        mix[2].virtual_function_id = None;
 
-    #[test]
-    fn test_validate_virtual_function_ids_missing_1() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces.remove(2);
-
-        let network_config = rpc::InstanceNetworkConfig {
-            interfaces,
-            auto: false,
-        };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
-
-        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
-            if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                Some(id)
-            } else {
-                None
-            }
-        });
-
-        let vf_ids = vf_ids.sorted().collect_vec();
-
-        // Since vf_id: 1 is removed, it should not be present in the parsed config.
-        let expected = vec![0, 2];
-        assert_eq!(expected, vf_ids);
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_only_physical() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces = vec![interfaces[0].clone()];
-
-        let network_config = rpc::InstanceNetworkConfig {
-            interfaces,
-            auto: false,
-        };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
-
-        let vf_ids = network_config
-            .interfaces
-            .iter()
-            .filter_map(|x| {
-                if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect_vec();
-
-        assert!(vf_ids.is_empty());
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_duplicate() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces[2].virtual_function_id = Some(0);
-
-        let network_config = rpc::InstanceNetworkConfig {
-            interfaces,
-            auto: false,
-        };
-        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
-            network_config.try_into();
-
-        assert!(network_config.is_err());
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_mix() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces[2].virtual_function_id = None;
-
-        let network_config = rpc::InstanceNetworkConfig {
-            interfaces,
-            auto: false,
-        };
-        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
-            network_config.try_into();
-
-        assert!(network_config.is_err());
+        check_cases(
+            [
+                Case {
+                    scenario: "all VF ids present after converting",
+                    input: all,
+                    expect: Yields(vec![0, 1, 2]),
+                },
+                Case {
+                    scenario: "removed vf_id 1 is absent from the parsed config",
+                    input: missing_1,
+                    expect: Yields(vec![0, 2]),
+                },
+                Case {
+                    scenario: "only a physical interface yields no VF ids",
+                    input: only_physical,
+                    expect: Yields(vec![]),
+                },
+                Case {
+                    scenario: "duplicate VF id is rejected",
+                    input: duplicate,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "mix of None and valid VF ids is rejected",
+                    input: mix,
+                    expect: Fails,
+                },
+            ],
+            |interfaces| {
+                let network_config = rpc::InstanceNetworkConfig {
+                    interfaces,
+                    auto: false,
+                };
+                let network_config =
+                    InstanceNetworkConfig::try_from(network_config).map_err(drop)?;
+                let vf_ids = network_config
+                    .interfaces
+                    .iter()
+                    .filter_map(|x| match x.function_id {
+                        InterfaceFunctionId::Virtual { id } => Some(id),
+                        InterfaceFunctionId::Physical {} => None,
+                    })
+                    .sorted()
+                    .collect_vec();
+                Ok::<_, ()>(vf_ids)
+            },
+        );
     }
 
     #[test]
@@ -883,33 +847,96 @@ mod tests {
         ));
     }
 
+    // ipv6_interface_config alongside ip_address / network_details is gated at the
+    // RPC boundary: each row builds one interface config and the op asserts only
+    // whether the conversion succeeds (`true`) or is rejected (`false`).
     #[test]
-    fn test_ipv6_requires_vpc_prefix_id() {
-        // ipv6 without vpc_prefix_id should be rejected.
+    fn test_ipv6_interface_config_acceptance() {
         let v6_id = VpcPrefixId::new();
-        let rpc_config = rpc::InstanceNetworkConfig {
-            interfaces: vec![rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some(NetworkSegmentId::new()),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        NetworkSegmentId::new(),
-                    ),
+        let v4_id = VpcPrefixId::new();
+
+        // ipv6 without vpc_prefix_id (network_details is a segment) should be rejected.
+        let ipv6_without_vpc_prefix = rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(NetworkSegmentId::new()),
+            network_details: Some(
+                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                    NetworkSegmentId::new(),
                 ),
-                device: None,
-                device_instance: 0,
-                virtual_function_id: None,
+            ),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: None,
+            ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                vpc_prefix_id: Some(v6_id),
                 ip_address: None,
-                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
-                    vpc_prefix_id: Some(v6_id),
-                    ip_address: None,
-                }),
-                routing_profile: None,
-            }],
-            auto: false,
+            }),
+            routing_profile: None,
         };
-        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
-        assert!(result.is_err());
+
+        // An IPv6 ip_address AND ipv6_interface_config together should be rejected.
+        let v6_ip_with_ipv6_config = rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(
+                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
+            ),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: Some("2001:db8::1".to_string()),
+            ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                vpc_prefix_id: Some(v6_id),
+                ip_address: None,
+            }),
+            routing_profile: None,
+        };
+
+        // An IPv4 ip_address AND ipv6_interface_config is fine (dual-stack).
+        let v4_ip_with_ipv6_config = rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(
+                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
+            ),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: Some("10.0.0.1".to_string()),
+            ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                vpc_prefix_id: Some(v6_id),
+                ip_address: None,
+            }),
+            routing_profile: None,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "ipv6 without vpc_prefix_id is rejected",
+                    input: ipv6_without_vpc_prefix,
+                    expect: false,
+                },
+                Check {
+                    scenario: "ipv6 ip_address with ipv6_interface_config is rejected",
+                    input: v6_ip_with_ipv6_config,
+                    expect: false,
+                },
+                Check {
+                    scenario: "ipv4 ip_address with ipv6_interface_config is allowed",
+                    input: v4_ip_with_ipv6_config,
+                    expect: true,
+                },
+            ],
+            |iface| {
+                let rpc_config = rpc::InstanceNetworkConfig {
+                    interfaces: vec![iface],
+                    auto: false,
+                };
+                InstanceNetworkConfig::try_from(rpc_config).is_ok()
+            },
+        );
     }
 
     #[test]
@@ -938,62 +965,6 @@ mod tests {
             Some(NetworkDetails::VpcPrefixId(v6_id))
         );
         assert_eq!(model.interfaces[0].ipv6_interface_config, None);
-    }
-
-    #[test]
-    fn test_reject_v6_ip_address_with_ipv6_interface_config() {
-        // Setting an IPv6 ip_address AND ipv6_interface_config should be rejected.
-        let v4_id = VpcPrefixId::new();
-        let v6_id = VpcPrefixId::new();
-        let rpc_config = rpc::InstanceNetworkConfig {
-            interfaces: vec![rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
-                ),
-                device: None,
-                device_instance: 0,
-                virtual_function_id: None,
-                ip_address: Some("2001:db8::1".to_string()),
-                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
-                    vpc_prefix_id: Some(v6_id),
-                    ip_address: None,
-                }),
-                routing_profile: None,
-            }],
-            auto: false,
-        };
-        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_allow_v4_ip_address_with_ipv6_interface_config() {
-        // Setting an IPv4 ip_address AND ipv6_interface_config is fine (dual-stack).
-        let v4_id = VpcPrefixId::new();
-        let v6_id = VpcPrefixId::new();
-        let rpc_config = rpc::InstanceNetworkConfig {
-            interfaces: vec![rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
-                ),
-                device: None,
-                device_instance: 0,
-                virtual_function_id: None,
-                ip_address: Some("10.0.0.1".to_string()),
-                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
-                    vpc_prefix_id: Some(v6_id),
-                    ip_address: None,
-                }),
-                routing_profile: None,
-            }],
-            auto: false,
-        };
-        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
-        assert!(result.is_ok());
     }
 
     #[test]

@@ -24,8 +24,9 @@ use crate::HealthError;
 use crate::bmc::BmcClient;
 use crate::collectors::{
     AutoFailureBudget, BackoffConfig, BudgetDecision, Collector, CollectorStartContext,
-    FailureKind, FirmwareCollector, FirmwareCollectorConfig, LeakDetectorCollector,
-    LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig, NmxtCollector,
+    EntityDiscoveryCollector, EntityDiscoveryCollectorConfig, FailureKind, FirmwareCollector,
+    FirmwareCollectorConfig, LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector,
+    LogsCollectorConfig, MetricsCollector, MetricsCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
     spawn_gnmi_collector,
@@ -63,9 +64,54 @@ fn spawn_generic_redfish_collectors(
     let endpoint_arc = endpoint.clone();
     let bmc = endpoint.bmc().clone();
 
+    let sensors_enabled = matches!(ctx.sensors_config, Configurable::Enabled(_));
+    let metrics_enabled = matches!(ctx.metrics_config, Configurable::Enabled(_));
+
+    if (sensors_enabled || metrics_enabled)
+        && !ctx.collectors.contains(CollectorKind::Discovery, &key)
+    {
+        let shared = ctx.collectors.inventory_for(&key);
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("entity_discovery_collector_{key}"),
+            metrics_prefix,
+        )?);
+        match Collector::start::<EntityDiscoveryCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            EntityDiscoveryCollectorConfig {
+                shared,
+                discovery_concurrency: ctx.discovery_config.discovery_concurrency,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: ctx.discovery_config.refresh_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::Discovery, key.clone().into(), monitor);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_collectors = ctx.collectors.len(CollectorKind::Discovery),
+                    "Started entity discovery for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Could not start entity discovery collector for: {:?}",
+                    endpoint.addr
+                );
+            }
+        }
+    }
+
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
+        let shared = ctx.collectors.inventory_for(&key);
         let collector_registry = Arc::new(
             ctx.metrics_manager
                 .create_collector_registry(format!("sensor_collector_{key}"), metrics_prefix)?,
@@ -75,7 +121,7 @@ fn spawn_generic_redfish_collectors(
             bmc.clone(),
             SensorCollectorConfig {
                 data_sink: data_sink.clone(),
-                state_refresh_interval: sensor_cfg.state_refresh_interval,
+                shared,
                 sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
             },
@@ -99,6 +145,48 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     "Could not start sensor collector for: {:?}",
+                    endpoint.addr
+                );
+            }
+        }
+    }
+
+    if let Configurable::Enabled(metrics_cfg) = &ctx.metrics_config
+        && !ctx.collectors.contains(CollectorKind::Metrics, &key)
+    {
+        let shared = ctx.collectors.inventory_for(&key);
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("metrics_collector_{key}"), metrics_prefix)?,
+        );
+        match Collector::start::<MetricsCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            MetricsCollectorConfig {
+                data_sink: data_sink.clone(),
+                shared,
+                fetch_concurrency: metrics_cfg.fetch_concurrency,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: metrics_cfg.fetch_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::Metrics, key.clone().into(), monitor);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_collectors = ctx.collectors.len(CollectorKind::Metrics),
+                    "Started entity metrics collection for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Could not start entity metrics collector for: {:?}",
                     endpoint.addr
                 );
             }
@@ -862,6 +950,132 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0)
+    }
+
+    #[tokio::test]
+    async fn machine_endpoint_with_sensors_starts_discovery_and_sensor_only() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Enabled(Default::default());
+        config.collectors.metrics = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_discovery_with_sensors");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 20),
+            "aa:bb:cc:00:00:20",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_discovery_with_sensors",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn metrics_only_still_starts_discovery() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.metrics = Configurable::Enabled(Default::default());
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_discovery_with_metrics_only");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 21),
+            "aa:bb:cc:00:00:21",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_discovery_with_metrics_only",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 1);
+    }
+
+    #[tokio::test]
+    async fn no_discovery_when_both_readers_disabled() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.metrics = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_no_discovery");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 22),
+            "aa:bb:cc:00:00:22",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, Some(Arc::new(NoopSink)), "test")
+            .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn discovery_sensor_and_metrics_spawn_is_idempotent() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Enabled(Default::default());
+        config.collectors.metrics = Configurable::Enabled(Default::default());
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_discovery_idempotent");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 23),
+            "aa:bb:cc:00:00:23",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_discovery_idempotent",
+        )
+        .expect("first spawn should succeed");
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_discovery_idempotent",
+        )
+        .expect("second spawn should be a no-op without duplicate registry errors");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 1);
     }
 
     fn auto_mode_config() -> Config {

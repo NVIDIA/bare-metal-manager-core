@@ -15,30 +15,56 @@
  * limitations under the License.
  */
 
+use std::mem::discriminant;
+
+use carbide_test_support::{Check, check_values};
 use libmlx::variables::spec::MlxVariableSpec;
 
+// Each builder method produces its matching variant. The old version called
+// `matches!` without asserting -- the booleans were discarded, so it checked
+// nothing. Comparing discriminants restores the check (variant only, no payload).
 #[test]
 fn test_simple_variable_specs() {
-    let boolean_spec = MlxVariableSpec::builder().boolean().build();
-    matches!(boolean_spec, MlxVariableSpec::Boolean);
-
-    let integer_spec = MlxVariableSpec::builder().integer().build();
-    matches!(integer_spec, MlxVariableSpec::Integer);
-
-    let string_spec = MlxVariableSpec::builder().string().build();
-    matches!(string_spec, MlxVariableSpec::String);
-
-    let binary_spec = MlxVariableSpec::builder().binary().build();
-    matches!(binary_spec, MlxVariableSpec::Binary);
-
-    let bytes_spec = MlxVariableSpec::builder().bytes().build();
-    matches!(bytes_spec, MlxVariableSpec::Bytes);
-
-    let array_spec = MlxVariableSpec::builder().array().build();
-    matches!(array_spec, MlxVariableSpec::Array);
-
-    let opaque_spec = MlxVariableSpec::builder().opaque().build();
-    matches!(opaque_spec, MlxVariableSpec::Opaque);
+    check_values(
+        [
+            Check {
+                scenario: "boolean",
+                input: MlxVariableSpec::builder().boolean().build(),
+                expect: discriminant(&MlxVariableSpec::Boolean),
+            },
+            Check {
+                scenario: "integer",
+                input: MlxVariableSpec::builder().integer().build(),
+                expect: discriminant(&MlxVariableSpec::Integer),
+            },
+            Check {
+                scenario: "string",
+                input: MlxVariableSpec::builder().string().build(),
+                expect: discriminant(&MlxVariableSpec::String),
+            },
+            Check {
+                scenario: "binary",
+                input: MlxVariableSpec::builder().binary().build(),
+                expect: discriminant(&MlxVariableSpec::Binary),
+            },
+            Check {
+                scenario: "bytes",
+                input: MlxVariableSpec::builder().bytes().build(),
+                expect: discriminant(&MlxVariableSpec::Bytes),
+            },
+            Check {
+                scenario: "array",
+                input: MlxVariableSpec::builder().array().build(),
+                expect: discriminant(&MlxVariableSpec::Array),
+            },
+            Check {
+                scenario: "opaque",
+                input: MlxVariableSpec::builder().opaque().build(),
+                expect: discriminant(&MlxVariableSpec::Opaque),
+            },
+        ],
+        |spec| discriminant(&spec),
+    );
 }
 
 #[test]

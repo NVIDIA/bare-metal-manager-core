@@ -4,6 +4,9 @@
 
 {% block content %}
 <h1>Explored Managed Hosts ({{ page.total_items() }})</h1>
+
+{% include "missing_credentials_warning.html" %}
+
 <table class="sortable overview">
 	<thead>
 		<tr>

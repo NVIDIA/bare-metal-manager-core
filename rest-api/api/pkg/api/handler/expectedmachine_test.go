@@ -1300,6 +1300,19 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			},
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
+		{
+			name: "invalid BMC MAC address returns 400",
+			id:   testEM.ID.String(),
+			requestBody: model.APIExpectedMachineUpdateRequest{
+				BmcMacAddress: cutil.GetPtr("INVALID-MAC"),
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testEM.ID.String())
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
 	}
 
 	_ = infraProv // Ensure infraProv is used to avoid compiler warning

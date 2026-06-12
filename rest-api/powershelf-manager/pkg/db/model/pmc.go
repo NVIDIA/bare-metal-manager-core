@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
 
 	"github.com/uptrace/bun"
@@ -18,7 +19,7 @@ type PMC struct {
 
 	MacAddress MacAddr           `bun:"mac_address,pk,unique,notnull,type:macaddr"`
 	Vendor     vendor.VendorCode `bun:"vendor,notnull"`
-	IPAddress  IPAddr            `bun:"ip_address,unique,notnull,type:inet"`
+	IPAddress  sqltypes.IPAddr   `bun:"ip_address,unique,notnull,type:inet"`
 }
 
 // Create inserts a new PMC row.

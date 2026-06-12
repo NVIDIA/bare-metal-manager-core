@@ -36,7 +36,9 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_rack::bms_client::BmsDsxExchangeHandle;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
-use carbide_secrets::credentials::CredentialManager;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
+};
 use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
@@ -3430,7 +3432,76 @@ pub(crate) fn truncate(mut s: String, len: usize) -> String {
     s
 }
 
+/// A site-wide default credential that endpoint exploration requires.
+///
+/// Returned by [`Api::missing_default_credentials`] to let the admin UI warn
+/// operators when one of these has not been configured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultCredential {
+    /// Human-friendly name for display in the admin UI
+    /// (e.g. `"Host UEFI password"`).
+    pub display_name: &'static str,
+    /// The credential's key path, shown to operators for reference.
+    pub key: String,
+}
+
+/// Human-friendly label for a site-wide default credential key, for the admin UI.
+fn default_credential_display_name(key: &CredentialKey) -> &'static str {
+    match key {
+        CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        } => "Site-wide BMC root password",
+        CredentialKey::HostUefi {
+            credential_type: CredentialType::SiteDefault,
+        } => "Host UEFI password",
+        CredentialKey::DpuUefi {
+            credential_type: CredentialType::SiteDefault,
+        } => "DPU UEFI password",
+        _ => "Default credential",
+    }
+}
+
 impl Api {
+    /// Returns the site-wide default credentials that gate endpoint exploration
+    /// (the same set validated by the site explorer's `check_preconditions`) but
+    /// are currently unset.
+    ///
+    /// An empty result means every required default credential is configured. A
+    /// credential counts as configured only when a non-empty password is stored.
+    /// Secrets-backend errors are logged and treated as configured, so a
+    /// transient Vault outage does not surface a misleading "not set" warning.
+    ///
+    /// This performs up to three credential-store lookups and is invoked per
+    /// admin-UI page render; that cost is acceptable for the low-traffic admin
+    /// UI. The checked keys are the shared
+    /// [`carbide_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS`],
+    /// which the site explorer's `check_preconditions` also iterates, so the two
+    /// cannot drift apart.
+    pub async fn missing_default_credentials(&self) -> Vec<DefaultCredential> {
+        let mut missing = Vec::new();
+        for key in carbide_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
+            match self.credential_manager.get_credentials(&key).await {
+                // Configured iff a non-empty password is stored.
+                Ok(Some(Credentials::UsernamePassword { password, .. }))
+                    if !password.is_empty() => {}
+                Ok(_) => missing.push(DefaultCredential {
+                    display_name: default_credential_display_name(&key),
+                    key: key.to_key_str().into_owned(),
+                }),
+                Err(err) => {
+                    // A backend error is distinct from a genuinely-unset credential;
+                    // don't raise the "not set" warning on a transient secrets failure.
+                    tracing::warn!(
+                        key = %key.to_key_str(),
+                        %err,
+                        "could not verify default credential presence",
+                    );
+                }
+            }
+        }
+        missing
+    }
+
     // This function can just async when
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented

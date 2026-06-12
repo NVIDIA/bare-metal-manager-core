@@ -15,15 +15,47 @@
  * limitations under the License.
  */
 
+use carbide_test_support::{Check, check_values};
 use libmlx::lockdown::error::MlxError;
 use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
 use libmlx::lockdown::runner::FlintRunner;
 
+// MlxError is not PartialEq, so we can't pin it with Outcome::FailsWith. Map a
+// result to a stable token naming its error variant (or "ok") so a table can
+// assert the variant that IS the contract via plain string equality.
+fn error_kind<T>(result: Result<T, MlxError>) -> &'static str {
+    match result {
+        Ok(_) => "ok",
+        Err(MlxError::CommandFailed(_)) => "CommandFailed",
+        Err(MlxError::DryRun(_)) => "DryRun",
+        Err(MlxError::AlreadyLocked) => "AlreadyLocked",
+        Err(MlxError::AlreadyUnlocked) => "AlreadyUnlocked",
+        Err(_) => "other",
+    }
+}
+
 #[test]
-fn test_lock_status_display() {
-    assert_eq!(LockStatus::Locked.to_string(), "locked");
-    assert_eq!(LockStatus::Unlocked.to_string(), "unlocked");
-    assert_eq!(LockStatus::Unknown.to_string(), "unknown");
+fn lock_status_displays_lowercase_name() {
+    check_values(
+        [
+            Check {
+                scenario: "locked",
+                input: LockStatus::Locked,
+                expect: "locked".to_string(),
+            },
+            Check {
+                scenario: "unlocked",
+                input: LockStatus::Unlocked,
+                expect: "unlocked".to_string(),
+            },
+            Check {
+                scenario: "unknown",
+                input: LockStatus::Unknown,
+                expect: "unknown".to_string(),
+            },
+        ],
+        |status| status.to_string(),
+    );
 }
 
 #[test]
@@ -102,76 +134,106 @@ fn test_device_validation_in_manager() {
     assert!(result.is_err());
 }
 
+// With a fake flint path every operation fails when it tries to execute the tool,
+// surfacing as CommandFailed. Each manager method has its own signature, so the
+// rows feed pre-computed outcomes (mapped to their error variant) through identity.
 #[test]
 fn test_manager_error_handling() {
     let runner = FlintRunner::with_path("/fake/flint");
     let manager = LockdownManager::with_runner(runner);
 
-    // These operations should fail with CommandFailed since we're using a fake runner
-    let lock_result = manager.lock_device("fake_device", "12345678");
-    assert!(matches!(lock_result, Err(MlxError::CommandFailed(_))));
-
-    let unlock_result = manager.unlock_device("fake_device", "12345678");
-    assert!(matches!(unlock_result, Err(MlxError::CommandFailed(_))));
-
-    let status_result = manager.get_status("fake_device");
-    assert!(matches!(status_result, Err(MlxError::CommandFailed(_))));
-
-    let set_key_result = manager.set_device_key("fake_device", "12345678");
-    assert!(matches!(set_key_result, Err(MlxError::CommandFailed(_))));
+    check_values(
+        [
+            Check {
+                scenario: "lock_device",
+                input: error_kind(manager.lock_device("fake_device", "12345678")),
+                expect: "CommandFailed",
+            },
+            Check {
+                scenario: "unlock_device",
+                input: error_kind(manager.unlock_device("fake_device", "12345678")),
+                expect: "CommandFailed",
+            },
+            Check {
+                scenario: "get_status",
+                input: error_kind(manager.get_status("fake_device")),
+                expect: "CommandFailed",
+            },
+            Check {
+                scenario: "set_device_key",
+                input: error_kind(manager.set_device_key("fake_device", "12345678")),
+                expect: "CommandFailed",
+            },
+        ],
+        |kind| kind,
+    );
 }
 
 #[cfg(test)]
 mod dry_run_tests {
     use super::*;
 
+    // A dry-run runner short-circuits every operation with DryRun before touching
+    // flint. Same per-method-signature shape as test_manager_error_handling.
     #[test]
     fn test_dry_run_manager_operations() {
         let runner = FlintRunner::with_path("/fake/flint").with_dry_run(true);
         let manager = LockdownManager::with_runner(runner);
 
-        // Test that all operations return DryRun errors
-        assert!(matches!(
-            manager.lock_device("test_device", "12345678"),
-            Err(MlxError::DryRun(_))
-        ));
-
-        assert!(matches!(
-            manager.unlock_device("test_device", "12345678"),
-            Err(MlxError::DryRun(_))
-        ));
-
-        assert!(matches!(
-            manager.get_status("test_device"),
-            Err(MlxError::DryRun(_))
-        ));
-
-        assert!(matches!(
-            manager.set_device_key("test_device", "12345678"),
-            Err(MlxError::DryRun(_))
-        ));
+        check_values(
+            [
+                Check {
+                    scenario: "lock_device",
+                    input: error_kind(manager.lock_device("test_device", "12345678")),
+                    expect: "DryRun",
+                },
+                Check {
+                    scenario: "unlock_device",
+                    input: error_kind(manager.unlock_device("test_device", "12345678")),
+                    expect: "DryRun",
+                },
+                Check {
+                    scenario: "get_status",
+                    input: error_kind(manager.get_status("test_device")),
+                    expect: "DryRun",
+                },
+                Check {
+                    scenario: "set_device_key",
+                    input: error_kind(manager.set_device_key("test_device", "12345678")),
+                    expect: "DryRun",
+                },
+            ],
+            |kind| kind,
+        );
     }
 
+    // The DryRun error carries the command string that would have run; each
+    // operation's command must mention the flint sub-command plus the arguments
+    // it was handed. A helper pulls the command out of the expected DryRun error.
     #[test]
     fn test_dry_run_commands_contain_expected_parts() {
         let runner = FlintRunner::with_path("/test/flint").with_dry_run(true);
         let manager = LockdownManager::with_runner(runner);
 
-        if let Err(MlxError::DryRun(cmd)) = manager.lock_device("test_device", "12345678") {
-            assert!(cmd.contains("hw_access disable"));
-            assert!(cmd.contains("test_device"));
-            assert!(cmd.contains("12345678"));
+        fn dry_run_command<T: std::fmt::Debug>(result: Result<T, MlxError>) -> String {
+            match result {
+                Err(MlxError::DryRun(cmd)) => cmd,
+                other => panic!("expected DryRun, got {other:?}"),
+            }
         }
 
-        if let Err(MlxError::DryRun(cmd)) = manager.unlock_device("test_device", "abcdef01") {
-            assert!(cmd.contains("hw_access enable"));
-            assert!(cmd.contains("abcdef01"));
-        }
+        let lock_cmd = dry_run_command(manager.lock_device("test_device", "12345678"));
+        assert!(lock_cmd.contains("hw_access disable"));
+        assert!(lock_cmd.contains("test_device"));
+        assert!(lock_cmd.contains("12345678"));
 
-        if let Err(MlxError::DryRun(cmd)) = manager.set_device_key("test_device", "12345678") {
-            assert!(cmd.contains("set_key"));
-            assert!(cmd.contains("12345678"));
-        }
+        let unlock_cmd = dry_run_command(manager.unlock_device("test_device", "abcdef01"));
+        assert!(unlock_cmd.contains("hw_access enable"));
+        assert!(unlock_cmd.contains("abcdef01"));
+
+        let set_key_cmd = dry_run_command(manager.set_device_key("test_device", "12345678"));
+        assert!(set_key_cmd.contains("set_key"));
+        assert!(set_key_cmd.contains("12345678"));
     }
 }
 
@@ -218,33 +280,46 @@ mod mock_runner_tests {
         }
     }
 
+    // disable_hw_access / enable_hw_access succeed by default and surface the
+    // matching "already" error only when the mock is primed for that state.
     #[test]
-    fn test_already_locked_behavior() {
-        // Test that when flint returns "already disabled", we get an AlreadyLocked error
-        let mock_runner = MockRunner::new().with_already_locked();
-
-        let result = mock_runner.disable_hw_access("test_device", "12345678");
-        assert!(matches!(result, Err(MlxError::AlreadyLocked)));
-    }
-
-    #[test]
-    fn test_already_unlocked_behavior() {
-        // Test that when flint returns "already enabled", we get an AlreadyUnlocked error
-        let mock_runner = MockRunner::new().with_already_unlocked();
-
-        let result = mock_runner.enable_hw_access("test_device", "12345678");
-        assert!(matches!(result, Err(MlxError::AlreadyUnlocked)));
-    }
-
-    #[test]
-    fn test_successful_operations() {
-        // Test that normal operations succeed
-        let mock_runner = MockRunner::new();
-
-        let lock_result = mock_runner.disable_hw_access("test_device", "12345678");
-        assert!(lock_result.is_ok());
-
-        let unlock_result = mock_runner.enable_hw_access("test_device", "12345678");
-        assert!(unlock_result.is_ok());
+    fn mock_runner_reports_already_state_else_succeeds() {
+        check_values(
+            [
+                Check {
+                    scenario: "disable on a primed-locked device is AlreadyLocked",
+                    input: error_kind(
+                        MockRunner::new()
+                            .with_already_locked()
+                            .disable_hw_access("test_device", "12345678"),
+                    ),
+                    expect: "AlreadyLocked",
+                },
+                Check {
+                    scenario: "enable on a primed-unlocked device is AlreadyUnlocked",
+                    input: error_kind(
+                        MockRunner::new()
+                            .with_already_unlocked()
+                            .enable_hw_access("test_device", "12345678"),
+                    ),
+                    expect: "AlreadyUnlocked",
+                },
+                Check {
+                    scenario: "disable on a fresh device succeeds",
+                    input: error_kind(
+                        MockRunner::new().disable_hw_access("test_device", "12345678"),
+                    ),
+                    expect: "ok",
+                },
+                Check {
+                    scenario: "enable on a fresh device succeeds",
+                    input: error_kind(
+                        MockRunner::new().enable_hw_access("test_device", "12345678"),
+                    ),
+                    expect: "ok",
+                },
+            ],
+            |kind| kind,
+        );
     }
 }

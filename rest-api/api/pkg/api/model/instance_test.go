@@ -2258,50 +2258,6 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 	}
 }
 
-func Test_getAggregatedInstanceStatus(t *testing.T) {
-	type args struct {
-		status      string
-		powerStatus *string
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{
-			name: "test get aggregated Instance status when Instance status is not Ready",
-			args: args{
-				status:      cdbm.InstanceStatusPending,
-				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstanceStatusPending,
-		},
-		{
-			name: "test get aggregated Instance status when Instance status is Ready and power status is Rebooting",
-			args: args{
-				status:      cdbm.InstanceStatusReady,
-				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstancePowerStatusRebooting,
-		},
-		{
-			name: "test get aggregated Instance status when Instance status is Ready and power status is Error",
-			args: args{
-				status:      cdbm.InstanceStatusReady,
-				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusError),
-			},
-			want: cdbm.InstancePowerStatusError,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getAggregatedInstanceStatus(tt.args.status, tt.args.powerStatus); got != tt.want {
-				t.Errorf("getAggregatedInstanceStatus() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestAPIInstanceDeleteRequest_Validate(t *testing.T) {
 	type fields struct {
 		MachineHealthIssue *APIMachineHealthIssue

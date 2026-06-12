@@ -37,4 +37,4 @@ Prerequisites (must exist before install):
 
 Site Agent:
   Site agent is deployed as a separate chart (nico-rest-site-agent).
-  See helm/charts/nico-rest-site-agent/ for details.
+  See helm/rest/nico-rest-site-agent/ for details.

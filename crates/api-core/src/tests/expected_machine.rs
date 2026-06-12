@@ -2181,6 +2181,60 @@ fn test_expected_machine_data_rejects_invalid_host_nic_fixed_ip() {
 }
 
 #[test]
+fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_gateway() {
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "IPV6-HOST-NIC-FIXED-GATEWAY".into(),
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
+            fixed_gateway: Some("2001:db8::1".to_string()),
+            ..Default::default()
+        }],
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
+
+    assert_eq!(
+        data.host_nics[0].fixed_gateway,
+        Some("2001:db8::1".parse().unwrap())
+    );
+}
+
+#[test]
+fn test_expected_machine_data_rejects_invalid_host_nic_fixed_gateway() {
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "INVALID-HOST-NIC-FIXED-GATEWAY".into(),
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
+            fixed_gateway: Some("not-a-valid-ip".to_string()),
+            ..Default::default()
+        }],
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let err = match ExpectedMachineData::try_from(expected_machine) {
+        Ok(_) => panic!("invalid host NIC fixed gateway should fail conversion"),
+        Err(err) => err,
+    };
+
+    assert!(err.to_string().contains("Invalid fixed gateway"));
+}
+
+#[test]
 fn test_expected_machine_data_rejects_invalid_host_nic_mac_address() {
     let expected_machine = rpc::forge::ExpectedMachine {
         bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),

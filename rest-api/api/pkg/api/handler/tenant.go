@@ -302,7 +302,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 
 	// Get Instance stats for this org tenant
 	inDAO := cdbm.NewInstanceDAO(gcth.dbSession)
-	instanceStatsMap, err := inDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(tns[0].ID), nil)
+	instanceStats, err := inDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(tns[0].ID), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Instance stats for this org's tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instance stats", nil)
@@ -317,7 +317,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiTenantStats := model.NewAPITenantStats(instanceStatsMap, vpcStatsMap, subnetStatsMap, taStatsMap)
+	apiTenantStats := model.NewAPITenantStats(instanceStats, vpcStatsMap, subnetStatsMap, taStatsMap)
 	logger.Info().Msg("finishing API handler")
 
 	return c.JSON(http.StatusOK, apiTenantStats)

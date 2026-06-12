@@ -27,8 +27,7 @@ use carbide_health::processor::{
     RackLeakProcessor,
 };
 use carbide_health::sink::{
-    CollectorEvent, CompositeDataSink, DataSink, EventContext, SensorHealthContext,
-    SensorHealthData,
+    CollectorEvent, CompositeDataSink, DataSink, EventContext, MetricSample, SensorThresholdContext,
 };
 use carbide_uuid::rack::RackId;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -123,7 +122,7 @@ fn metric_events(
             let sensor_name = format!("sensor-{sensor_idx}");
             let reading = 20.0 + ((idx % 90) as f64);
 
-            let mut metric = SensorHealthData {
+            let mut metric = MetricSample {
                 key: sensor_name.clone(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -137,7 +136,7 @@ fn metric_events(
             };
 
             if with_health_context {
-                metric.context = Some(SensorHealthContext {
+                metric.context = Some(SensorThresholdContext {
                     entity_type: "sensor".to_string(),
                     sensor_id: sensor_name,
                     upper_fatal: Some(90.0),

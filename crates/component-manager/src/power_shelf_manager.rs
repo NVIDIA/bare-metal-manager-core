@@ -11,6 +11,26 @@ use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
 
+/// Selects which `PowerShelfManager` backend is used
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    Psm,
+    #[default]
+    Rms,
+    Mock,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Psm => f.write_str("psm"),
+            Self::Rms => f.write_str("rms"),
+            Self::Mock => f.write_str("mock"),
+        }
+    }
+}
+
 /// Physical network identifiers for a power shelf, used to register with and
 /// operate against the backend service (PSM).
 #[derive(Debug, Clone)]

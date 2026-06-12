@@ -34,8 +34,8 @@ mod tracing;
 pub use composite::CompositeDataSink;
 pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, LogRecord, Probe, ReportSource, SensorHealthContext,
-    SensorHealthData,
+    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
+    SensorThresholdContext,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
@@ -65,8 +65,8 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::{
-        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, PrometheusSink,
-        SensorHealthData,
+        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, MetricSample,
+        PrometheusSink,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
@@ -125,7 +125,7 @@ mod tests {
         };
 
         let event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "key".to_string(),
                 name: "metric".to_string(),
                 metric_type: "gauge".to_string(),
@@ -184,7 +184,7 @@ mod tests {
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
         let metric_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -237,7 +237,7 @@ mod tests {
         };
 
         let metric_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -294,7 +294,7 @@ mod tests {
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
         let s1_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "s1".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),
@@ -317,7 +317,7 @@ mod tests {
         let start_event = CollectorEvent::MetricCollectionStart;
         sink.handle_event(&context, &start_event);
         let s2_event = CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key: "s2".to_string(),
                 name: "hw_sensor".to_string(),
                 metric_type: "temperature".to_string(),

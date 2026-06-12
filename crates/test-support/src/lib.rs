@@ -97,6 +97,32 @@
 //! # }
 //! ```
 //!
+//! # A plain value (no `Result`)
+//!
+//! When the operation returns a plain value rather than a `Result` — a `bool`
+//! predicate, a getter — use [`check_values`] with [`Check`]. There's no
+//! [`Outcome`] to dress up; `expect` is just the value:
+//!
+//! ```
+//! use carbide_test_support::{Check, check_values};
+//!
+//! check_values(
+//!     [
+//!         Check {
+//!             scenario: "even",
+//!             input: 4,
+//!             expect: true,
+//!         },
+//!         Check {
+//!             scenario: "odd",
+//!             input: 7,
+//!             expect: false,
+//!         },
+//!     ],
+//!     |n| n % 2 == 0,
+//! );
+//! ```
+//!
 //! # What's shared, and what stays a convention
 //!
 //! [`Outcome`] is the one piece worth sharing — every fallible test otherwise
@@ -212,10 +238,47 @@ where
     }
 }
 
+/// One row of a *total* table test: a labeled `input` and the plain value the
+/// operation is expected to return. The counterpart to [`Case`] for an operation
+/// that can't fail — a predicate, a getter, any `fn(I) -> T`.
+pub struct Check<I, T> {
+    /// What this row exercises; used as the failure label.
+    pub scenario: &'static str,
+    /// The input handed to the operation under test.
+    pub input: I,
+    /// The value the operation should return.
+    pub expect: T,
+}
+
+impl<I, T> Check<I, T> {
+    /// Run this check's `input` through `run` and assert it returns `expect`,
+    /// naming a failure by `scenario`. The single-row counterpart to
+    /// [`check_values`].
+    pub fn check(self, run: impl FnOnce(I) -> T)
+    where
+        T: PartialEq + Debug,
+    {
+        assert_eq!(run(self.input), self.expect, "{}", self.scenario);
+    }
+}
+
+/// Run each check's `input` through `run` and assert the returned value equals its
+/// `expect`. The total-function counterpart to [`check_cases`]: reach for it when
+/// the operation under test returns a plain value — a `bool` predicate, a getter —
+/// rather than a `Result`.
+pub fn check_values<I, T>(checks: impl IntoIterator<Item = Check<I, T>>, run: impl Fn(I) -> T)
+where
+    T: PartialEq + Debug,
+{
+    for check in checks {
+        check.check(&run);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Outcome::*;
-    use super::{Case, assert_outcome, check_cases};
+    use super::{Case, Check, assert_outcome, check_cases, check_values};
 
     #[test]
     fn check_runs_a_single_case() {
@@ -244,6 +307,46 @@ mod tests {
             ],
             |n| n.checked_mul(2).ok_or("overflow"),
         );
+    }
+
+    #[test]
+    fn check_values_runs_every_row() {
+        check_values(
+            [
+                Check {
+                    scenario: "even",
+                    input: 4,
+                    expect: true,
+                },
+                Check {
+                    scenario: "odd",
+                    input: 7,
+                    expect: false,
+                },
+            ],
+            |n| n % 2 == 0,
+        );
+    }
+
+    #[test]
+    fn check_runs_a_single_value() {
+        Check {
+            scenario: "doubles",
+            input: 21,
+            expect: 42,
+        }
+        .check(|n| n * 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "the value is wrong")]
+    fn flags_an_unexpected_value() {
+        Check {
+            scenario: "the value is wrong",
+            input: 1,
+            expect: 2,
+        }
+        .check(|n| n);
     }
 
     #[test]

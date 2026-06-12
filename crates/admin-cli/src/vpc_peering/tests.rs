@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -48,113 +50,119 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_create ensures create parses with two VPC IDs.
+// parse_create ensures create parses two positional VPC IDs into the Create
+// variant, preserving each id in order.
 #[test]
 fn parse_create() {
-    let cmd = Cmd::try_parse_from(["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2])
-        .expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.vpc1_id.to_string(), TEST_VPC_ID_1);
-            assert_eq!(args.vpc2_id.to_string(), TEST_VPC_ID_2);
-        }
-        _ => panic!("expected Create variant"),
-    }
+    check_cases(
+        [Case {
+            scenario: "create with two VPC IDs",
+            input: &["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2][..],
+            expect: Yields((TEST_VPC_ID_1.to_string(), TEST_VPC_ID_2.to_string())),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (args.vpc1_id.to_string(), args.vpc2_id.to_string()),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_no_args ensures show parses with no arguments.
+// parse_show covers the Show variant's optional selectors: no args, --id alone,
+// and --vpc-id alone each parse, yielding which of (id, vpc_id) is set.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["vpc-peering", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(args.vpc_id.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
+fn parse_show() {
+    check_cases(
+        [
+            Case {
+                scenario: "no arguments",
+                input: &["vpc-peering", "show"][..],
+                expect: Yields((false, false)),
+            },
+            Case {
+                scenario: "with --id",
+                input: &["vpc-peering", "show", "--id", TEST_PEERING_ID][..],
+                expect: Yields((true, false)),
+            },
+            Case {
+                scenario: "with --vpc-id",
+                input: &["vpc-peering", "show", "--vpc-id", TEST_VPC_ID_1][..],
+                expect: Yields((false, true)),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.id.is_some(), args.vpc_id.is_some()),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_with_id ensures show parses with --id.
-#[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["vpc-peering", "show", "--id", TEST_PEERING_ID])
-        .expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_some());
-            assert!(args.vpc_id.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_show_with_vpc_id ensures show parses with --vpc-id.
-#[test]
-fn parse_show_with_vpc_id() {
-    let cmd = Cmd::try_parse_from(["vpc-peering", "show", "--vpc-id", TEST_VPC_ID_1])
-        .expect("should parse show with vpc-id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(args.vpc_id.is_some());
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_show_id_and_vpc_id_conflict ensures show fails
-// with both --id and --vpc-id.
-#[test]
-fn parse_show_id_and_vpc_id_conflict() {
-    let result = Cmd::try_parse_from([
-        "vpc-peering",
-        "show",
-        "--id",
-        TEST_PEERING_ID,
-        "--vpc-id",
-        TEST_VPC_ID_1,
-    ]);
-    assert!(result.is_err(), "should fail with both --id and --vpc-id");
-}
-
-// parse_delete ensures delete parses with --id.
+// parse_delete ensures delete parses with --id into the Delete variant,
+// preserving the peering id.
 #[test]
 fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["vpc-peering", "delete", "--id", TEST_PEERING_ID])
-        .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.id.to_string(), TEST_PEERING_ID);
-        }
-        _ => panic!("expected Delete variant"),
-    }
+    check_cases(
+        [Case {
+            scenario: "delete with --id",
+            input: &["vpc-peering", "delete", "--id", TEST_PEERING_ID][..],
+            expect: Yields(TEST_PEERING_ID.to_string()),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => args.id.to_string(),
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_delete_missing_id_fails ensures delete fails without --id.
+// Every malformed invocation is rejected at parse time -- conflicting selectors
+// on show, or a required argument left off create/delete.
 #[test]
-fn parse_delete_missing_id_fails() {
-    let result = Cmd::try_parse_from(["vpc-peering", "delete"]);
-    assert!(result.is_err(), "should fail without --id");
-}
-
-// parse_create_missing_vpc_ids_fails ensures create fails
-// without VPC IDs.
-#[test]
-fn parse_create_missing_vpc_ids_fails() {
-    let result = Cmd::try_parse_from(["vpc-peering", "create"]);
-    assert!(result.is_err(), "should fail without VPC IDs");
-}
-
-// parse_create_missing_second_vpc_id_fails ensures create
-// fails with only one VPC ID.
-#[test]
-fn parse_create_missing_second_vpc_id_fails() {
-    let result = Cmd::try_parse_from(["vpc-peering", "create", TEST_VPC_ID_1]);
-    assert!(result.is_err(), "should fail with only one VPC ID");
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [
+            Case {
+                scenario: "show with both --id and --vpc-id",
+                input: &[
+                    "vpc-peering",
+                    "show",
+                    "--id",
+                    TEST_PEERING_ID,
+                    "--vpc-id",
+                    TEST_VPC_ID_1,
+                ][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "delete without --id",
+                input: &["vpc-peering", "delete"][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "create without VPC IDs",
+                input: &["vpc-peering", "create"][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "create with only one VPC ID",
+                input: &["vpc-peering", "create", TEST_VPC_ID_1][..],
+                expect: Fails,
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
+    );
 }
