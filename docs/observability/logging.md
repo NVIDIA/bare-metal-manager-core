@@ -1,96 +1,502 @@
 # NICo Logging
 
-How NICo services emit logs, the structured fields each line carries, and how to set log levels.
+How NICo components emit logs, where they go, what format they use and how to tune them.
 
 ---
 
 ## TL;DR
 
-- **Most** NICo services log in **[logfmt](https://brandur.org/logfmt)** (`key=value` pairs) to **stdout**;
-  a few use other formats (e.g. `nico-dns` emits JSON — see [Coverage](#coverage)).
-- Every **logfmt** line begins with `level=` and carries a **`component=`** field identifying the emitting
-  component, so logs can be filtered by component instead of grepping the message text.
-- Log verbosity is controlled by `RUST_LOG` (default `info`).
-- For distributed **tracing** (spans exported via OTLP), see [Traces](tracing.md).
+- All NICo components log to **stdout**. In Kubernetes the kubelet writes container stdout to
+  files under `/var/log/pods/`, where a collector (typically an OpenTelemetry Collector DaemonSet)
+  picks them up.
+- Most components use **logfmt** (key=value pairs). **nico-dns** uses JSON. **nico-ssh-console**
+  uses a compact single-line format. **nico-pxe** uses plain text.
+- Default log level is **INFO**. Override at startup with `RUST_LOG` or the `--debug` flag.
+- **nico-api** supports **runtime log-level changes** via `nico-admin-cli set log-filter`. Changes
+  auto-expire (default 1 hour) and revert to the startup level - useful for time-boxed debugging
+  without forgetting to turn verbosity back down.
+- Centralized logging uses a **pull model**: a DaemonSet collector reads pod log files and ships
+  them to your backend (Loki, Elasticsearch, VictoriaLogs, Datadog, etc.).
 
-## Log format
+---
 
-There are two kinds of line.
+## 1. Where logs go
 
-**Events** — one per log call:
+Every NICo binary writes logs to **stdout**. There is no file-based logging option - the
+expectation is Kubernetes-native log collection.
+
+In a Kubernetes cluster:
+
+1. The container runtime captures stdout and writes it to a log file under
+   `/var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log`.
+2. A log collector (DaemonSet) tails those files and forwards entries to a backend.
+
+This is the standard Kubernetes pattern. NICo does not require any special log driver or
+sidecar - just configure your collector to read pod logs.
+
+---
+
+## 2. Which components log and in what format
+
+| Component | Binary | Log format | Notes |
+|-----------|--------|------------|-------|
+| **nico-api** | `carbide-api` | logfmt | Primary control plane. Supports runtime level changes. |
+| **nico-dns** | `carbide-dns` | JSON | DNS resolution service. |
+| **nico-dhcp** | `carbide-dhcp-server` | logfmt | DHCP server for PXE boot. |
+| **nico-pxe** | `carbide-pxe` | plain text | iPXE boot service. Minimal logging. |
+| **nico-bmc-proxy** | `carbide-bmc-proxy` | logfmt | BMC credential proxy. |
+| **nico-hardware-health** | `carbide-hw-health` | logfmt | Hardware health monitoring. |
+| **nico-ssh-console** | `carbide-ssh-console-rs` | compact | SSH console access service. Also captures machine/DPU console output to files (see 2.5). |
+| **nico-dsx-exchange-consumer** | `carbide-dsx-exchange-consumer` | logfmt | DSX message consumer. |
+
+### 2.1 logfmt format
+
+Most NICo components use [logfmt](https://brandur.org/logfmt) - a line-oriented format of
+space-separated `key=value` pairs, easy for both humans and machines to parse:
+
 ```
-level=INFO component=nico-api span_id=0x4f… msg="…" location="crates/api-core/src/…"
+level=INFO msg="Starting reconciliation" machine_id=abc-123 state=provisioning location="handlers/machine.rs:142"
+level=DEBUG span_id=7f3a msg="BMC power status" power_state=on location="bmc_session_manager.rs:89"
+level=SPAN timing_start_time="2026-01-15T10:23:45Z" timing_busy_ns=1523000 name="power_control" location="component_manager.rs:312"
 ```
 
-**Spans** — emitted when a unit of work closes (`level=SPAN`), carrying the span name, id, its attributes,
-and timing:
-```
-level=SPAN component=site-explorer span_id=0xf7… span_name=explore_site timing_elapsed_us=… timing_busy_ns=… timing_idle_ns=…
+Common fields:
+
+| Field | Description |
+|-------|-------------|
+| `level` | Log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SPAN` for span lifecycle events. |
+| `msg` | Human-readable message. |
+| `span_id` | Correlation ID linking events within the same operation. |
+| `location` | Source file and line number (`file.rs:line`). |
+| `timing_*` | Span timing fields: `timing_start_time`, `timing_busy_ns`, `timing_idle_ns`. |
+
+The logfmt layer is implemented in the `logfmt` crate (`crates/logfmt`). It emits span lifecycle
+events (open/close) as `level=SPAN` lines with timing data - useful for identifying slow operations
+without enabling full distributed tracing.
+
+### 2.2 JSON format (nico-dns)
+
+nico-dns uses `tracing-subscriber`'s JSON formatter. Each line is a self-contained JSON object:
+
+```json
+{"timestamp":"2026-01-15T10:23:45.123Z","level":"INFO","target":"carbide_dns","message":"DNS query","query_type":"A","name":"host1.example.com"}
 ```
 
-Common keys: `level`, `component`, `msg`, `location` (`file:line`); `span_id` when the line is inside a
-span; plus any structured fields the call site adds (e.g. `controller=`, `object_id=`).
+### 2.3 Compact format (nico-ssh-console)
 
-## Log level
+nico-ssh-console uses `tracing-subscriber`'s compact formatter - a human-readable single-line
+format similar to traditional log output:
 
-Verbosity is an [`EnvFilter`](https://docs.rs/tracing-subscriber) directive set from `RUST_LOG`, defaulting
-to `info`:
 ```
+2026-01-15T10:23:45.123Z  INFO carbide_ssh_console: Session started session_id=abc-123
+```
+
+### 2.4 Plain text (nico-pxe)
+
+nico-pxe uses `println!` for startup messages and request logging middleware. Output is
+unstructured plain text.
+
+### 2.5 Machine console logs (nico-ssh-console)
+
+In addition to its own service logs (compact format on stdout), nico-ssh-console captures
+**machine and DPU serial console output** to local files. This is separate from the service's
+tracing output.
+
+When a BMC console session is established, nico-ssh-console streams the serial output to a
+per-machine log file:
+
+```
+/var/log/consoles/<machine-id>_<bmc-ip>.log
+```
+
+Key details:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `console_logs_path` | `/var/log/consoles` | Directory for console log files. |
+| `console_logging_enabled` | `true` | Enable/disable console capture. |
+| `log_rotate_max_size` | 10 MiB | Rotate when file exceeds this size. |
+| `log_rotate_max_rotated_files` | 4 | Keep up to 4 rotated files (`.log.0` through `.log.3`). |
+
+The console logger strips ANSI escape sequences and adds timestamps at session start/stop.
+Rotation happens automatically - old logs are renamed with numeric suffixes and the oldest
+is deleted when the limit is reached.
+
+These files contain raw machine boot output, kernel messages and anything else that appears
+on the serial console. They are useful for debugging boot failures, kernel panics and
+hardware issues.
+
+> **Centralizing console logs**: The nico-ssh-console Helm chart includes an optional
+> OpenTelemetry Collector sidecar (`lokiLogCollector.enabled: true`) that ships console logs
+> to Loki. The sidecar reads from `/var/log/consoles/*.log`, extracts the machine ID and BMC
+> IP from filenames, and exports to your Loki endpoint. To use a different backend, customize
+> the `configFiles.otelcolConfig` value in the chart. A separate document covers machine log
+> collection workflows in detail.
+
+---
+
+## 3. How to tune log levels
+
+### 3.1 At startup: RUST_LOG and --debug
+
+All components respect the `RUST_LOG` environment variable, which uses `tracing-subscriber`'s
+[`EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)
+syntax:
+
+```bash
+# Global level
 RUST_LOG=debug
-RUST_LOG=info,carbide_site_explorer=debug   # raise one module
-```
-`nico-api` can also adjust its filter at runtime via `nico-admin-cli set log-filter`.
 
-## The `component` field
+# Per-module levels
+RUST_LOG=info,carbide_api_core::handlers=debug,sqlx=warn
 
-On logfmt lines, NICo sets the `component` field to one of the following:
-
-```
-nico-api                       — API handlers, DB, startup: anything not in a subsystem below
-├── site-explorer
-├── machine_state_controller
-├── switch_controller
-├── rack_controller
-├── power_shelf_controller
-├── network_segments_controller
-├── vpc_prefix_controller
-├── ib_partition_controller
-└── attestation_controller
-nico-bmc-proxy
-nico-dhcp
-nico-dsx-exchange-consumer
-nico-fmds
-nico-hardware-health
-nico-rvs
-nico-test-artifact-cache
-nico-dpu-agent
-nico-scout
+# Combined
+RUST_LOG=info,carbide=debug,hyper=error
 ```
 
-State-controller lines also carry a `controller=<name>` field with the same value.
+Several binaries also accept a `--debug` flag that sets the default level to DEBUG (equivalent
+to `RUST_LOG=debug` if `RUST_LOG` is unset):
 
-### Adding it to new code
+```bash
+carbide-api run --debug -c /etc/carbide/config.toml
+carbide-bmc-proxy --debug --config-path /etc/carbide/bmc-proxy.toml
+```
 
-- **New binary** — set the default when building the `logfmt` layer:
-  `logfmt::layer().with_event_fields([logfmt::EventField::with_default("component", "nico-my-service")])`
-  — or pass the name to `carbide_host_support::init_logging("nico-my-service")` if the binary uses that
-  helper. A binary that omits this sets no default `component`.
-- **New in-process subsystem of `nico-api`** — add a `component` field to the subsystem's root span:
-  `tracing::span!(parent: None, Level::INFO, "my_subsystem", component = "my-subsystem", /* … */)`. Nested
-  instrumented functions and spawned tasks carried with `.instrument(...)` / `.in_current_span()` inherit it.
+**Default log level** is INFO for all components.
 
-> **By convention, NICo uses the `component` key for the emitting component** — don't reuse the key for
-> unrelated data; give domain values their own key.
+#### Noisy dependencies
 
-### Coverage
+NICo components automatically suppress verbose output from common dependencies. For example,
+nico-api applies these directives by default:
 
-Binaries that do not use the `logfmt` layer carry no `component`: `nico-dns` (emits JSON), `nico-pxe`
-(hand-rolled formatter), `nico-ssh-console`, `nico-dpu-otel-agent`. CLI/dev tools and mocks are out of scope.
+```
+sqlxmq::runner=warn,sqlx::query=warn,rustify=off,hyper=error,rustls=warn,h2=warn,vaultrs=error
+```
 
-## Querying
+Your `RUST_LOG` directives are merged with these defaults, so you don't need to manually
+silence framework noise.
 
-Parse the logfmt line and filter on the field in whatever store the logs land in. For example, with logql
-(Loki):
+### 3.2 At runtime: nico-admin-cli (nico-api only)
+
+nico-api supports **live log-level changes** without a restart. This is useful for debugging
+production issues - you can increase verbosity temporarily, then let it automatically revert.
+
+```bash
+# Increase verbosity for 1 hour (default expiry)
+nico-admin-cli set log-filter -f "debug"
+
+# Target specific modules for 30 minutes
+nico-admin-cli set log-filter -f "info,carbide_api_core::handlers::machine=debug" --expiry 30min
+
+# Very verbose, short window
+nico-admin-cli set log-filter -f "trace,h2=warn,hyper=warn" --expiry 5min
+```
+
+When the expiry elapses, the log filter **automatically reverts** to the startup value. This
+prevents accidentally leaving debug logging on and filling your storage.
+
+#### How it works
+
+The admin CLI calls a gRPC endpoint on nico-api that updates the `EnvFilter` in the running
+process. The new filter applies immediately to all subsequent log events - no restart, no
+config file change. Under the hood, `tracing-subscriber`'s `reload::Handle` swaps the active
+filter.
+
+**Scope**: runtime log-level changes affect **nico-api only**. Other components (nico-dns,
+nico-dhcp, etc.) require a restart to change log levels.
+
+### 3.3 Kubernetes deployment
+
+Set `RUST_LOG` in your pod spec or Helm values:
+
+```yaml
+# Pod spec
+spec:
+  containers:
+    - name: nico-api
+      env:
+        - name: RUST_LOG
+          value: "info,carbide=debug"
+
+# Or via Helm values
+env:
+  RUST_LOG: "info,carbide=debug"
+```
+
+For temporary debugging, use `nico-admin-cli` to avoid redeploying:
+
+```bash
+kubectl exec -it deploy/nico-api -- nico-admin-cli set log-filter -f "debug" --expiry 15min
+```
+
+---
+
+## 4. Centralizing logs with OpenTelemetry Collector
+
+The recommended approach for centralized logging is an **OpenTelemetry Collector DaemonSet** that
+reads pod log files and exports them to your backend. This is the standard Kubernetes pattern
+and works with any OTLP-compatible backend: Grafana Loki, Elasticsearch, VictoriaLogs, Datadog,
+Splunk, etc.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Node                                                                   │
+│  ┌──────────────┐    stdout    ┌──────────────┐                         │
+│  │   NICo Pod   │ ──────────▶  │  /var/log/   │                         │
+│  │  (nico-api)  │              │   pods/...   │                         │
+│  └──────────────┘              └──────┬───────┘                         │
+│                                       │                                 │
+│                                       ▼ filelog receiver                │
+│                              ┌────────────────────┐                     │
+│                              │   otel-collector   │                     │
+│                              │    (DaemonSet)     │                     │
+│                              └─────────┬──────────┘                     │
+└────────────────────────────────────────┼────────────────────────────────┘
+                                         │ OTLP / Loki API / etc.
+                                         ▼
+                              ┌────────────────────┐
+                              │   Logs Backend     │
+                              │ (Loki, ES, VL...)  │
+                              └────────────────────┘
+```
+
+### 4.1 Collector configuration
+
+Below is a reference OpenTelemetry Collector configuration for collecting NICo logs. Adapt
+the exporter section for your backend.
+
+```yaml
+# otel-collector-config.yaml
+mode: daemonset
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+presets:
+  kubernetesAttributes:
+    enabled: true      # Adds k8s metadata (pod name, namespace, etc.)
+  logsCollection:
+    enabled: true      # Enables filelog receiver for pod logs
+
+config:
+  receivers:
+    filelog:
+      include:
+        - /var/log/pods/*/*/*.log
+      exclude:
+        # Exclude collector's own logs to avoid feedback loops
+        - /var/log/pods/*/opentelemetry-collector*/*.log
+      # The logsCollection preset configures parsing of container log format
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 20
+
+    batch:
+      send_batch_size: 1024
+      timeout: 5s
+
+    # Add component label for NICo pods
+    resource:
+      attributes:
+        - action: insert
+          key: component
+          value: "nico"
+          # Only apply to NICo namespaces (adjust pattern as needed)
+        - action: insert
+          key: service.name
+          from_attribute: k8s.container.name
+
+  exporters:
+    # === Choose your backend ===
+
+    # Option A: Grafana Loki
+    loki:
+      endpoint: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
+      default_labels_enabled:
+        exporter: false
+
+    # Option B: Elasticsearch / OpenSearch
+    # elasticsearch:
+    #   endpoints: ["https://elasticsearch.elastic.svc.cluster.local:9200"]
+    #   logs_index: "nico-logs"
+    #   tls:
+    #     insecure: false
+    #     ca_file: /etc/otel/certs/ca.crt
+
+    # Option C: OTLP (Datadog, Splunk, VictoriaLogs, etc.)
+    # otlp:
+    #   endpoint: <your-otlp-endpoint>:4317
+    #   tls:
+    #     insecure: false
+
+  service:
+    pipelines:
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, resource, batch]
+        exporters: [loki]   # Change to your exporter
+```
+
+### 4.2 Extracting structured fields
+
+Since most NICo components use logfmt, you can parse structured fields at the collector level.
+This makes fields like `level`, `msg`, `machine_id`, etc. available for filtering and querying
+in your backend.
+
+Add a transform processor to parse logfmt:
+
+```yaml
+processors:
+  transform/parse-logfmt:
+    log_statements:
+      - context: log
+        statements:
+          # Parse logfmt body into attributes
+          # This regex extracts key=value pairs, handling quoted values
+          - merge_maps(attributes, ParseKeyValue(body, "=", " "), "upsert")
+            where IsMatch(body, "^level=")
+```
+
+Or use the `logfmt` parser in the filelog receiver for nico components specifically:
+
+```yaml
+receivers:
+  filelog:
+    include:
+      - /var/log/pods/nico-*/*/*.log
+    operators:
+      - type: container
+      - type: regex_parser
+        if: 'body matches "^level="'
+        regex: 'level=(?P<level>\w+)\s+(?:msg="(?P<msg>[^"]*)")?\s*(?P<rest>.*)'
+        parse_to: attributes
+```
+
+### 4.3 Filtering and sampling
+
+For high-volume deployments, consider filtering or sampling logs at the collector:
+
+```yaml
+processors:
+  filter/drop-debug:
+    logs:
+      exclude:
+        match_type: regexp
+        bodies:
+          - '^level=DEBUG'
+          - '^level=TRACE'
+
+  # Or probabilistic sampling
+  probabilistic_sampler:
+    sampling_percentage: 10   # Keep 10% of logs
+```
+
+### 4.4 Backend-specific notes
+
+#### Grafana Loki
+
+Loki works well with logfmt - it can parse key=value pairs natively in queries using
+`| logfmt`. Set `loki.format: raw` in the resource processor to send logs unparsed, letting
+Loki handle parsing at query time:
+
+```yaml
+processors:
+  resource:
+    attributes:
+      - action: insert
+        key: loki.format
+        value: raw
+      - action: insert
+        key: loki.resource.labels
+        value: k8s.namespace.name, k8s.pod.name, k8s.container.name
+```
+
+Query example:
 ```logql
-{namespace="nico-system"} | logfmt | component="site-explorer"
+{k8s_container_name="nico-api"} | logfmt | level="ERROR"
 ```
+
+#### Elasticsearch / OpenSearch
+
+Parse logfmt at ingest time (in the collector or an ingest pipeline) to get structured
+documents. This enables efficient field-based queries and aggregations.
+
+#### VictoriaLogs
+
+VictoriaLogs accepts OTLP logs. Use the `otlphttp` exporter:
+
+```yaml
+exporters:
+  otlphttp:
+    endpoint: http://victorialogs.monitoring.svc.cluster.local:9428/insert/opentelemetry/v1/logs
+```
+
+#### Datadog
+
+Use the Datadog exporter or OTLP endpoint. Datadog automatically parses common log formats.
+
+---
+
+## 5. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No logs from a component | Container not running, or stdout not captured | `kubectl logs <pod>` to verify. Check container status. |
+| Logs not reaching backend | Collector not running, or exporter misconfigured | Check collector logs: `kubectl logs -l app=opentelemetry-collector`. Verify exporter endpoint. |
+| Missing fields in backend | logfmt not parsed | Add a transform processor to parse logfmt, or query with `| logfmt` in Loki. |
+| Too many DEBUG logs | `RUST_LOG` set too verbose, or runtime filter left on | Check `RUST_LOG` env var. For nico-api, runtime filter auto-expires; wait or set a less verbose filter. |
+| Log level change didn't take effect | Changed wrong component, or typo in filter | Runtime changes only work for nico-api. Verify filter syntax matches `EnvFilter` rules. |
+| Logs are truncated | Log line too long for collector buffer | Increase `max_log_size` in filelog receiver config. |
+
+### Verifying log output
+
+To see raw logs from a NICo component:
+
+```bash
+# Stream logs from nico-api
+kubectl logs -f deploy/nico-api
+
+# Last 100 lines from nico-dns
+kubectl logs --tail=100 deploy/nico-dns
+
+# All containers in a pod
+kubectl logs <pod-name> --all-containers
+```
+
+For more advanced log tailing across multiple pods, use [stern](https://github.com/stern/stern):
+
+```bash
+# Stream logs from all nico-api pods
+stern nico-api
+
+# Filter by log level (logfmt)
+stern nico-api --include 'level=ERROR'
+
+# Stream logs from multiple components
+stern 'nico-(api|dns|dhcp)'
+
+# Include timestamps and pod name
+stern nico-api -t
+```
+
+stern is particularly useful when you have multiple replicas or want to watch several
+components at once.
+
+### Checking current log level (nico-api)
+
+The current log filter is visible in nico-api's startup log and via the admin API. Look for:
+
+```
+level=INFO msg="current log level: info,carbide=debug" location="setup.rs:142"
+```
+
+---
+
+## 6. References
+
+- [tracing-subscriber EnvFilter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)
+- [OpenTelemetry Collector filelog receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/filelogreceiver)
+- [logfmt specification](https://brandur.org/logfmt)
+- [stern - Multi-pod log tailing for Kubernetes](https://github.com/stern/stern)
