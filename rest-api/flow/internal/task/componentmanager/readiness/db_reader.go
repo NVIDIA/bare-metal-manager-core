@@ -35,7 +35,7 @@ func (r *DBReader) GetStatusesByExternalIDs(ctx context.Context, externalIDs []s
 
 	type row struct {
 		bun.BaseModel `bun:"table:component,alias:c"`
-		ExternalID    string                 `bun:"external_id"`
+		ExternalID    string                          `bun:"external_id"`
 		Status        *types.ComponentOperationStatus `bun:"status"`
 	}
 
