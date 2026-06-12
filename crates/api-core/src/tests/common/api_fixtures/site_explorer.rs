@@ -1346,6 +1346,58 @@ pub async fn register_expected_machine(
         .expect("Expect expected machine to get registered");
 }
 
+/// Seeds the vault with the BMC root credential for the host's BMC and every
+/// DPU BMC in the config -- required by anything that reaches a BMC through
+/// the real endpoint explorer.
+pub async fn seed_bmc_root_credentials(
+    env: &TestEnv,
+    config: &ManagedHostConfig,
+) -> eyre::Result<()> {
+    for bmc_mac_address in
+        std::iter::once(config.bmc_mac_address).chain(config.dpus.iter().map(|d| d.bmc_mac_address))
+    {
+        env.api
+            .credential_manager
+            .set_credentials(
+                &CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                },
+                &Credentials::UsernamePassword {
+                    username: "root".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+/// Ingests a zero-DPU host via site-explorer and stops BEFORE its in-band
+/// NIC's first DHCP lease: the machine exists with predicted interfaces only,
+/// no real `machine_interfaces` rows. Registers the expected machine and
+/// seeds BMC credentials; the caller drives anything past this window.
+pub async fn ingest_zero_dpu_host_awaiting_first_lease<'a>(
+    env: &'a TestEnv,
+    config: ManagedHostConfig,
+) -> eyre::Result<MockExploredHost<'a>> {
+    register_expected_machine(env, &config, None).await;
+    seed_bmc_root_credentials(env, &config).await?;
+
+    Ok(MockExploredHost::new(env, config)
+        .discover_dhcp_host_bmc(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await)
+}
+
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
 /// to ingest it into the database. Returns a MockExploredHost that you can call more methods on
 /// before finishing.
@@ -1363,23 +1415,7 @@ pub async fn new_mock_host(
     register_expected_machine(env, &config, None).await;
 
     // Set BMC credentials in vault
-    for bmc_mac_address in vec![config.bmc_mac_address]
-        .into_iter()
-        .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
-    {
-        env.api
-            .credential_manager
-            .set_credentials(
-                &CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                },
-                &Credentials::UsernamePassword {
-                    username: "root".to_string(),
-                    password: "notforprod".to_string(),
-                },
-            )
-            .await?;
-    }
+    seed_bmc_root_credentials(env, &config).await?;
 
     let dpu_count = config.dpus.len() as u8;
     let mut mock_explored_host = MockExploredHost::new(env, config);
@@ -1812,23 +1848,7 @@ pub async fn new_mock_host_with_dpf(
     register_expected_machine(env, &config, Some(true)).await;
 
     // Set BMC credentials in vault
-    for bmc_mac_address in vec![config.bmc_mac_address]
-        .into_iter()
-        .chain(config.dpus.iter().map(|d| d.bmc_mac_address))
-    {
-        env.api
-            .credential_manager
-            .set_credentials(
-                &CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-                },
-                &Credentials::UsernamePassword {
-                    username: "root".to_string(),
-                    password: "notforprod".to_string(),
-                },
-            )
-            .await?;
-    }
+    seed_bmc_root_credentials(env, &config).await?;
 
     let dpu_count = config.dpus.len() as u8;
     let mut mock_explored_host = MockExploredHost::new(env, config);

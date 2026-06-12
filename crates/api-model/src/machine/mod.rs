@@ -276,8 +276,7 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 ///
 /// Public because admin boot-interface resolution (api-core) applies the same
 /// selection to a machine's interface rows when targeting a host by BMC
-/// endpoint -- the designation must resolve identically no matter which door
-/// the Redfish action comes through.
+/// endpoint.
 pub fn pick_boot_interface(
     interfaces: &[MachineInterfaceSnapshot],
 ) -> Option<&MachineInterfaceSnapshot> {
@@ -298,18 +297,13 @@ fn pick_boot_interface_mac(
     pick_boot_interface(interfaces).map(|x| x.mac_address)
 }
 
-/// Resolves the boot interface to a fully-populated [`MachineBootInterface`]
-/// (MAC + Redfish interface id) from the picked interface's own row. Split out
-/// like `pick_boot_interface_mac` so it's unit-testable without a full snapshot.
+/// Resolves the boot interface to the picked interface's own
+/// [`MachineBootInterface`]. Split out like `pick_boot_interface_mac` so it's
+/// unit-testable without a full snapshot.
 fn pick_boot_interface_pair(
     interfaces: &[MachineInterfaceSnapshot],
 ) -> Option<MachineBootInterface> {
-    pick_boot_interface(interfaces).and_then(|interface| {
-        MachineBootInterface::from_parts(
-            Some(interface.mac_address),
-            interface.boot_interface_id.clone(),
-        )
-    })
+    pick_boot_interface(interfaces).and_then(MachineInterfaceSnapshot::boot_interface)
 }
 
 impl ManagedHostStateSnapshot {
@@ -2381,6 +2375,13 @@ pub struct MachineInterfaceSnapshot {
 }
 
 impl MachineInterfaceSnapshot {
+    /// This row's [`MachineBootInterface`]: its MAC plus its captured Redfish
+    /// interface id. `None` until site-explorer has recorded the id from an
+    /// exploration report.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        MachineBootInterface::for_mac(self.mac_address, self.boot_interface_id.clone())
+    }
+
     pub fn mock_with_mac(mac_address: MacAddress) -> Self {
         Self {
             id: MachineInterfaceId::from(uuid::Uuid::nil()),

@@ -76,6 +76,13 @@ const (
 	Flow_DisassociateRuleFromRack_FullMethodName = "/v1.Flow/DisassociateRuleFromRack"
 	Flow_GetRackRuleAssociation_FullMethodName   = "/v1.Flow/GetRackRuleAssociation"
 	Flow_ListRackRuleAssociations_FullMethodName = "/v1.Flow/ListRackRuleAssociations"
+	Flow_CreateOperationRun_FullMethodName       = "/v1.Flow/CreateOperationRun"
+	Flow_GetOperationRun_FullMethodName          = "/v1.Flow/GetOperationRun"
+	Flow_ListOperationRuns_FullMethodName        = "/v1.Flow/ListOperationRuns"
+	Flow_ListOperationRunTargets_FullMethodName  = "/v1.Flow/ListOperationRunTargets"
+	Flow_PauseOperationRun_FullMethodName        = "/v1.Flow/PauseOperationRun"
+	Flow_ResumeOperationRun_FullMethodName       = "/v1.Flow/ResumeOperationRun"
+	Flow_CancelOperationRun_FullMethodName       = "/v1.Flow/CancelOperationRun"
 )
 
 // FlowClient is the client API for Flow service.
@@ -144,6 +151,14 @@ type FlowClient interface {
 	DisassociateRuleFromRack(ctx context.Context, in *DisassociateRuleFromRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetRackRuleAssociation(ctx context.Context, in *GetRackRuleAssociationRequest, opts ...grpc.CallOption) (*GetRackRuleAssociationResponse, error)
 	ListRackRuleAssociations(ctx context.Context, in *ListRackRuleAssociationsRequest, opts ...grpc.CallOption) (*ListRackRuleAssociationsResponse, error)
+	// Operation runs
+	CreateOperationRun(ctx context.Context, in *CreateOperationRunRequest, opts ...grpc.CallOption) (*CreateOperationRunResponse, error)
+	GetOperationRun(ctx context.Context, in *GetOperationRunRequest, opts ...grpc.CallOption) (*GetOperationRunResponse, error)
+	ListOperationRuns(ctx context.Context, in *ListOperationRunsRequest, opts ...grpc.CallOption) (*ListOperationRunsResponse, error)
+	ListOperationRunTargets(ctx context.Context, in *ListOperationRunTargetsRequest, opts ...grpc.CallOption) (*ListOperationRunTargetsResponse, error)
+	PauseOperationRun(ctx context.Context, in *PauseOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
+	ResumeOperationRun(ctx context.Context, in *ResumeOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
+	CancelOperationRun(ctx context.Context, in *CancelOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
 }
 
 type flowClient struct {
@@ -684,6 +699,76 @@ func (c *flowClient) ListRackRuleAssociations(ctx context.Context, in *ListRackR
 	return out, nil
 }
 
+func (c *flowClient) CreateOperationRun(ctx context.Context, in *CreateOperationRunRequest, opts ...grpc.CallOption) (*CreateOperationRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateOperationRunResponse)
+	err := c.cc.Invoke(ctx, Flow_CreateOperationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) GetOperationRun(ctx context.Context, in *GetOperationRunRequest, opts ...grpc.CallOption) (*GetOperationRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetOperationRunResponse)
+	err := c.cc.Invoke(ctx, Flow_GetOperationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) ListOperationRuns(ctx context.Context, in *ListOperationRunsRequest, opts ...grpc.CallOption) (*ListOperationRunsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListOperationRunsResponse)
+	err := c.cc.Invoke(ctx, Flow_ListOperationRuns_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) ListOperationRunTargets(ctx context.Context, in *ListOperationRunTargetsRequest, opts ...grpc.CallOption) (*ListOperationRunTargetsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListOperationRunTargetsResponse)
+	err := c.cc.Invoke(ctx, Flow_ListOperationRunTargets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) PauseOperationRun(ctx context.Context, in *PauseOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationRun)
+	err := c.cc.Invoke(ctx, Flow_PauseOperationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) ResumeOperationRun(ctx context.Context, in *ResumeOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationRun)
+	err := c.cc.Invoke(ctx, Flow_ResumeOperationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) CancelOperationRun(ctx context.Context, in *CancelOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationRun)
+	err := c.cc.Invoke(ctx, Flow_CancelOperationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServer is the server API for Flow service.
 // All implementations must embed UnimplementedFlowServer
 // for forward compatibility.
@@ -750,6 +835,14 @@ type FlowServer interface {
 	DisassociateRuleFromRack(context.Context, *DisassociateRuleFromRackRequest) (*emptypb.Empty, error)
 	GetRackRuleAssociation(context.Context, *GetRackRuleAssociationRequest) (*GetRackRuleAssociationResponse, error)
 	ListRackRuleAssociations(context.Context, *ListRackRuleAssociationsRequest) (*ListRackRuleAssociationsResponse, error)
+	// Operation runs
+	CreateOperationRun(context.Context, *CreateOperationRunRequest) (*CreateOperationRunResponse, error)
+	GetOperationRun(context.Context, *GetOperationRunRequest) (*GetOperationRunResponse, error)
+	ListOperationRuns(context.Context, *ListOperationRunsRequest) (*ListOperationRunsResponse, error)
+	ListOperationRunTargets(context.Context, *ListOperationRunTargetsRequest) (*ListOperationRunTargetsResponse, error)
+	PauseOperationRun(context.Context, *PauseOperationRunRequest) (*OperationRun, error)
+	ResumeOperationRun(context.Context, *ResumeOperationRunRequest) (*OperationRun, error)
+	CancelOperationRun(context.Context, *CancelOperationRunRequest) (*OperationRun, error)
 	mustEmbedUnimplementedFlowServer()
 }
 
@@ -918,6 +1011,27 @@ func (UnimplementedFlowServer) GetRackRuleAssociation(context.Context, *GetRackR
 }
 func (UnimplementedFlowServer) ListRackRuleAssociations(context.Context, *ListRackRuleAssociationsRequest) (*ListRackRuleAssociationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListRackRuleAssociations not implemented")
+}
+func (UnimplementedFlowServer) CreateOperationRun(context.Context, *CreateOperationRunRequest) (*CreateOperationRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOperationRun not implemented")
+}
+func (UnimplementedFlowServer) GetOperationRun(context.Context, *GetOperationRunRequest) (*GetOperationRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOperationRun not implemented")
+}
+func (UnimplementedFlowServer) ListOperationRuns(context.Context, *ListOperationRunsRequest) (*ListOperationRunsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListOperationRuns not implemented")
+}
+func (UnimplementedFlowServer) ListOperationRunTargets(context.Context, *ListOperationRunTargetsRequest) (*ListOperationRunTargetsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListOperationRunTargets not implemented")
+}
+func (UnimplementedFlowServer) PauseOperationRun(context.Context, *PauseOperationRunRequest) (*OperationRun, error) {
+	return nil, status.Error(codes.Unimplemented, "method PauseOperationRun not implemented")
+}
+func (UnimplementedFlowServer) ResumeOperationRun(context.Context, *ResumeOperationRunRequest) (*OperationRun, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeOperationRun not implemented")
+}
+func (UnimplementedFlowServer) CancelOperationRun(context.Context, *CancelOperationRunRequest) (*OperationRun, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelOperationRun not implemented")
 }
 func (UnimplementedFlowServer) mustEmbedUnimplementedFlowServer() {}
 func (UnimplementedFlowServer) testEmbeddedByValue()              {}
@@ -1894,6 +2008,132 @@ func _Flow_ListRackRuleAssociations_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Flow_CreateOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOperationRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).CreateOperationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_CreateOperationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).CreateOperationRun(ctx, req.(*CreateOperationRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_GetOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOperationRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).GetOperationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_GetOperationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).GetOperationRun(ctx, req.(*GetOperationRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_ListOperationRuns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOperationRunsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).ListOperationRuns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_ListOperationRuns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).ListOperationRuns(ctx, req.(*ListOperationRunsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_ListOperationRunTargets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOperationRunTargetsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).ListOperationRunTargets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_ListOperationRunTargets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).ListOperationRunTargets(ctx, req.(*ListOperationRunTargetsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_PauseOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PauseOperationRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).PauseOperationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_PauseOperationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).PauseOperationRun(ctx, req.(*PauseOperationRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_ResumeOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeOperationRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).ResumeOperationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_ResumeOperationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).ResumeOperationRun(ctx, req.(*ResumeOperationRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_CancelOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelOperationRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).CancelOperationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_CancelOperationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).CancelOperationRun(ctx, req.(*CancelOperationRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Flow_ServiceDesc is the grpc.ServiceDesc for Flow service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2112,6 +2352,34 @@ var Flow_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListRackRuleAssociations",
 			Handler:    _Flow_ListRackRuleAssociations_Handler,
+		},
+		{
+			MethodName: "CreateOperationRun",
+			Handler:    _Flow_CreateOperationRun_Handler,
+		},
+		{
+			MethodName: "GetOperationRun",
+			Handler:    _Flow_GetOperationRun_Handler,
+		},
+		{
+			MethodName: "ListOperationRuns",
+			Handler:    _Flow_ListOperationRuns_Handler,
+		},
+		{
+			MethodName: "ListOperationRunTargets",
+			Handler:    _Flow_ListOperationRunTargets_Handler,
+		},
+		{
+			MethodName: "PauseOperationRun",
+			Handler:    _Flow_PauseOperationRun_Handler,
+		},
+		{
+			MethodName: "ResumeOperationRun",
+			Handler:    _Flow_ResumeOperationRun_Handler,
+		},
+		{
+			MethodName: "CancelOperationRun",
+			Handler:    _Flow_CancelOperationRun_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
