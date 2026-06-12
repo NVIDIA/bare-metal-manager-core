@@ -3081,6 +3081,7 @@ mod tests {
             instance: None,
             dpu_extension_services: vec![],
             astra_config: None,
+            use_admin_network_changed: None,
         }
     }
 
@@ -3574,6 +3575,7 @@ mod tests {
             instance: None,
             dpu_extension_services: vec![],
             astra_config: None,
+            use_admin_network_changed: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;
@@ -3762,6 +3764,7 @@ mod tests {
             instance: None,
             dpu_extension_services: vec![],
             astra_config: None,
+            use_admin_network_changed: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;

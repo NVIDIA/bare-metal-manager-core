@@ -784,6 +784,10 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
+            restart_ovs_on_use_admin_network_change: self
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .clone(),
         }
     }
 }
@@ -2397,6 +2401,10 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpf_enabled: value.dpf.enabled,
             compile_time_helm_version: crate::dpf_services::COMPILE_TIME_HELM_VERSION.to_string(),
             compile_time_docker_version: crate::dpf_services::COMPILE_TIME_IMAGE_TAG.to_string(),
+            restart_ovs_on_use_admin_network_change: value
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -3001,6 +3009,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3198,6 +3207,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3542,6 +3552,7 @@ mod tests {
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
                 dpu_mode: None,
+                restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
                 explore_mode: SiteExplorerExploreMode::LibRedfish,
             }
         );
@@ -3747,6 +3758,27 @@ mod tests {
                 "[site_explorer] dpu_mode = {toml_value:?} should parse to {expected:?}",
             );
         }
+    }
+
+    #[test]
+    fn site_explorer_restart_ovs_on_use_admin_network_change_parses_and_displays() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(
+                "[site_explorer]\nrestart_ovs_on_use_admin_network_change = true\n",
+            ))
+            .extract()
+            .unwrap();
+
+        assert!(
+            config
+                .site_explorer
+                .restart_ovs_on_use_admin_network_change
+                .load(AtomicOrdering::Relaxed)
+        );
+
+        let runtime_config: rpc::forge::RuntimeConfig = config.into();
+        assert!(runtime_config.restart_ovs_on_use_admin_network_change);
     }
 
     /// Real-world site TOMLs may still carry the now-removed

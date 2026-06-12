@@ -1726,6 +1726,7 @@ pub async fn create_test_env_with_overrides(
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
             dpu_mode: None,
+            restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },

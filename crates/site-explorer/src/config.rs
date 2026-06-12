@@ -188,6 +188,17 @@ pub struct SiteExplorerConfig {
     /// `DpuMode::DpuMode`.
     #[serde(default)]
     pub dpu_mode: Option<DpuMode>,
+
+    /// Restart OVS on DPU agents whenever the host switches between
+    /// admin and tenant networking. Required in some environments to
+    /// ensure OVS picks up the changed network configuration.
+    #[serde(
+        default = "SiteExplorerConfig::default_restart_ovs_on_use_admin_network_change",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub restart_ovs_on_use_admin_network_change: Arc<AtomicBool>,
+
     /// Controls which Redfish client implementation is used
     /// for hardware discovery (LibRedfish, NvRedfish, or
     /// CompareResult for side-by-side validation).
@@ -219,6 +230,7 @@ impl Default for SiteExplorerConfig {
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
             dpu_mode: None,
+            restart_ovs_on_use_admin_network_change: Arc::new(false.into()),
             explore_mode: Self::default_explore_mode(),
         }
     }
@@ -292,6 +304,10 @@ impl SiteExplorerConfig {
 
     pub const fn default_switches_created_per_run() -> u64 {
         9
+    }
+
+    pub fn default_restart_ovs_on_use_admin_network_change() -> Arc<AtomicBool> {
+        Arc::new(false.into())
     }
 
     pub const fn default_explore_mode() -> SiteExplorerExploreMode {
