@@ -455,50 +455,511 @@ pub struct ServiceTemplateVersion {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
+    /// `DpuPhase::from(DpuStatusPhase)` is a total conversion; every operator
+    /// status phase maps to exactly one simplified `DpuPhase`. This folds the
+    /// old `test_dpu_phase_from_status` and enumerates all 17 source variants,
+    /// including each provisioning sub-phase that collapses into
+    /// `Provisioning(detail)`.
     #[test]
-    fn test_dpu_phase_from_status() {
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Ready), DpuPhase::Ready);
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Error), DpuPhase::Error);
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Deleting), DpuPhase::Deleting);
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Rebooting),
-            DpuPhase::Rebooting
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Initializing),
-            DpuPhase::Provisioning("Initializing".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Pending),
-            DpuPhase::Provisioning("Pending".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::OsInstalling),
-            DpuPhase::Provisioning("OsInstalling".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::NodeEffect),
-            DpuPhase::NodeEffect
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::CheckingHostRebootRequired),
-            DpuPhase::Rebooting
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::NodeEffectRemoval),
-            DpuPhase::NodeEffect
+    fn dpu_phase_from_status_maps_every_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "Initializing -> Provisioning",
+                    input: DpuStatusPhase::Initializing,
+                    expect: DpuPhase::Provisioning("Initializing".into()),
+                },
+                Check {
+                    scenario: "Pending -> Provisioning",
+                    input: DpuStatusPhase::Pending,
+                    expect: DpuPhase::Provisioning("Pending".into()),
+                },
+                Check {
+                    scenario: "ConfigFwParameters -> Provisioning",
+                    input: DpuStatusPhase::ConfigFwParameters,
+                    expect: DpuPhase::Provisioning("ConfigFwParameters".into()),
+                },
+                Check {
+                    scenario: "PrepareBfb -> Provisioning",
+                    input: DpuStatusPhase::PrepareBfb,
+                    expect: DpuPhase::Provisioning("PrepareBfb".into()),
+                },
+                Check {
+                    scenario: "OsInstalling -> Provisioning",
+                    input: DpuStatusPhase::OsInstalling,
+                    expect: DpuPhase::Provisioning("OsInstalling".into()),
+                },
+                Check {
+                    scenario: "DpuClusterConfig -> Provisioning",
+                    input: DpuStatusPhase::DpuClusterConfig,
+                    expect: DpuPhase::Provisioning("DpuClusterConfig".into()),
+                },
+                Check {
+                    scenario: "HostNetworkConfiguration -> Provisioning",
+                    input: DpuStatusPhase::HostNetworkConfiguration,
+                    expect: DpuPhase::Provisioning("HostNetworkConfiguration".into()),
+                },
+                Check {
+                    scenario: "InitializeInterface -> Provisioning",
+                    input: DpuStatusPhase::InitializeInterface,
+                    expect: DpuPhase::Provisioning("InitializeInterface".into()),
+                },
+                Check {
+                    scenario: "DpuConfig -> Provisioning",
+                    input: DpuStatusPhase::DpuConfig,
+                    expect: DpuPhase::Provisioning("DpuConfig".into()),
+                },
+                Check {
+                    scenario: "PerformArmForceRestart -> Provisioning",
+                    input: DpuStatusPhase::PerformArmForceRestart,
+                    expect: DpuPhase::Provisioning("PerformArmForceRestart".into()),
+                },
+                Check {
+                    scenario: "NodeEffect -> NodeEffect",
+                    input: DpuStatusPhase::NodeEffect,
+                    expect: DpuPhase::NodeEffect,
+                },
+                Check {
+                    scenario: "NodeEffectRemoval -> NodeEffect",
+                    input: DpuStatusPhase::NodeEffectRemoval,
+                    expect: DpuPhase::NodeEffect,
+                },
+                Check {
+                    scenario: "Rebooting -> Rebooting",
+                    input: DpuStatusPhase::Rebooting,
+                    expect: DpuPhase::Rebooting,
+                },
+                Check {
+                    scenario: "CheckingHostRebootRequired -> Rebooting",
+                    input: DpuStatusPhase::CheckingHostRebootRequired,
+                    expect: DpuPhase::Rebooting,
+                },
+                Check {
+                    scenario: "Ready -> Ready",
+                    input: DpuStatusPhase::Ready,
+                    expect: DpuPhase::Ready,
+                },
+                Check {
+                    scenario: "Error -> Error",
+                    input: DpuStatusPhase::Error,
+                    expect: DpuPhase::Error,
+                },
+                Check {
+                    scenario: "Deleting -> Deleting",
+                    input: DpuStatusPhase::Deleting,
+                    expect: DpuPhase::Deleting,
+                },
+            ],
+            DpuPhase::from,
         );
     }
 
+    /// `AsRef<str>` for `DpuPhase` renders each variant to its canonical name;
+    /// a provisioning phase renders its detail string verbatim. Covers all six
+    /// `DpuPhase` variants, including an empty-detail provisioning phase.
     #[test]
-    fn test_dpu_phase_equality() {
-        assert_eq!(DpuPhase::Ready, DpuPhase::Ready);
-        assert_ne!(
-            DpuPhase::Ready,
-            DpuPhase::Provisioning("Initializing".into())
+    fn dpu_phase_as_ref_renders_each_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "provisioning renders its detail",
+                    input: DpuPhase::Provisioning("OsInstalling".into()),
+                    expect: "OsInstalling".to_string(),
+                },
+                Check {
+                    scenario: "provisioning with empty detail renders empty",
+                    input: DpuPhase::Provisioning(String::new()),
+                    expect: String::new(),
+                },
+                Check {
+                    scenario: "node effect",
+                    input: DpuPhase::NodeEffect,
+                    expect: "NodeEffect".to_string(),
+                },
+                Check {
+                    scenario: "rebooting",
+                    input: DpuPhase::Rebooting,
+                    expect: "Rebooting".to_string(),
+                },
+                Check {
+                    scenario: "ready",
+                    input: DpuPhase::Ready,
+                    expect: "Ready".to_string(),
+                },
+                Check {
+                    scenario: "error",
+                    input: DpuPhase::Error,
+                    expect: "Error".to_string(),
+                },
+                Check {
+                    scenario: "deleting",
+                    input: DpuPhase::Deleting,
+                    expect: "Deleting".to_string(),
+                },
+            ],
+            |phase| phase.as_ref().to_string(),
         );
-        assert_eq!(DpuPhase::Rebooting, DpuPhase::Rebooting);
+    }
+
+    /// `Display` for `DpuPhase` delegates to `AsRef<str>`, so `to_string()`
+    /// yields the same canonical name for every variant.
+    #[test]
+    fn dpu_phase_display_matches_as_ref() {
+        check_values(
+            [
+                Check {
+                    scenario: "provisioning renders its detail",
+                    input: DpuPhase::Provisioning("Pending".into()),
+                    expect: "Pending".to_string(),
+                },
+                Check {
+                    scenario: "node effect",
+                    input: DpuPhase::NodeEffect,
+                    expect: "NodeEffect".to_string(),
+                },
+                Check {
+                    scenario: "rebooting",
+                    input: DpuPhase::Rebooting,
+                    expect: "Rebooting".to_string(),
+                },
+                Check {
+                    scenario: "ready",
+                    input: DpuPhase::Ready,
+                    expect: "Ready".to_string(),
+                },
+                Check {
+                    scenario: "error",
+                    input: DpuPhase::Error,
+                    expect: "Error".to_string(),
+                },
+                Check {
+                    scenario: "deleting",
+                    input: DpuPhase::Deleting,
+                    expect: "Deleting".to_string(),
+                },
+            ],
+            |phase| phase.to_string(),
+        );
+    }
+
+    /// `PartialEq` for `DpuPhase`: same variant compares equal, different
+    /// variants differ, and `Provisioning` discriminates on its detail string.
+    /// Folds the old `test_dpu_phase_equality`.
+    #[test]
+    fn dpu_phase_equality_distinguishes_variants() {
+        check_values(
+            [
+                Check {
+                    scenario: "ready equals ready",
+                    input: (DpuPhase::Ready, DpuPhase::Ready),
+                    expect: true,
+                },
+                Check {
+                    scenario: "rebooting equals rebooting",
+                    input: (DpuPhase::Rebooting, DpuPhase::Rebooting),
+                    expect: true,
+                },
+                Check {
+                    scenario: "error equals error",
+                    input: (DpuPhase::Error, DpuPhase::Error),
+                    expect: true,
+                },
+                Check {
+                    scenario: "deleting equals deleting",
+                    input: (DpuPhase::Deleting, DpuPhase::Deleting),
+                    expect: true,
+                },
+                Check {
+                    scenario: "node effect equals node effect",
+                    input: (DpuPhase::NodeEffect, DpuPhase::NodeEffect),
+                    expect: true,
+                },
+                Check {
+                    scenario: "provisioning equals same-detail provisioning",
+                    input: (
+                        DpuPhase::Provisioning("Pending".into()),
+                        DpuPhase::Provisioning("Pending".into()),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "ready differs from provisioning",
+                    input: (
+                        DpuPhase::Ready,
+                        DpuPhase::Provisioning("Initializing".into()),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "ready differs from error",
+                    input: (DpuPhase::Ready, DpuPhase::Error),
+                    expect: false,
+                },
+                Check {
+                    scenario: "rebooting differs from node effect",
+                    input: (DpuPhase::Rebooting, DpuPhase::NodeEffect),
+                    expect: false,
+                },
+                Check {
+                    scenario: "provisioning differs by detail",
+                    input: (
+                        DpuPhase::Provisioning("Pending".into()),
+                        DpuPhase::Provisioning("OsInstalling".into()),
+                    ),
+                    expect: false,
+                },
+            ],
+            |(a, b)| a == b,
+        );
+    }
+
+    /// `ConfigPortsServiceType` derives `PartialEq`; each variant equals itself
+    /// and differs from the others.
+    #[test]
+    fn config_ports_service_type_equality() {
+        check_values(
+            [
+                Check {
+                    scenario: "node port equals node port",
+                    input: (
+                        ConfigPortsServiceType::NodePort,
+                        ConfigPortsServiceType::NodePort,
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "cluster ip equals cluster ip",
+                    input: (
+                        ConfigPortsServiceType::ClusterIp,
+                        ConfigPortsServiceType::ClusterIp,
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "none equals none",
+                    input: (ConfigPortsServiceType::None, ConfigPortsServiceType::None),
+                    expect: true,
+                },
+                Check {
+                    scenario: "node port differs from cluster ip",
+                    input: (
+                        ConfigPortsServiceType::NodePort,
+                        ConfigPortsServiceType::ClusterIp,
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "cluster ip differs from none",
+                    input: (
+                        ConfigPortsServiceType::ClusterIp,
+                        ConfigPortsServiceType::None,
+                    ),
+                    expect: false,
+                },
+            ],
+            |(a, b)| a == b,
+        );
+    }
+
+    /// `ServiceConfigPortProtocol` derives `PartialEq`; Tcp and Udp are
+    /// distinct and each equals itself.
+    #[test]
+    fn service_config_port_protocol_equality() {
+        check_values(
+            [
+                Check {
+                    scenario: "tcp equals tcp",
+                    input: (
+                        ServiceConfigPortProtocol::Tcp,
+                        ServiceConfigPortProtocol::Tcp,
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "udp equals udp",
+                    input: (
+                        ServiceConfigPortProtocol::Udp,
+                        ServiceConfigPortProtocol::Udp,
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "tcp differs from udp",
+                    input: (
+                        ServiceConfigPortProtocol::Tcp,
+                        ServiceConfigPortProtocol::Udp,
+                    ),
+                    expect: false,
+                },
+            ],
+            |(a, b)| a == b,
+        );
+    }
+
+    /// `InitDpfResourcesConfig::default()` seeds the documented defaults: an
+    /// empty BFB URL and services list, the `dpu-deployment` name, the crate
+    /// default flavor, and no proxy. Probe each field independently.
+    #[test]
+    fn init_dpf_resources_config_default_fields() {
+        check_values(
+            [Check {
+                scenario: "bfb url is empty",
+                input: (),
+                expect: true,
+            }],
+            |()| InitDpfResourcesConfig::default().bfb_url.is_empty(),
+        );
+        check_values(
+            [Check {
+                scenario: "deployment name",
+                input: (),
+                expect: "dpu-deployment".to_string(),
+            }],
+            |()| InitDpfResourcesConfig::default().deployment_name,
+        );
+        check_values(
+            [Check {
+                scenario: "flavor name uses crate default",
+                input: (),
+                expect: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
+            }],
+            |()| InitDpfResourcesConfig::default().flavor_name,
+        );
+        check_values(
+            [Check {
+                scenario: "services is empty",
+                input: (),
+                expect: 0usize,
+            }],
+            |()| InitDpfResourcesConfig::default().services.len(),
+        );
+        check_values(
+            [Check {
+                scenario: "proxy is none",
+                input: (),
+                expect: true,
+            }],
+            |()| InitDpfResourcesConfig::default().proxy.is_none(),
+        );
+    }
+
+    /// `ServiceDefinition::new` records the four required helm fields and
+    /// leaves every optional field at its `Default`. Each row reads one field
+    /// off the freshly constructed value.
+    #[test]
+    fn service_definition_new_records_required_fields() {
+        let build = || ServiceDefinition::new("dts", "https://repo.example", "dts-chart", "1.2.3");
+
+        check_values(
+            [Check {
+                scenario: "name",
+                input: (),
+                expect: "dts".to_string(),
+            }],
+            |()| build().name,
+        );
+        check_values(
+            [Check {
+                scenario: "helm repo url",
+                input: (),
+                expect: "https://repo.example".to_string(),
+            }],
+            |()| build().helm_repo_url,
+        );
+        check_values(
+            [Check {
+                scenario: "helm chart",
+                input: (),
+                expect: "dts-chart".to_string(),
+            }],
+            |()| build().helm_chart,
+        );
+        check_values(
+            [Check {
+                scenario: "helm version",
+                input: (),
+                expect: "1.2.3".to_string(),
+            }],
+            |()| build().helm_version,
+        );
+        // Each row reads one optional field off the freshly built definition
+        // and asserts it sits at its `Default` (None / empty).
+        enum OptionalField {
+            HelmValuesIsNone,
+            ConfigValuesIsNone,
+            ConfigPortsIsNone,
+            ConfigPortsServiceTypeIsNone,
+            ServiceNadIsNone,
+            ServiceDaemonSetAnnotationsIsNone,
+            InterfacesEmpty,
+            ServiceChainSwitchesEmpty,
+        }
+        check_values(
+            [
+                Check {
+                    scenario: "helm values default to none",
+                    input: OptionalField::HelmValuesIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "config values default to none",
+                    input: OptionalField::ConfigValuesIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "config ports default to none",
+                    input: OptionalField::ConfigPortsIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "config ports service type defaults to none",
+                    input: OptionalField::ConfigPortsServiceTypeIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "service nad defaults to none",
+                    input: OptionalField::ServiceNadIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "daemon set annotations default to none",
+                    input: OptionalField::ServiceDaemonSetAnnotationsIsNone,
+                    expect: true,
+                },
+                Check {
+                    scenario: "interfaces default to empty",
+                    input: OptionalField::InterfacesEmpty,
+                    expect: true,
+                },
+                Check {
+                    scenario: "service chain switches default to empty",
+                    input: OptionalField::ServiceChainSwitchesEmpty,
+                    expect: true,
+                },
+            ],
+            |field| {
+                let svc = build();
+                match field {
+                    OptionalField::HelmValuesIsNone => svc.helm_values.is_none(),
+                    OptionalField::ConfigValuesIsNone => svc.config_values.is_none(),
+                    OptionalField::ConfigPortsIsNone => svc.config_ports.is_none(),
+                    OptionalField::ConfigPortsServiceTypeIsNone => {
+                        svc.config_ports_service_type.is_none()
+                    }
+                    OptionalField::ServiceNadIsNone => svc.service_nad.is_none(),
+                    OptionalField::ServiceDaemonSetAnnotationsIsNone => {
+                        svc.service_daemon_set_annotations.is_none()
+                    }
+                    OptionalField::InterfacesEmpty => svc.interfaces.is_empty(),
+                    OptionalField::ServiceChainSwitchesEmpty => {
+                        svc.service_chain_switches.is_empty()
+                    }
+                }
+            },
+        );
     }
 }

@@ -179,13 +179,13 @@ fn get_config_files(
             "[Service]\nEnvironment=\"HTTPS_PROXY={0}\"\nEnvironment=\"https_proxy={0}\"\n",
             proxy.https_proxy
         );
-        if !proxy.no_proxy.is_empty() {
-            let mut entries: Vec<&str> = proxy
-                .no_proxy
-                .iter()
-                .map(|e| e.trim())
-                .filter(|e| !e.is_empty())
-                .collect();
+        let mut entries: Vec<&str> = proxy
+            .no_proxy
+            .iter()
+            .map(|e| e.trim())
+            .filter(|e| !e.is_empty())
+            .collect();
+        if !entries.is_empty() {
             for entry in &entries {
                 validate_proxy_string(entry, "no_proxy entry")?;
             }
@@ -252,6 +252,9 @@ fn dhcp_acl_rules() -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
     use crate::types::DpfProxyDetails;
 
@@ -262,226 +265,706 @@ mod tests {
         })
     }
 
+    /// The `raw` body of the trailing (proxy) config file built by `default_flavor`.
+    fn proxy_file_raw(https_proxy: &str, no_proxy: &[&str]) -> String {
+        let flavor = default_flavor("ns", &proxy(https_proxy, no_proxy)).unwrap();
+        let files = flavor.spec.config_files.unwrap();
+        files.last().unwrap().raw.clone().unwrap()
+    }
+
+    /// `unique_name` of the default flavor for the given proxy, with the standard prefix.
+    fn name_for(proxy: &Option<DpfProxyDetails>) -> String {
+        default_flavor("ns", proxy)
+            .unwrap()
+            .unique_name("dpu-flavor")
+            .unwrap()
+    }
+
+    // ── validate_proxy_string ──────────────────────────────────────────────
+    //
+    // The pure validator at the heart of the proxy path. `DpfError` is not
+    // `PartialEq`, so error rows use `Fails` (with `.map_err(drop)`).
+
+    #[test]
+    fn validate_proxy_string_accepts_and_rejects() {
+        check_cases(
+            [
+                Case {
+                    scenario: "typical proxy url",
+                    input: "http://proxy.corp.example.com:3128",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "cidr no_proxy entry",
+                    input: "10.0.0.0/8",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "hostname no_proxy entry",
+                    input: "localhost",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "dns suffix no_proxy entry",
+                    input: ".svc.cluster.local",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "high ascii printable is allowed",
+                    input: "host~name",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "space is allowed (>= 0x20, not quote/control)",
+                    input: "has space",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "tilde 0x7e is the last printable allowed",
+                    input: "~",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "double quote rejected",
+                    input: "http://proxy:3128/\"evil",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "newline rejected",
+                    input: "http://proxy:3128\nEvil: injected",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "carriage return rejected",
+                    input: "http://proxy:3128\rinjected",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tab (control char) rejected",
+                    input: "http://proxy:3128\tx",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "null byte rejected",
+                    input: "10.0.0.0/8\x00bad",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "0x01 control char rejected",
+                    input: "10.0.0.0/8\x01bad",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "0x1f (last control below 0x20) rejected",
+                    input: "x\x1fy",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "DEL 0x7f rejected",
+                    input: "x\x7fy",
+                    expect: Fails,
+                },
+            ],
+            |value| validate_proxy_string(value, "field").map_err(drop),
+        );
+    }
+
+    #[test]
+    fn validate_proxy_string_error_names_the_field() {
+        // The rejected-string error message mentions the field name passed in.
+        check_cases(
+            [
+                Case {
+                    scenario: "field name appears in the error",
+                    input: ("\"", "https_proxy", &["https_proxy", "systemd"][..]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "no_proxy field name appears in the error",
+                    input: ("\n", "no_proxy entry", &["no_proxy entry"][..]),
+                    expect: Yields(true),
+                },
+            ],
+            |(value, field, tokens): (&str, &str, &[&str])| {
+                let msg = match validate_proxy_string(value, field) {
+                    Err(crate::error::DpfError::ConfigError(m)) => m,
+                    other => return Err(format!("expected ConfigError, got {other:?}")),
+                };
+                Ok(tokens.iter().all(|t| msg.contains(t)))
+            },
+        );
+    }
+
+    // ── default_flavor: proxy validation flows through ─────────────────────
+
+    #[test]
+    fn default_flavor_accepts_or_rejects_proxy() {
+        check_cases(
+            [
+                Case {
+                    scenario: "no proxy",
+                    input: None,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "typical proxy with no_proxy list",
+                    input: proxy(
+                        "http://proxy.corp.example.com:3128",
+                        &["10.0.0.0/8", "localhost", ".svc.cluster.local"],
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "proxy with empty no_proxy",
+                    input: proxy("http://proxy:3128", &[]),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "https_proxy with quote rejected",
+                    input: proxy("http://proxy:3128/\"evil", &[]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "https_proxy with newline rejected",
+                    input: proxy("http://proxy:3128\nEvil: injected", &[]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "https_proxy with carriage return rejected",
+                    input: proxy("http://proxy:3128\rx", &[]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "no_proxy entry with control char rejected",
+                    input: proxy("http://proxy:3128", &["10.0.0.0/8\x01bad"]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "no_proxy entry with DEL rejected",
+                    input: proxy("http://proxy:3128", &["ok", "bad\x7f"]),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "blank/whitespace-only no_proxy entries are skipped, not rejected",
+                    input: proxy("http://proxy:3128", &["", "  ", "\t"]),
+                    expect: Yields(()),
+                },
+            ],
+            |p| default_flavor("ns", &p).map(drop).map_err(drop),
+        );
+    }
+
+    // ── default_flavor: structural getters ─────────────────────────────────
+
+    #[test]
+    fn default_flavor_namespace_is_passed_through() {
+        check_values(
+            [
+                Check {
+                    scenario: "plain namespace",
+                    input: "my-ns",
+                    expect: Some("my-ns".to_string()),
+                },
+                Check {
+                    scenario: "empty namespace is still set verbatim",
+                    input: "",
+                    expect: Some(String::new()),
+                },
+                Check {
+                    scenario: "namespace with hyphens",
+                    input: "dpf-system-test",
+                    expect: Some("dpf-system-test".to_string()),
+                },
+            ],
+            |ns| default_flavor(ns, &None).unwrap().metadata.namespace,
+        );
+    }
+
+    #[test]
+    fn default_flavor_metadata_name_is_always_none() {
+        // The caller must set the name via unique_name(); the builder leaves it unset.
+        check_values(
+            [
+                Check {
+                    scenario: "no proxy",
+                    input: None,
+                    expect: true,
+                },
+                Check {
+                    scenario: "with proxy",
+                    input: proxy("http://proxy:3128", &["localhost"]),
+                    expect: true,
+                },
+            ],
+            |p| default_flavor("ns", &p).unwrap().metadata.name.is_none(),
+        );
+    }
+
+    #[test]
+    fn default_flavor_spec_invariants() {
+        // Structural shape of the default spec that callers depend on.
+        let flavor = default_flavor("ns", &None).unwrap();
+        check_values(
+            [
+                Check {
+                    scenario: "dpu_mode is ZeroTrust",
+                    input: matches!(flavor.spec.dpu_mode, Some(DpuFlavorDpuMode::ZeroTrust)),
+                    expect: true,
+                },
+                Check {
+                    scenario: "bfcfg has three parameters",
+                    input: flavor.spec.bfcfg_parameters.as_ref().map(|v| v.len()) == Some(3),
+                    expect: true,
+                },
+                Check {
+                    scenario: "exactly one nvconfig entry",
+                    input: flavor.spec.nvconfig.as_ref().map(|v| v.len()) == Some(1),
+                    expect: true,
+                },
+                Check {
+                    scenario: "ovs raw config script is present",
+                    input: flavor
+                        .spec
+                        .ovs
+                        .as_ref()
+                        .and_then(|o| o.raw_config_script.as_ref())
+                        .is_some(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "dpu_resources unset",
+                    input: flavor.spec.dpu_resources.is_none(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "containerd_config unset",
+                    input: flavor.spec.containerd_config.is_none(),
+                    expect: true,
+                },
+            ],
+            |present| present,
+        );
+    }
+
+    // ── get_config_files: count and trailing-file fields ───────────────────
+
+    #[test]
+    fn config_file_count_depends_on_proxy() {
+        check_values(
+            [
+                Check {
+                    scenario: "no proxy yields five base files",
+                    input: None,
+                    expect: 5,
+                },
+                Check {
+                    scenario: "proxy with empty no_proxy appends a sixth",
+                    input: proxy("http://proxy:3128", &[]),
+                    expect: 6,
+                },
+                Check {
+                    scenario: "proxy with no_proxy list still appends exactly one",
+                    input: proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
+                    expect: 6,
+                },
+            ],
+            |p| {
+                default_flavor("ns", &p)
+                    .unwrap()
+                    .spec
+                    .config_files
+                    .unwrap()
+                    .len()
+            },
+        );
+    }
+
+    #[test]
+    fn proxy_file_fields_are_fixed() {
+        // path, permissions, operation of the trailing proxy drop-in.
+        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
+        let files = flavor.spec.config_files.unwrap();
+        let f = files.last().unwrap();
+        check_values(
+            [
+                Check {
+                    scenario: "path",
+                    input: f.path.is_some()
+                        && f.path.as_deref()
+                            == Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "permissions 0644",
+                    input: f.permissions.as_deref() == Some("0644"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "override operation",
+                    input: matches!(f.operation, Some(DpuFlavorConfigFilesOperation::Override)),
+                    expect: true,
+                },
+            ],
+            |ok| ok,
+        );
+    }
+
+    #[test]
+    fn base_config_file_paths_are_present() {
+        // The five base files always exist regardless of proxy, with these paths.
+        let files = default_flavor("ns", &None)
+            .unwrap()
+            .spec
+            .config_files
+            .unwrap();
+        let paths: Vec<&str> = files.iter().filter_map(|f| f.path.as_deref()).collect();
+        check_values(
+            [
+                Check {
+                    scenario: "acltool.conf",
+                    input: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf",
+                    expect: true,
+                },
+                Check {
+                    scenario: "10-dhcp.rules",
+                    input: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules",
+                    expect: true,
+                },
+                Check {
+                    scenario: "mlnx-bf.conf",
+                    input: "/etc/mellanox/mlnx-bf.conf",
+                    expect: true,
+                },
+                Check {
+                    scenario: "mlnx-ovs.conf",
+                    input: "/etc/mellanox/mlnx-ovs.conf",
+                    expect: true,
+                },
+                Check {
+                    scenario: "mlnx-sf.conf",
+                    input: "/etc/mellanox/mlnx-sf.conf",
+                    expect: true,
+                },
+            ],
+            |path| paths.contains(&path),
+        );
+    }
+
+    // ── proxy drop-in raw body content ─────────────────────────────────────
+    //
+    // `.contains(...)` substring checks folded into (value, &[tokens]) rows.
+
+    #[test]
+    fn proxy_raw_contains_expected_tokens() {
+        check_cases(
+            [Case {
+                scenario: "uppercase and lowercase HTTPS_PROXY env set under [Service]",
+                input: (
+                    proxy_file_raw("http://proxy.example.com:3128", &[]),
+                    &[
+                        "[Service]",
+                        "HTTPS_PROXY=http://proxy.example.com:3128",
+                        "https_proxy=http://proxy.example.com:3128",
+                    ][..],
+                ),
+                expect: Yields(true),
+            }],
+            |(raw, tokens): (String, &[&str])| Ok::<_, ()>(tokens.iter().all(|t| raw.contains(t))),
+        );
+    }
+
+    #[test]
+    fn proxy_raw_no_proxy_handling() {
+        // When no_proxy is empty the NO_PROXY env lines are omitted; when set they
+        // appear sorted+deduped. Each row: (raw body, tokens that must all appear).
+        check_cases(
+            [
+                Case {
+                    scenario: "no_proxy lines present, sorted and deduped",
+                    input: (
+                        proxy_file_raw(
+                            "http://proxy:3128",
+                            &["localhost", "10.0.0.0/8", "10.0.0.0/8"],
+                        ),
+                        &[
+                            "NO_PROXY=10.0.0.0/8,localhost",
+                            "no_proxy=10.0.0.0/8,localhost",
+                        ][..],
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "single no_proxy entry",
+                    input: (
+                        proxy_file_raw("http://proxy:3128", &["10.0.0.0/8"]),
+                        &["NO_PROXY=10.0.0.0/8", "no_proxy=10.0.0.0/8"][..],
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "whitespace around entries is trimmed",
+                    input: (
+                        proxy_file_raw("http://proxy:3128", &["  localhost  ", " 10.0.0.0/8 "]),
+                        &["NO_PROXY=10.0.0.0/8,localhost"][..],
+                    ),
+                    expect: Yields(true),
+                },
+            ],
+            |(raw, tokens): (String, &[&str])| Ok::<_, ()>(tokens.iter().all(|t| raw.contains(t))),
+        );
+    }
+
+    #[test]
+    fn proxy_raw_omits_no_proxy_when_effectively_empty() {
+        // Empty or blank-only no_proxy lists produce no NO_PROXY env lines at all.
+        check_values(
+            [
+                Check {
+                    scenario: "empty list",
+                    input: proxy_file_raw("http://proxy:3128", &[]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "blank and whitespace-only entries are filtered out",
+                    input: proxy_file_raw("http://proxy:3128", &["", "   ", "\t"]),
+                    expect: false,
+                },
+            ],
+            |raw| raw.contains("NO_PROXY") || raw.contains("no_proxy"),
+        );
+    }
+
     // ── unique_name ────────────────────────────────────────────────────────
 
     #[test]
     fn unique_name_has_expected_format() {
+        // "<prefix>-<16 lowercase hex chars>" for several prefixes.
+        check_cases(
+            [
+                Case {
+                    scenario: "standard prefix",
+                    input: "dpu-flavor",
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "empty prefix still yields prefix-<hash>",
+                    input: "",
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "prefix containing hyphens",
+                    input: "a-b-c",
+                    expect: Yields(true),
+                },
+            ],
+            |prefix: &str| {
+                let flavor = default_flavor("ns", &None).map_err(drop)?;
+                let name = flavor.unique_name(prefix).map_err(drop)?;
+                let (got_prefix, hash) = name.rsplit_once('-').ok_or(())?;
+                Ok::<bool, ()>(
+                    got_prefix == prefix
+                        && hash.len() == 16
+                        && hash
+                            .chars()
+                            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn unique_name_equality_across_specs() {
+        // true  => the two specs hash to the same name (stable / order- & dup-insensitive)
+        // false => the specs differ, so the names must differ
+        check_values(
+            [
+                Check {
+                    scenario: "deterministic for identical specs",
+                    input: (name_for(&None), name_for(&None)),
+                    expect: true,
+                },
+                Check {
+                    scenario: "no_proxy order does not affect the name",
+                    input: (
+                        name_for(&proxy("http://proxy:3128", &["localhost", "10.0.0.0/8"])),
+                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "duplicate no_proxy entries do not affect the name",
+                    input: (
+                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
+                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "10.0.0.0/8"])),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "adding a proxy changes the name",
+                    input: (name_for(&None), name_for(&proxy("http://proxy:3128", &[]))),
+                    expect: false,
+                },
+                Check {
+                    scenario: "extending the no_proxy list changes the name",
+                    input: (
+                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
+                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "changing the https_proxy url changes the name",
+                    input: (
+                        name_for(&proxy("http://a:3128", &[])),
+                        name_for(&proxy("http://b:3128", &[])),
+                    ),
+                    expect: false,
+                },
+            ],
+            |(a, b)| a == b,
+        );
+    }
+
+    #[test]
+    fn unique_name_prefix_changes_the_output() {
+        // The same spec under different prefixes yields different names.
         let flavor = default_flavor("ns", &None).unwrap();
-        let name = flavor.unique_name("dpu-flavor").unwrap();
-        // "<prefix>-<16 lowercase hex chars>"
-        let (prefix, hash) = name.rsplit_once('-').expect("name contains '-'");
-        assert_eq!(prefix, "dpu-flavor");
-        assert_eq!(hash.len(), 16);
-        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn unique_name_is_deterministic() {
-        let f1 = default_flavor("ns", &None).unwrap();
-        let f2 = default_flavor("ns", &None).unwrap();
-        assert_eq!(
-            f1.unique_name("dpu-flavor").unwrap(),
-            f2.unique_name("dpu-flavor").unwrap()
+        check_values(
+            [
+                Check {
+                    scenario: "different prefixes differ",
+                    input: (
+                        flavor.unique_name("a").unwrap(),
+                        flavor.unique_name("b").unwrap(),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "same prefix matches",
+                    input: (
+                        flavor.unique_name("x").unwrap(),
+                        flavor.unique_name("x").unwrap(),
+                    ),
+                    expect: true,
+                },
+            ],
+            |(a, b)| a == b,
         );
     }
 
+    // ── dhcp_acl_rules (pure formatter) ────────────────────────────────────
+
     #[test]
-    fn unique_name_changes_when_proxy_added() {
-        let no_proxy = default_flavor("ns", &None).unwrap();
-        let with_proxy = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
-        assert_ne!(
-            no_proxy.unique_name("dpu-flavor").unwrap(),
-            with_proxy.unique_name("dpu-flavor").unwrap()
+    fn dhcp_acl_rules_shape() {
+        let rules = dhcp_acl_rules();
+        check_values(
+            [
+                Check {
+                    scenario: "starts with the iptables header",
+                    input: rules.starts_with("[iptables]\n"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "covers the host-facing pf0hpf interface",
+                    input: rules.contains("--physdev-in pf0hpf_if "),
+                    expect: true,
+                },
+                Check {
+                    scenario: "covers vf0",
+                    input: rules.contains("--physdev-in pf0vf0_if "),
+                    expect: true,
+                },
+                Check {
+                    scenario: "covers vf15 (last in range)",
+                    input: rules.contains("--physdev-in pf0vf15_if "),
+                    expect: true,
+                },
+                Check {
+                    scenario: "does not over-run to vf16",
+                    input: rules.contains("pf0vf16_if"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "header line plus 17 rule lines (hpf + vf0..15)",
+                    input: rules.lines().count() == 18,
+                    expect: true,
+                },
+                Check {
+                    scenario: "every rule drops DHCP broadcast to .255",
+                    input: rules.matches("-d 255.255.255.255").count() == 17,
+                    expect: true,
+                },
+            ],
+            |v| v,
         );
     }
 
+    // ── get_default_ovs_defaults (pure formatter) ──────────────────────────
+
     #[test]
-    fn unique_name_changes_when_no_proxy_list_changes() {
-        let p1 = default_flavor("ns", &proxy("http://proxy:3128", &["10.0.0.0/8"])).unwrap();
-        let p2 = default_flavor(
-            "ns",
-            &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
-        )
-        .unwrap();
-        assert_ne!(
-            p1.unique_name("dpu-flavor").unwrap(),
-            p2.unique_name("dpu-flavor").unwrap()
+    fn ovs_defaults_contains_key_lines() {
+        check_cases(
+            [Case {
+                scenario: "doca/offload/br-sfc setup lines present",
+                input: (
+                    get_default_ovs_defaults(),
+                    &[
+                        "other_config:doca-init=true",
+                        "other_config:hw-offload=true",
+                        "add-br br-sfc",
+                        "datapath_type=netdev",
+                        "type=dpdk",
+                        "mtu_request=9216",
+                    ][..],
+                ),
+                expect: Yields(true),
+            }],
+            |(raw, tokens): (String, &[&str])| Ok::<_, ()>(tokens.iter().all(|t| raw.contains(t))),
         );
     }
 
+    // ── get_default_nvconfig (pure constructor) ────────────────────────────
+
     #[test]
-    fn unique_name_stable_regardless_of_no_proxy_order() {
-        let p1 = default_flavor(
-            "ns",
-            &proxy("http://proxy:3128", &["localhost", "10.0.0.0/8"]),
-        )
-        .unwrap();
-        let p2 = default_flavor(
-            "ns",
-            &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
-        )
-        .unwrap();
-        assert_eq!(
-            p1.unique_name("dpu-flavor").unwrap(),
-            p2.unique_name("dpu-flavor").unwrap(),
-            "no_proxy order must not affect the flavor name"
+    fn default_nvconfig_shape() {
+        let nv = get_default_nvconfig();
+        check_values(
+            [
+                Check {
+                    scenario: "device is the only allowed wildcard variant",
+                    input: matches!(nv.device, Some(DpuFlavorNvconfigDevice::KopiumVariant0)),
+                    expect: true,
+                },
+                Check {
+                    scenario: "parameter count",
+                    input: nv.parameters.as_ref().map(|p| p.len()) == Some(16),
+                    expect: true,
+                },
+                Check {
+                    scenario: "carries the SRIOV enable flag",
+                    input: nv
+                        .parameters
+                        .as_ref()
+                        .map(|p| p.iter().any(|s| s == "SRIOV_EN=1"))
+                        == Some(true),
+                    expect: true,
+                },
+                Check {
+                    scenario: "carries NUM_OF_VFS=16",
+                    input: nv
+                        .parameters
+                        .as_ref()
+                        .map(|p| p.iter().any(|s| s == "NUM_OF_VFS=16"))
+                        == Some(true),
+                    expect: true,
+                },
+            ],
+            |v| v,
         );
-    }
-
-    #[test]
-    fn unique_name_stable_with_duplicate_no_proxy_entries() {
-        let p1 = default_flavor("ns", &proxy("http://proxy:3128", &["10.0.0.0/8"])).unwrap();
-        let p2 = default_flavor(
-            "ns",
-            &proxy("http://proxy:3128", &["10.0.0.0/8", "10.0.0.0/8"]),
-        )
-        .unwrap();
-        assert_eq!(
-            p1.unique_name("dpu-flavor").unwrap(),
-            p2.unique_name("dpu-flavor").unwrap(),
-            "duplicate no_proxy entries must not affect the flavor name"
-        );
-    }
-
-    #[test]
-    fn proxy_config_file_no_proxy_entries_are_sorted_and_deduped() {
-        let flavor = default_flavor(
-            "ns",
-            &proxy(
-                "http://proxy:3128",
-                &["localhost", "10.0.0.0/8", "10.0.0.0/8"],
-            ),
-        )
-        .unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let raw = files.last().unwrap().raw.as_deref().unwrap();
-        assert!(
-            raw.contains("NO_PROXY=10.0.0.0/8,localhost"),
-            "no_proxy must be sorted and deduped; got: {raw}"
-        );
-    }
-
-    // ── default_flavor ─────────────────────────────────────────────────────
-
-    #[test]
-    fn default_flavor_metadata_name_is_none() {
-        let flavor = default_flavor("test-ns", &None).unwrap();
-        assert!(
-            flavor.metadata.name.is_none(),
-            "name must be set by the caller via unique_name()"
-        );
-    }
-
-    #[test]
-    fn default_flavor_namespace_is_set() {
-        let flavor = default_flavor("my-ns", &None).unwrap();
-        assert_eq!(flavor.metadata.namespace.as_deref(), Some("my-ns"));
-    }
-
-    // ── get_config_files ───────────────────────────────────────────────────
-
-    #[test]
-    fn no_proxy_yields_five_config_files() {
-        let flavor = default_flavor("ns", &None).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        assert_eq!(files.len(), 5);
-    }
-
-    #[test]
-    fn proxy_appends_sixth_config_file() {
-        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        assert_eq!(files.len(), 6);
-    }
-
-    #[test]
-    fn proxy_config_file_has_correct_path() {
-        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let proxy_file = files.last().unwrap();
-        assert_eq!(
-            proxy_file.path.as_deref(),
-            Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf")
-        );
-    }
-
-    #[test]
-    fn proxy_config_file_contains_https_proxy_env() {
-        let flavor = default_flavor("ns", &proxy("http://proxy.example.com:3128", &[])).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let raw = files.last().unwrap().raw.as_deref().unwrap();
-        assert!(raw.contains("HTTPS_PROXY=http://proxy.example.com:3128"));
-        assert!(raw.contains("https_proxy=http://proxy.example.com:3128"));
-    }
-
-    #[test]
-    fn proxy_config_file_omits_no_proxy_when_empty() {
-        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let raw = files.last().unwrap().raw.as_deref().unwrap();
-        assert!(!raw.contains("NO_PROXY"));
-        assert!(!raw.contains("no_proxy"));
-    }
-
-    #[test]
-    fn proxy_config_file_includes_no_proxy_when_set() {
-        let flavor = default_flavor(
-            "ns",
-            &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
-        )
-        .unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let raw = files.last().unwrap().raw.as_deref().unwrap();
-        assert!(raw.contains("NO_PROXY=10.0.0.0/8,localhost"));
-        assert!(raw.contains("no_proxy=10.0.0.0/8,localhost"));
-    }
-
-    #[test]
-    fn proxy_config_file_has_override_operation() {
-        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
-        let files = flavor.spec.config_files.unwrap();
-        let proxy_file = files.last().unwrap();
-        assert!(matches!(
-            proxy_file.operation,
-            Some(DpuFlavorConfigFilesOperation::Override)
-        ));
-        assert_eq!(proxy_file.permissions.as_deref(), Some("0644"));
-    }
-
-    // ── validate_proxy_string ──────────────────────────────────────────────
-
-    #[test]
-    fn proxy_rejected_when_https_proxy_contains_quote() {
-        let err = default_flavor("ns", &proxy("http://proxy:3128/\"evil", &[])).unwrap_err();
-        assert!(
-            matches!(err, crate::error::DpfError::ConfigError(_)),
-            "expected ConfigError, got: {err:?}"
-        );
-    }
-
-    #[test]
-    fn proxy_rejected_when_https_proxy_contains_newline() {
-        let err =
-            default_flavor("ns", &proxy("http://proxy:3128\nEvil: injected", &[])).unwrap_err();
-        assert!(matches!(err, crate::error::DpfError::ConfigError(_)));
-    }
-
-    #[test]
-    fn proxy_rejected_when_no_proxy_entry_contains_control_char() {
-        let err =
-            default_flavor("ns", &proxy("http://proxy:3128", &["10.0.0.0/8\x01bad"])).unwrap_err();
-        assert!(matches!(err, crate::error::DpfError::ConfigError(_)));
-    }
-
-    #[test]
-    fn proxy_accepted_with_typical_values() {
-        default_flavor(
-            "ns",
-            &proxy(
-                "http://proxy.corp.example.com:3128",
-                &["10.0.0.0/8", "localhost", ".svc.cluster.local"],
-            ),
-        )
-        .unwrap();
     }
 }
