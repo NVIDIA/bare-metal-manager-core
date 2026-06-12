@@ -93,7 +93,7 @@ pub struct LinkedExpectedSwitch {
     pub bmc_mac_address: MacAddress, // from expected_switches table
     pub switch_id: Option<SwitchId>, // The switch
     pub expected_switch_id: Option<Uuid>, // The expected switch ID
-    pub address: Option<String>,     // The explored BMC endpoint IP
+    pub address: Option<IpAddr>,     // The explored BMC endpoint IP
     pub rack_id: Option<RackId>,     // The rack this switch belongs to
 }
 

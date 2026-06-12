@@ -224,16 +224,17 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 		logger.Info().Str("childCidr", childPrefix.Cidr).Msg("created child cidr for VPC prefix")
 
-		// Create VPC prefix in DB
-		vpcPrefix, derr := vpcPrefixDAO.Create(ctx, tx, cdbm.VpcPrefixCreateInput{Name: apiRequest.Name, TenantOrg: org, SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, IpBlockID: &ipBlock.ID, Prefix: childPrefix.Cidr, PrefixLength: apiRequest.PrefixLength, Status: cdbm.VpcPrefixStatusReady, CreatedBy: dbUser.ID})
+		// Create VPC prefix in DB with the initial Core lifecycle state.
+		status := cdbm.VpcPrefixStatusProvisioning
+		statusMsg := "VPC Prefix is being provisioned on Site"
+		vpcPrefix, derr := vpcPrefixDAO.Create(ctx, tx, cdbm.VpcPrefixCreateInput{Name: apiRequest.Name, TenantOrg: org, SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, IpBlockID: &ipBlock.ID, Prefix: childPrefix.Cidr, PrefixLength: apiRequest.PrefixLength, Status: status, CreatedBy: dbUser.ID})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("unable to create VPC prefix record in DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed creating VPC prefix record", nil)
 		}
 
 		// create the status detail record
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), *cutil.GetPtr(cdbm.VpcPrefixStatusReady),
-			cutil.GetPtr("Received VPC prefix creation request, ready"))
+		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), status, &statusMsg)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC prefix", nil)
@@ -495,18 +496,24 @@ func (gash GetAllVpcPrefixHandler) Handle(c echo.Context) error {
 
 	vpusageMap := map[uuid.UUID]*cip.Usage{}
 	if includeUsageStats {
+		vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixes))
 		for i := range vpcPrefixes {
 			vp := &vpcPrefixes[i]
 			if vp.IPBlock == nil {
 				logger.Error().Str("vpcPrefixId", vp.ID.String()).Msg("VPC prefix missing IP Block relation for usage stats")
 				continue
 			}
-			vpusage, serr := vpcPrefixDAO.GetPrefixUsage(ctx, nil, vp)
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+		if len(vpcPrefixesForUsage) > 0 {
+			prefixUsageMap, serr := vpcPrefixDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
 			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving usage stats for VPC prefix")
-				continue
+				logger.Error().Err(serr).Msg("error retrieving usage stats for VPC prefixes")
+			} else {
+				for id, usage := range prefixUsageMap {
+					vpusageMap[id] = usage
+				}
 			}
-			vpusageMap[vp.ID] = vpusage
 		}
 	}
 
@@ -686,9 +693,15 @@ func (gsh GetVpcPrefixHandler) Handle(c echo.Context) error {
 			logger.Error().Str("vpcPrefixId", vpcPrefix.ID.String()).Msg("VPC prefix missing IP Block relation for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
 		}
-		vpusage, err = vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
+		prefixUsageMap, err := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving usage stats for VPC prefix")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
+		}
+		var ok bool
+		vpusage, ok = prefixUsageMap[vpcPrefix.ID]
+		if !ok {
+			logger.Error().Str("vpcPrefixId", vpcPrefix.ID.String()).Msg("VPC prefix missing CIDR for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
 		}
 	}

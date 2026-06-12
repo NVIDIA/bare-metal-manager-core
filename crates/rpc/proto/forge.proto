@@ -1266,6 +1266,7 @@ enum CredentialType {
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
   BgpSiteWideLeafPassword = 11;
+  SiteWideNicLockdownIkm = 12;
 }
 
 message CredentialCreationRequest {

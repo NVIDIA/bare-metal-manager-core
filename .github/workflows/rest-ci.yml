@@ -38,6 +38,7 @@ jobs:
             rest_api:
               - 'rest-api/**'
               - '.github/workflows/rest-*.yml'
+              - 'helm/rest/**'
 
       - name: Decide whether REST CI should run
         id: gate

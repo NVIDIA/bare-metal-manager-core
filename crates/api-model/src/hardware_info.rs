@@ -396,6 +396,9 @@ impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
 #[cfg(test)]
 mod tests {
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     const DPU_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_info.json");
@@ -425,31 +428,40 @@ mod tests {
         );
     }
 
+    // Deserialize an LLDP switch entry and project to the management `ip_address`
+    // list: invalid entries are dropped lossily and a null list defaults to empty.
     #[test]
-    fn lldp_switch_data_filters_invalid_management_addresses() {
-        let json = r#"{
-            "ip_address": [
-                "192.0.2.10",
-                "not-an-ip",
-                "2001:db8::1"
-            ]
-        }"#;
-        let switch: LldpSwitchData = serde_json::from_str(json).unwrap();
-
-        assert_eq!(
-            switch.ip_address,
-            vec![
-                "192.0.2.10".parse::<IpAddr>().unwrap(),
-                "2001:db8::1".parse::<IpAddr>().unwrap(),
-            ]
+    fn lldp_switch_data_management_addresses() {
+        check_cases(
+            [
+                Case {
+                    scenario: "filters invalid management addresses",
+                    input: r#"{
+                        "ip_address": [
+                            "192.0.2.10",
+                            "not-an-ip",
+                            "2001:db8::1"
+                        ]
+                    }"#,
+                    expect: Yields(vec![
+                        "192.0.2.10".parse::<IpAddr>().unwrap(),
+                        "2001:db8::1".parse::<IpAddr>().unwrap(),
+                    ]),
+                },
+                Case {
+                    scenario: "defaults null management addresses to empty",
+                    input: r#"{"ip_address":null}"#,
+                    expect: Yields(vec![]),
+                },
+            ],
+            // serde_json::Error is not PartialEq, so deserialization failure would
+            // be Fails; here every row parses, so the error type is irrelevant.
+            |json| {
+                serde_json::from_str::<LldpSwitchData>(json)
+                    .map(|switch| switch.ip_address)
+                    .map_err(drop)
+            },
         );
-    }
-
-    #[test]
-    fn lldp_switch_data_defaults_null_management_addresses() {
-        let switch: LldpSwitchData = serde_json::from_str(r#"{"ip_address":null}"#).unwrap();
-
-        assert!(switch.ip_address.is_empty());
     }
 
     #[test]
@@ -551,16 +563,41 @@ mod tests {
         );
     }
 
+    // Deserialize a HardwareInfo fixture and project to whether it is classified as
+    // a DPU: x86 hardware is not, both BlueField fixtures are.
     #[test]
-    fn deserialize_x86_info() {
-        let info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
-        assert!(!info.is_dpu());
+    fn deserialize_info_is_dpu() {
+        check_cases(
+            [
+                Case {
+                    scenario: "x86 host is not a DPU",
+                    input: X86_INFO_JSON,
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "dpu info is a DPU",
+                    input: DPU_INFO_JSON,
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "bf3 dpu info is a DPU",
+                    input: DPU_BF3_INFO_JSON,
+                    expect: Yields(true),
+                },
+            ],
+            // serde_json::Error is not PartialEq; every fixture parses, so the error
+            // type is irrelevant here.
+            |bytes| {
+                serde_json::from_slice::<HardwareInfo>(bytes)
+                    .map(|info| info.is_dpu())
+                    .map_err(drop)
+            },
+        );
     }
 
     #[test]
-    fn deserialize_dpu_info() {
+    fn deserialize_dpu_info_decodes_ch_64_mac() {
         let info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
-        assert!(info.is_dpu());
 
         // Make sure deserialize_ch_64 works as expected, where
         // the source dpu_info.json file for this has ch:64 as
@@ -569,12 +606,6 @@ mod tests {
             info.network_interfaces[1].mac_address.to_string(),
             "00:00:00:00:00:64"
         );
-    }
-
-    #[test]
-    fn deserialize_dpu_bf3_info() {
-        let info = serde_json::from_slice::<HardwareInfo>(DPU_BF3_INFO_JSON).unwrap();
-        assert!(info.is_dpu());
     }
 
     #[test]

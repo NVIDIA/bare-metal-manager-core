@@ -194,6 +194,9 @@ pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     fn label(key: &str, value: Option<&str>) -> rpc::forge::Label {
@@ -211,87 +214,138 @@ mod tests {
         }
     }
 
-    // apply_set tests
-
+    // apply_set: name/description overrides are applied (None leaves the field
+    // untouched), and a missing Metadata is rejected. Each row yields the
+    // resulting (name, description) pair.
     #[test]
-    fn apply_set_updates_name() {
-        let m = metadata_with("old", "desc", vec![]);
-        let result = apply_set(Some(m), Some("new".into()), None).unwrap();
-        assert_eq!(result.name, "new");
-        assert_eq!(result.description, "desc");
+    fn apply_set_applies_overrides() {
+        check_cases(
+            [
+                Case {
+                    scenario: "name override updates name, leaves description",
+                    input: (
+                        Some(metadata_with("old", "desc", vec![])),
+                        Some("new".to_string()),
+                        None,
+                    ),
+                    expect: Yields(("new".to_string(), "desc".to_string())),
+                },
+                Case {
+                    scenario: "description override updates description, leaves name",
+                    input: (
+                        Some(metadata_with("name", "old", vec![])),
+                        None,
+                        Some("new".to_string()),
+                    ),
+                    expect: Yields(("name".to_string(), "new".to_string())),
+                },
+                Case {
+                    scenario: "no overrides leaves both unchanged",
+                    input: (Some(metadata_with("name", "desc", vec![])), None, None),
+                    expect: Yields(("name".to_string(), "desc".to_string())),
+                },
+                Case {
+                    scenario: "missing metadata errors",
+                    input: (None, Some("x".to_string()), None),
+                    expect: Fails,
+                },
+            ],
+            |(metadata, name, description)| {
+                apply_set(metadata, name, description)
+                    .map(|m| (m.name, m.description))
+                    .map_err(drop)
+            },
+        );
     }
 
+    // apply_add_label: a new key is appended, an existing key is replaced in
+    // place (and other labels preserved), and a missing Metadata is rejected.
+    // Each row yields the resulting label list.
     #[test]
-    fn apply_set_updates_description() {
-        let m = metadata_with("name", "old", vec![]);
-        let result = apply_set(Some(m), None, Some("new".into())).unwrap();
-        assert_eq!(result.name, "name");
-        assert_eq!(result.description, "new");
+    fn apply_add_label_adds_or_replaces() {
+        check_cases(
+            [
+                Case {
+                    scenario: "adds a new label",
+                    input: (
+                        Some(metadata_with("n", "", vec![])),
+                        "env".to_string(),
+                        Some("prod".to_string()),
+                    ),
+                    expect: Yields(vec![label("env", Some("prod"))]),
+                },
+                Case {
+                    scenario: "replaces an existing key",
+                    input: (
+                        Some(metadata_with("n", "", vec![label("env", Some("staging"))])),
+                        "env".to_string(),
+                        Some("prod".to_string()),
+                    ),
+                    expect: Yields(vec![label("env", Some("prod"))]),
+                },
+                Case {
+                    scenario: "preserves other labels",
+                    input: (
+                        Some(metadata_with("n", "", vec![label("team", Some("infra"))])),
+                        "env".to_string(),
+                        Some("prod".to_string()),
+                    ),
+                    expect: Yields(vec![
+                        label("team", Some("infra")),
+                        label("env", Some("prod")),
+                    ]),
+                },
+                Case {
+                    scenario: "missing metadata errors",
+                    input: (None, "k".to_string(), None),
+                    expect: Fails,
+                },
+            ],
+            |(metadata, key, value)| {
+                apply_add_label(metadata, key, value)
+                    .map(|m| m.labels)
+                    .map_err(drop)
+            },
+        );
     }
 
+    // apply_remove_labels: matching keys are dropped, missing keys are ignored,
+    // and a missing Metadata is rejected. Each row yields the surviving labels.
     #[test]
-    fn apply_set_none_leaves_unchanged() {
-        let m = metadata_with("name", "desc", vec![]);
-        let result = apply_set(Some(m), None, None).unwrap();
-        assert_eq!(result.name, "name");
-        assert_eq!(result.description, "desc");
-    }
-
-    #[test]
-    fn apply_set_missing_metadata_errors() {
-        assert!(apply_set(None, Some("x".into()), None).is_err());
-    }
-
-    // apply_add_label tests
-
-    #[test]
-    fn apply_add_label_adds_new() {
-        let m = metadata_with("n", "", vec![]);
-        let result = apply_add_label(Some(m), "env".into(), Some("prod".into())).unwrap();
-        assert_eq!(result.labels.len(), 1);
-        assert_eq!(result.labels[0].key, "env");
-        assert_eq!(result.labels[0].value, Some("prod".to_string()));
-    }
-
-    #[test]
-    fn apply_add_label_replaces_existing() {
-        let m = metadata_with("n", "", vec![label("env", Some("staging"))]);
-        let result = apply_add_label(Some(m), "env".into(), Some("prod".into())).unwrap();
-        assert_eq!(result.labels.len(), 1);
-        assert_eq!(result.labels[0].value, Some("prod".to_string()));
-    }
-
-    #[test]
-    fn apply_add_label_preserves_others() {
-        let m = metadata_with("n", "", vec![label("team", Some("infra"))]);
-        let result = apply_add_label(Some(m), "env".into(), Some("prod".into())).unwrap();
-        assert_eq!(result.labels.len(), 2);
-    }
-
-    #[test]
-    fn apply_add_label_missing_metadata_errors() {
-        assert!(apply_add_label(None, "k".into(), None).is_err());
-    }
-
-    // apply_remove_labels tests
-
-    #[test]
-    fn apply_remove_labels_removes_matching() {
-        let m = metadata_with("n", "", vec![label("a", None), label("b", None)]);
-        let result = apply_remove_labels(Some(m), vec!["a".into()]).unwrap();
-        assert_eq!(result.labels.len(), 1);
-        assert_eq!(result.labels[0].key, "b");
-    }
-
-    #[test]
-    fn apply_remove_labels_ignores_missing_keys() {
-        let m = metadata_with("n", "", vec![label("a", None)]);
-        let result = apply_remove_labels(Some(m), vec!["nonexistent".into()]).unwrap();
-        assert_eq!(result.labels.len(), 1);
-    }
-
-    #[test]
-    fn apply_remove_labels_missing_metadata_errors() {
-        assert!(apply_remove_labels(None, vec!["k".into()]).is_err());
+    fn apply_remove_labels_drops_matching() {
+        check_cases(
+            [
+                Case {
+                    scenario: "removes the matching key",
+                    input: (
+                        Some(metadata_with(
+                            "n",
+                            "",
+                            vec![label("a", None), label("b", None)],
+                        )),
+                        vec!["a".to_string()],
+                    ),
+                    expect: Yields(vec![label("b", None)]),
+                },
+                Case {
+                    scenario: "ignores keys that don't exist",
+                    input: (
+                        Some(metadata_with("n", "", vec![label("a", None)])),
+                        vec!["nonexistent".to_string()],
+                    ),
+                    expect: Yields(vec![label("a", None)]),
+                },
+                Case {
+                    scenario: "missing metadata errors",
+                    input: (None, vec!["k".to_string()]),
+                    expect: Fails,
+                },
+            ],
+            |(metadata, keys)| {
+                apply_remove_labels(metadata, keys)
+                    .map(|m| m.labels)
+                    .map_err(drop)
+            },
+        );
     }
 }

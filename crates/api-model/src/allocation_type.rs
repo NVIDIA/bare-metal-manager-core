@@ -90,8 +90,15 @@ pub enum AssignStaticResult {
 mod tests {
     use std::net::Ipv4Addr;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
     use crate::address_selection_strategy::AddressSelectionStrategy;
+
+    // Total `From<AddressSelectionStrategy>` conversions: every strategy maps to an
+    // allocation type. These are infallible, so they stay standalone rather than
+    // being wrapped in a fake Result.
 
     #[test]
     fn next_available_ip_is_dhcp() {
@@ -127,21 +134,30 @@ mod tests {
         );
     }
 
+    // JSON round-trip: serialize each variant and deserialize it back, asserting
+    // both the wire form and that it survives the trip. The closure returns the
+    // wire string plus the recovered value so each row pins down both directions.
     #[test]
     fn serde_roundtrip() {
-        let dhcp: AllocationType = serde_json::from_str(r#""dhcp""#).unwrap();
-        assert_eq!(dhcp, AllocationType::Dhcp);
-
-        let static_: AllocationType = serde_json::from_str(r#""static""#).unwrap();
-        assert_eq!(static_, AllocationType::Static);
-
-        assert_eq!(
-            serde_json::to_string(&AllocationType::Dhcp).unwrap(),
-            r#""dhcp""#
-        );
-        assert_eq!(
-            serde_json::to_string(&AllocationType::Static).unwrap(),
-            r#""static""#
+        check_cases(
+            [
+                Case {
+                    scenario: "dhcp",
+                    input: AllocationType::Dhcp,
+                    expect: Yields((r#""dhcp""#.to_string(), AllocationType::Dhcp)),
+                },
+                Case {
+                    scenario: "static",
+                    input: AllocationType::Static,
+                    expect: Yields((r#""static""#.to_string(), AllocationType::Static)),
+                },
+            ],
+            // serialize, then deserialize the wire form back into a value
+            |value| {
+                let wire = serde_json::to_string(&value).map_err(drop)?;
+                let recovered: AllocationType = serde_json::from_str(&wire).map_err(drop)?;
+                Ok::<_, ()>((wire, recovered))
+            },
         );
     }
 }

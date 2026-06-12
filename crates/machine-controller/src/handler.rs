@@ -143,6 +143,12 @@ pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 #[cfg(test)]
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 2; // Faster for tests
 
+#[cfg(not(test))]
+pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 5;
+
+#[cfg(test)]
+pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
+
 // Compute the API-side deadline for a scout firmware upgrade from scout's
 // timeout envelope: fixed script download timeout, script execution timeout,
 // one artifact download timeout per file artifact, and report/slack time.
@@ -7158,6 +7164,7 @@ impl HostUpgradeState {
                             power_drains_needed: *power_drains_needed,
                             delay_until: None,
                             last_power_drain_operation: None,
+                            reset_retry_count: 0,
                         };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             next_reprov_state,
@@ -8236,6 +8243,7 @@ impl HostUpgradeState {
                             power_drains_needed: *power_drains_needed,
                             delay_until: None,
                             last_power_drain_operation: None,
+                            reset_retry_count: 0,
                         };
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             reprovision_state,
@@ -8365,6 +8373,7 @@ impl HostUpgradeState {
             power_drains_needed,
             delay_until,
             last_power_drain_operation,
+            reset_retry_count,
         ) = match details {
             HostReprovisionState::ResetForNewFirmware {
                 final_version,
@@ -8373,6 +8382,7 @@ impl HostUpgradeState {
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
+                reset_retry_count,
             } => (
                 final_version,
                 firmware_type,
@@ -8380,6 +8390,7 @@ impl HostUpgradeState {
                 power_drains_needed,
                 delay_until,
                 last_power_drain_operation,
+                reset_retry_count,
             ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
@@ -8428,6 +8439,7 @@ impl HostUpgradeState {
                             power_drains_needed: Some(*power_drains_needed),
                             delay_until: Some(chrono::Utc::now().timestamp() + delay),
                             last_power_drain_operation: Some(PowerDrainState::Off),
+                            reset_retry_count: *reset_retry_count,
                         };
                         return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             reprovision_state,
@@ -8448,6 +8460,7 @@ impl HostUpgradeState {
                         power_drains_needed: Some(*power_drains_needed),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::Powercycle),
+                        reset_retry_count: *reset_retry_count,
                     };
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         reprovision_state,
@@ -8466,6 +8479,7 @@ impl HostUpgradeState {
                         power_drains_needed: Some(power_drains_needed - 1),
                         delay_until: Some(chrono::Utc::now().timestamp() + delay),
                         last_power_drain_operation: Some(PowerDrainState::On),
+                        reset_retry_count: *reset_retry_count,
                     };
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         reprovision_state,
@@ -8535,6 +8549,7 @@ impl HostUpgradeState {
             firmware_number: *firmware_number,
             final_version: final_version.to_string(),
             previous_reset_time: Some(Utc::now().timestamp()),
+            reset_retry_count: *reset_retry_count,
         };
         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
             reprovision_state,
@@ -8550,24 +8565,27 @@ impl HostUpgradeState {
         machine_id: &MachineId,
         scenario: HostFirmwareScenario,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let (final_version, firmware_type, firmware_number, previous_reset_time) = match details {
-            HostReprovisionState::NewFirmwareReportedWait {
-                final_version,
-                firmware_type,
-                firmware_number,
-                previous_reset_time,
-            } => (
-                final_version,
-                firmware_type,
-                firmware_number,
-                previous_reset_time,
-            ),
-            _ => {
-                return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_new_firmware_reported_wait"
-                )));
-            }
-        };
+        let (final_version, firmware_type, firmware_number, previous_reset_time, reset_retry_count) =
+            match details {
+                HostReprovisionState::NewFirmwareReportedWait {
+                    final_version,
+                    firmware_type,
+                    firmware_number,
+                    previous_reset_time,
+                    reset_retry_count,
+                } => (
+                    final_version,
+                    firmware_type,
+                    firmware_number,
+                    previous_reset_time,
+                    reset_retry_count,
+                ),
+                _ => {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "Wrong enum in host_new_firmware_reported_wait"
+                    )));
+                }
+            };
 
         let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, ctx).await? else {
             tracing::debug!("Waiting for site explorer to revisit {machine_id}");
@@ -8625,6 +8643,21 @@ impl HostUpgradeState {
                 && let Some(previous_reset_time) = previous_reset_time
                 && previous_reset_time + 30 * 60 <= Utc::now().timestamp()
             {
+                if *reset_retry_count >= MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES {
+                    let reason = format!(
+                        "Firmware version did not converge after completed update for {firmware_type}: expected {final_version}, found {current_versions:?} after {reset_retry_count} reset retries"
+                    );
+                    tracing::warn!(%machine_id, "{reason}");
+                    return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                        HostReprovisionState::FailedFirmwareUpgrade {
+                            firmware_type: *firmware_type,
+                            report_time: Some(Utc::now()),
+                            reason: Some(reason),
+                        },
+                        state.managed_state.get_host_repro_retry_count(),
+                    )));
+                }
+
                 tracing::info!(
                     "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
                     &endpoint.address,
@@ -8637,6 +8670,7 @@ impl HostUpgradeState {
                     power_drains_needed: None,
                     delay_until: None,
                     last_power_drain_operation: None,
+                    reset_retry_count: *reset_retry_count + 1,
                 };
                 return self
                     .host_reset_for_new_firmware(state, ctx, machine_id, details, scenario)

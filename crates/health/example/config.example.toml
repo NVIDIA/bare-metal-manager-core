@@ -22,6 +22,8 @@ shards_count = 1
 cache_size = 100
 bmc_proxy_url = "http://proxy.example.com:8080"
 
+endpoint_discovery_interval = "5m"
+
 # ==============================================================================
 # Endpoint Sources: Where to discover BMC endpoints from
 # ==============================================================================
@@ -131,12 +133,18 @@ max_jitter = "40ms"
 # BMC Collectors: What data to collect from BMCs
 # ==============================================================================
 
+[collectors.discovery]
+refresh_interval = "60m"
+discovery_concurrency = 1
+
 [collectors.sensors]
-rediscover_interval = "5m"
-state_refresh_interval = "30m"
 sensor_fetch_interval = "1m"
 sensor_fetch_concurrency = 10
 include_sensor_thresholds = true
+
+[collectors.metrics]
+fetch_interval = "2m"
+fetch_concurrency = 4
 
 [collectors.firmware]
 firmware_refresh_interval = "30m"

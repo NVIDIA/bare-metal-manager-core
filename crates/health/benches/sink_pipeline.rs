@@ -25,7 +25,7 @@ use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
-    HealthReportSink, LogRecord, PrometheusSink, ReportSource, SensorHealthData,
+    HealthReportSink, LogRecord, MetricSample, PrometheusSink, ReportSource,
 };
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::HealthReport as CarbideHealthReport;
@@ -84,7 +84,7 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
             let key = format!("sensor-{sensor_idx}");
 
             CollectorEvent::Metric(
-                SensorHealthData {
+                MetricSample {
                     key: key.clone(),
                     name: "hw_sensor".to_string(),
                     metric_type: "temperature".to_string(),

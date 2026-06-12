@@ -26,9 +26,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - chart: rest-api/helm/charts/nico-rest
+          - chart: helm/rest/nico-rest
             valueOverrides: '["nico-rest-api.config.keycloak.enabled=true","nico-rest-api.config.keycloak.baseURL=http://keycloak:8082","nico-rest-api.config.keycloak.realm=test","nico-rest-api.config.keycloak.clientID=test"]'
-          - chart: rest-api/helm/charts/nico-rest-site-agent
+          - chart: helm/rest/nico-rest-site-agent
             valueOverrides: '[]'
     steps:
       - name: Checkout code
@@ -51,8 +51,8 @@ jobs:
     strategy:
       matrix:
         chart:
-          - rest-api/helm/charts/nico-rest
-          - rest-api/helm/charts/nico-rest-site-agent
+          - helm/rest/nico-rest
+          - helm/rest/nico-rest-site-agent
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

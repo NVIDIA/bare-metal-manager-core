@@ -28,7 +28,7 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, EventContext, MetricSample};
 
 fn severity_text_to_number(severity: &str) -> i32 {
     match severity.to_uppercase().as_str() {
@@ -234,7 +234,7 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
 /// group metric samples by endpoint and build an ExportMetricsServiceRequest.
 /// every sample maps to an OTLP `Gauge` point; Sum/Histogram is a follow-up.
 pub fn build_metrics_export_request(
-    batch: &[(EventContext, SensorHealthData)],
+    batch: &[(EventContext, MetricSample)],
 ) -> ExportMetricsServiceRequest {
     let observed_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -630,7 +630,7 @@ mod tests {
             collector_type: "nvue_gnmi",
             ..base_ctx
         };
-        let sample = |name: &str| SensorHealthData {
+        let sample = |name: &str| MetricSample {
             key: "status:swp1".to_string(),
             name: name.to_string(),
             metric_type: "interface_oper_status".to_string(),
@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn metric_export_name_uses_metric_type() {
         let ctx = test_context();
-        let sample = SensorHealthData {
+        let sample = MetricSample {
             key: "asic0/oper_status".to_string(),
             name: "nvue_gnmi".to_string(),
             metric_type: "interface_oper_status".to_string(),

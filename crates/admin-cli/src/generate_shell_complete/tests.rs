@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -44,39 +46,63 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_bash ensures bash subcommand parses.
+// Each supported shell name parses to its matching `Shell` variant.
 #[test]
-fn parse_bash() {
-    let cmd = Cmd::try_parse_from(["generate-shell-complete", "bash"]).expect("should parse bash");
-    assert!(matches!(cmd.shell, Shell::Bash));
+fn shell_names_parse_to_their_variant() {
+    fn shell(s: &Shell) -> &'static str {
+        match s {
+            Shell::Bash => "bash",
+            Shell::Fish => "fish",
+            Shell::Zsh => "zsh",
+        }
+    }
+
+    check_cases(
+        [
+            Case {
+                scenario: "bash subcommand",
+                input: &["generate-shell-complete", "bash"][..],
+                expect: Yields("bash"),
+            },
+            Case {
+                scenario: "fish subcommand",
+                input: &["generate-shell-complete", "fish"][..],
+                expect: Yields("fish"),
+            },
+            Case {
+                scenario: "zsh subcommand",
+                input: &["generate-shell-complete", "zsh"][..],
+                expect: Yields("zsh"),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| shell(&cmd.shell))
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_fish ensures fish subcommand parses.
+// A shell subcommand is required, and an unknown shell is rejected.
 #[test]
-fn parse_fish() {
-    let cmd = Cmd::try_parse_from(["generate-shell-complete", "fish"]).expect("should parse fish");
-    assert!(matches!(cmd.shell, Shell::Fish));
-}
-
-// parse_zsh ensures zsh subcommand parses.
-#[test]
-fn parse_zsh() {
-    let cmd = Cmd::try_parse_from(["generate-shell-complete", "zsh"]).expect("should parse zsh");
-    assert!(matches!(cmd.shell, Shell::Zsh));
-}
-
-// parse_missing_shell_fails ensures requires shell
-// subcommand.
-#[test]
-fn parse_missing_shell_fails() {
-    let result = Cmd::try_parse_from(["generate-shell-complete"]);
-    assert!(result.is_err(), "should fail without shell subcommand");
-}
-
-// parse_invalid_shell_fails ensures fails with unknown
-// shell.
-#[test]
-fn parse_invalid_shell_fails() {
-    let result = Cmd::try_parse_from(["generate-shell-complete", "powershell"]);
-    assert!(result.is_err(), "should fail with unknown shell");
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [
+            Case {
+                scenario: "missing shell subcommand",
+                input: &["generate-shell-complete"][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "unknown shell",
+                input: &["generate-shell-complete", "powershell"][..],
+                expect: Fails,
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
+    );
 }

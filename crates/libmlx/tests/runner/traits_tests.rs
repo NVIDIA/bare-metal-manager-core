@@ -18,6 +18,8 @@
 // tests/traits_tests.rs
 // Tests for MlxConfigSettable and MlxConfigQueryable traits
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use libmlx::runner::traits::{self, MlxConfigQueryable, MlxConfigSettable};
 use libmlx::variables::value::MlxValueType;
 
@@ -377,34 +379,57 @@ fn test_mlx_config_queryable_vec_variables() {
     assert!(result.contains(&"NUM_OF_VFS".to_string()));
 }
 
+// `parse_array_index` splits a `NAME[idx]` string into its base name and index,
+// returns None for a plain (non-indexed) name, and errors on a malformed index.
+// The runner error isn't PartialEq, so the malformed rows use `Fails`; the rest
+// pin the exact `Option<(name, index)>` the parse should yield.
 #[test]
-fn test_parse_array_index() {
-    // Test valid array index formats
-    let result = traits::parse_array_index("ARRAY_VAR[0]").unwrap();
-    assert_eq!(result, Some(("ARRAY_VAR".to_string(), 0)));
-
-    let result = traits::parse_array_index("GPIO_ENABLED[15]").unwrap();
-    assert_eq!(result, Some(("GPIO_ENABLED".to_string(), 15)));
-
-    let result = traits::parse_array_index("COMPLEX_ARRAY_NAME[999]").unwrap();
-    assert_eq!(result, Some(("COMPLEX_ARRAY_NAME".to_string(), 999)));
-
-    // Test non-array format
-    let result = traits::parse_array_index("SRIOV_EN").unwrap();
-    assert_eq!(result, None);
-
-    let result = traits::parse_array_index("POWER_MODE").unwrap();
-    assert_eq!(result, None);
-
-    // Test invalid formats
-    let result = traits::parse_array_index("INVALID[]");
-    assert!(result.is_err());
-
-    let result = traits::parse_array_index("invalid[0]");
-    assert!(result.unwrap().is_none());
-
-    let result = traits::parse_array_index("VAR[not_a_number]");
-    assert!(result.is_err());
+fn parse_array_index_splits_name_and_index() {
+    check_cases(
+        [
+            Case {
+                scenario: "'ARRAY_VAR[0]'",
+                input: "ARRAY_VAR[0]",
+                expect: Yields(Some(("ARRAY_VAR".to_string(), 0))),
+            },
+            Case {
+                scenario: "'GPIO_ENABLED[15]'",
+                input: "GPIO_ENABLED[15]",
+                expect: Yields(Some(("GPIO_ENABLED".to_string(), 15))),
+            },
+            Case {
+                scenario: "'COMPLEX_ARRAY_NAME[999]'",
+                input: "COMPLEX_ARRAY_NAME[999]",
+                expect: Yields(Some(("COMPLEX_ARRAY_NAME".to_string(), 999))),
+            },
+            Case {
+                scenario: "'SRIOV_EN' is not an indexed name",
+                input: "SRIOV_EN",
+                expect: Yields(None),
+            },
+            Case {
+                scenario: "'POWER_MODE' is not an indexed name",
+                input: "POWER_MODE",
+                expect: Yields(None),
+            },
+            Case {
+                scenario: "'invalid[0]' lowercase name is not an index",
+                input: "invalid[0]",
+                expect: Yields(None),
+            },
+            Case {
+                scenario: "'INVALID[]' has an empty index",
+                input: "INVALID[]",
+                expect: Fails,
+            },
+            Case {
+                scenario: "'VAR[not_a_number]' has a non-numeric index",
+                input: "VAR[not_a_number]",
+                expect: Fails,
+            },
+        ],
+        |name| traits::parse_array_index(name).map_err(drop),
+    );
 }
 
 #[test]
@@ -546,47 +571,56 @@ fn test_build_sparse_array_value_invalid_enum() {
     assert!(result.is_err());
 }
 
+// `get_array_size_from_spec` reads the declared size off any array spec and errors
+// on a scalar spec. One row per array variant plus the scalar rejection. The runner
+// error isn't PartialEq, so the scalar case uses `Fails`.
 #[test]
-fn test_get_array_size_from_spec() {
+fn get_array_size_from_spec_reads_array_sizes() {
     use libmlx::variables::spec::MlxVariableSpec;
 
-    // Test boolean array
-    let spec = MlxVariableSpec::builder()
-        .boolean_array()
-        .with_size(4)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 4);
-
-    // Test integer array
-    let spec = MlxVariableSpec::builder()
-        .integer_array()
-        .with_size(6)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 6);
-
-    // Test enum array
-    let spec = MlxVariableSpec::builder()
-        .enum_array()
-        .with_options(vec!["a".to_string(), "b".to_string()])
-        .with_size(8)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 8);
-
-    // Test binary array
-    let spec = MlxVariableSpec::builder()
-        .binary_array()
-        .with_size(2)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 2);
-
-    // Test non-array spec should error
-    let spec = MlxVariableSpec::builder().boolean().build();
-    let result = traits::get_array_size_from_spec(&spec);
-    assert!(result.is_err());
+    check_cases(
+        [
+            Case {
+                scenario: "boolean array",
+                input: MlxVariableSpec::builder()
+                    .boolean_array()
+                    .with_size(4)
+                    .build(),
+                expect: Yields(4),
+            },
+            Case {
+                scenario: "integer array",
+                input: MlxVariableSpec::builder()
+                    .integer_array()
+                    .with_size(6)
+                    .build(),
+                expect: Yields(6),
+            },
+            Case {
+                scenario: "enum array",
+                input: MlxVariableSpec::builder()
+                    .enum_array()
+                    .with_options(vec!["a".to_string(), "b".to_string()])
+                    .with_size(8)
+                    .build(),
+                expect: Yields(8),
+            },
+            Case {
+                scenario: "binary array",
+                input: MlxVariableSpec::builder()
+                    .binary_array()
+                    .with_size(2)
+                    .build(),
+                expect: Yields(2),
+            },
+            Case {
+                scenario: "a scalar spec has no array size",
+                input: MlxVariableSpec::builder().boolean().build(),
+                expect: Fails,
+            },
+        ],
+        |spec| traits::get_array_size_from_spec(&spec).map_err(drop),
+    );
 }
 
 #[test]
@@ -730,34 +764,61 @@ fn test_mlx_config_queryable_array_index_base_variable_not_found() {
     }
 }
 
+// Querying a single explicit array index validates that index against the array's
+// size from the registry spec: an in-bounds index is preserved verbatim (size 1,
+// the name unchanged), an out-of-bounds one is rejected. Folds the per-type
+// validation cases and the boundary edge cases into one table. The runner error
+// isn't PartialEq, so rejections use `Fails`; a success yields the single-name vec,
+// which pins both the length and the preserved name.
 #[test]
-fn test_mlx_config_queryable_array_index_validation() {
+fn array_index_query_validates_against_spec_size() {
     let registry = common::create_test_registry();
 
-    // Test that array index validation works for different array types
-    let test_cases = vec![
-        ("GPIO_ENABLED[0]", true),     // BooleanArray size 4, index 0 valid
-        ("GPIO_ENABLED[3]", true),     // BooleanArray size 4, index 3 valid
-        ("GPIO_ENABLED[4]", false),    // BooleanArray size 4, index 4 invalid
-        ("THERMAL_SENSORS[5]", true),  // IntegerArray size 6, index 5 valid
-        ("THERMAL_SENSORS[6]", false), // IntegerArray size 6, index 6 invalid
-        ("GPIO_MODES[7]", true),       // EnumArray size 8, index 7 valid
-        ("GPIO_MODES[8]", false),      // EnumArray size 8, index 8 invalid
-    ];
-
-    for (var_name, should_succeed) in test_cases {
-        let variables = &[var_name];
-        let result = variables.to_variable_names(&registry);
-
-        if should_succeed {
-            assert!(result.is_ok(), "Expected {var_name} to succeed");
-            let names = result.unwrap();
-            assert_eq!(names.len(), 1);
-            assert_eq!(names[0], var_name);
-        } else {
-            assert!(result.is_err(), "Expected {var_name} to fail");
-        }
-    }
+    check_cases(
+        [
+            Case {
+                scenario: "GPIO_ENABLED[0]: boolean array size 4, first index",
+                input: "GPIO_ENABLED[0]",
+                expect: Yields(vec!["GPIO_ENABLED[0]".to_string()]),
+            },
+            Case {
+                scenario: "GPIO_ENABLED[3]: boolean array size 4, last valid index",
+                input: "GPIO_ENABLED[3]",
+                expect: Yields(vec!["GPIO_ENABLED[3]".to_string()]),
+            },
+            Case {
+                scenario: "GPIO_ENABLED[4]: boolean array size 4, out of bounds",
+                input: "GPIO_ENABLED[4]",
+                expect: Fails,
+            },
+            Case {
+                scenario: "THERMAL_SENSORS[5]: integer array size 6, last valid index",
+                input: "THERMAL_SENSORS[5]",
+                expect: Yields(vec!["THERMAL_SENSORS[5]".to_string()]),
+            },
+            Case {
+                scenario: "THERMAL_SENSORS[6]: integer array size 6, out of bounds",
+                input: "THERMAL_SENSORS[6]",
+                expect: Fails,
+            },
+            Case {
+                scenario: "GPIO_MODES[0]: enum array size 8, first index",
+                input: "GPIO_MODES[0]",
+                expect: Yields(vec!["GPIO_MODES[0]".to_string()]),
+            },
+            Case {
+                scenario: "GPIO_MODES[7]: enum array size 8, last valid index",
+                input: "GPIO_MODES[7]",
+                expect: Yields(vec!["GPIO_MODES[7]".to_string()]),
+            },
+            Case {
+                scenario: "GPIO_MODES[8]: enum array size 8, out of bounds",
+                input: "GPIO_MODES[8]",
+                expect: Fails,
+            },
+        ],
+        |var_name| (&[var_name]).to_variable_names(&registry).map_err(drop),
+    );
 }
 
 #[test]
@@ -792,31 +853,4 @@ fn test_mlx_config_queryable_preserve_vs_expand_behavior() {
     assert!(index_result.contains(&"GPIO_ENABLED[3]".to_string()));
     assert!(!index_result.contains(&"GPIO_ENABLED[0]".to_string()));
     assert!(!index_result.contains(&"GPIO_ENABLED[2]".to_string()));
-}
-
-#[test]
-fn test_mlx_config_queryable_array_index_edge_cases() {
-    let registry = common::create_test_registry();
-
-    // Test edge cases for array index parsing and validation
-    let test_cases = vec![
-        ("GPIO_ENABLED[0]", true),    // First index
-        ("THERMAL_SENSORS[5]", true), // Last valid index (size 6, so 0-5 valid)
-        ("GPIO_MODES[0]", true),      // First index of larger array
-        ("GPIO_MODES[7]", true),      // Last valid index (size 8, so 0-7 valid)
-    ];
-
-    for (var_name, should_succeed) in test_cases {
-        let variables = &[var_name];
-        let result = variables.to_variable_names(&registry);
-
-        if should_succeed {
-            assert!(result.is_ok(), "Expected {var_name} to succeed");
-            let names = result.unwrap();
-            assert_eq!(names.len(), 1);
-            assert_eq!(names[0], var_name);
-        } else {
-            assert!(result.is_err(), "Expected {var_name} to fail");
-        }
-    }
 }

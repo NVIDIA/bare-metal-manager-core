@@ -22,8 +22,8 @@ POSTGRES_DB := nicotest
 POSTGRES_IMAGE := postgres:14.4-alpine
 
 # Helm chart configuration (for kind-reset-helm / helm-* targets)
-UMBRELLA_CHART := helm/charts/nico-rest
-SITE_AGENT_CHART := helm/charts/nico-rest-site-agent
+UMBRELLA_CHART := ../helm/rest/nico-rest
+SITE_AGENT_CHART := ../helm/rest/nico-rest-site-agent
 
 HELM_SET := --set global.image.repository=$(IMAGE_REGISTRY) \
 	--set global.image.tag=$(IMAGE_TAG) \

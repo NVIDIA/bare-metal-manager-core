@@ -334,3 +334,333 @@ impl Default for FlintRunner {
         Self::new().unwrap_or_else(|_| Self::with_path("flint"))
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
+    use super::*;
+
+    // err_kind projects an MlxError onto a stable discriminant string so we can
+    // distinguish *which* error a deterministic path returns without relying on
+    // MlxError being PartialEq (it is not). Only the variants the deterministic
+    // (no-flint-spawn) paths in this file can produce are named here.
+    fn err_kind(e: &MlxError) -> &'static str {
+        match e {
+            MlxError::CommandFailed(_) => "CommandFailed",
+            MlxError::DeviceNotFound(_) => "DeviceNotFound",
+            MlxError::InvalidDeviceId(_) => "InvalidDeviceId",
+            MlxError::AlreadyLocked => "AlreadyLocked",
+            MlxError::AlreadyUnlocked => "AlreadyUnlocked",
+            MlxError::InvalidKey => "InvalidKey",
+            MlxError::PermissionDenied => "PermissionDenied",
+            MlxError::FlintNotFound => "FlintNotFound",
+            MlxError::ParseError(_) => "ParseError",
+            MlxError::DryRun(_) => "DryRun",
+            MlxError::IoError(_) => "IoError",
+            MlxError::SerializationError(_) => "SerializationError",
+        }
+    }
+
+    // is_valid_key accepts exactly 8 ASCII hex digits; anything else is rejected.
+    // Covers: too short, too long, exactly-8 valid (upper and lower), non-hex
+    // chars, empty, and embedded whitespace.
+    #[test]
+    fn is_valid_key_requires_eight_hex_digits() {
+        check_values(
+            [
+                Check {
+                    scenario: "eight lowercase hex digits",
+                    input: "0a1b2c3d",
+                    expect: true,
+                },
+                Check {
+                    scenario: "eight uppercase hex digits",
+                    input: "ABCDEF01",
+                    expect: true,
+                },
+                Check {
+                    scenario: "eight digits, all numeric",
+                    input: "12345678",
+                    expect: true,
+                },
+                Check {
+                    scenario: "seven digits is too short",
+                    input: "1234567",
+                    expect: false,
+                },
+                Check {
+                    scenario: "nine digits is too long",
+                    input: "123456789",
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty string",
+                    input: "",
+                    expect: false,
+                },
+                Check {
+                    scenario: "right length but non-hex char 'g'",
+                    input: "1234567g",
+                    expect: false,
+                },
+                Check {
+                    scenario: "right length but contains a space",
+                    input: "1234 678",
+                    expect: false,
+                },
+                Check {
+                    scenario: "0x-prefixed is not bare hex of length 8",
+                    input: "0x123456",
+                    expect: false,
+                },
+            ],
+            FlintRunner::is_valid_key,
+        );
+    }
+
+    // validate_device_id rejects empty and space-containing IDs, accepts the rest.
+    // Errors aren't PartialEq, so the rejection rows use Fails + map_err(drop).
+    #[test]
+    fn validate_device_id_rejects_empty_and_spaces() {
+        check_cases(
+            [
+                Case {
+                    scenario: "a PCI-style address is accepted",
+                    input: "0000:01:00.0",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "a simple device name is accepted",
+                    input: "mlx5_0",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "a device path is accepted",
+                    input: "/dev/mst/mt4119_pciconf0",
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "empty is rejected",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "a leading space is rejected",
+                    input: " 01:00.0",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "an interior space is rejected",
+                    input: "01:00 .0",
+                    expect: Fails,
+                },
+            ],
+            |id| FlintRunner::validate_device_id(id).map_err(drop),
+        );
+    }
+
+    // validate_device_id's two rejection paths carry distinct InvalidDeviceId
+    // messages; pin which message each path produces.
+    #[test]
+    fn validate_device_id_error_messages() {
+        let empty = FlintRunner::validate_device_id("").unwrap_err();
+        assert_eq!(err_kind(&empty), "InvalidDeviceId");
+        assert_eq!(
+            empty.to_string(),
+            "Invalid device ID format: Device ID cannot be empty"
+        );
+
+        let spaced = FlintRunner::validate_device_id("a b").unwrap_err();
+        assert_eq!(err_kind(&spaced), "InvalidDeviceId");
+        assert_eq!(
+            spaced.to_string(),
+            "Invalid device ID format: Device ID cannot contain spaces"
+        );
+    }
+
+    // build_command joins the path and args with single spaces. Covers a custom
+    // path, an empty arg slice (trailing space after the path), and a single arg.
+    #[test]
+    fn build_command_formats_path_and_args() {
+        let runner = FlintRunner::with_path("/opt/mellanox/mft/bin/flint");
+        check_values(
+            [
+                Check {
+                    scenario: "typical query args",
+                    input: &["-d", "dev0", "q"][..],
+                    expect: "/opt/mellanox/mft/bin/flint -d dev0 q".to_string(),
+                },
+                Check {
+                    scenario: "empty args leaves a trailing space",
+                    input: &[][..],
+                    expect: "/opt/mellanox/mft/bin/flint ".to_string(),
+                },
+                Check {
+                    scenario: "a single arg",
+                    input: &["burn"][..],
+                    expect: "/opt/mellanox/mft/bin/flint burn".to_string(),
+                },
+            ],
+            |args| runner.build_command(args),
+        );
+    }
+
+    // with_path / with_dry_run are builders; read the private fields back to
+    // confirm the path is stored verbatim and dry_run defaults off then toggles.
+    #[test]
+    fn builders_store_path_and_dry_run() {
+        let plain = FlintRunner::with_path("flint");
+        assert_eq!(plain.flint_path, "flint");
+        assert!(!plain.dry_run, "dry_run defaults to false");
+
+        let dry = FlintRunner::with_path("/usr/bin/flint").with_dry_run(true);
+        assert_eq!(dry.flint_path, "/usr/bin/flint");
+        assert!(dry.dry_run, "with_dry_run(true) enables dry-run");
+
+        // with_dry_run(false) is the identity for the flag.
+        let off = FlintRunner::with_path("flint").with_dry_run(false);
+        assert!(!off.dry_run);
+    }
+
+    // In dry-run mode the command-issuing methods short-circuit to MlxError::DryRun
+    // (carrying the would-be command string) before spawning flint, so these are
+    // deterministic. Key-taking methods validate the key FIRST: an invalid key
+    // yields InvalidKey even under dry-run; a valid key yields DryRun.
+    #[test]
+    fn dry_run_methods_short_circuit() {
+        let runner = FlintRunner::with_path("flint").with_dry_run(true);
+
+        // query_device has no key validation: always DryRun in dry-run mode.
+        let q = runner.query_device("dev0").unwrap_err();
+        assert_eq!(err_kind(&q), "DryRun");
+        assert_eq!(
+            q.to_string(),
+            "Dry run - would have executed: flint -d dev0 q"
+        );
+
+        // enable_hw_access: valid key -> DryRun with the enable command string.
+        let en = runner.enable_hw_access("dev0", "0a1b2c3d").unwrap_err();
+        assert_eq!(err_kind(&en), "DryRun");
+        assert_eq!(
+            en.to_string(),
+            "Dry run - would have executed: flint -d dev0 hw_access enable 0a1b2c3d"
+        );
+
+        // disable_hw_access: valid key -> DryRun with the disable command string.
+        let dis = runner.disable_hw_access("dev0", "0a1b2c3d").unwrap_err();
+        assert_eq!(err_kind(&dis), "DryRun");
+        assert_eq!(
+            dis.to_string(),
+            "Dry run - would have executed: flint -d dev0 hw_access disable 0a1b2c3d"
+        );
+
+        // set_key: valid key -> DryRun with the set_key command string.
+        let sk = runner.set_key("dev0", "0a1b2c3d").unwrap_err();
+        assert_eq!(err_kind(&sk), "DryRun");
+        assert_eq!(
+            sk.to_string(),
+            "Dry run - would have executed: flint -d dev0 set_key 0a1b2c3d"
+        );
+    }
+
+    // Key validation precedes the dry-run check in every key-taking method, so an
+    // invalid key short-circuits to InvalidKey regardless of dry-run state.
+    #[test]
+    fn invalid_key_takes_precedence_over_dry_run() {
+        let runner = FlintRunner::with_path("flint").with_dry_run(true);
+
+        // Each key-taking method, fed a too-short key, must report InvalidKey.
+        check_values(
+            [
+                Check {
+                    scenario: "enable_hw_access rejects a bad key",
+                    input: "enable",
+                    expect: "InvalidKey",
+                },
+                Check {
+                    scenario: "disable_hw_access rejects a bad key",
+                    input: "disable",
+                    expect: "InvalidKey",
+                },
+                Check {
+                    scenario: "set_key rejects a bad key",
+                    input: "set_key",
+                    expect: "InvalidKey",
+                },
+            ],
+            |which| {
+                let bad = "xyz"; // not 8 hex digits
+                let e = match which {
+                    "enable" => runner.enable_hw_access("dev0", bad).unwrap_err(),
+                    "disable" => runner.disable_hw_access("dev0", bad).unwrap_err(),
+                    "set_key" => runner.set_key("dev0", bad).unwrap_err(),
+                    _ => unreachable!(),
+                };
+                err_kind(&e)
+            },
+        );
+    }
+
+    // burn / verify_image check that the image path exists BEFORE any dry-run or
+    // spawn, returning CommandFailed for a missing image. A nonexistent path is
+    // deterministic regardless of dry-run, so both methods can be exercised here.
+    #[test]
+    fn burn_and_verify_reject_missing_image() {
+        let runner = FlintRunner::with_path("flint").with_dry_run(true);
+        let missing = Path::new("/nonexistent/definitely/not/here.bin");
+
+        let b = runner.burn("dev0", missing).unwrap_err();
+        assert_eq!(err_kind(&b), "CommandFailed");
+        assert!(
+            b.to_string().contains("Firmware image does not exist"),
+            "burn names the missing image: {b}"
+        );
+
+        let v = runner.verify_image("dev0", missing).unwrap_err();
+        assert_eq!(err_kind(&v), "CommandFailed");
+        assert!(
+            v.to_string().contains("Firmware image does not exist"),
+            "verify_image names the missing image: {v}"
+        );
+    }
+
+    // When the image exists and dry-run is on, burn/verify short-circuit to DryRun
+    // with the full command string (including the resolved image path). Creates a
+    // real temp file so the exists() gate passes deterministically.
+    #[test]
+    fn burn_and_verify_dry_run_with_existing_image() {
+        let runner = FlintRunner::with_path("flint").with_dry_run(true);
+
+        let existing = std::env::temp_dir().join(format!(
+            "libmlx_runner_cov_{}_{}.bin",
+            std::process::id(),
+            line!()
+        ));
+        std::fs::write(&existing, b"fw").expect("write temp fixture");
+        assert!(
+            existing.exists(),
+            "test fixture must exist: {}",
+            existing.display()
+        );
+
+        let img = existing.to_string_lossy().to_string();
+
+        let b = runner.burn("dev0", &existing).unwrap_err();
+        assert_eq!(err_kind(&b), "DryRun");
+        assert_eq!(
+            b.to_string(),
+            format!("Dry run - would have executed: flint -d dev0 -y -i {img} burn")
+        );
+
+        let v = runner.verify_image("dev0", &existing).unwrap_err();
+        assert_eq!(err_kind(&v), "DryRun");
+        assert_eq!(
+            v.to_string(),
+            format!("Dry run - would have executed: flint -d dev0 -i {img} verify")
+        );
+
+        let _ = std::fs::remove_file(&existing);
+    }
+}

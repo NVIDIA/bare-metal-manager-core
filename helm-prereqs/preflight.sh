@@ -31,7 +31,7 @@
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
 #   8. Registry connectivity    — registry host is reachable over HTTPS
-#   9. NICo REST repo            — found locally or offer to clone from GitHub
+#   9. NICo REST source/charts   — in-tree rest-api/ and helm/rest/ are present
 #
 # Configurable:
 #   PREFLIGHT_CHECK_IMAGE — image used for per-node pod checks (default: busybox:1.36)
@@ -674,24 +674,32 @@ if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. NICo REST source tree (in-tree at ../rest-api)
+# 9. NICo REST source tree and Helm charts (in-tree)
 #
 # The REST stack lives in this repo under rest-api/. No separate clone is
 # supported any more; the legacy NICO_REST_REPO / NICO_REPO env vars and the
 # sibling-directory fallbacks were removed once rest-api/ became part of
-# core. If rest-api/ is missing the checkout is broken — error out so the
-# user fixes it rather than installing a half-stack.
+# core. The REST Helm charts live under helm/rest/. If either path is missing,
+# the checkout is broken — error out so the user fixes it rather than
+# installing a half-stack.
 # ---------------------------------------------------------------------------
 NICO_REST_DIR=""
+NICO_REST_HELM_DIR=""
 _NICO_REST_ENABLED=true
 [[ "${SKIP_REST:-false}" == "true" ]] && _NICO_REST_ENABLED=false
 
 if ${_NICO_REST_ENABLED}; then
     _NICO_REST_CANDIDATE="${SCRIPT_DIR}/../rest-api"
-    if [[ -d "${_NICO_REST_CANDIDATE}/helm/charts/nico-rest" ]]; then
+    _NICO_REST_HELM_CANDIDATE="${SCRIPT_DIR}/../helm/rest"
+    if [[ -d "${_NICO_REST_CANDIDATE}" ]]; then
         NICO_REST_DIR="$(cd "${_NICO_REST_CANDIDATE}" && pwd)"
     else
-        ERRORS+=("rest-api/ not found at ${_NICO_REST_CANDIDATE} (or missing helm/charts/nico-rest under it) — check out the full core repo, or pass --skip-rest if you only need the infra prereqs.")
+        ERRORS+=("rest-api/ not found at ${_NICO_REST_CANDIDATE} — check out the full core repo, or pass --skip-rest if you only need the infra prereqs.")
+    fi
+    if [[ -d "${_NICO_REST_HELM_CANDIDATE}/nico-rest" && -d "${_NICO_REST_HELM_CANDIDATE}/nico-rest-site-agent" ]]; then
+        NICO_REST_HELM_DIR="$(cd "${_NICO_REST_HELM_CANDIDATE}" && pwd)"
+    else
+        ERRORS+=("REST Helm charts not found under ${_NICO_REST_HELM_CANDIDATE} — expected nico-rest and nico-rest-site-agent charts.")
     fi
 fi
 
@@ -702,7 +710,7 @@ _print_separator() { echo "-----------------------------------------------------
 
 if [[ ${#ERRORS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 ]]; then
     if ${_NICO_REST_ENABLED}; then
-        echo "Pre-flight OK  (NICo REST source: ${NICO_REST_DIR})"
+        echo "Pre-flight OK  (NICo REST source: ${NICO_REST_DIR}, charts: ${NICO_REST_HELM_DIR})"
     else
         echo "Pre-flight OK  (NICo REST skipped)"
     fi

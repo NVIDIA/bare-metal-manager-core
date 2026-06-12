@@ -145,7 +145,7 @@ impl From<LinkedExpectedSwitch> for rpc::forge::LinkedExpectedSwitch {
             expected_switch_id: l.expected_switch_id.map(|id| crate::common::Uuid {
                 value: id.to_string(),
             }),
-            explored_endpoint_address: l.address,
+            explored_endpoint_address: l.address.map(|addr| addr.to_string()),
             rack_id: l.rack_id,
         }
     }
