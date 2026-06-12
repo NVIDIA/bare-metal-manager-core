@@ -19,6 +19,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
+// nvosIPDescriptionKey is the component.description key under which the
+// switch's resolved NVOS host IP is recorded. Core owns the resolution; Flow
+// only mirrors it so the IP is queryable alongside the component.
+const nvosIPDescriptionKey = "nvos_ip"
+
 // ---------------------------------------------------------------------------
 // syncNVSwitchesNICo: sync NVSwitch components via Core (NICo)
 // ---------------------------------------------------------------------------
@@ -130,6 +135,8 @@ func syncNVSwitchesNICo(
 
 	syncSwitchStatuses(ctx, pool, nicoClient, componentsBySwitchID)
 
+	syncSwitchNvosIPs(ctx, pool, nicoClient, componentsBySwitchID)
+
 	// Build drifts for components that don't have a Core SwitchId yet
 	for _, sw := range expectedByBmcMac {
 		if sw.ComponentID == nil || *sw.ComponentID == "" {
@@ -166,4 +173,44 @@ func syncSwitchStatuses(
 		return
 	}
 	persistComponentStatuses(ctx, pool, types.ComponentTypeNVSwitch, statesByID, componentsBySwitchID)
+}
+
+// syncSwitchNvosIPs records Core's resolved NVOS host IP for each matched
+// switch in the component's description. Core only reports an NVOS IP once both
+// the NVOS MAC and its assigned address resolve, so switches without one are
+// left untouched rather than having the key cleared. The description merge
+// preserves any other keys (operator-managed metadata, etc.).
+func syncSwitchNvosIPs(
+	ctx context.Context,
+	pool *cdb.Session,
+	nicoClient nicoapi.Client,
+	componentsBySwitchID map[string]*model.Component,
+) {
+	ids := mapKeys(componentsBySwitchID)
+	if len(ids) == 0 {
+		return
+	}
+	ipsByID, err := nicoClient.FindSwitchNvosIPs(ctx, ids)
+	if err != nil {
+		log.Error().Msgf("Unable to retrieve switch NVOS IPs from NICo: %v", err)
+		return
+	}
+	for switchID, ip := range ipsByID {
+		comp, ok := componentsBySwitchID[switchID]
+		if !ok || ip == "" {
+			continue
+		}
+		if existing, ok := comp.Description[nvosIPDescriptionKey].(string); ok && existing == ip {
+			continue
+		}
+		if comp.Description == nil {
+			comp.Description = map[string]any{}
+		}
+		comp.Description[nvosIPDescriptionKey] = ip
+		if err := comp.Patch(ctx, pool.DB); err != nil {
+			log.Error().Msgf("NVSwitch %s: unable to persist NVOS IP %s: %v", comp.ID, ip, err)
+			continue
+		}
+		log.Info().Msgf("NVSwitch %s: recorded NVOS IP %s", comp.ID, ip)
+	}
 }

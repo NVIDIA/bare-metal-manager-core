@@ -27,6 +27,7 @@ type mockClient struct {
 	switchRackIDs              map[string]string // switch ID → rack ID
 	powerShelfRackIDs          map[string]string // power shelf ID → rack ID
 	switchControllerStates     map[string]string // switch ID → raw core controller_state
+	switchNvosIPs              map[string]string // switch ID → resolved NVOS host IP
 	powerShelfControllerStates map[string]string // shelf ID → raw core controller_state
 	hostMachinesByRackID       map[string][]string
 	// Detail tables for the GetAllExpected*Details RPCs (Flow's mirror sync).
@@ -48,6 +49,7 @@ func NewMockClient() Client {
 		switchRackIDs:              map[string]string{},
 		powerShelfRackIDs:          map[string]string{},
 		switchControllerStates:     map[string]string{},
+		switchNvosIPs:              map[string]string{},
 		powerShelfControllerStates: map[string]string{},
 		hostMachinesByRackID:       map[string][]string{},
 		expectedRackDetails:        map[string]ExpectedRackDetail{},
@@ -207,6 +209,19 @@ func (c *mockClient) FindSwitchControllerStates(_ context.Context, switchIds []s
 	return out, nil
 }
 
+func (c *mockClient) FindSwitchNvosIPs(_ context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(switchIds))
+	for _, id := range switchIds {
+		if ip, ok := c.switchNvosIPs[id]; ok && ip != "" {
+			out[id] = ip
+		}
+	}
+	return out, nil
+}
+
 func (c *mockClient) FindPowerShelfControllerStates(_ context.Context, shelfIds []string) (map[string]string, error) {
 	if len(shelfIds) == 0 {
 		return nil, nil
@@ -224,6 +239,12 @@ func (c *mockClient) FindPowerShelfControllerStates(_ context.Context, shelfIds 
 // switch (mock only).
 func (c *mockClient) SetSwitchControllerState(switchID, state string) {
 	c.switchControllerStates[switchID] = state
+}
+
+// SetSwitchNvosIP records the resolved NVOS host IP Core reports for a switch
+// (mock only).
+func (c *mockClient) SetSwitchNvosIP(switchID, ip string) {
+	c.switchNvosIPs[switchID] = ip
 }
 
 // SetPowerShelfControllerState records the raw controller_state Core reports

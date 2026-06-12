@@ -5,9 +5,11 @@ package leakdetection
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rs/zerolog/log"
 
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/types"
@@ -20,12 +22,15 @@ import (
 type Job struct {
 	nicoClient nicoapi.Client
 	taskMgr    taskmanager.Manager
+	pool       *cdb.Session
 }
 
 // New constructs a leak detection Job using the NICo provider from the
 // registry. Returns nil, nil if leak detection is disabled or the NICo
 // provider is not registered (e.g. non-production environment).
 func New(
+	ctx context.Context,
+	dbConf *cdb.Config,
 	taskMgr taskmanager.Manager,
 	providers *providerapi.ProviderRegistry,
 	cfg config.Config,
@@ -33,6 +38,10 @@ func New(
 	if cfg.DisableLeakDetection {
 		log.Info().Msg("Leak detection disabled by configuration")
 		return nil, nil
+	}
+
+	if dbConf == nil {
+		return nil, fmt.Errorf("database configuration is nil")
 	}
 
 	nicoProvider, err := providerapi.GetTyped[*nicoprovider.Provider](
@@ -44,9 +53,15 @@ func New(
 		return nil, nil
 	}
 
+	pool, err := cdb.NewSessionFromConfig(ctx, *dbConf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database pool: %w", err)
+	}
+
 	return &Job{
 		nicoClient: nicoProvider.Client(),
 		taskMgr:    taskMgr,
+		pool:       pool,
 	}, nil
 }
 
@@ -55,6 +70,6 @@ func (j *Job) Name() string { return "leak-detection" }
 
 // Run executes one iteration of leak detection.
 func (j *Job) Run(ctx context.Context, _ types.Event) error {
-	runLeakDetectionOne(ctx, j.nicoClient, j.taskMgr)
+	runLeakDetectionOne(ctx, j.nicoClient, j.taskMgr, j.pool)
 	return nil
 }
