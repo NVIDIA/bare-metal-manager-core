@@ -544,8 +544,19 @@ pub async fn start_api(
                 Some(cm)
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to build component managers, component manager RPCs will be unavailable: {e}"
+                // The nv-switch, power-shelf, and compute-tray backends are
+                // currently required fields, so they are initialized all-or-
+                // nothing: if any one backend fails to build (for example,
+                // compute_tray_backend defaults to 'rms' but no RMS client is
+                // configured), the other two are discarded as well and the
+                // entire component manager is left uninitialized. All component
+                // manager RPCs (switch, power-shelf, and compute-tray) will be
+                // unavailable until the [component_manager] config is fixed.
+                // TODO: make the three backends individually optional so a bad
+                // config for one backend does not disable the others.
+                tracing::error!(
+                    "Component manager NOT initialized; failed to build one of the \
+                     nv-switch / power-shelf / compute-tray backends: {e}"
                 );
                 None
             }

@@ -44,8 +44,8 @@ async fn services(
     env: &crate::tests::common::api_fixtures::TestEnv,
 ) -> PowerShelfStateHandlerServices {
     let config = component_manager::config::ComponentManagerConfig {
-        nv_switch_backend: "mock".into(),
-        power_shelf_backend: "rms".into(),
+        nv_switch_backend: component_manager::nv_switch_manager::Backend::Mock,
+        power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
         compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
         ..Default::default()
     };
