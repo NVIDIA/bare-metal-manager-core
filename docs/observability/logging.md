@@ -315,13 +315,23 @@ config:
   exporters:
     # === Choose your backend ===
 
-    # Option A: Grafana Loki
-    loki:
-      endpoint: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
-      default_labels_enabled:
-        exporter: false
+    # Option A: OTLP over HTTP (VictoriaLogs, etc.)
+    otlphttp:
+      logs_endpoint: http://victorialogs.monitoring.svc.cluster.local:9428/insert/opentelemetry/v1/logs
 
-    # Option B: Elasticsearch / OpenSearch
+    # Option B: OTLP over gRPC (Datadog, Splunk, etc.)
+    # otlp:
+    #   endpoint: <your-otlp-endpoint>:4317
+    #   tls:
+    #     insecure: false
+
+    # Option C: Grafana Loki
+    # loki:
+    #   endpoint: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
+    #   default_labels_enabled:
+    #     exporter: false
+
+    # Option D: Elasticsearch / OpenSearch
     # elasticsearch:
     #   endpoints: ["https://elasticsearch.elastic.svc.cluster.local:9200"]
     #   logs_index: "nico-logs"
@@ -329,18 +339,12 @@ config:
     #     insecure: false
     #     ca_file: /etc/otel/certs/ca.crt
 
-    # Option C: OTLP (Datadog, Splunk, VictoriaLogs, etc.)
-    # otlp:
-    #   endpoint: <your-otlp-endpoint>:4317
-    #   tls:
-    #     insecure: false
-
   service:
     pipelines:
       logs:
         receivers: [filelog]
         processors: [memory_limiter, resource, batch]
-        exporters: [loki]   # Change to your exporter
+        exporters: [otlphttp]   # Change to your exporter
 ```
 
 ### 4.2 Extracting structured fields
@@ -537,6 +541,16 @@ Use sampling cautiously - you may miss the one error message that matters.
 
 ### 4.4 Backend-specific notes
 
+#### VictoriaLogs
+
+VictoriaLogs accepts OTLP logs. Use the `otlphttp` exporter with `logs_endpoint`:
+
+```yaml
+exporters:
+  otlphttp:
+    logs_endpoint: http://victorialogs.monitoring.svc.cluster.local:9428/insert/opentelemetry/v1/logs
+```
+
 #### Grafana Loki
 
 Loki works well with logfmt - it can parse key=value pairs natively in queries using
@@ -564,16 +578,6 @@ Query example:
 
 Parse logfmt at ingest time (in the collector or an ingest pipeline) to get structured
 documents. This enables efficient field-based queries and aggregations.
-
-#### VictoriaLogs
-
-VictoriaLogs accepts OTLP logs. Use the `otlphttp` exporter:
-
-```yaml
-exporters:
-  otlphttp:
-    endpoint: http://victorialogs.monitoring.svc.cluster.local:9428/insert/opentelemetry/v1/logs
-```
 
 #### Datadog
 
