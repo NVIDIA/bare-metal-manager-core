@@ -376,22 +376,160 @@ receivers:
 
 ### 4.3 Filtering and sampling
 
-For high-volume deployments, consider filtering or sampling logs at the collector:
+For high-volume deployments, filter or sample logs at the collector to reduce noise and
+storage costs.
+
+#### Dropping noisy log messages
+
+Some log messages are expected but not useful for debugging. For example, DHCP relay requests
+that don't match a defined network segment (because switches relay DHCP device-wide, not
+per-network), or DPU kernel messages about mlx5_core module state changes during normal
+operation. These can flood logs without adding signal.
+
+Use the [filter processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/filterprocessor)
+to drop specific messages by pattern:
 
 ```yaml
 processors:
-  filter/drop-debug:
+  # Drop known noisy messages
+  filter/noise:
+    error_mode: silent
     logs:
-      exclude:
-        match_type: regexp
-        bodies:
-          - '^level=DEBUG'
-          - '^level=TRACE'
+      log_record:
+        # Drop messages matching these patterns
+        - IsMatch(body, "Module ID not recognized")
+        - IsMatch(body, "No network segment defined for relay address")
 
-  # Or probabilistic sampling
+  # Or drop by log level
+  filter/drop-debug:
+    error_mode: silent
+    logs:
+      log_record:
+        - IsMatch(body, "^level=DEBUG")
+        - IsMatch(body, "^level=TRACE")
+```
+
+The `error_mode: silent` setting prevents the filter processor from logging errors when a
+record doesn't match - otherwise you'd get noise about the noise filtering.
+
+#### Managing filter patterns with Helm
+
+When deploying via Helm, keep filter patterns separate from the main collector config for
+easier maintenance. There are two approaches:
+
+**Option A: Patterns in chart files**
+
+Place patterns in a file within your chart package at `files/logs-drop-patterns.txt`:
+
+```text
+# files/logs-drop-patterns.txt
+# Noisy DHCP messages from cross-network relay
+No network segment defined for relay address
+# DPU mlx5_core noise
+Module ID not recognized
+```
+
+Then use `.Files.Lines` in your template to load them:
+
+```yaml
+# templates/configmap.yaml (collector config section)
+config:
+  processors:
+    filter/noise:
+      error_mode: silent
+      logs:
+        log_record:
+          {{- range .Files.Lines "files/drop-patterns.txt" }}
+          {{- $line := . | trim }}
+          {{- if and $line (not (hasPrefix "#" .)) }}
+          - IsMatch(body, {{ $line | quote }})
+          {{- end }}
+          {{- end }}
+```
+
+This reads patterns at `helm install` time from the chart's `files/` directory. To update
+patterns, you must update the chart and redeploy.
+
+**Option B: Patterns in values.yaml**
+
+For patterns that operators can change without modifying the chart, use values:
+
+```yaml
+# values.yaml
+filterPatterns:
+  - "Module ID not recognized"
+  - "No network segment defined for relay address"
+```
+
+```yaml
+# templates/configmap.yaml (collector config section)
+config:
+  processors:
+    filter/noise:
+      error_mode: silent
+      logs:
+        log_record:
+          {{- if .Values.filterPatterns }}
+          {{- range .Values.filterPatterns }}
+          - IsMatch(body, {{ . | quote }})
+          {{- end }}
+          {{- end }}
+```
+
+This approach lets operators add or remove filter patterns by updating Helm values
+(`--set-json` or a values file override) without modifying the chart itself.
+
+#### Routing logs to different pipelines
+
+For more control, use a [routing connector](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/routingconnector)
+to send different log types to different pipelines. This lets you apply different filters
+or export to different backends:
+
+```yaml
+connectors:
+  routing/logs:
+    default_pipelines:
+      - logs/default
+    table:
+      # Route console logs to a separate pipeline
+      - statement: route() where attributes["component"] == "nico-ssh-console-rs"
+        pipelines:
+          - logs/console-local    # Keep all locally
+          - logs/console-remote   # Filter before remote export
+
+service:
+  pipelines:
+    logs/input:
+      receivers: [filelog]
+      exporters: [routing/logs]
+
+    logs/console-local:
+      receivers: [routing/logs]
+      processors: [batch]
+      exporters: [loki/local]
+
+    logs/console-remote:
+      receivers: [routing/logs]
+      processors: [filter/noise, batch]
+      exporters: [loki/remote]
+
+    logs/default:
+      receivers: [routing/logs]
+      processors: [batch]
+      exporters: [loki/local]
+```
+
+#### Probabilistic sampling
+
+For extremely high-volume logs where you only need a statistical sample:
+
+```yaml
+processors:
   probabilistic_sampler:
     sampling_percentage: 10   # Keep 10% of logs
 ```
+
+Use sampling cautiously - you may miss the one error message that matters.
 
 ### 4.4 Backend-specific notes
 
