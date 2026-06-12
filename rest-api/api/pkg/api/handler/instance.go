@@ -1077,12 +1077,19 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 					"Tenant has reached the maximum number of Instances for Instance Type specified in request data", nil)
 			}
 
+			// Get the capability types for the instance type.
+			// If InfiniBand Interfaces are specified, require InfiniBand capability matching.
+			capabilityTypeMap := map[cdbm.MachineCapabilityType]bool{
+				cdbm.MachineCapabilityTypeInfiniBand: len(apiRequest.InfiniBandInterfaces) > 0,
+			}
+
 			// Select unallocated Machine for the requested instance type
-			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, tx, cih.dbSession, instanceType)
+			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, capabilityTypeMap)
 			if err != nil {
 				if err == common.ErrInstanceTypeMachineNotFound {
 					return cutil.NewAPIError(http.StatusBadRequest,
 						"No Machines are available for specified Instance Type", nil)
+
 				}
 				logger.Error().Err(err).Msg("error retrieving Machine from DB for Instance Type")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve available baremetal Machines for specified Instance Type", nil)

@@ -275,7 +275,7 @@ func AcquireInstanceTypeQuotaLock(ctx context.Context, tx *cdb.Tx, tenantID uuid
 }
 
 // GetUnallocatedMachineForInstanceType provides unallocatd machine based on instancetype
-func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType) (*cdbm.Machine, error) {
+func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Logger, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType, capabilityTypeMap map[cdbm.MachineCapabilityType]bool) (*cdbm.Machine, error) {
 	if instanceType == nil {
 		return nil, ErrInvalidFunctionParams
 	}
@@ -313,6 +313,14 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 		},
 	)
 
+	requireCapabilityMatch := false
+	for _, required := range capabilityTypeMap {
+		if required {
+			requireCapabilityMatch = true
+			break
+		}
+	}
+
 	if len(machines) > 0 {
 		for _, mc := range machines {
 			// Acquire an advisory lock on the MachineID, other provider will be look for other is this is being locked
@@ -334,6 +342,15 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 
 			if umc.IsAssigned {
 				continue
+			}
+
+			// If any capability types require matching, compare the machine's capabilities
+			// with the instance type's capabilities specified in the map.
+			if requireCapabilityMatch {
+				isMatch, _, apiErr := MatchInstanceTypeCapabilitiesForMachines(ctx, logger, dbSession, instanceType.ID, []string{mc.ID}, capabilityTypeMap)
+				if !isMatch || apiErr != nil {
+					continue
+				}
 			}
 
 			// We should now be able to proceed with the allocation
@@ -871,7 +888,7 @@ func GetIsProviderRequest(ctx context.Context, logger zerolog.Logger, dbSession 
 }
 
 // MatchInstanceTypeCapabilitiesForMachines is a utility function to check if Instance Type Capabilities are present in the Capabilities of Machines
-func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, instanceTypeID uuid.UUID, machineIds []string) (bool, *string, *cutil.APIError) {
+func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, instanceTypeID uuid.UUID, machineIds []string, capabilityTypeMap map[cdbm.MachineCapabilityType]bool) (bool, *string, *cutil.APIError) {
 	if len(machineIds) == 0 {
 		return true, nil, nil
 	}
@@ -931,6 +948,11 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 
 	// Loop through Capabilities of Instance Type with Machines
 	for _, imc := range instmcs {
+		// When capabilityTypeMap is set, only compare capability types marked true.
+		if len(capabilityTypeMap) > 0 && !capabilityTypeMap[imc.Type] {
+			continue
+		}
+
 		// Compare each Capabilities of Instance Type with Machine's Capabilities
 		for mID, mCapMap := range mmcCapMapByMachinId {
 

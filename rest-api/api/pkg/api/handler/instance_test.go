@@ -872,6 +872,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	mcinst20 := testInstanceBuildMachineInstanceType(t, dbSession, mc20, ist1)
 	assert.NotNil(t, mcinst20)
 
+	addIst1InfiniBandMachineCapability := func(t *testing.T, machineID string) {
+		common.TestBuildMachineCapability(t, dbSession, &machineID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(3), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	}
+	for _, mc := range []*cdbm.Machine{mc1, mc12, mc13, mc14, mc15, mc16, mc17, mc18, mc19, mc20} {
+		addIst1InfiniBandMachineCapability(t, mc.ID)
+	}
+
 	// Tenant 1
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeIPXE, false, nil, true, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
@@ -1300,6 +1307,43 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
+
+	setupIbInactiveDevicesInstanceType := func(t *testing.T, allocName string, machineInactiveDevices []int) (*cdbm.InstanceType, *cdbm.Machine) {
+		ist := testInstanceBuildInstanceType(t, dbSession, ip, "ist-ib-inactive-"+uuid.NewString(), st1, cdbm.InstanceStatusReady)
+		al := testInstanceSiteBuildAllocation(t, dbSession, st1, tn1, allocName, ipu)
+		testInstanceSiteBuildAllocationContraints(t, dbSession, al, cdbm.AllocationResourceTypeInstanceType, ist.ID, cdbm.AllocationConstraintTypeReserved, 10, ipu)
+		common.TestBuildMachineCapability(t, dbSession, nil, &ist.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(3), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), []int{1, 2})
+
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
+		testInstanceBuildMachineInstanceType(t, dbSession, mc, ist)
+		common.TestBuildMachineCapability(t, dbSession, &mc.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(3), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), machineInactiveDevices)
+		testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc.ID)
+		return ist, mc
+	}
+
+	ibInactiveDevicesBaseReq := func() *model.APIInstanceCreateRequest {
+		return &model.APIInstanceCreateRequest{
+			Name:              "Test Instance IB inactive devices",
+			TenantID:          tn1.ID.String(),
+			VpcID:             vpc1.ID.String(),
+			OperatingSystemID: cutil.GetPtr(os1.ID.String()),
+			IpxeScript:        cutil.GetPtr(common.DefaultIpxeScript),
+			Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+				{
+					SubnetID: cutil.GetPtr(subnet1.ID.String()),
+				},
+			},
+			InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
+				{
+					InfiniBandPartitionID: ibp1.ID.String(),
+					Device:                "MT28908 Family [ConnectX-6]",
+					Vendor:                cutil.GetPtr("Mellanox Technologies"),
+					DeviceInstance:        0,
+					IsPhysical:            true,
+				},
+			},
+		}
+	}
 
 	type fields struct {
 		dbSession *cdb.Session
@@ -3564,6 +3608,45 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP addresses",
 					vpcPrefixExhausted.ID, vpcPrefixExhaustedUsage.AvailableIPs-vpcPrefixExhaustedUsage.AcquiredIPs, vpcPrefixExhaustedUsage.AvailableIPs, 1, 2,
 				),
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create API endpoint skips machine when InfiniBand InactiveDevices do not match Instance Type",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: ibInactiveDevicesBaseReq(),
+				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
+					ist, _ := setupIbInactiveDevicesInstanceType(t, "test-allocation-ib-inactive-mismatch", []int{1, 3})
+					req.InstanceTypeID = cutil.GetPtr(ist.ID.String())
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu1,
+				respCode:    http.StatusBadRequest,
+				respMessage: "No Machines are available for specified Instance Type",
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create API endpoint selects machine when InfiniBand InactiveDevices match Instance Type",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: ibInactiveDevicesBaseReq(),
+				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
+					ist, _ := setupIbInactiveDevicesInstanceType(t, "test-allocation-ib-inactive-match", []int{1, 2})
+					req.InstanceTypeID = cutil.GetPtr(ist.ID.String())
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusCreated,
 			},
 			wantErr: false,
 		},

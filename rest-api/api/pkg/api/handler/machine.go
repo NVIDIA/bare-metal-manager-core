@@ -863,7 +863,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 	// Verify if Capabilties of Machine matches with Instance Type's Capabilities
 	if apiRequest.InstanceTypeID != nil {
-		isMatch, _, apiErr := common.MatchInstanceTypeCapabilitiesForMachines(ctx, logger, umh.dbSession, newit.ID, []string{machine.ID})
+		isMatch, _, apiErr := common.MatchInstanceTypeCapabilitiesForMachines(ctx, logger, umh.dbSession, newit.ID, []string{machine.ID}, nil)
 		if apiErr != nil {
 			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 		}
