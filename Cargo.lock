@@ -1518,6 +1518,7 @@ dependencies = [
  "bytes",
  "carbide-authn",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-version",
