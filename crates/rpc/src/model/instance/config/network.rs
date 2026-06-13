@@ -420,7 +420,7 @@ impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkD
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
     use carbide_uuid::network::NetworkSegmentId;
     use carbide_uuid::vpc::VpcPrefixId;
     use model::instance::config::network::{INTERFACE_VFID_MAX, INTERFACE_VFID_MIN};
@@ -625,35 +625,8 @@ mod tests {
         let mut mix = get_rpc_instance_network_config();
         mix[2].virtual_function_id = None;
 
-        check_cases(
-            [
-                Case {
-                    scenario: "all VF ids present after converting",
-                    input: all,
-                    expect: Yields(vec![0, 1, 2]),
-                },
-                Case {
-                    scenario: "removed vf_id 1 is absent from the parsed config",
-                    input: missing_1,
-                    expect: Yields(vec![0, 2]),
-                },
-                Case {
-                    scenario: "only a physical interface yields no VF ids",
-                    input: only_physical,
-                    expect: Yields(vec![]),
-                },
-                Case {
-                    scenario: "duplicate VF id is rejected",
-                    input: duplicate,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "mix of None and valid VF ids is rejected",
-                    input: mix,
-                    expect: Fails,
-                },
-            ],
-            |interfaces| {
+        scenarios!(
+            run = |interfaces| {
                 let network_config = rpc::InstanceNetworkConfig {
                     interfaces,
                     auto: false,
@@ -670,7 +643,26 @@ mod tests {
                     .sorted()
                     .collect_vec();
                 Ok::<_, ()>(vf_ids)
-            },
+            };
+            "all VF ids present after converting" {
+                all => Yields(vec![0, 1, 2]),
+            }
+
+            "removed vf_id 1 is absent from the parsed config" {
+                missing_1 => Yields(vec![0, 2]),
+            }
+
+            "only a physical interface yields no VF ids" {
+                only_physical => Yields(vec![]),
+            }
+
+            "duplicate VF id is rejected" {
+                duplicate => Fails,
+            }
+
+            "mix of None and valid VF ids is rejected" {
+                mix => Fails,
+            }
         );
     }
 
@@ -911,31 +903,25 @@ mod tests {
             routing_profile: None,
         };
 
-        check_values(
-            [
-                Check {
-                    scenario: "ipv6 without vpc_prefix_id is rejected",
-                    input: ipv6_without_vpc_prefix,
-                    expect: false,
-                },
-                Check {
-                    scenario: "ipv6 ip_address with ipv6_interface_config is rejected",
-                    input: v6_ip_with_ipv6_config,
-                    expect: false,
-                },
-                Check {
-                    scenario: "ipv4 ip_address with ipv6_interface_config is allowed",
-                    input: v4_ip_with_ipv6_config,
-                    expect: true,
-                },
-            ],
-            |iface| {
+        value_scenarios!(
+            run = |iface| {
                 let rpc_config = rpc::InstanceNetworkConfig {
                     interfaces: vec![iface],
                     auto: false,
                 };
                 InstanceNetworkConfig::try_from(rpc_config).is_ok()
-            },
+            };
+            "ipv6 without vpc_prefix_id is rejected" {
+                ipv6_without_vpc_prefix => false,
+            }
+
+            "ipv6 ip_address with ipv6_interface_config is rejected" {
+                v6_ip_with_ipv6_config => false,
+            }
+
+            "ipv4 ip_address with ipv6_interface_config is allowed" {
+                v4_ip_with_ipv6_config => true,
+            }
         );
     }
 

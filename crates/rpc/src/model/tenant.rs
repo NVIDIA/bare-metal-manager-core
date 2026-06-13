@@ -524,7 +524,9 @@ pub fn validate_identity_overlap_for_rotation(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_values, scenarios, value_scenarios,
+    };
     use model::tenant::{identity_config, validate_trust_domain_allowlist_patterns};
 
     use super::*;
@@ -564,39 +566,33 @@ mod tests {
     // hashing/truncating the client secret and dropping empty/None secrets.
     #[test]
     fn stored_to_response_auth_config_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "auth method None yields no config",
-                    input: (TokenDelegationAuthMethod::None, None),
-                    expect: None,
-                },
-                Check {
-                    scenario: "client secret basic yields truncated hash",
-                    input: (
-                        TokenDelegationAuthMethod::ClientSecretBasic,
-                        Some(ClientSecretBasic {
-                            client_id: "my-client".to_string(),
-                            client_secret: "secret".to_string(),
-                        }),
-                    ),
-                    expect: Some(("my-client".to_string(), true, true, true)),
-                },
-                Check {
-                    scenario: "empty client secret yields no config",
-                    input: (
-                        TokenDelegationAuthMethod::ClientSecretBasic,
-                        Some(ClientSecretBasic {
-                            client_id: "x".to_string(),
-                            client_secret: String::new(),
-                        }),
-                    ),
-                    expect: None,
-                },
-            ],
-            |(auth_method, stored)| {
+        value_scenarios!(
+            run = |(auth_method, stored)| {
                 project_auth_config(stored_to_response_auth_config(auth_method, stored))
-            },
+            };
+            "auth method None yields no config" {
+                (TokenDelegationAuthMethod::None, None) => None,
+            }
+
+            "client secret basic yields truncated hash" {
+                (
+                    TokenDelegationAuthMethod::ClientSecretBasic,
+                    Some(ClientSecretBasic {
+                        client_id: "my-client".to_string(),
+                        client_secret: "secret".to_string(),
+                    }),
+                ) => Some(("my-client".to_string(), true, true, true)),
+            }
+
+            "empty client secret yields no config" {
+                (
+                    TokenDelegationAuthMethod::ClientSecretBasic,
+                    Some(ClientSecretBasic {
+                        client_id: "x".to_string(),
+                        client_secret: String::new(),
+                    }),
+                ) => None,
+            }
         );
     }
 
@@ -969,31 +965,25 @@ mod tests {
                 signing_key_overlap_sec,
             }
         }
-        check_values(
-            [
-                Check {
-                    scenario: "missing overlap is rejected",
-                    input: (None, Some("signing_key_overlap_sec is required")),
-                    expect: true,
-                },
-                Check {
-                    scenario: "overlap shorter than token_ttl_sec is rejected",
-                    input: (Some(120), Some("must be at least token_ttl_sec")),
-                    expect: true,
-                },
-                Check {
-                    scenario: "overlap at least token_ttl_sec is accepted",
-                    input: (Some(3600), None),
-                    expect: true,
-                },
-            ],
-            |(overlap, want): (Option<i32>, Option<&str>)| {
+        value_scenarios!(
+            run = |(overlap, want): (Option<i32>, Option<&str>)| {
                 let result = validate_identity_overlap_for_rotation(&rotating_config(overlap));
                 match want {
                     Some(substr) => result.unwrap_err().0.contains(substr),
                     None => result.is_ok(),
                 }
-            },
+            };
+            "missing overlap is rejected" {
+                (None, Some("signing_key_overlap_sec is required")) => true,
+            }
+
+            "overlap shorter than token_ttl_sec is rejected" {
+                (Some(120), Some("must be at least token_ttl_sec")) => true,
+            }
+
+            "overlap at least token_ttl_sec is accepted" {
+                (Some(3600), None) => true,
+            }
         );
     }
 
@@ -1017,46 +1007,41 @@ mod tests {
     // and the auth method config maps to None or the client-secret-basic pair.
     #[test]
     fn token_delegation_try_from_success_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "no auth method config",
-                    input: rpc_forge::TokenDelegation {
-                        token_endpoint: "https://auth.example.com/token".to_string(),
-                        subject_token_audience: "https://api.example.com".to_string(),
-                        auth_method_config: None,
-                    },
-                    expect: Yields((
-                        "https://auth.example.com/token".to_string(),
-                        "https://api.example.com".to_string(),
-                        None,
-                    )),
-                },
-                Case {
-                    scenario: "client secret basic",
-                    input: rpc_forge::TokenDelegation {
-                        token_endpoint: "https://auth.example.com/token".to_string(),
-                        subject_token_audience: "https://api.example.com".to_string(),
-                        auth_method_config: Some(
-                            rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                                rpc_forge::ClientSecretBasic {
-                                    client_id: "my-client".to_string(),
-                                    client_secret: "my-secret".to_string(),
-                                },
-                            ),
-                        ),
-                    },
-                    expect: Yields((
-                        "https://auth.example.com/token".to_string(),
-                        "https://api.example.com".to_string(),
-                        Some(("my-client".to_string(), "my-secret".to_string())),
-                    )),
-                },
-            ],
-            |proto| {
+        scenarios!(
+            run = |proto| {
                 let config = TokenDelegation::try_from(proto).map_err(drop)?;
                 Ok::<_, ()>(project_token_delegation(config))
-            },
+            };
+            "no auth method config" {
+                rpc_forge::TokenDelegation {
+                    token_endpoint: "https://auth.example.com/token".to_string(),
+                    subject_token_audience: "https://api.example.com".to_string(),
+                    auth_method_config: None,
+                } => Yields((
+                    "https://auth.example.com/token".to_string(),
+                    "https://api.example.com".to_string(),
+                    None,
+                )),
+            }
+
+            "client secret basic" {
+                rpc_forge::TokenDelegation {
+                    token_endpoint: "https://auth.example.com/token".to_string(),
+                    subject_token_audience: "https://api.example.com".to_string(),
+                    auth_method_config: Some(
+                        rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                            rpc_forge::ClientSecretBasic {
+                                client_id: "my-client".to_string(),
+                                client_secret: "my-secret".to_string(),
+                            },
+                        ),
+                    ),
+                } => Yields((
+                    "https://auth.example.com/token".to_string(),
+                    "https://api.example.com".to_string(),
+                    Some(("my-client".to_string(), "my-secret".to_string())),
+                )),
+            }
         );
     }
 
@@ -1077,63 +1062,56 @@ mod tests {
                 ),
             )
         }
-        check_values(
-            [
-                Check {
-                    scenario: "empty token_endpoint",
-                    input: (
-                        rpc_forge::TokenDelegation {
-                            token_endpoint: String::new(),
-                            subject_token_audience: "https://api.example.com".to_string(),
-                            auth_method_config: None,
-                        },
-                        "token_endpoint is required",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "empty subject_token_audience",
-                    input: (
-                        rpc_forge::TokenDelegation {
-                            token_endpoint: "https://auth.example.com/token".to_string(),
-                            subject_token_audience: String::new(),
-                            auth_method_config: None,
-                        },
-                        "subject_token_audience is required",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "empty client_id",
-                    input: (
-                        rpc_forge::TokenDelegation {
-                            token_endpoint: "https://auth.example.com/token".to_string(),
-                            subject_token_audience: "https://api.example.com".to_string(),
-                            auth_method_config: client_secret_basic("", "secret"),
-                        },
-                        "client_id is required",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "empty client_secret",
-                    input: (
-                        rpc_forge::TokenDelegation {
-                            token_endpoint: "https://auth.example.com/token".to_string(),
-                            subject_token_audience: "https://api.example.com".to_string(),
-                            auth_method_config: client_secret_basic("client", ""),
-                        },
-                        "client_secret is required",
-                    ),
-                    expect: true,
-                },
-            ],
-            |(proto, want): (rpc_forge::TokenDelegation, &str)| {
+        value_scenarios!(
+            run = |(proto, want): (rpc_forge::TokenDelegation, &str)| {
                 TokenDelegation::try_from(proto)
                     .unwrap_err()
                     .0
                     .contains(want)
-            },
+            };
+            "empty token_endpoint" {
+                (
+                    rpc_forge::TokenDelegation {
+                        token_endpoint: String::new(),
+                        subject_token_audience: "https://api.example.com".to_string(),
+                        auth_method_config: None,
+                    },
+                    "token_endpoint is required",
+                ) => true,
+            }
+
+            "empty subject_token_audience" {
+                (
+                    rpc_forge::TokenDelegation {
+                        token_endpoint: "https://auth.example.com/token".to_string(),
+                        subject_token_audience: String::new(),
+                        auth_method_config: None,
+                    },
+                    "subject_token_audience is required",
+                ) => true,
+            }
+
+            "empty client_id" {
+                (
+                    rpc_forge::TokenDelegation {
+                        token_endpoint: "https://auth.example.com/token".to_string(),
+                        subject_token_audience: "https://api.example.com".to_string(),
+                        auth_method_config: client_secret_basic("", "secret"),
+                    },
+                    "client_id is required",
+                ) => true,
+            }
+
+            "empty client_secret" {
+                (
+                    rpc_forge::TokenDelegation {
+                        token_endpoint: "https://auth.example.com/token".to_string(),
+                        subject_token_audience: "https://api.example.com".to_string(),
+                        auth_method_config: client_secret_basic("client", ""),
+                    },
+                    "client_secret is required",
+                ) => true,
+            }
         );
     }
 }

@@ -119,7 +119,7 @@ impl From<FirmwareFlashReportPb> for FirmwareFlashReport {
 #[cfg(test)]
 mod test {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -129,51 +129,45 @@ mod test {
     // `Into<MlxDeviceInfoPb>` first.
     #[test]
     fn device_info_proto_to_model() {
-        check_cases(
-            [
-                Case {
-                    scenario: "full device roundtrips",
-                    input: MlxDeviceInfo::create_test_device().into(),
-                    expect: Yields(MlxDeviceInfo::create_test_device()),
-                },
-                Case {
-                    scenario: "missing-data device roundtrips",
-                    input: MlxDeviceInfo::create_test_device_with_missing_data().into(),
-                    expect: Yields(MlxDeviceInfo::create_test_device_with_missing_data()),
-                },
-                Case {
-                    scenario: "empty string fields become none",
-                    input: MlxDeviceInfoPb {
-                        pci_name: "01:00.0".to_string(),
-                        device_type: "BlueField3".to_string(),
-                        psid: "".to_string(), // Empty string should become None
-                        device_description: "".to_string(),
-                        part_number: "".to_string(),
-                        fw_version_current: "".to_string(),
-                        pxe_version_current: "".to_string(),
-                        uefi_version_current: "".to_string(),
-                        uefi_version_virtio_blk_current: "".to_string(),
-                        uefi_version_virtio_net_current: "".to_string(),
-                        base_mac: "".to_string(), // Empty MAC becomes None
-                        status: "".to_string(),
-                    },
-                    expect: Yields(MlxDeviceInfo {
-                        pci_name: "01:00.0".to_string(),
-                        device_type: "BlueField3".to_string(),
-                        psid: None,
-                        device_description: None,
-                        part_number: None,
-                        fw_version_current: None,
-                        pxe_version_current: None,
-                        uefi_version_current: None,
-                        uefi_version_virtio_blk_current: None,
-                        uefi_version_virtio_net_current: None,
-                        base_mac: None,
-                        status: None,
-                    }),
-                },
-            ],
-            |proto: MlxDeviceInfoPb| MlxDeviceInfo::try_from(proto).map_err(drop),
+        scenarios!(
+            run = |proto: MlxDeviceInfoPb| MlxDeviceInfo::try_from(proto).map_err(drop);
+            "full device roundtrips" {
+                MlxDeviceInfo::create_test_device().into() => Yields(MlxDeviceInfo::create_test_device()),
+            }
+
+            "missing-data device roundtrips" {
+                MlxDeviceInfo::create_test_device_with_missing_data().into() => Yields(MlxDeviceInfo::create_test_device_with_missing_data()),
+            }
+
+            "empty string fields become none" {
+                MlxDeviceInfoPb {
+                    pci_name: "01:00.0".to_string(),
+                    device_type: "BlueField3".to_string(),
+                    psid: "".to_string(), // Empty string should become None
+                    device_description: "".to_string(),
+                    part_number: "".to_string(),
+                    fw_version_current: "".to_string(),
+                    pxe_version_current: "".to_string(),
+                    uefi_version_current: "".to_string(),
+                    uefi_version_virtio_blk_current: "".to_string(),
+                    uefi_version_virtio_net_current: "".to_string(),
+                    base_mac: "".to_string(), // Empty MAC becomes None
+                    status: "".to_string(),
+                } => Yields(MlxDeviceInfo {
+                    pci_name: "01:00.0".to_string(),
+                    device_type: "BlueField3".to_string(),
+                    psid: None,
+                    device_description: None,
+                    part_number: None,
+                    fw_version_current: None,
+                    pxe_version_current: None,
+                    uefi_version_current: None,
+                    uefi_version_virtio_blk_current: None,
+                    uefi_version_virtio_net_current: None,
+                    base_mac: None,
+                    status: None,
+                }),
+            }
         );
     }
 
@@ -182,60 +176,8 @@ mod test {
     // asserted; the conversions are total (`From`), hence `check_values`.
     #[test]
     fn firmware_flash_report_roundtrip() {
-        check_values(
-            [
-                Check {
-                    scenario: "all steps success",
-                    input: FirmwareFlashReport {
-                        flashed: true,
-                        reset: Some(true),
-                        verified_image: Some(true),
-                        verified_version: Some(true),
-                        observed_version: Some("32.43.1014".to_string()),
-                        expected_version: Some("32.43.1014".to_string()),
-                    },
-                    expect: (
-                        true,
-                        Some(true),
-                        Some(true),
-                        Some(true),
-                        Some("32.43.1014".to_string()),
-                        Some("32.43.1014".to_string()),
-                    ),
-                },
-                Check {
-                    scenario: "flash only",
-                    input: FirmwareFlashReport {
-                        flashed: true,
-                        reset: None,
-                        verified_image: None,
-                        verified_version: None,
-                        observed_version: None,
-                        expected_version: None,
-                    },
-                    expect: (true, None, None, None, None, None),
-                },
-                Check {
-                    scenario: "partial failure",
-                    input: FirmwareFlashReport {
-                        flashed: true,
-                        reset: Some(false),
-                        verified_image: Some(false),
-                        verified_version: Some(false),
-                        observed_version: Some("32.42.900".to_string()),
-                        expected_version: Some("32.43.1014".to_string()),
-                    },
-                    expect: (
-                        true,
-                        Some(false),
-                        Some(false),
-                        Some(false),
-                        Some("32.42.900".to_string()),
-                        Some("32.43.1014".to_string()),
-                    ),
-                },
-            ],
-            |original: FirmwareFlashReport| {
+        value_scenarios!(
+            run = |original: FirmwareFlashReport| {
                 let proto: FirmwareFlashReportPb = original.into();
                 let converted: FirmwareFlashReport = proto.into();
                 (
@@ -246,7 +188,53 @@ mod test {
                     converted.observed_version,
                     converted.expected_version,
                 )
-            },
+            };
+            "all steps success" {
+                FirmwareFlashReport {
+                    flashed: true,
+                    reset: Some(true),
+                    verified_image: Some(true),
+                    verified_version: Some(true),
+                    observed_version: Some("32.43.1014".to_string()),
+                    expected_version: Some("32.43.1014".to_string()),
+                } => (
+                    true,
+                    Some(true),
+                    Some(true),
+                    Some(true),
+                    Some("32.43.1014".to_string()),
+                    Some("32.43.1014".to_string()),
+                ),
+            }
+
+            "flash only" {
+                FirmwareFlashReport {
+                    flashed: true,
+                    reset: None,
+                    verified_image: None,
+                    verified_version: None,
+                    observed_version: None,
+                    expected_version: None,
+                } => (true, None, None, None, None, None),
+            }
+
+            "partial failure" {
+                FirmwareFlashReport {
+                    flashed: true,
+                    reset: Some(false),
+                    verified_image: Some(false),
+                    verified_version: Some(false),
+                    observed_version: Some("32.42.900".to_string()),
+                    expected_version: Some("32.43.1014".to_string()),
+                } => (
+                    true,
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some("32.42.900".to_string()),
+                    Some("32.43.1014".to_string()),
+                ),
+            }
         );
     }
 
