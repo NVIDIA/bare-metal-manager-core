@@ -65,25 +65,30 @@ through one operation, written once:
 
 ```rust
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 
 #[test]
 fn parse_port() {
-    check_cases(
-        [
-            Case { scenario: "valid", input: "443", expect: Yields(443) },
-            Case { scenario: "zero is allowed", input: "0", expect: Yields(0) },
-            Case { scenario: "non-numeric", input: "https", expect: Fails },
-            Case { scenario: "out of range", input: "99999", expect: FailsWith(PortError::TooLarge) },
-        ],
-        |s| parse_port(s),
+    scenarios!(parse_port:
+        "valid ports" {
+            "0" => Yields(0),
+            "443" => Yields(443),
+        }
+
+        "invalid ports" {
+            "https" => Fails,
+            "99999" => FailsWith(PortError::TooLarge),
+        }
     );
 }
 ```
 
-- Use **`check_cases`** with `Outcome` (`Yields` / `Fails` / `FailsWith`) for **fallible** operations (those returning
-  `Result`).
-- Use **`check_values`** with `Check` for **total** operations (those returning a plain value, `Option`, or `bool`).
+- Use **`scenarios!`** with `Outcome` (`Yields` / `Fails` / `FailsWith`) for **fallible** operations (those returning
+  `Result`). It expands to `check_cases` and keeps failures labeled by both scenario and input.
+- Use **`value_scenarios!`** for **total** operations (those returning a plain value, `Option`, or `bool`). It expands to
+  `check_values`.
+- Use **`check_cases`** / **`check_values`** directly when a macro would obscure a table with several inputs or several
+  expected fields per row.
 - Reach for `FailsWith(err)` only when the error type is `PartialEq` and its exact value is the contract. Otherwise use
   `Fails` (with `.map_err(drop)` in the operation) when only "it failed" matters.
 

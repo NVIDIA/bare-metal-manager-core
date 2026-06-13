@@ -434,7 +434,7 @@ fn plural(val: i64, period: &str) -> String {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
     use chrono::TimeDelta;
 
     use super::*;
@@ -487,6 +487,12 @@ mod tests {
                 ConfigVersionParseError::VersionFormat(_) => ParseFailure::VersionFormat,
                 ConfigVersionParseError::DateTime(_, _) => ParseFailure::DateTime,
             })
+    }
+
+    fn deserialize_config_version(input: &str) -> Result<VersionSummary, ()> {
+        serde_json::from_str::<ConfigVersion>(input)
+            .map(summarize)
+            .map_err(|_| ())
     }
 
     fn summarize_operation_version(version: ConfigVersion) -> OperationSummary {
@@ -573,226 +579,125 @@ mod tests {
 
     #[test]
     fn it_formats_durations() {
-        check_values(
-            [
-                Check {
-                    scenario: "zero seconds",
-                    input: 0,
-                    expect: "0 seconds".to_string(),
-                },
-                Check {
-                    scenario: "single second",
-                    input: 1,
-                    expect: "1 second".to_string(),
-                },
-                Check {
-                    scenario: "seconds",
-                    input: 44,
-                    expect: "44 seconds".to_string(),
-                },
-                Check {
-                    scenario: "negative seconds",
-                    input: -44,
-                    expect: "-44 seconds".to_string(),
-                },
-                Check {
-                    scenario: "minute",
-                    input: 60,
-                    expect: "1 minute".to_string(),
-                },
-                Check {
-                    scenario: "minute ignores remaining seconds",
-                    input: 61,
-                    expect: "1 minute".to_string(),
-                },
-                Check {
-                    scenario: "hours",
-                    input: 3600 * 2,
-                    expect: "2 hours".to_string(),
-                },
-                Check {
-                    scenario: "day",
-                    input: 86400,
-                    expect: "1 day".to_string(),
-                },
-                Check {
-                    scenario: "hour and minute",
-                    input: 3600 + 60,
-                    expect: "1 hour and 1 minute".to_string(),
-                },
-                Check {
-                    scenario: "day hour minute",
-                    input: 86400 + 3600 + 60 + 1,
-                    expect: "1 day, 1 hour and 1 minute".to_string(),
-                },
-            ],
-            |seconds| format_duration(TimeDelta::seconds(seconds)),
+        value_scenarios!(
+            run = |seconds| format_duration(TimeDelta::seconds(seconds));
+            "seconds" {
+                0 => "0 seconds".to_string(),
+                1 => "1 second".to_string(),
+                44 => "44 seconds".to_string(),
+                -44 => "-44 seconds".to_string(),
+            }
+
+            "minutes" {
+                60 => "1 minute".to_string(),
+                61 => "1 minute".to_string(),
+            }
+
+            "larger units" {
+                3600 * 2 => "2 hours".to_string(),
+                86400 => "1 day".to_string(),
+                3600 + 60 => "1 hour and 1 minute".to_string(),
+                86400 + 3600 + 60 + 1 => "1 day, 1 hour and 1 minute".to_string(),
+            }
         );
     }
 
     #[test]
     fn parse_config_version_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "epoch version",
-                    input: "V5-T0",
-                    expect: Yields(VersionSummary {
-                        version_nr: 5,
-                        timestamp_micros: 0,
-                        version_string: "V5-T0".to_string(),
-                        display: "V5-T0".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "trimmed version string",
-                    input: " V7-T1000000 ",
-                    expect: Yields(VersionSummary {
-                        version_nr: 7,
-                        timestamp_micros: 1_000_000,
-                        version_string: "V7-T1000000".to_string(),
-                        display: "V7-T1000000".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "missing timestamp",
-                    input: "V1",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "missing version prefix",
-                    input: "1-T0",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "invalid version number",
-                    input: "Vx-T0",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "invalid timestamp",
-                    input: "V1-Tx",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "extra segment",
-                    input: "V1-T0-extra",
-                    expect: FailsWith(ParseFailure::VersionFormat),
-                },
-                Case {
-                    scenario: "out-of-range datetime",
-                    input: "V1-T18446744073709551615",
-                    expect: FailsWith(ParseFailure::DateTime),
-                },
-            ],
-            parse_version,
+        scenarios!(parse_version:
+            "valid versions" {
+                "V5-T0" => Yields(VersionSummary {
+                    version_nr: 5,
+                    timestamp_micros: 0,
+                    version_string: "V5-T0".to_string(),
+                    display: "V5-T0".to_string(),
+                }),
+                " V7-T1000000 " => Yields(VersionSummary {
+                    version_nr: 7,
+                    timestamp_micros: 1_000_000,
+                    version_string: "V7-T1000000".to_string(),
+                    display: "V7-T1000000".to_string(),
+                }),
+            }
+
+            "format errors" {
+                "" => FailsWith(ParseFailure::VersionFormat),
+                "V1" => FailsWith(ParseFailure::VersionFormat),
+                "1-T0" => FailsWith(ParseFailure::VersionFormat),
+                "Vx-T0" => FailsWith(ParseFailure::VersionFormat),
+                "V1-Tx" => FailsWith(ParseFailure::VersionFormat),
+                "V1-T0-extra" => FailsWith(ParseFailure::VersionFormat),
+            }
+
+            "datetime errors" {
+                "V1-T18446744073709551615" => FailsWith(ParseFailure::DateTime),
+            }
         );
     }
 
     #[test]
     fn serde_config_version_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid version string",
-                    input: "\"V5-T0\"",
-                    expect: Yields(VersionSummary {
-                        version_nr: 5,
-                        timestamp_micros: 0,
-                        version_string: "V5-T0".to_string(),
-                        display: "V5-T0".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "invalid version string",
-                    input: "\"bad\"",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-string value",
-                    input: "42",
-                    expect: Fails,
-                },
-            ],
-            |input| {
-                serde_json::from_str::<ConfigVersion>(input)
-                    .map(summarize)
-                    .map_err(|_| ())
-            },
+        scenarios!(deserialize_config_version:
+            "valid version strings" {
+                "\"V5-T0\"" => Yields(VersionSummary {
+                    version_nr: 5,
+                    timestamp_micros: 0,
+                    version_string: "V5-T0".to_string(),
+                    display: "V5-T0".to_string(),
+                }),
+            }
+
+            "invalid json values" {
+                "\"bad\"" => Fails,
+                "42" => Fails,
+            }
         );
     }
 
     #[test]
     fn config_version_operation_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "initial",
-                    input: VersionOperation::Initial,
-                    expect: OperationSummary {
-                        version_nr: 1,
-                        timestamp_micros: None,
-                        current_version_nr: None,
-                        new_version_nr: None,
-                    },
+        value_scenarios!(apply_operation:
+            "constructors" {
+                VersionOperation::Initial => OperationSummary {
+                    version_nr: 1,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
                 },
-                Check {
-                    scenario: "new",
-                    input: VersionOperation::New,
-                    expect: OperationSummary {
-                        version_nr: 7,
-                        timestamp_micros: None,
-                        current_version_nr: None,
-                        new_version_nr: None,
-                    },
+                VersionOperation::New => OperationSummary {
+                    version_nr: 7,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
                 },
-                Check {
-                    scenario: "invalid",
-                    input: VersionOperation::Invalid,
-                    expect: OperationSummary {
-                        version_nr: 0,
-                        timestamp_micros: Some(0),
-                        current_version_nr: None,
-                        new_version_nr: None,
-                    },
+                VersionOperation::Invalid => OperationSummary {
+                    version_nr: 0,
+                    timestamp_micros: Some(0),
+                    current_version_nr: None,
+                    new_version_nr: None,
                 },
-                Check {
-                    scenario: "increment",
-                    input: VersionOperation::Increment,
-                    expect: OperationSummary {
-                        version_nr: 42,
-                        timestamp_micros: None,
-                        current_version_nr: None,
-                        new_version_nr: None,
-                    },
+            }
+
+            "increments" {
+                VersionOperation::Increment => OperationSummary {
+                    version_nr: 42,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
                 },
-                Check {
-                    scenario: "overflow increment skips zero",
-                    input: VersionOperation::OverflowIncrement,
-                    expect: OperationSummary {
-                        version_nr: 1,
-                        timestamp_micros: None,
-                        current_version_nr: None,
-                        new_version_nr: None,
-                    },
+                VersionOperation::OverflowIncrement => OperationSummary {
+                    version_nr: 1,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
                 },
-                Check {
-                    scenario: "incremental change",
-                    input: VersionOperation::IncrementalChange,
-                    expect: OperationSummary {
-                        version_nr: 41,
-                        timestamp_micros: None,
-                        current_version_nr: Some(41),
-                        new_version_nr: Some(42),
-                    },
+                VersionOperation::IncrementalChange => OperationSummary {
+                    version_nr: 41,
+                    timestamp_micros: None,
+                    current_version_nr: Some(41),
+                    new_version_nr: Some(42),
                 },
-            ],
-            apply_operation,
+            }
         );
     }
 
@@ -818,20 +723,12 @@ mod tests {
 
     #[test]
     fn since_state_change_humanized_parse_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "invalid version",
-                    input: "bad",
-                    expect: true,
-                },
-                Check {
-                    scenario: "valid version",
-                    input: "V1-T0",
-                    expect: false,
-                },
-            ],
-            |input| since_state_change_humanized(input) == STATE_VERSION_PARSE_ERROR,
+        value_scenarios!(
+            run = |input| since_state_change_humanized(input) == STATE_VERSION_PARSE_ERROR;
+            "parse status" {
+                "bad" => true,
+                "V1-T0" => false,
+            }
         );
     }
 
