@@ -8560,6 +8560,7 @@ dependencies = [
 name = "prometheus-text-parser"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "thiserror 2.0.18",
 ]
 

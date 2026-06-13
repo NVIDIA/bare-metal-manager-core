@@ -403,3 +403,251 @@ pub struct Observation<T> {
     pub value: T,
     pub attributes: Attributes,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    #[derive(Debug, PartialEq)]
+    enum MetricSummary {
+        CounterOrGauge {
+            name: String,
+            help: String,
+            observations: Vec<(Vec<(String, String)>, u64)>,
+        },
+        Histogram {
+            name: String,
+            help: String,
+            count: u64,
+            bucket_counts: Vec<u64>,
+            bucket_attrs: Vec<Vec<(String, String)>>,
+        },
+    }
+
+    fn attrs(values: &[(&str, &str)]) -> Attributes {
+        Attributes(BTreeMap::from_iter(
+            values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string())),
+        ))
+    }
+
+    fn to_attr_vec(attributes: &Attributes) -> Vec<(String, String)> {
+        attributes
+            .0
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    fn summarize(input: &str) -> std::result::Result<MetricSummary, &'static str> {
+        let parsed = input
+            .parse::<ParsedPrometheusMetrics>()
+            .map_err(error_kind)?;
+        assert_eq!(
+            parsed.metrics.len(),
+            1,
+            "summarize expects exactly one metric family"
+        );
+        let metric = parsed.metrics.values().next().ok_or("missing-metric")?;
+
+        Ok(match &metric.kind {
+            MetricKind::Gauge(gauge) | MetricKind::Counter(gauge) => {
+                MetricSummary::CounterOrGauge {
+                    name: metric.name.clone(),
+                    help: metric.help.clone(),
+                    observations: gauge
+                        .observations
+                        .iter()
+                        .map(|observation| {
+                            (to_attr_vec(&observation.attributes), observation.value)
+                        })
+                        .collect(),
+                }
+            }
+            MetricKind::Histogram(histogram) => MetricSummary::Histogram {
+                name: metric.name.clone(),
+                help: metric.help.clone(),
+                count: histogram.count,
+                bucket_counts: histogram
+                    .buckets
+                    .iter()
+                    .map(|bucket| bucket.count)
+                    .collect(),
+                bucket_attrs: histogram
+                    .buckets
+                    .iter()
+                    .map(|bucket| to_attr_vec(&bucket.attributes))
+                    .collect(),
+            },
+        })
+    }
+
+    fn error_kind(error: MetricsParsingError) -> &'static str {
+        match error {
+            MetricsParsingError::InvalidHelpLine(_) => "invalid-help-line",
+            MetricsParsingError::UnexpectedTypeLine(_) => "unexpected-type-line",
+            MetricsParsingError::UnexpectedDefLine(_) => "unexpected-def-line",
+            MetricsParsingError::DefLineMismatch(_) => "definition-line-mismatch",
+            MetricsParsingError::NameMismatch { .. } => "name-mismatch",
+            MetricsParsingError::UnknownMetricType { .. } => "unknown-metric-type",
+            MetricsParsingError::InvalidBucketLine(_) => "invalid-bucket-line",
+            MetricsParsingError::InvalidValue(_) => "invalid-value",
+            MetricsParsingError::InvalidAttributes(_) => "invalid-attributes",
+            MetricsParsingError::InvalidMetricLine(_) => "invalid-metric-line",
+            MetricsParsingError::UnknownMetricLine(_) => "unknown-metric-line",
+        }
+    }
+
+    #[test]
+    fn parses_metric_shapes() {
+        scenarios!(summarize:
+            "counters and gauges" {
+                r#"
+# HELP requests_total Request count
+# TYPE requests_total counter
+# arbitrary comment is ignored
+requests_total{method="GET",code="200"} 7
+requests_total{method="POST",code="500"} 2
+"# => Yields(MetricSummary::CounterOrGauge {
+                    name: "requests_total".to_string(),
+                    help: "Request count".to_string(),
+                    observations: vec![
+                        (
+                            vec![
+                                ("code".to_string(), "\"200\"".to_string()),
+                                ("method".to_string(), "\"GET\"".to_string()),
+                            ],
+                            7,
+                        ),
+                        (
+                            vec![
+                                ("code".to_string(), "\"500\"".to_string()),
+                                ("method".to_string(), "\"POST\"".to_string()),
+                            ],
+                            2,
+                        ),
+                    ],
+                }),
+                r#"
+# HELP temperature Temperature
+# TYPE temperature gauge
+temperature 42
+"# => Yields(MetricSummary::CounterOrGauge {
+                    name: "temperature".to_string(),
+                    help: "Temperature".to_string(),
+                    observations: vec![(vec![], 42)],
+                }),
+            }
+
+            "histograms" {
+                r#"
+# HELP request_duration_seconds Request duration
+# TYPE request_duration_seconds histogram
+request_duration_seconds_bucket{le="0.5"} 3
+request_duration_seconds_bucket{le="1"} 5
+request_duration_seconds_sum 1.5
+request_duration_seconds_count 5
+"# => Yields(MetricSummary::Histogram {
+                    name: "request_duration_seconds".to_string(),
+                    help: "Request duration".to_string(),
+                    count: 5,
+                    bucket_counts: vec![3, 5],
+                    bucket_attrs: vec![
+                        vec![("le".to_string(), "\"0.5\"".to_string())],
+                        vec![("le".to_string(), "\"1\"".to_string())],
+                    ],
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_parse_errors() {
+        scenarios!(
+            run = |input| input
+                .parse::<ParsedPrometheusMetrics>()
+                .map(|_| ())
+                .map_err(error_kind);
+            "header errors" {
+                "# HELP missing_help\n" => FailsWith("invalid-help-line"),
+                "# TYPE metric gauge\n" => FailsWith("unexpected-type-line"),
+                "# HELP metric help\n# TYPE other counter\n" => FailsWith("name-mismatch"),
+                "# HELP metric help\n# TYPE metric summary\n" => FailsWith("unknown-metric-type"),
+            }
+
+            "metric line errors" {
+                "# HELP metric help\n# TYPE metric gauge\nunknown 1\n" => FailsWith("unknown-metric-line"),
+                "# HELP metric help\n# TYPE metric gauge\nmetric\n" => FailsWith("invalid-metric-line"),
+                "# HELP metric help\n# TYPE metric gauge\nmetric nope\n" => FailsWith("invalid-value"),
+                "# HELP metric help\n# TYPE metric gauge\nmetric{bad} 1\n" => FailsWith("invalid-attributes"),
+            }
+
+            "histogram errors" {
+                "# HELP duration help\n# TYPE duration histogram\nduration 1\n" => FailsWith("definition-line-mismatch"),
+                "# HELP duration help\n# TYPE duration histogram\nduration_bucket{le=\"1\"}\n" => FailsWith("invalid-bucket-line"),
+                "# HELP duration help\n# TYPE duration histogram\nduration_count nope\n" => FailsWith("invalid-value"),
+            }
+        );
+    }
+
+    #[test]
+    fn labels_parser_error_variants() {
+        value_scenarios!(error_kind:
+            "definition errors" {
+                MetricsParsingError::UnexpectedDefLine("metric 1".to_string()) => "unexpected-def-line",
+            }
+        );
+    }
+
+    #[test]
+    fn parses_attributes() {
+        scenarios!(
+            run = |input| input.parse::<Attributes>().map_err(error_kind);
+            "valid attributes" {
+                r#"{method="GET",code="200"}"# => Yields(attrs(&[
+                    ("code", "\"200\""),
+                    ("method", "\"GET\""),
+                ])),
+            }
+
+            "invalid attributes" {
+                "{}" => FailsWith("invalid-attributes"),
+                "method=\"GET\"}" => FailsWith("invalid-attributes"),
+                "{method=\"GET\"" => FailsWith("invalid-attributes"),
+                "{method}" => FailsWith("invalid-attributes"),
+            }
+        );
+    }
+
+    #[test]
+    fn rewrites_attribute_values() {
+        let parsed = r#"
+# HELP build_info Build info
+# TYPE build_info gauge
+build_info{build_date="real-date",git_sha="real-sha",role="api"} 1
+"#
+        .parse::<ParsedPrometheusMetrics>()
+        .unwrap()
+        .scrub_build_attributes();
+        let metric = parsed.metrics.get("build_info").unwrap();
+        let observation = metric.observations().unwrap().first().unwrap();
+
+        value_scenarios!(
+            run = |key| observation.attributes.0.get(key).cloned();
+            "known build attributes are scrubbed" {
+                "build_date" => Some("DATE".to_string()),
+                "git_sha" => Some("SHA".to_string()),
+            }
+
+            "other attributes are left alone" {
+                "role" => Some("\"api\"".to_string()),
+            }
+        );
+    }
+}
