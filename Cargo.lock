@@ -2064,6 +2064,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
