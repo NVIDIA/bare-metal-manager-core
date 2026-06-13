@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -24,6 +25,9 @@ use carbide_machine_controller::context::MachineStateHandlerContextObjects;
 use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
 use carbide_machine_controller::metrics::MachineMetrics;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
+use carbide_site_explorer::MachineCreator;
+use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::Duration;
@@ -42,22 +46,27 @@ use common::api_fixtures::{
 };
 use health_report::HealthReport;
 use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::firmware::FirmwareComponentType;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuInitState,
-    DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, HostReprovisionState, InstanceState, LockdownMode,
-    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, PowerState, RetryInfo,
-    SpdmMeasuringState, StateMachineArea, ValidationState,
+    BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
+    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InstallDpuOsState, InstanceState,
+    LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    PowerState, RetryInfo, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    ValidationState,
 };
-use model::test_support::ManagedHostConfig;
+use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::{Action, LegacyAction};
@@ -67,9 +76,12 @@ use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::StateHandlerContext;
 use tonic::{Code, Request};
 
+use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
-use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
+use crate::test_support::fixture_config::{
+    DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
@@ -83,6 +95,23 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::instance_ipxe_behaviors::create_instance;
+
+async fn discover_dpu_bmc_ip_for_machine_creator_state_test(
+    env: &TestEnv,
+    bmc_mac_address: MacAddress,
+) -> Result<IpAddr, Box<dyn std::error::Error>> {
+    let response = env
+        .api
+        .discover_dhcp(
+            rpc::forge::DhcpDiscovery::builder(bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/BF/BMC")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    Ok(response.address.parse()?)
+}
 
 // Verify the group-sync property of `db::machine::try_update_network_config`,
 // where any write to a row in the host's group (the host or any of its DPUs)
@@ -379,6 +408,480 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             expected.1
         );
     }
+}
+
+#[crate::sqlx_test]
+async fn test_machine_creator_created_host_advances_through_dpu_discovery(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Prevent Firmware update here, since we test it in other method.
+    let mut config = get_config();
+    config.dpu_config.dpu_models = HashMap::new();
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+        env.test_credential_manager.clone(),
+    );
+
+    // Use a known DPU serial so we can assert on the generated MachineId.
+    let dpu_serial = "MT2328XZ185R".to_string();
+    let expected_machine_id =
+        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string();
+
+    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
+    let oob_mac = mock_dpu.oob_mac_address;
+    let response = env
+        .api
+        .discover_dhcp(
+            rpc::forge::DhcpDiscovery::builder(oob_mac, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
+    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
+    dpu_report.generate_machine_id(false)?;
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+    assert_eq!(
+        dpu_report.machine_id.as_ref().unwrap().to_string(),
+        expected_machine_id,
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            rpc::forge::DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/OOB")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
+    let dpu_report = Arc::new(dpu_report);
+    let dpu_bmc_ip =
+        discover_dpu_bmc_ip_for_machine_creator_state_test(&env, mock_dpu.bmc_mac_address).await?;
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: host_bmc_ip.parse::<IpAddr>()?,
+        dpus: vec![ExploredDpu {
+            bmc_ip: dpu_bmc_ip,
+            host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            report: dpu_report.clone(),
+        }],
+    };
+
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: ExpectedMachineData::default(),
+    };
+
+    assert!(
+        machine_creator
+            .create_managed_host(
+                &exploration_report,
+                &mut EndpointExplorationReport::default(),
+                Some(&expected_machine),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        dpu_report.machine_id.as_ref().unwrap(),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let dpu_machine_id = dpu_machine.id;
+    assert!(
+        matches!(
+            dpu_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
+        dpu_machine.current_state(),
+    );
+    assert_eq!(
+        dpu_machine.hardware_info.as_ref().unwrap().machine_type,
+        CpuArchitecture::Aarch64,
+    );
+    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_ip));
+
+    assert_eq!(
+        format!(
+            "BF-{}",
+            dpu_machine.bmc_info.firmware_version.clone().unwrap()
+        ),
+        InitialDpuConfig::default()
+            .find_bf3_entry()
+            .unwrap()
+            .version,
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .dmi_data
+            .clone()
+            .unwrap()
+            .product_serial,
+        dpu_serial
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .dpu_info
+            .clone()
+            .unwrap()
+            .part_number,
+        "900-9D3B6-00CV-AA0".to_string()
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .dpu_info
+            .clone()
+            .unwrap()
+            .part_description,
+        "Bluefield 3 SmartNIC Main Card".to_string()
+    );
+
+    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
+        .await?
+        .unwrap();
+    let host_machine_id = host_machine.id;
+    assert!(
+        matches!(
+            host_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
+        host_machine.current_state(),
+    );
+    assert!(host_machine.bmc_info.ip.is_some());
+    txn.commit().await.unwrap();
+
+    // 2nd creation does nothing.
+    assert!(
+        !machine_creator
+            .create_managed_host(
+                &exploration_report,
+                &mut EndpointExplorationReport::default(),
+                Some(&expected_machine),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::minutes(1))
+        .hardware_models(env.config.get_firmware_config())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
+        .power_options_config(env.config.power_manager_options.clone().into())
+        .build();
+    env.override_machine_state_controller_handler(handler).await;
+
+    // DpuDiscovering/Initializing -> DpuDiscovering/Configuring
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DpuDiscoveringState {
+            dpu_states: model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Configuring)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DpuDiscoveringState {
+            dpu_states: model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::EnableRshim,)]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DpuDiscoveringState {
+            dpu_states: model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id,
+                    DpuDiscoveringState::EnableSecureBoot {
+                        enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        count: 0,
+                    },
+                )]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DpuDiscoveringState {
+            dpu_states: model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id,
+                    DpuDiscoveringState::EnableSecureBoot {
+                        enable_secure_boot_state: SetSecureBootState::SetSecureBoot,
+                        count: 0,
+                    },
+                )]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    // EnableSecureBoot: RebootDPU
+    env.run_machine_state_controller_iteration().await;
+    // CheckSecureBootStatus:
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DPUInit {
+            dpu_states: model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine.id,
+                    DpuInitState::InstallDpuOs {
+                        substate: InstallDpuOsState::InstallingBFB
+                    }
+                )]),
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    // Wait for installComplete
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        &ManagedHostState::DPUInit {
+            dpu_states: model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
+            },
+        },
+    );
+
+    let machine_interfaces =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+    assert!(!machine_interfaces.is_empty());
+    let machine_interface_id = machine_interfaces[0].id;
+    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    assert!(topologies.contains_key(&dpu_machine.id));
+
+    let pairs =
+        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, vec![dpu_machine.id])
+            .await?;
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(pairs[0].1, Some(dpu_bmc_ip.to_string()));
+
+    let topology = &topologies[&dpu_machine.id][0];
+    assert!(topology.topology_update_needed());
+
+    let hardware_info = &topology.topology().discovery_data.info;
+    assert!(hardware_info.block_devices.is_empty());
+
+    let mut discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
+    discovery_info.block_devices = vec![rpc::BlockDevice {
+        model: "Fake block device".to_string(),
+        ..Default::default()
+    }];
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .discover_machine(Request::new(rpc::MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
+            create_machine: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.machine_id.is_some());
+
+    // Now let's check that DPU and host updated states and updated hardware information.
+    let mut txn = env.db_txn().await;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert!(dpu_machine.network_config.loopback_ip.is_some());
+
+    let machine_interfaces =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+    assert!(
+        machine_interfaces[0]
+            .machine_id
+            .as_ref()
+            .is_some_and(|id| id == &dpu_machine.id)
+    );
+
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        host_machine.current_state(),
+        &ManagedHostState::DPUInit {
+            dpu_states: model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
+            },
+        }
+    );
+
+    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    let topology = &topologies[&dpu_machine.id][0];
+    assert!(!topology.topology_update_needed());
+
+    let hardware_info = &topology.topology().discovery_data.info;
+    assert!(!hardware_info.block_devices.is_empty());
+    assert_eq!(
+        hardware_info.block_devices[0].model,
+        "Fake block device".to_string()
+    );
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
