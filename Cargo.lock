@@ -2386,6 +2386,9 @@ dependencies = [
 name = "carbide-network"
 version = "0.0.0"
 dependencies = [
+ "carbide-macros",
+ "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "ipnet",
  "ipnetwork",
