@@ -3043,6 +3043,7 @@ version = "0.0.0"
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "rustls",
  "serde",
  "serde_json",

@@ -228,3 +228,356 @@ pub fn get_proxy_info() -> Result<Option<String>, ClientConfigError> {
             }
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    const PROXY_ENV_KEYS: &[&str] = &["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"];
+
+    #[derive(Debug, PartialEq)]
+    struct ClientCertSummary {
+        cert_path: String,
+        key_path: String,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FileConfigSummary {
+        api_url: Option<String>,
+        root_ca_path: Option<String>,
+        client_key_path: Option<String>,
+        client_cert_path: Option<String>,
+        rms_root_ca_path: Option<String>,
+    }
+
+    #[derive(Debug)]
+    struct ProxyInput {
+        vars: &'static [(&'static str, &'static str)],
+    }
+
+    struct EnvSnapshot {
+        values: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvSnapshot {
+        fn capture(keys: &[&'static str]) -> Self {
+            Self {
+                values: keys.iter().map(|key| (*key, env::var(key).ok())).collect(),
+            }
+        }
+    }
+
+    impl Drop for EnvSnapshot {
+        fn drop(&mut self) {
+            for (key, value) in &self.values {
+                match value {
+                    Some(value) => set_env(key, value),
+                    None => remove_env(key),
+                }
+            }
+        }
+    }
+
+    fn set_env(key: &str, value: &str) {
+        // SAFETY: these tests hold ENV_LOCK while mutating process environment.
+        unsafe { env::set_var(key, value) }
+    }
+
+    fn remove_env(key: &str) {
+        // SAFETY: these tests hold ENV_LOCK while mutating process environment.
+        unsafe { env::remove_var(key) }
+    }
+
+    fn clear_env(keys: &[&str]) {
+        for key in keys {
+            remove_env(key);
+        }
+    }
+
+    fn file_config(
+        api_url: Option<&str>,
+        root_ca_path: Option<&str>,
+        client_key_path: Option<&str>,
+        client_cert_path: Option<&str>,
+        rms_root_ca_path: Option<&str>,
+    ) -> FileConfig {
+        FileConfig {
+            api_url: api_url.map(str::to_string),
+            root_ca_path: root_ca_path.map(str::to_string),
+            client_key_path: client_key_path.map(str::to_string),
+            client_cert_path: client_cert_path.map(str::to_string),
+            rms_root_ca_path: rms_root_ca_path.map(str::to_string),
+        }
+    }
+
+    fn summarize_client_cert(
+        (client_cert_path, client_key_path, file_config): (
+            Option<String>,
+            Option<String>,
+            Option<FileConfig>,
+        ),
+    ) -> ClientCertSummary {
+        let cert = get_client_cert_info(client_cert_path, client_key_path, file_config.as_ref());
+        ClientCertSummary {
+            cert_path: cert.cert_path,
+            key_path: cert.key_path,
+        }
+    }
+
+    fn summarize_file_config(config: Option<FileConfig>) -> Option<FileConfigSummary> {
+        config.map(|config| FileConfigSummary {
+            api_url: config.api_url,
+            root_ca_path: config.root_ca_path,
+            client_key_path: config.client_key_path,
+            client_cert_path: config.client_cert_path,
+            rms_root_ca_path: config.rms_root_ca_path,
+        })
+    }
+
+    /// Caller must hold `ENV_LOCK` before invoking this function.
+    fn parse_proxy(input: ProxyInput) -> Result<Option<String>, &'static str> {
+        clear_env(PROXY_ENV_KEYS);
+        for (key, value) in input.vars {
+            set_env(key, value);
+        }
+        get_proxy_info().map_err(proxy_error_kind)
+    }
+
+    fn proxy_error_kind(error: ClientConfigError) -> &'static str {
+        match error {
+            ClientConfigError::UrlParseError(_) => "url-parse",
+        }
+    }
+
+    fn unique_home() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!("carbide-tls-test-{}-{nanos}", std::process::id()))
+    }
+
+    struct TempHome {
+        path: PathBuf,
+    }
+
+    impl TempHome {
+        fn create() -> Self {
+            let path = unique_home();
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn resolves_api_url_precedence() {
+        value_scenarios!(
+            run = |(api_url, file_config): (Option<String>, Option<FileConfig>)| {
+                get_api_url(api_url, file_config.as_ref())
+            };
+            "command line" {
+                (
+                    Some("https://cli.example.com".to_string()),
+                    Some(file_config(
+                        Some("https://file.example.com"),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )),
+                ) => "https://cli.example.com".to_string(),
+            }
+
+            "config file" {
+                (
+                    None,
+                    Some(file_config(
+                        Some("https://file.example.com"),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )),
+                ) => "https://file.example.com".to_string(),
+            }
+
+            "default" {
+                (None, None) => "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_client_cert_precedence() {
+        value_scenarios!(
+            run = summarize_client_cert;
+            "command line" {
+                (
+                    Some("/cli/client.crt".to_string()),
+                    Some("/cli/client.key".to_string()),
+                    Some(file_config(
+                        None,
+                        None,
+                        Some("/file/client.key"),
+                        Some("/file/client.crt"),
+                        None,
+                    )),
+                ) => ClientCertSummary {
+                    cert_path: "/cli/client.crt".to_string(),
+                    key_path: "/cli/client.key".to_string(),
+                },
+            }
+
+            "config file" {
+                (
+                    None,
+                    None,
+                    Some(file_config(
+                        None,
+                        None,
+                        Some("/file/client.key"),
+                        Some("/file/client.crt"),
+                        None,
+                    )),
+                ) => ClientCertSummary {
+                    cert_path: "/file/client.crt".to_string(),
+                    key_path: "/file/client.key".to_string(),
+                },
+            }
+
+            "partial command line falls through" {
+                (
+                    Some("/cli/client.crt".to_string()),
+                    None,
+                    Some(file_config(
+                        None,
+                        None,
+                        Some("/file/client.key"),
+                        Some("/file/client.crt"),
+                        None,
+                    )),
+                ) => ClientCertSummary {
+                    cert_path: "/file/client.crt".to_string(),
+                    key_path: "/file/client.key".to_string(),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_root_ca_precedence() {
+        value_scenarios!(
+            run = |(root_ca_path, file_config): (Option<String>, Option<FileConfig>)| {
+                get_root_ca_path(root_ca_path, file_config.as_ref())
+            };
+            "command line" {
+                (
+                    Some("/cli/root-ca.pem".to_string()),
+                    Some(file_config(None, Some("/file/root-ca.pem"), None, None, None)),
+                ) => "/cli/root-ca.pem".to_string(),
+            }
+
+            "config file" {
+                (
+                    None,
+                    Some(file_config(None, Some("/file/root-ca.pem"), None, None, None)),
+                ) => "/file/root-ca.pem".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn reads_legacy_config_file_from_home() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _snapshot = EnvSnapshot::capture(&["HOME"]);
+        let home = TempHome::create();
+        let config_path = home.path().join(CONFIG_FILE_LOCATION);
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(
+            &config_path,
+            r#"{
+                "api_url": "https://file.example.com",
+                "root_ca_path": "/file/root-ca.pem",
+                "client_key_path": "/file/client.key",
+                "client_cert_path": "/file/client.crt",
+                "rms_root_ca_path": "/file/rms-root-ca.pem"
+            }"#,
+        )
+        .unwrap();
+        set_env("HOME", home.path().to_str().unwrap());
+
+        assert_eq!(
+            summarize_file_config(get_config_from_file()),
+            Some(FileConfigSummary {
+                api_url: Some("https://file.example.com".to_string()),
+                root_ca_path: Some("/file/root-ca.pem".to_string()),
+                client_key_path: Some("/file/client.key".to_string()),
+                client_cert_path: Some("/file/client.crt".to_string()),
+                rms_root_ca_path: Some("/file/rms-root-ca.pem".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_no_config_without_home() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _snapshot = EnvSnapshot::capture(&["HOME"]);
+        remove_env("HOME");
+
+        assert!(get_config_from_file().is_none());
+    }
+
+    #[test]
+    fn parses_proxy_environment() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _snapshot = EnvSnapshot::capture(PROXY_ENV_KEYS);
+
+        scenarios!(
+            run = parse_proxy;
+            "not configured" {
+                ProxyInput { vars: &[] } => Yields(None),
+            }
+
+            "socks5 proxy" {
+                ProxyInput {
+                    vars: &[("http_proxy", "socks5://localhost:1080")]
+                } => Yields(Some("localhost:1080".to_string())),
+            }
+
+            "proxy precedence" {
+                ProxyInput {
+                    vars: &[
+                        ("HTTPS_PROXY", "socks5://fallback.example.com:1080"),
+                        ("http_proxy", "socks5://first.example.com:2222"),
+                    ]
+                } => Yields(Some("first.example.com:2222".to_string())),
+            }
+
+            "unsupported proxy" {
+                ProxyInput {
+                    vars: &[("http_proxy", "http://localhost:8080")]
+                } => FailsWith("url-parse"),
+                ProxyInput {
+                    vars: &[("http_proxy", "not a uri")]
+                } => FailsWith("url-parse"),
+            }
+        );
+    }
+}
