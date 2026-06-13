@@ -54,7 +54,7 @@ type RackComponent struct {
 	PowerState *string `json:"powerState,omitempty"`
 	// Flow-derived operability phase of the component
 	OperationStatus *string `json:"operationStatus,omitempty"`
-	// Coolant leak detection status of the component
+	// Whether the component is considered leaking coolant
 	LeakStatus *string `json:"leakStatus,omitempty"`
 }
 

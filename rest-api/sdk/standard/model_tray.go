@@ -44,7 +44,7 @@ type Tray struct {
 	PowerState *string `json:"powerState,omitempty"`
 	// Flow-derived operability phase of the tray
 	OperationStatus *string `json:"operationStatus,omitempty"`
-	// Coolant leak detection status of the tray
+	// Whether the tray is considered leaking coolant
 	LeakStatus *string `json:"leakStatus,omitempty"`
 	// Position of the Tray within the Rack
 	Position *TrayPosition `json:"position,omitempty"`
