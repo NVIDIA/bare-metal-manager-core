@@ -1872,6 +1872,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-macros",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "futures-util",
  "hex",
