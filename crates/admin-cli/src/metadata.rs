@@ -195,7 +195,7 @@ pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -219,42 +219,35 @@ mod tests {
     // resulting (name, description) pair.
     #[test]
     fn apply_set_applies_overrides() {
-        check_cases(
-            [
-                Case {
-                    scenario: "name override updates name, leaves description",
-                    input: (
-                        Some(metadata_with("old", "desc", vec![])),
-                        Some("new".to_string()),
-                        None,
-                    ),
-                    expect: Yields(("new".to_string(), "desc".to_string())),
-                },
-                Case {
-                    scenario: "description override updates description, leaves name",
-                    input: (
-                        Some(metadata_with("name", "old", vec![])),
-                        None,
-                        Some("new".to_string()),
-                    ),
-                    expect: Yields(("name".to_string(), "new".to_string())),
-                },
-                Case {
-                    scenario: "no overrides leaves both unchanged",
-                    input: (Some(metadata_with("name", "desc", vec![])), None, None),
-                    expect: Yields(("name".to_string(), "desc".to_string())),
-                },
-                Case {
-                    scenario: "missing metadata errors",
-                    input: (None, Some("x".to_string()), None),
-                    expect: Fails,
-                },
-            ],
-            |(metadata, name, description)| {
+        scenarios!(
+            run = |(metadata, name, description)| {
                 apply_set(metadata, name, description)
                     .map(|m| (m.name, m.description))
                     .map_err(drop)
-            },
+            };
+            "name override updates name, leaves description" {
+                (
+                    Some(metadata_with("old", "desc", vec![])),
+                    Some("new".to_string()),
+                    None,
+                ) => Yields(("new".to_string(), "desc".to_string())),
+            }
+
+            "description override updates description, leaves name" {
+                (
+                    Some(metadata_with("name", "old", vec![])),
+                    None,
+                    Some("new".to_string()),
+                ) => Yields(("name".to_string(), "new".to_string())),
+            }
+
+            "no overrides leaves both unchanged" {
+                (Some(metadata_with("name", "desc", vec![])), None, None) => Yields(("name".to_string(), "desc".to_string())),
+            }
+
+            "missing metadata errors" {
+                (None, Some("x".to_string()), None) => Fails,
+            }
         );
     }
 
@@ -263,49 +256,42 @@ mod tests {
     // Each row yields the resulting label list.
     #[test]
     fn apply_add_label_adds_or_replaces() {
-        check_cases(
-            [
-                Case {
-                    scenario: "adds a new label",
-                    input: (
-                        Some(metadata_with("n", "", vec![])),
-                        "env".to_string(),
-                        Some("prod".to_string()),
-                    ),
-                    expect: Yields(vec![label("env", Some("prod"))]),
-                },
-                Case {
-                    scenario: "replaces an existing key",
-                    input: (
-                        Some(metadata_with("n", "", vec![label("env", Some("staging"))])),
-                        "env".to_string(),
-                        Some("prod".to_string()),
-                    ),
-                    expect: Yields(vec![label("env", Some("prod"))]),
-                },
-                Case {
-                    scenario: "preserves other labels",
-                    input: (
-                        Some(metadata_with("n", "", vec![label("team", Some("infra"))])),
-                        "env".to_string(),
-                        Some("prod".to_string()),
-                    ),
-                    expect: Yields(vec![
-                        label("team", Some("infra")),
-                        label("env", Some("prod")),
-                    ]),
-                },
-                Case {
-                    scenario: "missing metadata errors",
-                    input: (None, "k".to_string(), None),
-                    expect: Fails,
-                },
-            ],
-            |(metadata, key, value)| {
+        scenarios!(
+            run = |(metadata, key, value)| {
                 apply_add_label(metadata, key, value)
                     .map(|m| m.labels)
                     .map_err(drop)
-            },
+            };
+            "adds a new label" {
+                (
+                    Some(metadata_with("n", "", vec![])),
+                    "env".to_string(),
+                    Some("prod".to_string()),
+                ) => Yields(vec![label("env", Some("prod"))]),
+            }
+
+            "replaces an existing key" {
+                (
+                    Some(metadata_with("n", "", vec![label("env", Some("staging"))])),
+                    "env".to_string(),
+                    Some("prod".to_string()),
+                ) => Yields(vec![label("env", Some("prod"))]),
+            }
+
+            "preserves other labels" {
+                (
+                    Some(metadata_with("n", "", vec![label("team", Some("infra"))])),
+                    "env".to_string(),
+                    Some("prod".to_string()),
+                ) => Yields(vec![
+                    label("team", Some("infra")),
+                    label("env", Some("prod")),
+                ]),
+            }
+
+            "missing metadata errors" {
+                (None, "k".to_string(), None) => Fails,
+            }
         );
     }
 
@@ -313,39 +299,33 @@ mod tests {
     // and a missing Metadata is rejected. Each row yields the surviving labels.
     #[test]
     fn apply_remove_labels_drops_matching() {
-        check_cases(
-            [
-                Case {
-                    scenario: "removes the matching key",
-                    input: (
-                        Some(metadata_with(
-                            "n",
-                            "",
-                            vec![label("a", None), label("b", None)],
-                        )),
-                        vec!["a".to_string()],
-                    ),
-                    expect: Yields(vec![label("b", None)]),
-                },
-                Case {
-                    scenario: "ignores keys that don't exist",
-                    input: (
-                        Some(metadata_with("n", "", vec![label("a", None)])),
-                        vec!["nonexistent".to_string()],
-                    ),
-                    expect: Yields(vec![label("a", None)]),
-                },
-                Case {
-                    scenario: "missing metadata errors",
-                    input: (None, vec!["k".to_string()]),
-                    expect: Fails,
-                },
-            ],
-            |(metadata, keys)| {
+        scenarios!(
+            run = |(metadata, keys)| {
                 apply_remove_labels(metadata, keys)
                     .map(|m| m.labels)
                     .map_err(drop)
-            },
+            };
+            "removes the matching key" {
+                (
+                    Some(metadata_with(
+                        "n",
+                        "",
+                        vec![label("a", None), label("b", None)],
+                    )),
+                    vec!["a".to_string()],
+                ) => Yields(vec![label("b", None)]),
+            }
+
+            "ignores keys that don't exist" {
+                (
+                    Some(metadata_with("n", "", vec![label("a", None)])),
+                    vec!["nonexistent".to_string()],
+                ) => Yields(vec![label("a", None)]),
+            }
+
+            "missing metadata errors" {
+                (None, vec!["k".to_string()]) => Fails,
+            }
         );
     }
 }

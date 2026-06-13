@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::{Case, check_cases, scenarios};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -116,30 +116,24 @@ fn parse_show_routes_and_captures_filters() {
 // etv_nvue all parse to the SetVirtualizer variant carrying the id.
 #[test]
 fn parse_set_virtualizer_routes_with_id() {
-    check_cases(
-        [
-            Case {
-                scenario: "fnn virtualizer",
-                input: &["vpc", "set-virtualizer", TEST_VPC_ID, "fnn"][..],
-                expect: Yields(TEST_VPC_ID.to_string()),
-            },
-            Case {
-                scenario: "etv virtualizer",
-                input: &["vpc", "set-virtualizer", TEST_VPC_ID, "etv"][..],
-                expect: Yields(TEST_VPC_ID.to_string()),
-            },
-            Case {
-                scenario: "etv_nvue virtualizer",
-                input: &["vpc", "set-virtualizer", TEST_VPC_ID, "etv_nvue"][..],
-                expect: Yields(TEST_VPC_ID.to_string()),
-            },
-        ],
-        |argv| match Cmd::try_parse_from(argv.iter().copied())
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied())
             .expect("should parse set-virtualizer")
         {
             Cmd::SetVirtualizer(args) => Ok::<_, ()>(args.id.to_string()),
             _ => panic!("expected SetVirtualizer variant"),
-        },
+        };
+        "fnn virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "fnn"][..] => Yields(TEST_VPC_ID.to_string()),
+        }
+
+        "etv virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "etv"][..] => Yields(TEST_VPC_ID.to_string()),
+        }
+
+        "etv_nvue virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "etv_nvue"][..] => Yields(TEST_VPC_ID.to_string()),
+        }
     );
 }
 
@@ -147,23 +141,18 @@ fn parse_set_virtualizer_routes_with_id() {
 // missing both positional arguments, or an unknown virtualizer name.
 #[test]
 fn invalid_set_virtualizer_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "missing id and virtualizer",
-                input: &["vpc", "set-virtualizer"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "invalid virtualizer name",
-                input: &["vpc", "set-virtualizer", TEST_VPC_ID, "invalid"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "missing id and virtualizer" {
+            &["vpc", "set-virtualizer"][..] => Fails,
+        }
+
+        "invalid virtualizer name" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "invalid"][..] => Fails,
+        }
     );
 }

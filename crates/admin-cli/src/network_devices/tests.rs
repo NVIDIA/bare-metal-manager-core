@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,30 +50,24 @@ fn verify_cmd_structure() {
 // deprecated --all flag; each row asserts the resulting (id, all) pair.
 #[test]
 fn parse_show_variants() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments parses (all devices)",
-                input: &["network-device", "show"][..],
-                expect: Yields((String::new(), false)),
-            },
-            Case {
-                scenario: "with a device ID",
-                input: &["network-device", "show", "mac=00:11:22:33:44:55"][..],
-                expect: Yields(("mac=00:11:22:33:44:55".to_string(), false)),
-            },
-            Case {
-                scenario: "with the deprecated --all flag",
-                input: &["network-device", "show", "--all"][..],
-                expect: Yields((String::new(), true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.id, args.all),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments parses (all devices)" {
+            &["network-device", "show"][..] => Yields((String::new(), false)),
+        }
+
+        "with a device ID" {
+            &["network-device", "show", "mac=00:11:22:33:44:55"][..] => Yields(("mac=00:11:22:33:44:55".to_string(), false)),
+        }
+
+        "with the deprecated --all flag" {
+            &["network-device", "show", "--all"][..] => Yields((String::new(), true)),
+        }
     );
 }

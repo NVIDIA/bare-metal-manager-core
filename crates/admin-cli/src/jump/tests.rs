@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::Cmd;
@@ -50,34 +50,27 @@ fn verify_cmd_structure() {
 // UUID, or MAC address -- and round-trips it verbatim onto `cmd.id`.
 #[test]
 fn parse_accepts_any_id_format() {
-    check_cases(
-        [
-            Case {
-                scenario: "machine ID",
-                input: &["jump", "machine-123"][..],
-                expect: Yields("machine-123".to_string()),
-            },
-            Case {
-                scenario: "IP address",
-                input: &["jump", "192.168.1.100"][..],
-                expect: Yields("192.168.1.100".to_string()),
-            },
-            Case {
-                scenario: "UUID",
-                input: &["jump", "550e8400-e29b-41d4-a716-446655440000"][..],
-                expect: Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
-            },
-            Case {
-                scenario: "MAC address",
-                input: &["jump", "00:11:22:33:44:55"][..],
-                expect: Yields("00:11:22:33:44:55".to_string()),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| cmd.id)
                 .map_err(drop)
-        },
+        };
+        "machine ID" {
+            &["jump", "machine-123"][..] => Yields("machine-123".to_string()),
+        }
+
+        "IP address" {
+            &["jump", "192.168.1.100"][..] => Yields("192.168.1.100".to_string()),
+        }
+
+        "UUID" {
+            &["jump", "550e8400-e29b-41d4-a716-446655440000"][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+        }
+
+        "MAC address" {
+            &["jump", "00:11:22:33:44:55"][..] => Yields("00:11:22:33:44:55".to_string()),
+        }
     );
 }
 
@@ -85,16 +78,14 @@ fn parse_accepts_any_id_format() {
 // time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "no id argument",
-            input: &["jump"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "no id argument" {
+            &["jump"][..] => Fails,
+        }
     );
 }

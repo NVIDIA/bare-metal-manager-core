@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -53,42 +53,37 @@ fn verify_cmd_structure() {
 // id/name/description unset, while supplying them threads each value through.
 #[test]
 fn parse_create_routes_and_binds_fields() {
-    check_cases(
-        [
-            Case {
-                scenario: "create with no arguments leaves every field unset",
-                input: &["instance-type", "create"][..],
-                expect: Yields((None, None, None)),
-            },
-            Case {
-                scenario: "create with all options binds each field",
-                input: &[
-                    "instance-type",
-                    "create",
-                    "--id",
-                    "type-123",
-                    "--name",
-                    "GPU Instance",
-                    "--description",
-                    "High-performance GPU instance",
-                    "--labels",
-                    r#"{"gpu":"true"}"#,
-                ][..],
-                expect: Yields((
-                    Some("type-123".to_string()),
-                    Some("GPU Instance".to_string()),
-                    Some("High-performance GPU instance".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Create(args) => (args.id, args.name, args.description),
                     _ => panic!("expected Create variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "create with no arguments leaves every field unset" {
+            &["instance-type", "create"][..] => Yields((None, None, None)),
+        }
+
+        "create with all options binds each field" {
+            &[
+                "instance-type",
+                "create",
+                "--id",
+                "type-123",
+                "--name",
+                "GPU Instance",
+                "--description",
+                "High-performance GPU instance",
+                "--labels",
+                r#"{"gpu":"true"}"#,
+            ][..] => Yields((
+                Some("type-123".to_string()),
+                Some("GPU Instance".to_string()),
+                Some("High-performance GPU instance".to_string()),
+            )),
+        }
     );
 }
 
@@ -96,74 +91,65 @@ fn parse_create_routes_and_binds_fields() {
 // while supplying `--id` narrows to one.
 #[test]
 fn parse_show_routes_and_binds_id() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments leaves id unset",
-                input: &["instance-type", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "show with --id binds the id",
-                input: &["instance-type", "show", "--id", "type-123"][..],
-                expect: Yields(Some("type-123".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.id,
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments leaves id unset" {
+            &["instance-type", "show"][..] => Yields(None),
+        }
+
+        "show with --id binds the id" {
+            &["instance-type", "show", "--id", "type-123"][..] => Yields(Some("type-123".to_string())),
+        }
     );
 }
 
 // The `delete` subcommand binds its required `--id`.
 #[test]
 fn parse_delete_binds_id() {
-    check_cases(
-        [Case {
-            scenario: "delete with required --id",
-            input: &["instance-type", "delete", "--id", "type-123"][..],
-            expect: Yields("type-123".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Delete(args) => args.id,
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "delete with required --id" {
+            &["instance-type", "delete", "--id", "type-123"][..] => Yields("type-123".to_string()),
+        }
     );
 }
 
 // The `update` subcommand binds its required `--id` and any optional fields.
 #[test]
 fn parse_update_binds_fields() {
-    check_cases(
-        [Case {
-            scenario: "update with required --id and a new name",
-            input: &[
-                "instance-type",
-                "update",
-                "--id",
-                "type-123",
-                "--name",
-                "Updated Name",
-            ][..],
-            expect: Yields(("type-123".to_string(), Some("Updated Name".to_string()))),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Update(args) => (args.id, args.name),
                     _ => panic!("expected Update variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "update with required --id and a new name" {
+            &[
+                "instance-type",
+                "update",
+                "--id",
+                "type-123",
+                "--name",
+                "Updated Name",
+            ][..] => Yields(("type-123".to_string(), Some("Updated Name".to_string()))),
+        }
     );
 }
 
@@ -172,47 +158,40 @@ fn parse_update_binds_fields() {
 #[test]
 fn parse_associate_binds_type_and_machines() {
     let two_machines = format!("{TEST_MACHINE_ID},{TEST_MACHINE_ID}");
-    check_cases(
-        [
-            Case {
-                scenario: "associate a single machine",
-                input: &["instance-type", "associate", "type-123", TEST_MACHINE_ID][..],
-                expect: Yields(("type-123".to_string(), 1)),
-            },
-            Case {
-                scenario: "associate comma-separated machines",
-                input: &["instance-type", "associate", "type-123", &two_machines][..],
-                expect: Yields(("type-123".to_string(), 2)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Associate(args) => (args.instance_type_id, args.machine_ids.len()),
                     _ => panic!("expected Associate variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "associate a single machine" {
+            &["instance-type", "associate", "type-123", TEST_MACHINE_ID][..] => Yields(("type-123".to_string(), 1)),
+        }
+
+        "associate comma-separated machines" {
+            &["instance-type", "associate", "type-123", &two_machines][..] => Yields(("type-123".to_string(), 2)),
+        }
     );
 }
 
 // The `disassociate` subcommand binds its required machine id.
 #[test]
 fn parse_disassociate_binds_machine_id() {
-    check_cases(
-        [Case {
-            scenario: "disassociate with a machine id",
-            input: &["instance-type", "disassociate", TEST_MACHINE_ID][..],
-            expect: Yields(TEST_MACHINE_ID.to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Disassociate(args) => args.machine_id.to_string(),
                     _ => panic!("expected Disassociate variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "disassociate with a machine id" {
+            &["instance-type", "disassociate", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
+        }
     );
 }
 
@@ -220,23 +199,18 @@ fn parse_disassociate_binds_machine_id() {
 // whose required `--id` is missing.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "delete without --id",
-                input: &["instance-type", "delete"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "update without --id",
-                input: &["instance-type", "update"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "delete without --id" {
+            &["instance-type", "delete"][..] => Fails,
+        }
+
+        "update without --id" {
+            &["instance-type", "update"][..] => Fails,
+        }
     );
 }

@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -54,20 +54,18 @@ fn verify_cmd_structure() {
 // variant, preserving each id in order.
 #[test]
 fn parse_create() {
-    check_cases(
-        [Case {
-            scenario: "create with two VPC IDs",
-            input: &["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2][..],
-            expect: Yields((TEST_VPC_ID_1.to_string(), TEST_VPC_ID_2.to_string())),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Create(args) => (args.vpc1_id.to_string(), args.vpc2_id.to_string()),
                     _ => panic!("expected Create variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "create with two VPC IDs" {
+            &["vpc-peering", "create", TEST_VPC_ID_1, TEST_VPC_ID_2][..] => Yields((TEST_VPC_ID_1.to_string(), TEST_VPC_ID_2.to_string())),
+        }
     );
 }
 
@@ -75,32 +73,26 @@ fn parse_create() {
 // and --vpc-id alone each parse, yielding which of (id, vpc_id) is set.
 #[test]
 fn parse_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments",
-                input: &["vpc-peering", "show"][..],
-                expect: Yields((false, false)),
-            },
-            Case {
-                scenario: "with --id",
-                input: &["vpc-peering", "show", "--id", TEST_PEERING_ID][..],
-                expect: Yields((true, false)),
-            },
-            Case {
-                scenario: "with --vpc-id",
-                input: &["vpc-peering", "show", "--vpc-id", TEST_VPC_ID_1][..],
-                expect: Yields((false, true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.id.is_some(), args.vpc_id.is_some()),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments" {
+            &["vpc-peering", "show"][..] => Yields((false, false)),
+        }
+
+        "with --id" {
+            &["vpc-peering", "show", "--id", TEST_PEERING_ID][..] => Yields((true, false)),
+        }
+
+        "with --vpc-id" {
+            &["vpc-peering", "show", "--vpc-id", TEST_VPC_ID_1][..] => Yields((false, true)),
+        }
     );
 }
 
@@ -108,20 +100,18 @@ fn parse_show() {
 // preserving the peering id.
 #[test]
 fn parse_delete() {
-    check_cases(
-        [Case {
-            scenario: "delete with --id",
-            input: &["vpc-peering", "delete", "--id", TEST_PEERING_ID][..],
-            expect: Yields(TEST_PEERING_ID.to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Delete(args) => args.id.to_string(),
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "delete with --id" {
+            &["vpc-peering", "delete", "--id", TEST_PEERING_ID][..] => Yields(TEST_PEERING_ID.to_string()),
+        }
     );
 }
 
@@ -129,40 +119,33 @@ fn parse_delete() {
 // on show, or a required argument left off create/delete.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with both --id and --vpc-id",
-                input: &[
-                    "vpc-peering",
-                    "show",
-                    "--id",
-                    TEST_PEERING_ID,
-                    "--vpc-id",
-                    TEST_VPC_ID_1,
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "delete without --id",
-                input: &["vpc-peering", "delete"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "create without VPC IDs",
-                input: &["vpc-peering", "create"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "create with only one VPC ID",
-                input: &["vpc-peering", "create", TEST_VPC_ID_1][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "show with both --id and --vpc-id" {
+            &[
+                "vpc-peering",
+                "show",
+                "--id",
+                TEST_PEERING_ID,
+                "--vpc-id",
+                TEST_VPC_ID_1,
+            ][..] => Fails,
+        }
+
+        "delete without --id" {
+            &["vpc-peering", "delete"][..] => Fails,
+        }
+
+        "create without VPC IDs" {
+            &["vpc-peering", "create"][..] => Fails,
+        }
+
+        "create with only one VPC ID" {
+            &["vpc-peering", "create", TEST_VPC_ID_1][..] => Fails,
+        }
     );
 }

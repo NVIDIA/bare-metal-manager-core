@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -47,28 +47,22 @@ fn verify_cmd_structure() {
 // are exactly representable in f32, so equality is exact.
 #[test]
 fn parse_interval() {
-    check_cases(
-        [
-            Case {
-                scenario: "default interval",
-                input: &["ping"][..],
-                expect: Yields(1.0f32),
-            },
-            Case {
-                scenario: "custom --interval",
-                input: &["ping", "--interval", "2.5"][..],
-                expect: Yields(2.5f32),
-            },
-            Case {
-                scenario: "short -i flag",
-                input: &["ping", "-i", "0.5"][..],
-                expect: Yields(0.5f32),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Opts::try_parse_from(argv.iter().copied())
                 .map(|opts| opts.interval)
                 .map_err(drop)
-        },
+        };
+        "default interval" {
+            &["ping"][..] => Yields(1.0f32),
+        }
+
+        "custom --interval" {
+            &["ping", "--interval", "2.5"][..] => Yields(2.5f32),
+        }
+
+        "short -i flag" {
+            &["ping", "-i", "0.5"][..] => Yields(0.5f32),
+        }
     );
 }

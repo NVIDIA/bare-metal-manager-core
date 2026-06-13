@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -63,45 +63,8 @@ fn parse_show_routes_to_show_variant() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments",
-                input: &["vpc-prefix", "show"][..],
-                expect: Yields((false, false, false, false, "exclude")),
-            },
-            Case {
-                scenario: "show with --deleted only",
-                input: &["vpc-prefix", "show", "--deleted", "only"][..],
-                expect: Yields((false, false, false, false, "only")),
-            },
-            Case {
-                scenario: "show with a prefix-selector id",
-                input: &["vpc-prefix", "show", TEST_VPC_PREFIX_ID][..],
-                expect: Yields((true, false, false, false, "exclude")),
-            },
-            Case {
-                scenario: "show with a prefix-selector cidr",
-                input: &["vpc-prefix", "show", "10.0.0.0/8"][..],
-                expect: Yields((true, false, false, false, "exclude")),
-            },
-            Case {
-                scenario: "show with --vpc-id",
-                input: &["vpc-prefix", "show", "--vpc-id", TEST_VPC_ID][..],
-                expect: Yields((false, true, false, false, "exclude")),
-            },
-            Case {
-                scenario: "show with --contains",
-                input: &["vpc-prefix", "show", "--contains", "10.0.0.0/24"][..],
-                expect: Yields((false, false, true, false, "exclude")),
-            },
-            Case {
-                scenario: "show with --contained-by",
-                input: &["vpc-prefix", "show", "--contained-by", "10.0.0.0/8"][..],
-                expect: Yields((false, false, false, true, "exclude")),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (
@@ -114,7 +77,34 @@ fn parse_show_routes_to_show_variant() {
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments" {
+            &["vpc-prefix", "show"][..] => Yields((false, false, false, false, "exclude")),
+        }
+
+        "show with --deleted only" {
+            &["vpc-prefix", "show", "--deleted", "only"][..] => Yields((false, false, false, false, "only")),
+        }
+
+        "show with a prefix-selector id" {
+            &["vpc-prefix", "show", TEST_VPC_PREFIX_ID][..] => Yields((true, false, false, false, "exclude")),
+        }
+
+        "show with a prefix-selector cidr" {
+            &["vpc-prefix", "show", "10.0.0.0/8"][..] => Yields((true, false, false, false, "exclude")),
+        }
+
+        "show with --vpc-id" {
+            &["vpc-prefix", "show", "--vpc-id", TEST_VPC_ID][..] => Yields((false, true, false, false, "exclude")),
+        }
+
+        "show with --contains" {
+            &["vpc-prefix", "show", "--contains", "10.0.0.0/24"][..] => Yields((false, false, true, false, "exclude")),
+        }
+
+        "show with --contained-by" {
+            &["vpc-prefix", "show", "--contained-by", "10.0.0.0/8"][..] => Yields((false, false, false, true, "exclude")),
+        }
     );
 }
 
@@ -123,50 +113,8 @@ fn parse_show_routes_to_show_variant() {
 // optional-id assertions each become a row.
 #[test]
 fn parse_create_routes_to_create_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "create with required args",
-                input: &[
-                    "vpc-prefix",
-                    "create",
-                    "--vpc-id",
-                    TEST_VPC_ID,
-                    "--prefix",
-                    "10.0.0.0/8",
-                    "--name",
-                    "test-prefix",
-                ][..],
-                expect: Yields((
-                    TEST_VPC_ID.to_string(),
-                    "10.0.0.0/8".to_string(),
-                    "test-prefix".to_string(),
-                    false,
-                )),
-            },
-            Case {
-                scenario: "create with optional --vpc-prefix-id",
-                input: &[
-                    "vpc-prefix",
-                    "create",
-                    "--vpc-id",
-                    TEST_VPC_ID,
-                    "--prefix",
-                    "10.0.0.0/8",
-                    "--name",
-                    "test-prefix",
-                    "--vpc-prefix-id",
-                    TEST_VPC_PREFIX_ID,
-                ][..],
-                expect: Yields((
-                    TEST_VPC_ID.to_string(),
-                    "10.0.0.0/8".to_string(),
-                    "test-prefix".to_string(),
-                    true,
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Create(args) => (
@@ -178,7 +126,44 @@ fn parse_create_routes_to_create_variant() {
                     _ => panic!("expected Create variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "create with required args" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--vpc-id",
+                TEST_VPC_ID,
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test-prefix",
+            ][..] => Yields((
+                TEST_VPC_ID.to_string(),
+                "10.0.0.0/8".to_string(),
+                "test-prefix".to_string(),
+                false,
+            )),
+        }
+
+        "create with optional --vpc-prefix-id" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--vpc-id",
+                TEST_VPC_ID,
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test-prefix",
+                "--vpc-prefix-id",
+                TEST_VPC_PREFIX_ID,
+            ][..] => Yields((
+                TEST_VPC_ID.to_string(),
+                "10.0.0.0/8".to_string(),
+                "test-prefix".to_string(),
+                true,
+            )),
+        }
     );
 }
 
@@ -186,20 +171,18 @@ fn parse_create_routes_to_create_variant() {
 // reporting the parsed vpc_prefix_id.
 #[test]
 fn parse_delete_routes_to_delete_variant() {
-    check_cases(
-        [Case {
-            scenario: "delete with a vpc-prefix-id",
-            input: &["vpc-prefix", "delete", TEST_VPC_PREFIX_ID][..],
-            expect: Yields(TEST_VPC_PREFIX_ID.to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Delete(args) => args.vpc_prefix_id.to_string(),
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "delete with a vpc-prefix-id" {
+            &["vpc-prefix", "delete", TEST_VPC_PREFIX_ID][..] => Yields(TEST_VPC_PREFIX_ID.to_string()),
+        }
     );
 }
 
@@ -208,42 +191,36 @@ fn parse_delete_routes_to_delete_variant() {
 // positional id.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with both --contains and --contained-by",
-                input: &[
-                    "vpc-prefix",
-                    "show",
-                    "--contains",
-                    "10.0.0.0/24",
-                    "--contained-by",
-                    "10.0.0.0/8",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "create without --vpc-id",
-                input: &[
-                    "vpc-prefix",
-                    "create",
-                    "--prefix",
-                    "10.0.0.0/8",
-                    "--name",
-                    "test",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "delete without a vpc-prefix-id",
-                input: &["vpc-prefix", "delete"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "show with both --contains and --contained-by" {
+            &[
+                "vpc-prefix",
+                "show",
+                "--contains",
+                "10.0.0.0/24",
+                "--contained-by",
+                "10.0.0.0/8",
+            ][..] => Fails,
+        }
+
+        "create without --vpc-id" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test",
+            ][..] => Fails,
+        }
+
+        "delete without a vpc-prefix-id" {
+            &["vpc-prefix", "delete"][..] => Fails,
+        }
     );
 }

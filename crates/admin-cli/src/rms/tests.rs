@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -67,41 +67,34 @@ fn route(cmd: &Cmd) -> (&'static str, String, String) {
 // the expected positional arguments.
 #[test]
 fn valid_invocations_route_to_their_subcommand() {
-    check_cases(
-        [
-            Case {
-                scenario: "inventory takes no args",
-                input: &["rms", "inventory"][..],
-                expect: Yields(("inventory", String::new(), String::new())),
-            },
-            Case {
-                scenario: "power-on-sequence carries rack_id",
-                input: &["rms", "power-on-sequence", "rack-123"][..],
-                expect: Yields(("power-on-sequence", "rack-123".to_string(), String::new())),
-            },
-            Case {
-                scenario: "power-state carries rack_id and node_id",
-                input: &["rms", "power-state", "rack-123", "node-123"][..],
-                expect: Yields((
-                    "power-state",
-                    "rack-123".to_string(),
-                    "node-123".to_string(),
-                )),
-            },
-            Case {
-                scenario: "firmware-inventory carries rack_id and node_id",
-                input: &["rms", "firmware-inventory", "rack-123", "node-123"][..],
-                expect: Yields((
-                    "firmware-inventory",
-                    "rack-123".to_string(),
-                    "node-123".to_string(),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| route(&cmd))
                 .map_err(drop)
-        },
+        };
+        "inventory takes no args" {
+            &["rms", "inventory"][..] => Yields(("inventory", String::new(), String::new())),
+        }
+
+        "power-on-sequence carries rack_id" {
+            &["rms", "power-on-sequence", "rack-123"][..] => Yields(("power-on-sequence", "rack-123".to_string(), String::new())),
+        }
+
+        "power-state carries rack_id and node_id" {
+            &["rms", "power-state", "rack-123", "node-123"][..] => Yields((
+                "power-state",
+                "rack-123".to_string(),
+                "node-123".to_string(),
+            )),
+        }
+
+        "firmware-inventory carries rack_id and node_id" {
+            &["rms", "firmware-inventory", "rack-123", "node-123"][..] => Yields((
+                "firmware-inventory",
+                "rack-123".to_string(),
+                "node-123".to_string(),
+            )),
+        }
     );
 }

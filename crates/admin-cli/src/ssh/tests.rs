@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,23 +50,8 @@ fn verify_cmd_structure() {
 // with credentials and routes them onto the credential fields.
 #[test]
 fn parse_get_rshim_status() {
-    check_cases(
-        [Case {
-            scenario: "get-rshim-status with credentials",
-            input: &[
-                "ssh",
-                "get-rshim-status",
-                "192.168.1.100:443",
-                "admin",
-                "password123",
-            ][..],
-            expect: Yields((
-                "192.168.1.100:443".to_string(),
-                "admin".to_string(),
-                "password123".to_string(),
-            )),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::GetRshimStatus(args) => (
@@ -77,34 +62,45 @@ fn parse_get_rshim_status() {
                     _ => panic!("expected GetRshimStatus variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "get-rshim-status with credentials" {
+            &[
+                "ssh",
+                "get-rshim-status",
+                "192.168.1.100:443",
+                "admin",
+                "password123",
+            ][..] => Yields((
+                "192.168.1.100:443".to_string(),
+                "admin".to_string(),
+                "password123".to_string(),
+            )),
+        }
     );
 }
 
 // parse_copy_bfb ensures copy-bfb parses with bfb_path.
 #[test]
 fn parse_copy_bfb() {
-    check_cases(
-        [Case {
-            scenario: "copy-bfb with bfb path",
-            input: &[
-                "ssh",
-                "copy-bfb",
-                "192.168.1.100:443",
-                "admin",
-                "password123",
-                "/path/to/image.bfb",
-            ][..],
-            expect: Yields("/path/to/image.bfb".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::CopyBfb(args) => args.bfb_path,
                     _ => panic!("expected CopyBfb variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "copy-bfb with bfb path" {
+            &[
+                "ssh",
+                "copy-bfb",
+                "192.168.1.100:443",
+                "admin",
+                "password123",
+                "/path/to/image.bfb",
+            ][..] => Yields("/path/to/image.bfb".to_string()),
+        }
     );
 }
 
@@ -120,63 +116,55 @@ fn credential_subcommands_route_to_variant() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "disable-rshim routes to DisableRshim",
-                input: &[
-                    "ssh",
-                    "disable-rshim",
-                    "192.168.1.100:443",
-                    "admin",
-                    "password123",
-                ][..],
-                expect: Yields("disable-rshim"),
-            },
-            Case {
-                scenario: "enable-rshim routes to EnableRshim",
-                input: &[
-                    "ssh",
-                    "enable-rshim",
-                    "192.168.1.100:443",
-                    "admin",
-                    "password123",
-                ][..],
-                expect: Yields("enable-rshim"),
-            },
-            Case {
-                scenario: "show-obmc-log routes to ShowObmcLog",
-                input: &[
-                    "ssh",
-                    "show-obmc-log",
-                    "192.168.1.100:443",
-                    "admin",
-                    "password123",
-                ][..],
-                expect: Yields("show-obmc-log"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| variant(&cmd))
                 .map_err(drop)
-        },
+        };
+        "disable-rshim routes to DisableRshim" {
+            &[
+                "ssh",
+                "disable-rshim",
+                "192.168.1.100:443",
+                "admin",
+                "password123",
+            ][..] => Yields("disable-rshim"),
+        }
+
+        "enable-rshim routes to EnableRshim" {
+            &[
+                "ssh",
+                "enable-rshim",
+                "192.168.1.100:443",
+                "admin",
+                "password123",
+            ][..] => Yields("enable-rshim"),
+        }
+
+        "show-obmc-log routes to ShowObmcLog" {
+            &[
+                "ssh",
+                "show-obmc-log",
+                "192.168.1.100:443",
+                "admin",
+                "password123",
+            ][..] => Yields("show-obmc-log"),
+        }
     );
 }
 
 // Every malformed invocation is rejected at parse time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "get-rshim-status without username and password",
-            input: &["ssh", "get-rshim-status", "192.168.1.100:443"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "get-rshim-status without username and password" {
+            &["ssh", "get-rshim-status", "192.168.1.100:443"][..] => Fails,
+        }
     );
 }

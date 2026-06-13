@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,45 +51,38 @@ fn verify_cmd_structure() {
 // Each row yields the parsed (id, tenant_org_id) pair.
 #[test]
 fn parse_show_arg_combinations() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments (all keysets)",
-                input: &["tenant-keyset", "show"][..],
-                expect: Yields((String::new(), None)),
-            },
-            Case {
-                scenario: "with keyset id",
-                input: &["tenant-keyset", "show", "org-123/keyset-456"][..],
-                expect: Yields(("org-123/keyset-456".to_string(), None)),
-            },
-            Case {
-                scenario: "with --tenant-org-id",
-                input: &["tenant-keyset", "show", "--tenant-org-id", "org-123"][..],
-                expect: Yields((String::new(), Some("org-123".to_string()))),
-            },
-            Case {
-                scenario: "with both id and --tenant-org-id",
-                input: &[
-                    "tenant-keyset",
-                    "show",
-                    "org-123/keyset-456",
-                    "--tenant-org-id",
-                    "org-123",
-                ][..],
-                expect: Yields((
-                    "org-123/keyset-456".to_string(),
-                    Some("org-123".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| {
                     let Cmd::Show(args) = cmd;
                     (args.id, args.tenant_org_id)
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments (all keysets)" {
+            &["tenant-keyset", "show"][..] => Yields((String::new(), None)),
+        }
+
+        "with keyset id" {
+            &["tenant-keyset", "show", "org-123/keyset-456"][..] => Yields(("org-123/keyset-456".to_string(), None)),
+        }
+
+        "with --tenant-org-id" {
+            &["tenant-keyset", "show", "--tenant-org-id", "org-123"][..] => Yields((String::new(), Some("org-123".to_string()))),
+        }
+
+        "with both id and --tenant-org-id" {
+            &[
+                "tenant-keyset",
+                "show",
+                "org-123/keyset-456",
+                "--tenant-org-id",
+                "org-123",
+            ][..] => Yields((
+                "org-123/keyset-456".to_string(),
+                Some("org-123".to_string()),
+            )),
+        }
     );
 }

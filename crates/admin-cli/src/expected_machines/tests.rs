@@ -25,7 +25,7 @@
 // Validation Logic    - Test business logic validators on parsed arguments.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -234,65 +234,57 @@ fn parse_erase() {
 // argument, one half of a paired credential, or a flag left without its value.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "add without its required arguments",
-                input: &["expected-machine", "add"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "patch with a username but no password",
-                input: &[
-                    "expected-machine",
-                    "patch",
-                    "--bmc-mac-address",
-                    "00:00:00:00:00:00",
-                    "--bmc-username",
-                    "admin",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "patch with a password but no username",
-                input: &[
-                    "expected-machine",
-                    "patch",
-                    "--bmc-mac-address",
-                    "00:00:00:00:00:00",
-                    "--bmc-password",
-                    "secret",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "update without --filename",
-                input: &["expected-machine", "update"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "add with --fallback-dpu-serial-number missing its value",
-                input: &[
-                    "expected-machine",
-                    "add",
-                    "--bmc-mac-address",
-                    "0a:0b:0c:0d:0e:0f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--chassis-serial-number",
-                    "SN12345",
-                    "--fallback-dpu-serial-number",
-                ][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "add without its required arguments" {
+            &["expected-machine", "add"][..] => Fails,
+        }
+
+        "patch with a username but no password" {
+            &[
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-username",
+                "admin",
+            ][..] => Fails,
+        }
+
+        "patch with a password but no username" {
+            &[
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "00:00:00:00:00:00",
+                "--bmc-password",
+                "secret",
+            ][..] => Fails,
+        }
+
+        "update without --filename" {
+            &["expected-machine", "update"][..] => Fails,
+        }
+
+        "add with --fallback-dpu-serial-number missing its value" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--fallback-dpu-serial-number",
+            ][..] => Fails,
+        }
     );
 }
 
@@ -306,73 +298,67 @@ fn invalid_invocations_are_rejected() {
 // add: unique serials and the no-serials case are clean, a repeat is caught.
 #[test]
 fn has_duplicate_dpu_serials_flags_repeats() {
-    check_cases(
-        [
-            Case {
-                scenario: "three unique serials",
-                input: &[
-                    "ExpectedMachine",
-                    "--bmc-mac-address",
-                    "0a:0b:0c:0d:0e:0f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--chassis-serial-number",
-                    "SN12345",
-                    "--fallback-dpu-serial-number",
-                    "dpu1",
-                    "-d",
-                    "dpu2",
-                    "-d",
-                    "dpu3",
-                ][..],
-                expect: Yields(false),
-            },
-            Case {
-                scenario: "a repeated serial is detected",
-                input: &[
-                    "ExpectedMachine",
-                    "--bmc-mac-address",
-                    "0a:0b:0c:0d:0e:0f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--chassis-serial-number",
-                    "SN12345",
-                    "-d",
-                    "dpu1",
-                    "-d",
-                    "dpu2",
-                    "-d",
-                    "dpu3",
-                    "-d",
-                    "dpu1",
-                ][..],
-                expect: Yields(true),
-            },
-            Case {
-                scenario: "no serials at all",
-                input: &[
-                    "ExpectedMachine",
-                    "--bmc-mac-address",
-                    "0a:0b:0c:0d:0e:0f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--chassis-serial-number",
-                    "SN12345",
-                ][..],
-                expect: Yields(false),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             add::Args::try_parse_from(argv.iter().copied())
                 .map(|m| m.has_duplicate_dpu_serials())
                 .map_err(drop)
-        },
+        };
+        "three unique serials" {
+            &[
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--fallback-dpu-serial-number",
+                "dpu1",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu3",
+            ][..] => Yields(false),
+        }
+
+        "a repeated serial is detected" {
+            &[
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "-d",
+                "dpu1",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu3",
+                "-d",
+                "dpu1",
+            ][..] => Yields(true),
+        }
+
+        "no serials at all" {
+            &[
+                "ExpectedMachine",
+                "--bmc-mac-address",
+                "0a:0b:0c:0d:0e:0f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+            ][..] => Yields(false),
+        }
     );
 }
 

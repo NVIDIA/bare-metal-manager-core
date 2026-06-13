@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -74,87 +74,81 @@ fn parse_create_routes_to_create() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "create with required args (long flags)",
-                input: &[
-                    "os-image",
-                    "create",
-                    "--id",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "--url",
-                    "https://images.example.com/ubuntu.qcow2",
-                    "--digest",
-                    "sha256:abc123",
-                    "--tenant-org-id",
-                    "tenant-123",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    "https://images.example.com/ubuntu.qcow2".to_string(),
-                    "sha256:abc123".to_string(),
-                    "tenant-123".to_string(),
-                    None,
-                    None,
-                )),
-            },
-            Case {
-                scenario: "create with optional args (short flags)",
-                input: &[
-                    "os-image",
-                    "create",
-                    "-i",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "-u",
-                    "https://images.example.com/ubuntu.qcow2",
-                    "-m",
-                    "sha256:abc123",
-                    "-t",
-                    "tenant-123",
-                    "-n",
-                    "Ubuntu 22.04",
-                    "-d",
-                    "Ubuntu 22.04 LTS Server",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    "https://images.example.com/ubuntu.qcow2".to_string(),
-                    "sha256:abc123".to_string(),
-                    "tenant-123".to_string(),
-                    Some("Ubuntu 22.04".to_string()),
-                    Some("Ubuntu 22.04 LTS Server".to_string()),
-                )),
-            },
-            Case {
-                scenario: "create via visible alias 'c'",
-                input: &[
-                    "os-image",
-                    "c",
-                    "-i",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "-u",
-                    "https://images.example.com/ubuntu.qcow2",
-                    "-m",
-                    "sha256:abc123",
-                    "-t",
-                    "tenant-123",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    "https://images.example.com/ubuntu.qcow2".to_string(),
-                    "sha256:abc123".to_string(),
-                    "tenant-123".to_string(),
-                    None,
-                    None,
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(create_fields)
                 .map_err(drop)
-        },
+        };
+        "create with required args (long flags)" {
+            &[
+                "os-image",
+                "create",
+                "--id",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--url",
+                "https://images.example.com/ubuntu.qcow2",
+                "--digest",
+                "sha256:abc123",
+                "--tenant-org-id",
+                "tenant-123",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                "https://images.example.com/ubuntu.qcow2".to_string(),
+                "sha256:abc123".to_string(),
+                "tenant-123".to_string(),
+                None,
+                None,
+            )),
+        }
+
+        "create with optional args (short flags)" {
+            &[
+                "os-image",
+                "create",
+                "-i",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "-u",
+                "https://images.example.com/ubuntu.qcow2",
+                "-m",
+                "sha256:abc123",
+                "-t",
+                "tenant-123",
+                "-n",
+                "Ubuntu 22.04",
+                "-d",
+                "Ubuntu 22.04 LTS Server",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                "https://images.example.com/ubuntu.qcow2".to_string(),
+                "sha256:abc123".to_string(),
+                "tenant-123".to_string(),
+                Some("Ubuntu 22.04".to_string()),
+                Some("Ubuntu 22.04 LTS Server".to_string()),
+            )),
+        }
+
+        "create via visible alias 'c'" {
+            &[
+                "os-image",
+                "c",
+                "-i",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "-u",
+                "https://images.example.com/ubuntu.qcow2",
+                "-m",
+                "sha256:abc123",
+                "-t",
+                "tenant-123",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                "https://images.example.com/ubuntu.qcow2".to_string(),
+                "sha256:abc123".to_string(),
+                "tenant-123".to_string(),
+                None,
+                None,
+            )),
+        }
     );
 }
 
@@ -169,34 +163,29 @@ fn parse_show_routes_to_show() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "show with no filters",
-                input: &["os-image", "show"][..],
-                expect: Yields((None, None)),
-            },
-            Case {
-                scenario: "show with id and tenant filters",
-                input: &[
-                    "os-image",
-                    "show",
-                    "-i",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "-t",
-                    "tenant-123",
-                ][..],
-                expect: Yields((
-                    Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
-                    Some("tenant-123".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(show_fields)
                 .map_err(drop)
-        },
+        };
+        "show with no filters" {
+            &["os-image", "show"][..] => Yields((None, None)),
+        }
+
+        "show with id and tenant filters" {
+            &[
+                "os-image",
+                "show",
+                "-i",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "-t",
+                "tenant-123",
+            ][..] => Yields((
+                Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+                Some("tenant-123".to_string()),
+            )),
+        }
     );
 }
 
@@ -211,27 +200,25 @@ fn parse_delete_routes_to_delete() {
         }
     }
 
-    check_cases(
-        [Case {
-            scenario: "delete with required args",
-            input: &[
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(delete_fields)
+                .map_err(drop)
+        };
+        "delete with required args" {
+            &[
                 "os-image",
                 "delete",
                 "-i",
                 "550e8400-e29b-41d4-a716-446655440000",
                 "-t",
                 "tenant-123",
-            ][..],
-            expect: Yields((
+            ][..] => Yields((
                 "550e8400-e29b-41d4-a716-446655440000".to_string(),
                 "tenant-123".to_string(),
             )),
-        }],
-        |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(delete_fields)
-                .map_err(drop)
-        },
+        }
     );
 }
 
@@ -246,27 +233,25 @@ fn parse_update_routes_to_update() {
         }
     }
 
-    check_cases(
-        [Case {
-            scenario: "update with required id and a name",
-            input: &[
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(update_fields)
+                .map_err(drop)
+        };
+        "update with required id and a name" {
+            &[
                 "os-image",
                 "update",
                 "-i",
                 "550e8400-e29b-41d4-a716-446655440000",
                 "-n",
                 "New Name",
-            ][..],
-            expect: Yields((
+            ][..] => Yields((
                 "550e8400-e29b-41d4-a716-446655440000".to_string(),
                 Some("New Name".to_string()),
             )),
-        }],
-        |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(update_fields)
-                .map_err(drop)
-        },
+        }
     );
 }
 
@@ -274,16 +259,14 @@ fn parse_update_routes_to_update() {
 // of its required arguments.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "create missing required args",
-            input: &["os-image", "create", "-i", "some-id"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "create missing required args" {
+            &["os-image", "create", "-i", "some-id"][..] => Fails,
+        }
     );
 }
