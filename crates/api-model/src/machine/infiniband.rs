@@ -209,7 +209,7 @@ pub fn ib_config_synced(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, scenarios};
 
     use super::*;
 
@@ -219,22 +219,20 @@ mod tests {
         // that older payloads omit. We project to the first interface's
         // (fabric_id_is_empty, associated_pkeys_is_none) so the asserted defaults
         // are comparable.
-        check_cases(
-            [Case {
-                scenario: "interfaces without fabric_id or pkeys default them",
-                input: r#"{"observed_at": "2025-06-06T19:47:16.597282585Z", "ib_interfaces": [{"lid": 65535, "guid": "1070fd0300bd7574"}, {"lid": 65535, "guid": "1070fd0300bd7575"}]}"#,
-                expect: Yields((true, true)),
-            }],
+        scenarios!(
             // Deserialize, then project the first interface's defaulted fields.
             // serde_json::Error is not PartialEq, so a failing row would discard it.
-            |s| {
+            run = |s| {
                 serde_json::from_str::<MachineInfinibandStatusObservation>(s)
                     .map(|obs| {
                         let iface = obs.ib_interfaces.first().expect("row supplies interfaces");
                         (iface.fabric_id.is_empty(), iface.associated_pkeys.is_none())
                     })
                     .map_err(drop)
-            },
+            };
+            "interfaces without fabric_id or pkeys default them" {
+                r#"{"observed_at": "2025-06-06T19:47:16.597282585Z", "ib_interfaces": [{"lid": 65535, "guid": "1070fd0300bd7574"}, {"lid": 65535, "guid": "1070fd0300bd7575"}]}"# => Yields((true, true)),
+            }
         );
     }
 

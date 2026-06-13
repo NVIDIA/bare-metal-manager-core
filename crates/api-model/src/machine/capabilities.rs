@@ -510,7 +510,7 @@ impl MachineCapabilitiesSet {
 mod tests {
     use std::str::FromStr;
 
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, value_scenarios};
 
     use super::*;
     use crate::hardware_info::*;
@@ -854,45 +854,35 @@ mod tests {
 
     #[test]
     fn capability_type_display_covers_every_variant() {
-        check_values(
-            [
-                Check {
-                    scenario: "cpu",
-                    input: MachineCapabilityType::Cpu,
-                    expect: "CPU".to_string(),
-                },
-                Check {
-                    scenario: "gpu",
-                    input: MachineCapabilityType::Gpu,
-                    expect: "GPU".to_string(),
-                },
-                Check {
-                    scenario: "memory",
-                    input: MachineCapabilityType::Memory,
-                    expect: "MEMORY".to_string(),
-                },
-                Check {
-                    scenario: "storage",
-                    input: MachineCapabilityType::Storage,
-                    expect: "STORAGE".to_string(),
-                },
-                Check {
-                    scenario: "network",
-                    input: MachineCapabilityType::Network,
-                    expect: "NETWORK".to_string(),
-                },
-                Check {
-                    scenario: "infiniband",
-                    input: MachineCapabilityType::Infiniband,
-                    expect: "INFINIBAND".to_string(),
-                },
-                Check {
-                    scenario: "dpu",
-                    input: MachineCapabilityType::Dpu,
-                    expect: "DPU".to_string(),
-                },
-            ],
-            |variant| variant.to_string(),
+        value_scenarios!(
+            run = |variant| variant.to_string();
+            "cpu" {
+                MachineCapabilityType::Cpu => "CPU".to_string(),
+            }
+
+            "gpu" {
+                MachineCapabilityType::Gpu => "GPU".to_string(),
+            }
+
+            "memory" {
+                MachineCapabilityType::Memory => "MEMORY".to_string(),
+            }
+
+            "storage" {
+                MachineCapabilityType::Storage => "STORAGE".to_string(),
+            }
+
+            "network" {
+                MachineCapabilityType::Network => "NETWORK".to_string(),
+            }
+
+            "infiniband" {
+                MachineCapabilityType::Infiniband => "INFINIBAND".to_string(),
+            }
+
+            "dpu" {
+                MachineCapabilityType::Dpu => "DPU".to_string(),
+            }
         );
     }
 
@@ -908,25 +898,19 @@ mod tests {
 
     #[test]
     fn device_type_display_covers_every_variant() {
-        check_values(
-            [
-                Check {
-                    scenario: "unknown",
-                    input: MachineCapabilityDeviceType::Unknown,
-                    expect: "UNKNOWN".to_string(),
-                },
-                Check {
-                    scenario: "dpu",
-                    input: MachineCapabilityDeviceType::Dpu,
-                    expect: "DPU".to_string(),
-                },
-                Check {
-                    scenario: "nvlink",
-                    input: MachineCapabilityDeviceType::NvLink,
-                    expect: "NVLINK".to_string(),
-                },
-            ],
-            |variant| variant.to_string(),
+        value_scenarios!(
+            run = |variant| variant.to_string();
+            "unknown" {
+                MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
+            }
+
+            "dpu" {
+                MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
+            }
+
+            "nvlink" {
+                MachineCapabilityDeviceType::NvLink => "NVLINK".to_string(),
+            }
         );
     }
 
@@ -942,44 +926,38 @@ mod tests {
             }
         }
 
-        check_values(
-            [
-                Check {
-                    scenario: "typical dual-socket",
-                    input: cpu_info("Xeon Gold 6354", "GenuineIntel", 2, 18, 36),
-                    expect: MachineCapabilityCpu {
-                        name: "Xeon Gold 6354".to_string(),
-                        count: 2,
-                        vendor: Some("GenuineIntel".to_string()),
-                        cores: Some(18),
-                        threads: Some(36),
-                    },
+        value_scenarios!(
+            run = |info| MachineCapabilityCpu::from(&info);
+            "typical dual-socket" {
+                cpu_info("Xeon Gold 6354", "GenuineIntel", 2, 18, 36) => MachineCapabilityCpu {
+                    name: "Xeon Gold 6354".to_string(),
+                    count: 2,
+                    vendor: Some("GenuineIntel".to_string()),
+                    cores: Some(18),
+                    threads: Some(36),
                 },
-                Check {
-                    scenario: "single socket",
-                    input: cpu_info("EPYC 7763", "AuthenticAMD", 1, 64, 128),
-                    expect: MachineCapabilityCpu {
-                        name: "EPYC 7763".to_string(),
-                        count: 1,
-                        vendor: Some("AuthenticAMD".to_string()),
-                        cores: Some(64),
-                        threads: Some(128),
-                    },
+            }
+
+            "single socket" {
+                cpu_info("EPYC 7763", "AuthenticAMD", 1, 64, 128) => MachineCapabilityCpu {
+                    name: "EPYC 7763".to_string(),
+                    count: 1,
+                    vendor: Some("AuthenticAMD".to_string()),
+                    cores: Some(64),
+                    threads: Some(128),
                 },
-                Check {
-                    scenario: "all-zero / empty defaults",
-                    input: cpu_info("", "", 0, 0, 0),
-                    expect: MachineCapabilityCpu {
-                        name: String::new(),
-                        count: 0,
-                        // From always wraps the source fields in Some, even when empty/zero.
-                        vendor: Some(String::new()),
-                        cores: Some(0),
-                        threads: Some(0),
-                    },
+            }
+
+            "all-zero / empty defaults" {
+                cpu_info("", "", 0, 0, 0) => MachineCapabilityCpu {
+                    name: String::new(),
+                    count: 0,
+                    // From always wraps the source fields in Some, even when empty/zero.
+                    vendor: Some(String::new()),
+                    cores: Some(0),
+                    threads: Some(0),
                 },
-            ],
-            |info| MachineCapabilityCpu::from(&info),
+            }
         );
     }
 
@@ -1004,43 +982,35 @@ mod tests {
         }
 
         // No status observation: every device defaults to inactive.
-        check_values(
-            [
-                Check {
-                    scenario: "empty interface list -> no capabilities",
-                    input: Vec::<InfinibandInterface>::new(),
-                    expect: 0,
-                },
-                Check {
-                    scenario: "interface without pci_properties is skipped",
-                    input: vec![iface("g0", None)],
-                    expect: 0,
-                },
-                Check {
-                    scenario: "pci_properties without description is skipped",
-                    input: vec![iface("g0", Some(pci("0x15b3", None, Some("0"))))],
-                    expect: 0,
-                },
-                Check {
-                    scenario: "two devices of the same model roll into one capability",
-                    input: vec![
-                        iface("g0", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
-                        iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("0")))),
-                    ],
-                    expect: 1,
-                },
-                Check {
-                    scenario: "two distinct models produce two capabilities",
-                    input: vec![
-                        iface("g0", Some(pci("0x15b3", Some("ConnectX-5"), Some("0")))),
-                        iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
-                    ],
-                    expect: 2,
-                },
-            ],
-            |interfaces| {
+        value_scenarios!(
+            run = |interfaces| {
                 MachineCapabilityInfiniband::from_ib_interfaces_and_status(&interfaces, None).len()
-            },
+            };
+            "empty interface list -> no capabilities" {
+                Vec::<InfinibandInterface>::new() => 0,
+            }
+
+            "interface without pci_properties is skipped" {
+                vec![iface("g0", None)] => 0,
+            }
+
+            "pci_properties without description is skipped" {
+                vec![iface("g0", Some(pci("0x15b3", None, Some("0"))))] => 0,
+            }
+
+            "two devices of the same model roll into one capability" {
+                vec![
+                    iface("g0", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
+                    iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("0")))),
+                ] => 1,
+            }
+
+            "two distinct models produce two capabilities" {
+                vec![
+                    iface("g0", Some(pci("0x15b3", Some("ConnectX-5"), Some("0")))),
+                    iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
+                ] => 2,
+            }
         );
     }
 
@@ -1076,24 +1046,19 @@ mod tests {
         let caps = MachineCapabilityInfiniband::from_ib_interfaces_and_status(&interfaces, None);
         assert_eq!(caps.len(), 1);
 
-        check_values(
-            [
-                Check {
-                    scenario: "rolled-up count",
-                    input: "count",
-                    expect: 2u32,
-                },
-                Check {
-                    scenario: "all inactive without status",
-                    input: "inactive_len",
-                    expect: 2u32,
-                },
-            ],
-            |field| match field {
+        value_scenarios!(
+            run = |field| match field {
                 "count" => caps[0].count,
                 "inactive_len" => caps[0].inactive_devices.len() as u32,
                 other => panic!("unknown field {other}"),
-            },
+            };
+            "rolled-up count" {
+                "count" => 2u32,
+            }
+
+            "all inactive without status" {
+                "inactive_len" => 2u32,
+            }
         );
     }
 }

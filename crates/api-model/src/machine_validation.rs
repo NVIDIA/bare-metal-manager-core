@@ -270,7 +270,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Check, scenarios, value_scenarios};
 
     use super::*;
 
@@ -287,138 +287,107 @@ mod tests {
 
     #[test]
     fn state_from_str_parses_every_variant_and_rejects_the_rest() {
-        check_cases(
-            [
-                Case {
-                    scenario: "Started",
-                    input: "Started",
-                    expect: Yields(MachineValidationState::Started),
-                },
-                Case {
-                    scenario: "InProgress",
-                    input: "InProgress",
-                    expect: Yields(MachineValidationState::InProgress),
-                },
-                Case {
-                    scenario: "Success",
-                    input: "Success",
-                    expect: Yields(MachineValidationState::Success),
-                },
-                Case {
-                    scenario: "Skipped",
-                    input: "Skipped",
-                    expect: Yields(MachineValidationState::Skipped),
-                },
-                Case {
-                    scenario: "Failed",
-                    input: "Failed",
-                    expect: Yields(MachineValidationState::Failed),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unknown variant",
-                    input: "Pending",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "lowercase is not accepted",
-                    input: "started",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "uppercase is not accepted",
-                    input: "SUCCESS",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "leading whitespace is not trimmed",
-                    input: " Started",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "trailing whitespace is not trimmed",
-                    input: "Failed ",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "numeric input",
-                    input: "0",
-                    expect: Fails,
-                },
-            ],
-            |s| MachineValidationState::from_str(s).map_err(drop),
+        scenarios!(
+            run = |s| MachineValidationState::from_str(s).map_err(drop);
+            "Started" {
+                "Started" => Yields(MachineValidationState::Started),
+            }
+
+            "InProgress" {
+                "InProgress" => Yields(MachineValidationState::InProgress),
+            }
+
+            "Success" {
+                "Success" => Yields(MachineValidationState::Success),
+            }
+
+            "Skipped" {
+                "Skipped" => Yields(MachineValidationState::Skipped),
+            }
+
+            "Failed" {
+                "Failed" => Yields(MachineValidationState::Failed),
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "unknown variant" {
+                "Pending" => Fails,
+            }
+
+            "lowercase is not accepted" {
+                "started" => Fails,
+            }
+
+            "uppercase is not accepted" {
+                "SUCCESS" => Fails,
+            }
+
+            "leading whitespace is not trimmed" {
+                " Started" => Fails,
+            }
+
+            "trailing whitespace is not trimmed" {
+                "Failed " => Fails,
+            }
+
+            "numeric input" {
+                "0" => Fails,
+            }
         );
     }
 
     #[test]
     fn state_display_renders_the_variant_name() {
-        check_values(
-            [
-                Check {
-                    scenario: "Started",
-                    input: MachineValidationState::Started,
-                    expect: "Started".to_string(),
-                },
-                Check {
-                    scenario: "InProgress",
-                    input: MachineValidationState::InProgress,
-                    expect: "InProgress".to_string(),
-                },
-                Check {
-                    scenario: "Success",
-                    input: MachineValidationState::Success,
-                    expect: "Success".to_string(),
-                },
-                Check {
-                    scenario: "Skipped",
-                    input: MachineValidationState::Skipped,
-                    expect: "Skipped".to_string(),
-                },
-                Check {
-                    scenario: "Failed",
-                    input: MachineValidationState::Failed,
-                    expect: "Failed".to_string(),
-                },
-            ],
-            |state| state.to_string(),
+        value_scenarios!(
+            run = |state| state.to_string();
+            "Started" {
+                MachineValidationState::Started => "Started".to_string(),
+            }
+
+            "InProgress" {
+                MachineValidationState::InProgress => "InProgress".to_string(),
+            }
+
+            "Success" {
+                MachineValidationState::Success => "Success".to_string(),
+            }
+
+            "Skipped" {
+                MachineValidationState::Skipped => "Skipped".to_string(),
+            }
+
+            "Failed" {
+                MachineValidationState::Failed => "Failed".to_string(),
+            }
         );
     }
 
     #[test]
     fn state_display_round_trips_through_from_str() {
-        check_cases(
-            [
-                Case {
-                    scenario: "Started",
-                    input: MachineValidationState::Started,
-                    expect: Yields(MachineValidationState::Started),
-                },
-                Case {
-                    scenario: "InProgress",
-                    input: MachineValidationState::InProgress,
-                    expect: Yields(MachineValidationState::InProgress),
-                },
-                Case {
-                    scenario: "Success",
-                    input: MachineValidationState::Success,
-                    expect: Yields(MachineValidationState::Success),
-                },
-                Case {
-                    scenario: "Skipped",
-                    input: MachineValidationState::Skipped,
-                    expect: Yields(MachineValidationState::Skipped),
-                },
-                Case {
-                    scenario: "Failed",
-                    input: MachineValidationState::Failed,
-                    expect: Yields(MachineValidationState::Failed),
-                },
-            ],
-            |state| MachineValidationState::from_str(&state.to_string()).map_err(drop),
+        scenarios!(
+            run = |state| MachineValidationState::from_str(&state.to_string()).map_err(drop);
+            "Started" {
+                MachineValidationState::Started => Yields(MachineValidationState::Started),
+            }
+
+            "InProgress" {
+                MachineValidationState::InProgress => Yields(MachineValidationState::InProgress),
+            }
+
+            "Success" {
+                MachineValidationState::Success => Yields(MachineValidationState::Success),
+            }
+
+            "Skipped" {
+                MachineValidationState::Skipped => Yields(MachineValidationState::Skipped),
+            }
+
+            "Failed" {
+                MachineValidationState::Failed => Yields(MachineValidationState::Failed),
+            }
         );
     }
 
@@ -434,28 +403,23 @@ mod tests {
 
     #[test]
     fn status_default_is_started_with_zero_counts() {
-        check_values(
-            [
-                Check {
-                    scenario: "default state is Started",
-                    input: MachineValidationStatus::default(),
-                    expect: MachineValidationStatus {
-                        state: MachineValidationState::Started,
-                        total: 0,
-                        completed: 0,
-                    },
+        value_scenarios!(
+            run = |status| status;
+            "default state is Started" {
+                MachineValidationStatus::default() => MachineValidationStatus {
+                    state: MachineValidationState::Started,
+                    total: 0,
+                    completed: 0,
                 },
-                Check {
-                    scenario: "matches an explicitly built default",
-                    input: MachineValidationStatus {
-                        state: MachineValidationState::Started,
-                        total: 0,
-                        completed: 0,
-                    },
-                    expect: MachineValidationStatus::default(),
-                },
-            ],
-            |status| status,
+            }
+
+            "matches an explicitly built default" {
+                MachineValidationStatus {
+                    state: MachineValidationState::Started,
+                    total: 0,
+                    completed: 0,
+                } => MachineValidationStatus::default(),
+            }
         );
     }
 
@@ -466,46 +430,39 @@ mod tests {
             total: 10,
             completed: 4,
         };
-        check_values(
-            [
-                Check {
-                    scenario: "identical is equal",
-                    input: MachineValidationStatus {
-                        state: MachineValidationState::InProgress,
-                        total: 10,
-                        completed: 4,
-                    },
-                    expect: true,
-                },
-                Check {
-                    scenario: "differing state is unequal",
-                    input: MachineValidationStatus {
-                        state: MachineValidationState::Success,
-                        total: 10,
-                        completed: 4,
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "differing total is unequal",
-                    input: MachineValidationStatus {
-                        state: MachineValidationState::InProgress,
-                        total: 11,
-                        completed: 4,
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "differing completed is unequal",
-                    input: MachineValidationStatus {
-                        state: MachineValidationState::InProgress,
-                        total: 10,
-                        completed: 5,
-                    },
-                    expect: false,
-                },
-            ],
-            |status| status == base,
+        value_scenarios!(
+            run = |status| status == base;
+            "identical is equal" {
+                MachineValidationStatus {
+                    state: MachineValidationState::InProgress,
+                    total: 10,
+                    completed: 4,
+                } => true,
+            }
+
+            "differing state is unequal" {
+                MachineValidationStatus {
+                    state: MachineValidationState::Success,
+                    total: 10,
+                    completed: 4,
+                } => false,
+            }
+
+            "differing total is unequal" {
+                MachineValidationStatus {
+                    state: MachineValidationState::InProgress,
+                    total: 11,
+                    completed: 4,
+                } => false,
+            }
+
+            "differing completed is unequal" {
+                MachineValidationStatus {
+                    state: MachineValidationState::InProgress,
+                    total: 10,
+                    completed: 5,
+                } => false,
+            }
         );
     }
 }
