@@ -4323,6 +4323,7 @@ name = "dns-record"
 version = "0.1.0"
 dependencies = [
  "assert-json-diff",
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",

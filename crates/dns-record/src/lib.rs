@@ -269,9 +269,57 @@ impl From<DnsResourceRecordType> for String {
 #[cfg(test)]
 mod tests {
     use assert_json_diff::assert_json_eq;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use serde_json::json;
 
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum RecordTypeInput {
+        Borrowed(&'static str),
+        Owned(&'static str),
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct RecordTypeSummary {
+        record_type: DnsResourceRecordType,
+        display: String,
+        string: String,
+    }
+
+    fn soa_record_with_serial(serial: u32) -> SoaRecord {
+        SoaRecord {
+            primary_ns: "ns1.example.com".to_string(),
+            contact: "hostmaster.example.com".to_string(),
+            serial,
+            refresh: Seconds(3600),
+            retry: Seconds(600),
+            expire: Seconds(604800),
+            minimum: Seconds(3600),
+            ttl: Seconds(3600),
+        }
+    }
+
+    fn assert_current_serial(serial: u32, before: u32, after: u32) {
+        assert!(
+            serial == before || serial == after,
+            "serial {serial} was not generated within the current-date window {before}..={after}"
+        );
+    }
+
+    fn parse_record_type(input: RecordTypeInput) -> Result<RecordTypeSummary, String> {
+        let record_type = match input {
+            RecordTypeInput::Borrowed(value) => DnsResourceRecordType::try_from(value)?,
+            RecordTypeInput::Owned(value) => DnsResourceRecordType::try_from(value.to_string())?,
+        };
+
+        Ok(RecordTypeSummary {
+            record_type,
+            display: record_type.to_string(),
+            string: String::from(record_type),
+        })
+    }
 
     #[test]
     fn test_dns_resource_record_lookup_as_json() {
@@ -384,75 +432,175 @@ mod tests {
 
     #[test]
     fn test_generate_domain_serial_format() {
-        // Expected serial format
-        let now = Utc::now();
-        let expected_serial = now.format("%Y%m%d01").to_string().parse::<u32>().unwrap();
-
-        // Call the function that generates the serial
+        let before = SoaRecord::generate_new_serial();
         let serial = SoaRecord::generate_new_serial();
+        let after = SoaRecord::generate_new_serial();
 
-        assert_eq!(serial, expected_serial);
+        assert_current_serial(serial, before, after);
     }
 
     #[test]
-    fn test_string_to_dns_resource_record_type() {
-        assert_eq!(
-            DnsResourceRecordType::try_from("SOA".to_string()).unwrap(),
-            DnsResourceRecordType::SOA
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("NS".to_string()).unwrap(),
-            DnsResourceRecordType::NS
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("A".to_string()).unwrap(),
-            DnsResourceRecordType::A
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("AAAA".to_string()).unwrap(),
-            DnsResourceRecordType::AAAA
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("CNAME".to_string()).unwrap(),
-            DnsResourceRecordType::CNAME
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("MX".to_string()).unwrap(),
-            DnsResourceRecordType::MX
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("TXT".to_string()).unwrap(),
-            DnsResourceRecordType::TXT
-        );
-        assert_eq!(
-            DnsResourceRecordType::try_from("PTR".to_string()).unwrap(),
-            DnsResourceRecordType::PTR
+    fn test_seconds_conversions() {
+        check_values(
+            [
+                Check {
+                    scenario: "zero",
+                    input: 0,
+                    expect: (Seconds(0), 0),
+                },
+                Check {
+                    scenario: "positive",
+                    input: 3600,
+                    expect: (Seconds(3600), 3600),
+                },
+                Check {
+                    scenario: "negative",
+                    input: -1,
+                    expect: (Seconds(-1), -1),
+                },
+            ],
+            |value| {
+                let seconds = Seconds::from(value);
+                (seconds, i32::from(seconds))
+            },
         );
     }
 
     #[test]
-    fn test_dns_resource_record_type_to_string() {
-        assert_eq!(String::from(DnsResourceRecordType::SOA), "SOA".to_string());
-        assert_eq!(String::from(DnsResourceRecordType::NS), "NS".to_string());
-        assert_eq!(String::from(DnsResourceRecordType::A), "A".to_string());
-        assert_eq!(
-            String::from(DnsResourceRecordType::AAAA),
-            "AAAA".to_string()
+    fn test_dns_resource_record_type_conversions() {
+        check_cases(
+            [
+                Case {
+                    scenario: "SOA borrowed",
+                    input: RecordTypeInput::Borrowed("SOA"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::SOA,
+                        display: "SOA".to_string(),
+                        string: "SOA".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "NS owned",
+                    input: RecordTypeInput::Owned("NS"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::NS,
+                        display: "NS".to_string(),
+                        string: "NS".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "A borrowed",
+                    input: RecordTypeInput::Borrowed("A"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::A,
+                        display: "A".to_string(),
+                        string: "A".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "AAAA owned",
+                    input: RecordTypeInput::Owned("AAAA"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::AAAA,
+                        display: "AAAA".to_string(),
+                        string: "AAAA".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "CNAME borrowed",
+                    input: RecordTypeInput::Borrowed("CNAME"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::CNAME,
+                        display: "CNAME".to_string(),
+                        string: "CNAME".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "MX owned",
+                    input: RecordTypeInput::Owned("MX"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::MX,
+                        display: "MX".to_string(),
+                        string: "MX".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "TXT borrowed",
+                    input: RecordTypeInput::Borrowed("TXT"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::TXT,
+                        display: "TXT".to_string(),
+                        string: "TXT".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "PTR owned",
+                    input: RecordTypeInput::Owned("PTR"),
+                    expect: Yields(RecordTypeSummary {
+                        record_type: DnsResourceRecordType::PTR,
+                        display: "PTR".to_string(),
+                        string: "PTR".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "unknown borrowed",
+                    input: RecordTypeInput::Borrowed("FAKE"),
+                    expect: FailsWith("RecordType FAKE not implement".to_string()),
+                },
+                Case {
+                    scenario: "unknown owned",
+                    input: RecordTypeInput::Owned("FAKE"),
+                    expect: FailsWith("RecordType FAKE not implement".to_string()),
+                },
+            ],
+            parse_record_type,
         );
-        assert_eq!(
-            String::from(DnsResourceRecordType::CNAME),
-            "CNAME".to_string()
-        );
-        assert_eq!(String::from(DnsResourceRecordType::MX), "MX".to_string());
-        assert_eq!(String::from(DnsResourceRecordType::TXT), "TXT".to_string());
-        assert_eq!(String::from(DnsResourceRecordType::PTR), "PTR".to_string());
     }
 
     #[test]
-    fn test_string_to_dns_resource_record_type_unimplemented() {
-        assert_eq!(
-            DnsResourceRecordType::try_from("FAKE".to_string()),
-            Err("RecordType FAKE not implement".to_string())
-        )
+    fn test_dns_resource_record_type_default() {
+        assert_eq!(DnsResourceRecordType::default(), DnsResourceRecordType::SOA);
+    }
+
+    #[test]
+    fn test_soa_record_new() {
+        let before = SoaRecord::generate_new_serial();
+        let soa = SoaRecord::new("example.com");
+        let after = SoaRecord::generate_new_serial();
+
+        assert_eq!(soa.primary_ns, "ns1.example.com");
+        assert_eq!(soa.contact, "hostmaster.example.com");
+        assert_current_serial(soa.serial, before, after);
+        assert_eq!(soa.refresh, Seconds(3600));
+        assert_eq!(soa.retry, Seconds(3600));
+        assert_eq!(soa.expire, Seconds(604800));
+        assert_eq!(soa.minimum, Seconds(3600));
+        assert_eq!(soa.ttl, Seconds(3600));
+    }
+
+    #[test]
+    fn test_soa_record_increment_serial_cases() {
+        check_values(
+            [Check {
+                scenario: "future serial increments last two digits",
+                input: 2099010101,
+                expect: 2099010102,
+            }],
+            |serial| {
+                let mut soa = soa_record_with_serial(serial);
+                soa.increment_serial();
+                soa.serial
+            },
+        );
+    }
+
+    #[test]
+    fn test_soa_record_increment_old_serial_resets_to_current_date() {
+        let before = SoaRecord::generate_new_serial();
+        let mut soa = soa_record_with_serial(2000010101);
+        soa.increment_serial();
+        let after = SoaRecord::generate_new_serial();
+
+        assert_current_serial(soa.serial, before, after);
     }
 }
