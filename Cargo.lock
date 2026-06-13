@@ -1932,6 +1932,7 @@ dependencies = [
  "base64",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
