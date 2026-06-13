@@ -182,7 +182,7 @@ impl<'de> Deserialize<'de> for InstanceTypeId {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -208,61 +208,47 @@ mod tests {
 
     #[test]
     fn test_instance_type_id_parse_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "arbitrary instance type name",
-                    input: "gb200-nvl72",
-                    expect: Yields("gb200-nvl72".to_string()),
-                },
-                Case {
-                    scenario: "UUID-backed instance type name",
-                    input: "00000000-0000-0000-0000-000000000000",
-                    expect: Yields("00000000-0000-0000-0000-000000000000".to_string()),
-                },
-                Case {
-                    scenario: "empty value",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Empty),
-                },
-            ],
-            parse_instance_type_id,
+        scenarios!(
+            run = parse_instance_type_id;
+            "arbitrary instance type name" {
+                "gb200-nvl72" => Yields("gb200-nvl72".to_string()),
+            }
+
+            "UUID-backed instance type name" {
+                "00000000-0000-0000-0000-000000000000" => Yields("00000000-0000-0000-0000-000000000000".to_string()),
+            }
+
+            "empty value" {
+                "" => FailsWith(ParseFailure::Empty),
+            }
         );
     }
 
     #[test]
     fn test_instance_type_id_from_uuid() {
-        check_values(
-            [Check {
-                scenario: "nil UUID",
-                input: Uuid::nil(),
-                expect: "00000000-0000-0000-0000-000000000000".to_string(),
-            }],
-            |uuid| InstanceTypeId::from(uuid).to_string(),
+        value_scenarios!(
+            run = |uuid| InstanceTypeId::from(uuid).to_string();
+            "nil UUID" {
+                Uuid::nil() => "00000000-0000-0000-0000-000000000000".to_string(),
+            }
         );
     }
 
     #[test]
     fn test_instance_type_id_serde_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid string",
-                    input: "\"gb200-nvl72\"",
-                    expect: Yields("gb200-nvl72".to_string()),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "\"\"",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-string JSON",
-                    input: "42",
-                    expect: Fails,
-                },
-            ],
-            deserialize_instance_type_id,
+        scenarios!(
+            run = deserialize_instance_type_id;
+            "valid string" {
+                "\"gb200-nvl72\"" => Yields("gb200-nvl72".to_string()),
+            }
+
+            "empty string" {
+                "\"\"" => Fails,
+            }
+
+            "non-string JSON" {
+                "42" => Fails,
+            }
         );
 
         let serialized = serde_json::to_string(
@@ -274,20 +260,15 @@ mod tests {
 
     #[test]
     fn test_instance_type_id_parse_error_value() {
-        check_values(
-            [
-                Check {
-                    scenario: "invalid",
-                    input: InstanceTypeIdParseError::Invalid("bad".to_string()),
-                    expect: "bad".to_string(),
-                },
-                Check {
-                    scenario: "empty",
-                    input: InstanceTypeIdParseError::Empty,
-                    expect: String::new(),
-                },
-            ],
-            InstanceTypeIdParseError::value,
+        value_scenarios!(
+            run = InstanceTypeIdParseError::value;
+            "invalid" {
+                InstanceTypeIdParseError::Invalid("bad".to_string()) => "bad".to_string(),
+            }
+
+            "empty" {
+                InstanceTypeIdParseError::Empty => String::new(),
+            }
         );
     }
 }

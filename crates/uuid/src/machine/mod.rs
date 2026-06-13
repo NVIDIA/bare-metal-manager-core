@@ -517,7 +517,7 @@ impl<'de> Deserialize<'de> for MachineId {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -543,85 +543,42 @@ mod tests {
         const VALID_MACHINE_ID: &str =
             "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid host TPM machine ID",
-                    input: VALID_MACHINE_ID,
-                    expect: Yields(VALID_MACHINE_ID.to_string()),
-                },
-                Case {
-                    scenario: "one character short",
-                    input: "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "invalid prefix casing",
-                    input: "FM100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid machine type",
-                    input: "fm100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid source",
-                    input: "fm100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid base32 payload",
-                    input: "fm100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Encoding),
-                },
-            ],
-            parse_machine_id,
+        scenarios!(
+            run = parse_machine_id;
+            "valid host TPM machine ID" {
+                VALID_MACHINE_ID => Yields(VALID_MACHINE_ID.to_string()),
+            }
+
+            "one character short" {
+                "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc" => FailsWith(ParseFailure::Length),
+            }
+
+            "empty string" {
+                "" => FailsWith(ParseFailure::Length),
+            }
+
+            "invalid prefix casing" {
+                "FM100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid machine type" {
+                "fm100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid source" {
+                "fm100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid base32 payload" {
+                "fm100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Encoding),
+            }
         );
     }
 
     #[test]
     fn test_machine_type_mappings() {
-        check_values(
-            [
-                Check {
-                    scenario: "DPU",
-                    input: MachineType::Dpu,
-                    expect: ('d', "fm100d", "dpu", "DPU".to_string(), true, false, false),
-                },
-                Check {
-                    scenario: "host",
-                    input: MachineType::Host,
-                    expect: (
-                        'h',
-                        "fm100h",
-                        "host",
-                        "Host".to_string(),
-                        false,
-                        true,
-                        false,
-                    ),
-                },
-                Check {
-                    scenario: "predicted host",
-                    input: MachineType::PredictedHost,
-                    expect: (
-                        'p',
-                        "fm100p",
-                        "predictedhost",
-                        "Host (Predicted)".to_string(),
-                        false,
-                        false,
-                        true,
-                    ),
-                },
-            ],
-            |ty| {
+        value_scenarios!(
+            run = |ty| {
                 (
                     ty.id_char(),
                     ty.id_prefix(),
@@ -631,60 +588,74 @@ mod tests {
                     ty.is_host(),
                     ty.is_predicted_host(),
                 )
-            },
+            };
+            "DPU" {
+                MachineType::Dpu => ('d', "fm100d", "dpu", "DPU".to_string(), true, false, false),
+            }
+
+            "host" {
+                MachineType::Host => (
+                    'h',
+                    "fm100h",
+                    "host",
+                    "Host".to_string(),
+                    false,
+                    true,
+                    false,
+                ),
+            }
+
+            "predicted host" {
+                MachineType::PredictedHost => (
+                    'p',
+                    "fm100p",
+                    "predictedhost",
+                    "Host (Predicted)".to_string(),
+                    false,
+                    false,
+                    true,
+                ),
+            }
         );
     }
 
     #[test]
     fn test_machine_type_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "DPU",
-                    input: 'd',
-                    expect: Some(MachineType::Dpu),
-                },
-                Check {
-                    scenario: "host",
-                    input: 'h',
-                    expect: Some(MachineType::Host),
-                },
-                Check {
-                    scenario: "predicted host",
-                    input: 'p',
-                    expect: Some(MachineType::PredictedHost),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            MachineType::from_id_char,
+        value_scenarios!(
+            run = MachineType::from_id_char;
+            "DPU" {
+                'd' => Some(MachineType::Dpu),
+            }
+
+            "host" {
+                'h' => Some(MachineType::Host),
+            }
+
+            "predicted host" {
+                'p' => Some(MachineType::PredictedHost),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 
     #[test]
     fn test_machine_id_source_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "TPM",
-                    input: 't',
-                    expect: Some(MachineIdSource::Tpm),
-                },
-                Check {
-                    scenario: "product board chassis serial",
-                    input: 's',
-                    expect: Some(MachineIdSource::ProductBoardChassisSerial),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            MachineIdSource::from_id_char,
+        value_scenarios!(
+            run = MachineIdSource::from_id_char;
+            "TPM" {
+                't' => Some(MachineIdSource::Tpm),
+            }
+
+            "product board chassis serial" {
+                's' => Some(MachineIdSource::ProductBoardChassisSerial),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 }

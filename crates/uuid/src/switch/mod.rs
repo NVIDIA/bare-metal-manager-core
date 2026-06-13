@@ -462,7 +462,7 @@ mod legacy_rpc {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -487,100 +487,77 @@ mod tests {
     fn test_switch_id_parse_cases() {
         const VALID_SWITCH_ID: &str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid NVLink TPM switch ID",
-                    input: VALID_SWITCH_ID,
-                    expect: Yields(VALID_SWITCH_ID.to_string()),
-                },
-                Case {
-                    scenario: "one character short",
-                    input: "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "invalid prefix casing",
-                    input: "SW100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid switch type",
-                    input: "sw100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid source",
-                    input: "sw100nx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid base32 payload",
-                    input: "sw100nt038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Encoding),
-                },
-            ],
-            parse_switch_id,
+        scenarios!(
+            run = parse_switch_id;
+            "valid NVLink TPM switch ID" {
+                VALID_SWITCH_ID => Yields(VALID_SWITCH_ID.to_string()),
+            }
+
+            "one character short" {
+                "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc" => FailsWith(ParseFailure::Length),
+            }
+
+            "empty string" {
+                "" => FailsWith(ParseFailure::Length),
+            }
+
+            "invalid prefix casing" {
+                "SW100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid switch type" {
+                "sw100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid source" {
+                "sw100nx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid base32 payload" {
+                "sw100nt038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Encoding),
+            }
         );
     }
 
     #[test]
     fn test_switch_type_mappings() {
-        check_values(
-            [Check {
-                scenario: "NVLink",
-                input: SwitchType::NvLink,
-                expect: ('n', "NvLink".to_string()),
-            }],
-            |ty| (ty.id_char(), ty.to_string()),
+        value_scenarios!(
+            run = |ty| (ty.id_char(), ty.to_string());
+            "NVLink" {
+                SwitchType::NvLink => ('n', "NvLink".to_string()),
+            }
         );
     }
 
     #[test]
     fn test_switch_type_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "NVLink",
-                    input: 'n',
-                    expect: Some(SwitchType::NvLink),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            SwitchType::from_id_char,
+        value_scenarios!(
+            run = SwitchType::from_id_char;
+            "NVLink" {
+                'n' => Some(SwitchType::NvLink),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 
     #[test]
     fn test_switch_id_source_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "TPM",
-                    input: 't',
-                    expect: Some(SwitchIdSource::Tpm),
-                },
-                Check {
-                    scenario: "product board chassis serial",
-                    input: 's',
-                    expect: Some(SwitchIdSource::ProductBoardChassisSerial),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            SwitchIdSource::from_id_char,
+        value_scenarios!(
+            run = SwitchIdSource::from_id_char;
+            "TPM" {
+                't' => Some(SwitchIdSource::Tpm),
+            }
+
+            "product board chassis serial" {
+                's' => Some(SwitchIdSource::ProductBoardChassisSerial),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 }
