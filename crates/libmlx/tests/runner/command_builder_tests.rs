@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, Check, check_cases, check_values};
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
 use libmlx::runner::exec_options::ExecOptions;
 
@@ -137,24 +137,19 @@ fn test_build_set_command_spec_empty_assignments() {
 // spec is just the program.
 #[test]
 fn command_spec_displays_program_then_args() {
-    check_values(
-        [
-            Check {
-                scenario: "program with args",
-                input: CommandSpec::new("mlxconfig")
-                    .arg("-d")
-                    .arg("01:00.0")
-                    .arg("q")
-                    .arg("SRIOV_EN"),
-                expect: "mlxconfig -d 01:00.0 q SRIOV_EN".to_string(),
-            },
-            Check {
-                scenario: "program with no args",
-                input: CommandSpec::new("mlxconfig"),
-                expect: "mlxconfig".to_string(),
-            },
-        ],
-        |spec| format!("{spec}"),
+    value_scenarios!(
+        run = |spec| format!("{spec}");
+        "program with args" {
+            CommandSpec::new("mlxconfig")
+            .arg("-d")
+            .arg("01:00.0")
+            .arg("q")
+            .arg("SRIOV_EN") => "mlxconfig -d 01:00.0 q SRIOV_EN".to_string(),
+        }
+
+        "program with no args" {
+            CommandSpec::new("mlxconfig") => "mlxconfig".to_string(),
+        }
     );
 }
 
@@ -190,125 +185,111 @@ fn build_set_assignments_formats_each_value() {
     let options = ExecOptions::default();
     let builder = builder(&options, "01:00.0");
 
-    check_cases(
-        [
-            Case {
-                scenario: "boolean scalar",
-                input: vec![var("SRIOV_EN").with(true).unwrap()],
-                expect: Yields(vec!["SRIOV_EN=true".to_string()]),
-            },
-            Case {
-                scenario: "integer scalar",
-                input: vec![var("NUM_OF_VFS").with(32i64).unwrap()],
-                expect: Yields(vec!["NUM_OF_VFS=32".to_string()]),
-            },
-            Case {
-                scenario: "enum scalar",
-                input: vec![var("POWER_MODE").with("HIGH").unwrap()],
-                expect: Yields(vec!["POWER_MODE=HIGH".to_string()]),
-            },
-            Case {
-                scenario: "preset scalar",
-                input: vec![var("PERFORMANCE_PRESET").with(7u8).unwrap()],
-                expect: Yields(vec!["PERFORMANCE_PRESET=7".to_string()]),
-            },
-            Case {
-                scenario: "binary scalar is hex-encoded",
-                input: vec![
-                    var("DEVICE_UUID")
-                        .with(vec![0x1au8, 0x2bu8, 0x3cu8, 0x4du8])
-                        .unwrap(),
-                ],
-                expect: Yields(vec!["DEVICE_UUID=0x1a2b3c4d".to_string()]),
-            },
-            Case {
-                scenario: "dense boolean array sets every index",
-                input: vec![
-                    var("GPIO_ENABLED")
-                        .with(vec![true, false, true, false])
-                        .unwrap(),
-                ],
-                expect: Yields(vec![
-                    "GPIO_ENABLED[0]=true".to_string(),
-                    "GPIO_ENABLED[1]=false".to_string(),
-                    "GPIO_ENABLED[2]=true".to_string(),
-                    "GPIO_ENABLED[3]=false".to_string(),
-                ]),
-            },
-            Case {
-                scenario: "sparse boolean array skips None slots",
-                input: vec![
-                    var("GPIO_ENABLED")
-                        .with(vec![Some(true), None, Some(false), None])
-                        .unwrap(),
-                ],
-                expect: Yields(vec![
-                    "GPIO_ENABLED[0]=true".to_string(),
-                    "GPIO_ENABLED[2]=false".to_string(),
-                ]),
-            },
-            Case {
-                scenario: "sparse integer array skips None slots",
-                input: vec![
-                    var("THERMAL_SENSORS")
-                        .with(vec![
-                            Some(45i64),
-                            None,
-                            Some(42i64),
-                            None,
-                            Some(39i64),
-                            None,
-                        ])
-                        .unwrap(),
-                ],
-                expect: Yields(vec![
-                    "THERMAL_SENSORS[0]=45".to_string(),
-                    "THERMAL_SENSORS[2]=42".to_string(),
-                    "THERMAL_SENSORS[4]=39".to_string(),
-                ]),
-            },
-            Case {
-                scenario: "sparse enum array skips None slots",
-                input: vec![
-                    var("GPIO_MODES")
-                        .with(vec![
-                            Some("input".to_string()),
-                            Some("output".to_string()),
-                            None,
-                            Some("bidirectional".to_string()),
-                            None,
-                            None,
-                            None,
-                            None,
-                        ])
-                        .unwrap(),
-                ],
-                expect: Yields(vec![
-                    "GPIO_MODES[0]=input".to_string(),
-                    "GPIO_MODES[1]=output".to_string(),
-                    "GPIO_MODES[3]=bidirectional".to_string(),
-                ]),
-            },
-            Case {
-                scenario: "multiple variables, each in input order",
-                input: vec![
-                    var("SRIOV_EN").with(true).unwrap(),
-                    var("NUM_OF_VFS").with(16i64).unwrap(),
-                    var("POWER_MODE").with("HIGH").unwrap(),
-                ],
-                expect: Yields(vec![
-                    "SRIOV_EN=true".to_string(),
-                    "NUM_OF_VFS=16".to_string(),
-                    "POWER_MODE=HIGH".to_string(),
-                ]),
-            },
-            Case {
-                scenario: "no values yields no assignments",
-                input: vec![],
-                expect: Yields(vec![]),
-            },
-        ],
-        |config_values| builder.build_set_assignments(&config_values).map_err(drop),
+    scenarios!(
+        run = |config_values| builder.build_set_assignments(&config_values).map_err(drop);
+        "boolean scalar" {
+            vec![var("SRIOV_EN").with(true).unwrap()] => Yields(vec!["SRIOV_EN=true".to_string()]),
+        }
+
+        "integer scalar" {
+            vec![var("NUM_OF_VFS").with(32i64).unwrap()] => Yields(vec!["NUM_OF_VFS=32".to_string()]),
+        }
+
+        "enum scalar" {
+            vec![var("POWER_MODE").with("HIGH").unwrap()] => Yields(vec!["POWER_MODE=HIGH".to_string()]),
+        }
+
+        "preset scalar" {
+            vec![var("PERFORMANCE_PRESET").with(7u8).unwrap()] => Yields(vec!["PERFORMANCE_PRESET=7".to_string()]),
+        }
+
+        "binary scalar is hex-encoded" {
+            vec![
+                var("DEVICE_UUID")
+                    .with(vec![0x1au8, 0x2bu8, 0x3cu8, 0x4du8])
+                    .unwrap(),
+            ] => Yields(vec!["DEVICE_UUID=0x1a2b3c4d".to_string()]),
+        }
+
+        "dense boolean array sets every index" {
+            vec![
+                var("GPIO_ENABLED")
+                    .with(vec![true, false, true, false])
+                    .unwrap(),
+            ] => Yields(vec![
+                "GPIO_ENABLED[0]=true".to_string(),
+                "GPIO_ENABLED[1]=false".to_string(),
+                "GPIO_ENABLED[2]=true".to_string(),
+                "GPIO_ENABLED[3]=false".to_string(),
+            ]),
+        }
+
+        "sparse boolean array skips None slots" {
+            vec![
+                var("GPIO_ENABLED")
+                    .with(vec![Some(true), None, Some(false), None])
+                    .unwrap(),
+            ] => Yields(vec![
+                "GPIO_ENABLED[0]=true".to_string(),
+                "GPIO_ENABLED[2]=false".to_string(),
+            ]),
+        }
+
+        "sparse integer array skips None slots" {
+            vec![
+                var("THERMAL_SENSORS")
+                    .with(vec![
+                        Some(45i64),
+                        None,
+                        Some(42i64),
+                        None,
+                        Some(39i64),
+                        None,
+                    ])
+                    .unwrap(),
+            ] => Yields(vec![
+                "THERMAL_SENSORS[0]=45".to_string(),
+                "THERMAL_SENSORS[2]=42".to_string(),
+                "THERMAL_SENSORS[4]=39".to_string(),
+            ]),
+        }
+
+        "sparse enum array skips None slots" {
+            vec![
+                var("GPIO_MODES")
+                    .with(vec![
+                        Some("input".to_string()),
+                        Some("output".to_string()),
+                        None,
+                        Some("bidirectional".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ])
+                    .unwrap(),
+            ] => Yields(vec![
+                "GPIO_MODES[0]=input".to_string(),
+                "GPIO_MODES[1]=output".to_string(),
+                "GPIO_MODES[3]=bidirectional".to_string(),
+            ]),
+        }
+
+        "multiple variables, each in input order" {
+            vec![
+                var("SRIOV_EN").with(true).unwrap(),
+                var("NUM_OF_VFS").with(16i64).unwrap(),
+                var("POWER_MODE").with("HIGH").unwrap(),
+            ] => Yields(vec![
+                "SRIOV_EN=true".to_string(),
+                "NUM_OF_VFS=16".to_string(),
+                "POWER_MODE=HIGH".to_string(),
+            ]),
+        }
+
+        "no values yields no assignments" {
+            vec![] => Yields(vec![]),
+        }
     );
 }
 

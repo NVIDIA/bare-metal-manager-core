@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::lockdown::error::MlxError;
 use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
 use libmlx::lockdown::runner::FlintRunner;
@@ -36,25 +36,19 @@ fn error_kind<T>(result: Result<T, MlxError>) -> &'static str {
 
 #[test]
 fn lock_status_displays_lowercase_name() {
-    check_values(
-        [
-            Check {
-                scenario: "locked",
-                input: LockStatus::Locked,
-                expect: "locked".to_string(),
-            },
-            Check {
-                scenario: "unlocked",
-                input: LockStatus::Unlocked,
-                expect: "unlocked".to_string(),
-            },
-            Check {
-                scenario: "unknown",
-                input: LockStatus::Unknown,
-                expect: "unknown".to_string(),
-            },
-        ],
-        |status| status.to_string(),
+    value_scenarios!(
+        run = |status| status.to_string();
+        "locked" {
+            LockStatus::Locked => "locked".to_string(),
+        }
+
+        "unlocked" {
+            LockStatus::Unlocked => "unlocked".to_string(),
+        }
+
+        "unknown" {
+            LockStatus::Unknown => "unknown".to_string(),
+        }
     );
 }
 
@@ -142,30 +136,23 @@ fn test_manager_error_handling() {
     let runner = FlintRunner::with_path("/fake/flint");
     let manager = LockdownManager::with_runner(runner);
 
-    check_values(
-        [
-            Check {
-                scenario: "lock_device",
-                input: error_kind(manager.lock_device("fake_device", "12345678")),
-                expect: "CommandFailed",
-            },
-            Check {
-                scenario: "unlock_device",
-                input: error_kind(manager.unlock_device("fake_device", "12345678")),
-                expect: "CommandFailed",
-            },
-            Check {
-                scenario: "get_status",
-                input: error_kind(manager.get_status("fake_device")),
-                expect: "CommandFailed",
-            },
-            Check {
-                scenario: "set_device_key",
-                input: error_kind(manager.set_device_key("fake_device", "12345678")),
-                expect: "CommandFailed",
-            },
-        ],
-        |kind| kind,
+    value_scenarios!(
+        run = |kind| kind;
+        "lock_device" {
+            error_kind(manager.lock_device("fake_device", "12345678")) => "CommandFailed",
+        }
+
+        "unlock_device" {
+            error_kind(manager.unlock_device("fake_device", "12345678")) => "CommandFailed",
+        }
+
+        "get_status" {
+            error_kind(manager.get_status("fake_device")) => "CommandFailed",
+        }
+
+        "set_device_key" {
+            error_kind(manager.set_device_key("fake_device", "12345678")) => "CommandFailed",
+        }
     );
 }
 
@@ -180,30 +167,23 @@ mod dry_run_tests {
         let runner = FlintRunner::with_path("/fake/flint").with_dry_run(true);
         let manager = LockdownManager::with_runner(runner);
 
-        check_values(
-            [
-                Check {
-                    scenario: "lock_device",
-                    input: error_kind(manager.lock_device("test_device", "12345678")),
-                    expect: "DryRun",
-                },
-                Check {
-                    scenario: "unlock_device",
-                    input: error_kind(manager.unlock_device("test_device", "12345678")),
-                    expect: "DryRun",
-                },
-                Check {
-                    scenario: "get_status",
-                    input: error_kind(manager.get_status("test_device")),
-                    expect: "DryRun",
-                },
-                Check {
-                    scenario: "set_device_key",
-                    input: error_kind(manager.set_device_key("test_device", "12345678")),
-                    expect: "DryRun",
-                },
-            ],
-            |kind| kind,
+        value_scenarios!(
+            run = |kind| kind;
+            "lock_device" {
+                error_kind(manager.lock_device("test_device", "12345678")) => "DryRun",
+            }
+
+            "unlock_device" {
+                error_kind(manager.unlock_device("test_device", "12345678")) => "DryRun",
+            }
+
+            "get_status" {
+                error_kind(manager.get_status("test_device")) => "DryRun",
+            }
+
+            "set_device_key" {
+                error_kind(manager.set_device_key("test_device", "12345678")) => "DryRun",
+            }
         );
     }
 
@@ -284,42 +264,35 @@ mod mock_runner_tests {
     // matching "already" error only when the mock is primed for that state.
     #[test]
     fn mock_runner_reports_already_state_else_succeeds() {
-        check_values(
-            [
-                Check {
-                    scenario: "disable on a primed-locked device is AlreadyLocked",
-                    input: error_kind(
-                        MockRunner::new()
-                            .with_already_locked()
-                            .disable_hw_access("test_device", "12345678"),
-                    ),
-                    expect: "AlreadyLocked",
-                },
-                Check {
-                    scenario: "enable on a primed-unlocked device is AlreadyUnlocked",
-                    input: error_kind(
-                        MockRunner::new()
-                            .with_already_unlocked()
-                            .enable_hw_access("test_device", "12345678"),
-                    ),
-                    expect: "AlreadyUnlocked",
-                },
-                Check {
-                    scenario: "disable on a fresh device succeeds",
-                    input: error_kind(
-                        MockRunner::new().disable_hw_access("test_device", "12345678"),
-                    ),
-                    expect: "ok",
-                },
-                Check {
-                    scenario: "enable on a fresh device succeeds",
-                    input: error_kind(
-                        MockRunner::new().enable_hw_access("test_device", "12345678"),
-                    ),
-                    expect: "ok",
-                },
-            ],
-            |kind| kind,
+        value_scenarios!(
+            run = |kind| kind;
+            "disable on a primed-locked device is AlreadyLocked" {
+                error_kind(
+                    MockRunner::new()
+                        .with_already_locked()
+                        .disable_hw_access("test_device", "12345678"),
+                ) => "AlreadyLocked",
+            }
+
+            "enable on a primed-unlocked device is AlreadyUnlocked" {
+                error_kind(
+                    MockRunner::new()
+                        .with_already_unlocked()
+                        .enable_hw_access("test_device", "12345678"),
+                ) => "AlreadyUnlocked",
+            }
+
+            "disable on a fresh device succeeds" {
+                error_kind(
+                    MockRunner::new().disable_hw_access("test_device", "12345678"),
+                ) => "ok",
+            }
+
+            "enable on a fresh device succeeds" {
+                error_kind(
+                    MockRunner::new().enable_hw_access("test_device", "12345678"),
+                ) => "ok",
+            }
         );
     }
 }

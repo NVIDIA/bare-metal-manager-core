@@ -19,7 +19,7 @@
 // Tests for MlxConfigSettable and MlxConfigQueryable traits
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use libmlx::runner::traits::{self, MlxConfigQueryable, MlxConfigSettable};
 use libmlx::variables::value::MlxValueType;
 
@@ -385,50 +385,39 @@ fn test_mlx_config_queryable_vec_variables() {
 // pin the exact `Option<(name, index)>` the parse should yield.
 #[test]
 fn parse_array_index_splits_name_and_index() {
-    check_cases(
-        [
-            Case {
-                scenario: "'ARRAY_VAR[0]'",
-                input: "ARRAY_VAR[0]",
-                expect: Yields(Some(("ARRAY_VAR".to_string(), 0))),
-            },
-            Case {
-                scenario: "'GPIO_ENABLED[15]'",
-                input: "GPIO_ENABLED[15]",
-                expect: Yields(Some(("GPIO_ENABLED".to_string(), 15))),
-            },
-            Case {
-                scenario: "'COMPLEX_ARRAY_NAME[999]'",
-                input: "COMPLEX_ARRAY_NAME[999]",
-                expect: Yields(Some(("COMPLEX_ARRAY_NAME".to_string(), 999))),
-            },
-            Case {
-                scenario: "'SRIOV_EN' is not an indexed name",
-                input: "SRIOV_EN",
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "'POWER_MODE' is not an indexed name",
-                input: "POWER_MODE",
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "'invalid[0]' lowercase name is not an index",
-                input: "invalid[0]",
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "'INVALID[]' has an empty index",
-                input: "INVALID[]",
-                expect: Fails,
-            },
-            Case {
-                scenario: "'VAR[not_a_number]' has a non-numeric index",
-                input: "VAR[not_a_number]",
-                expect: Fails,
-            },
-        ],
-        |name| traits::parse_array_index(name).map_err(drop),
+    scenarios!(
+        run = |name| traits::parse_array_index(name).map_err(drop);
+        "'ARRAY_VAR[0]'" {
+            "ARRAY_VAR[0]" => Yields(Some(("ARRAY_VAR".to_string(), 0))),
+        }
+
+        "'GPIO_ENABLED[15]'" {
+            "GPIO_ENABLED[15]" => Yields(Some(("GPIO_ENABLED".to_string(), 15))),
+        }
+
+        "'COMPLEX_ARRAY_NAME[999]'" {
+            "COMPLEX_ARRAY_NAME[999]" => Yields(Some(("COMPLEX_ARRAY_NAME".to_string(), 999))),
+        }
+
+        "'SRIOV_EN' is not an indexed name" {
+            "SRIOV_EN" => Yields(None),
+        }
+
+        "'POWER_MODE' is not an indexed name" {
+            "POWER_MODE" => Yields(None),
+        }
+
+        "'invalid[0]' lowercase name is not an index" {
+            "invalid[0]" => Yields(None),
+        }
+
+        "'INVALID[]' has an empty index" {
+            "INVALID[]" => Fails,
+        }
+
+        "'VAR[not_a_number]' has a non-numeric index" {
+            "VAR[not_a_number]" => Fails,
+        }
     );
 }
 
@@ -578,48 +567,40 @@ fn test_build_sparse_array_value_invalid_enum() {
 fn get_array_size_from_spec_reads_array_sizes() {
     use libmlx::variables::spec::MlxVariableSpec;
 
-    check_cases(
-        [
-            Case {
-                scenario: "boolean array",
-                input: MlxVariableSpec::builder()
-                    .boolean_array()
-                    .with_size(4)
-                    .build(),
-                expect: Yields(4),
-            },
-            Case {
-                scenario: "integer array",
-                input: MlxVariableSpec::builder()
-                    .integer_array()
-                    .with_size(6)
-                    .build(),
-                expect: Yields(6),
-            },
-            Case {
-                scenario: "enum array",
-                input: MlxVariableSpec::builder()
-                    .enum_array()
-                    .with_options(vec!["a".to_string(), "b".to_string()])
-                    .with_size(8)
-                    .build(),
-                expect: Yields(8),
-            },
-            Case {
-                scenario: "binary array",
-                input: MlxVariableSpec::builder()
-                    .binary_array()
-                    .with_size(2)
-                    .build(),
-                expect: Yields(2),
-            },
-            Case {
-                scenario: "a scalar spec has no array size",
-                input: MlxVariableSpec::builder().boolean().build(),
-                expect: Fails,
-            },
-        ],
-        |spec| traits::get_array_size_from_spec(&spec).map_err(drop),
+    scenarios!(
+        run = |spec| traits::get_array_size_from_spec(&spec).map_err(drop);
+        "boolean array" {
+            MlxVariableSpec::builder()
+            .boolean_array()
+            .with_size(4)
+            .build() => Yields(4),
+        }
+
+        "integer array" {
+            MlxVariableSpec::builder()
+            .integer_array()
+            .with_size(6)
+            .build() => Yields(6),
+        }
+
+        "enum array" {
+            MlxVariableSpec::builder()
+            .enum_array()
+            .with_options(vec!["a".to_string(), "b".to_string()])
+            .with_size(8)
+            .build() => Yields(8),
+        }
+
+        "binary array" {
+            MlxVariableSpec::builder()
+            .binary_array()
+            .with_size(2)
+            .build() => Yields(2),
+        }
+
+        "a scalar spec has no array size" {
+            MlxVariableSpec::builder().boolean().build() => Fails,
+        }
     );
 }
 
@@ -774,50 +755,39 @@ fn test_mlx_config_queryable_array_index_base_variable_not_found() {
 fn array_index_query_validates_against_spec_size() {
     let registry = common::create_test_registry();
 
-    check_cases(
-        [
-            Case {
-                scenario: "GPIO_ENABLED[0]: boolean array size 4, first index",
-                input: "GPIO_ENABLED[0]",
-                expect: Yields(vec!["GPIO_ENABLED[0]".to_string()]),
-            },
-            Case {
-                scenario: "GPIO_ENABLED[3]: boolean array size 4, last valid index",
-                input: "GPIO_ENABLED[3]",
-                expect: Yields(vec!["GPIO_ENABLED[3]".to_string()]),
-            },
-            Case {
-                scenario: "GPIO_ENABLED[4]: boolean array size 4, out of bounds",
-                input: "GPIO_ENABLED[4]",
-                expect: Fails,
-            },
-            Case {
-                scenario: "THERMAL_SENSORS[5]: integer array size 6, last valid index",
-                input: "THERMAL_SENSORS[5]",
-                expect: Yields(vec!["THERMAL_SENSORS[5]".to_string()]),
-            },
-            Case {
-                scenario: "THERMAL_SENSORS[6]: integer array size 6, out of bounds",
-                input: "THERMAL_SENSORS[6]",
-                expect: Fails,
-            },
-            Case {
-                scenario: "GPIO_MODES[0]: enum array size 8, first index",
-                input: "GPIO_MODES[0]",
-                expect: Yields(vec!["GPIO_MODES[0]".to_string()]),
-            },
-            Case {
-                scenario: "GPIO_MODES[7]: enum array size 8, last valid index",
-                input: "GPIO_MODES[7]",
-                expect: Yields(vec!["GPIO_MODES[7]".to_string()]),
-            },
-            Case {
-                scenario: "GPIO_MODES[8]: enum array size 8, out of bounds",
-                input: "GPIO_MODES[8]",
-                expect: Fails,
-            },
-        ],
-        |var_name| (&[var_name]).to_variable_names(&registry).map_err(drop),
+    scenarios!(
+        run = |var_name| (&[var_name]).to_variable_names(&registry).map_err(drop);
+        "GPIO_ENABLED[0]: boolean array size 4, first index" {
+            "GPIO_ENABLED[0]" => Yields(vec!["GPIO_ENABLED[0]".to_string()]),
+        }
+
+        "GPIO_ENABLED[3]: boolean array size 4, last valid index" {
+            "GPIO_ENABLED[3]" => Yields(vec!["GPIO_ENABLED[3]".to_string()]),
+        }
+
+        "GPIO_ENABLED[4]: boolean array size 4, out of bounds" {
+            "GPIO_ENABLED[4]" => Fails,
+        }
+
+        "THERMAL_SENSORS[5]: integer array size 6, last valid index" {
+            "THERMAL_SENSORS[5]" => Yields(vec!["THERMAL_SENSORS[5]".to_string()]),
+        }
+
+        "THERMAL_SENSORS[6]: integer array size 6, out of bounds" {
+            "THERMAL_SENSORS[6]" => Fails,
+        }
+
+        "GPIO_MODES[0]: enum array size 8, first index" {
+            "GPIO_MODES[0]" => Yields(vec!["GPIO_MODES[0]".to_string()]),
+        }
+
+        "GPIO_MODES[7]: enum array size 8, last valid index" {
+            "GPIO_MODES[7]" => Yields(vec!["GPIO_MODES[7]".to_string()]),
+        }
+
+        "GPIO_MODES[8]: enum array size 8, out of bounds" {
+            "GPIO_MODES[8]" => Fails,
+        }
     );
 }
 
