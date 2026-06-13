@@ -178,3 +178,116 @@ impl<'de> Deserialize<'de> for InstanceTypeId {
         Ok(id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Empty,
+    }
+
+    fn parse_instance_type_id(input: &str) -> Result<String, ParseFailure> {
+        InstanceTypeId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                InstanceTypeIdParseError::Invalid(_) => unreachable!("parser only rejects empty"),
+                InstanceTypeIdParseError::Empty => ParseFailure::Empty,
+            })
+    }
+
+    fn deserialize_instance_type_id(input: &str) -> Result<String, ()> {
+        serde_json::from_str::<InstanceTypeId>(input)
+            .map(|id| id.to_string())
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn test_instance_type_id_parse_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "arbitrary instance type name",
+                    input: "gb200-nvl72",
+                    expect: Yields("gb200-nvl72".to_string()),
+                },
+                Case {
+                    scenario: "UUID-backed instance type name",
+                    input: "00000000-0000-0000-0000-000000000000",
+                    expect: Yields("00000000-0000-0000-0000-000000000000".to_string()),
+                },
+                Case {
+                    scenario: "empty value",
+                    input: "",
+                    expect: FailsWith(ParseFailure::Empty),
+                },
+            ],
+            parse_instance_type_id,
+        );
+    }
+
+    #[test]
+    fn test_instance_type_id_from_uuid() {
+        check_values(
+            [Check {
+                scenario: "nil UUID",
+                input: Uuid::nil(),
+                expect: "00000000-0000-0000-0000-000000000000".to_string(),
+            }],
+            |uuid| InstanceTypeId::from(uuid).to_string(),
+        );
+    }
+
+    #[test]
+    fn test_instance_type_id_serde_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid string",
+                    input: "\"gb200-nvl72\"",
+                    expect: Yields("gb200-nvl72".to_string()),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "\"\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-string JSON",
+                    input: "42",
+                    expect: Fails,
+                },
+            ],
+            deserialize_instance_type_id,
+        );
+
+        let serialized = serde_json::to_string(
+            &InstanceTypeId::from_str("gb200-nvl72").expect("valid instance type ID"),
+        )
+        .expect("failed to serialize instance type ID");
+        assert_eq!(serialized, "\"gb200-nvl72\"");
+    }
+
+    #[test]
+    fn test_instance_type_id_parse_error_value() {
+        check_values(
+            [
+                Check {
+                    scenario: "invalid",
+                    input: InstanceTypeIdParseError::Invalid("bad".to_string()),
+                    expect: "bad".to_string(),
+                },
+                Check {
+                    scenario: "empty",
+                    input: InstanceTypeIdParseError::Empty,
+                    expect: String::new(),
+                },
+            ],
+            InstanceTypeIdParseError::value,
+        );
+    }
+}

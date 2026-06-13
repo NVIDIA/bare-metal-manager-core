@@ -516,60 +516,175 @@ impl<'de> Deserialize<'de> for MachineId {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
-    #[test]
-    fn test_machine_id_round_trip() {
-        let machine_id_str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-        let machine_id = MachineId::from_str(machine_id_str)
-            .expect("Should have successfully converted from a valid string");
-        let round_tripped = machine_id.to_string();
-        assert_eq!(machine_id_str, round_tripped);
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Length,
+        Prefix,
+        Encoding,
+    }
+
+    fn parse_machine_id(input: &str) -> Result<String, ParseFailure> {
+        MachineId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                MachineIdParseError::Length(_) => ParseFailure::Length,
+                MachineIdParseError::Prefix(_) => ParseFailure::Prefix,
+                MachineIdParseError::Encoding(_) => ParseFailure::Encoding,
+            })
     }
 
     #[test]
-    fn test_invalid_machine_ids() {
-        match MachineId::from_str("fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc") {
-            // one character short
-            Err(MachineIdParseError::Length(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a too-short machine ID should have failed"),
-            Err(e) => panic!(
-                "Converting from a too-short string should have failed with a length error, got {e}"
-            ),
-        }
+    fn test_machine_id_parse_cases() {
+        const VALID_MACHINE_ID: &str =
+            "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        match MachineId::from_str("FM100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => {
-                panic!("Converting from a machine ID with an invalid prefix should have failed")
-            }
-            Err(e) => panic!(
-                "Converting from a machine ID with an invalid prefix should have failed with a Prefix error, got {e}"
-            ),
-        }
+        check_cases(
+            [
+                Case {
+                    scenario: "valid host TPM machine ID",
+                    input: VALID_MACHINE_ID,
+                    expect: Yields(VALID_MACHINE_ID.to_string()),
+                },
+                Case {
+                    scenario: "one character short",
+                    input: "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc",
+                    expect: FailsWith(ParseFailure::Length),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "",
+                    expect: FailsWith(ParseFailure::Length),
+                },
+                Case {
+                    scenario: "invalid prefix casing",
+                    input: "FM100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
+                    expect: FailsWith(ParseFailure::Prefix),
+                },
+                Case {
+                    scenario: "invalid machine type",
+                    input: "fm100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
+                    expect: FailsWith(ParseFailure::Prefix),
+                },
+                Case {
+                    scenario: "invalid source",
+                    input: "fm100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
+                    expect: FailsWith(ParseFailure::Prefix),
+                },
+                Case {
+                    scenario: "invalid base32 payload",
+                    input: "fm100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg",
+                    expect: FailsWith(ParseFailure::Encoding),
+                },
+            ],
+            parse_machine_id,
+        );
+    }
 
-        match MachineId::from_str("fm100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a machine ID with type `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a machine ID with type `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+    #[test]
+    fn test_machine_type_mappings() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPU",
+                    input: MachineType::Dpu,
+                    expect: ('d', "fm100d", "dpu", "DPU".to_string(), true, false, false),
+                },
+                Check {
+                    scenario: "host",
+                    input: MachineType::Host,
+                    expect: (
+                        'h',
+                        "fm100h",
+                        "host",
+                        "Host".to_string(),
+                        false,
+                        true,
+                        false,
+                    ),
+                },
+                Check {
+                    scenario: "predicted host",
+                    input: MachineType::PredictedHost,
+                    expect: (
+                        'p',
+                        "fm100p",
+                        "predictedhost",
+                        "Host (Predicted)".to_string(),
+                        false,
+                        false,
+                        true,
+                    ),
+                },
+            ],
+            |ty| {
+                (
+                    ty.id_char(),
+                    ty.id_prefix(),
+                    ty.metrics_value(),
+                    ty.to_string(),
+                    ty.is_dpu(),
+                    ty.is_host(),
+                    ty.is_predicted_host(),
+                )
+            },
+        );
+    }
 
-        match MachineId::from_str("fm100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a machine ID with source `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a machine ID with source `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+    #[test]
+    fn test_machine_type_from_id_char() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPU",
+                    input: 'd',
+                    expect: Some(MachineType::Dpu),
+                },
+                Check {
+                    scenario: "host",
+                    input: 'h',
+                    expect: Some(MachineType::Host),
+                },
+                Check {
+                    scenario: "predicted host",
+                    input: 'p',
+                    expect: Some(MachineType::PredictedHost),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: 'x',
+                    expect: None,
+                },
+            ],
+            MachineType::from_id_char,
+        );
+    }
 
-        match MachineId::from_str("fm100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(MachineIdParseError::Encoding(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a machine ID with a `!` should have failed"),
-            Err(e) => panic!(
-                "Converting from a machine ID with a `!` should have failed with an Encoding error, got {e}"
-            ),
-        }
+    #[test]
+    fn test_machine_id_source_from_id_char() {
+        check_values(
+            [
+                Check {
+                    scenario: "TPM",
+                    input: 't',
+                    expect: Some(MachineIdSource::Tpm),
+                },
+                Check {
+                    scenario: "product board chassis serial",
+                    input: 's',
+                    expect: Some(MachineIdSource::ProductBoardChassisSerial),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: 'x',
+                    expect: None,
+                },
+            ],
+            MachineIdSource::from_id_char,
+        );
     }
 }

@@ -287,54 +287,241 @@ pub enum RackIdParseError {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
-    #[test]
-    fn test_rack_id_round_trip_legacy() {
-        // Legacy ps100-encoded rack IDs should still work.
-        let rack_id_str = "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-        let rack_id = RackId::from_str(rack_id_str)
-            .expect("Should have successfully converted from a valid string");
-        let round_tripped = rack_id.to_string();
-        assert_eq!(rack_id_str, round_tripped);
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Empty,
+    }
+
+    fn parse_rack_id(input: &str) -> Result<String, ParseFailure> {
+        RackId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                RackIdParseError::Empty => ParseFailure::Empty,
+            })
+    }
+
+    fn parse_rack_profile_id(input: &str) -> Result<String, ParseFailure> {
+        RackProfileId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                RackIdParseError::Empty => ParseFailure::Empty,
+            })
+    }
+
+    fn deserialize_rack_id(input: &str) -> Result<String, ()> {
+        serde_json::from_str::<RackId>(input)
+            .map(|id| id.to_string())
+            .map_err(|_| ())
+    }
+
+    fn deserialize_rack_profile_id(input: &str) -> Result<String, ()> {
+        serde_json::from_str::<RackProfileId>(input)
+            .map(|id| id.to_string())
+            .map_err(|_| ())
     }
 
     #[test]
-    fn test_rack_id_arbitrary_string() {
-        // DCIM-provided rack IDs can be any non-empty string.
-        let rack_id = RackId::from_str("P20").unwrap();
-        assert_eq!(rack_id.to_string(), "P20");
-
-        let rack_id = RackId::from_str("rack-42-us-west-2").unwrap();
-        assert_eq!(rack_id.to_string(), "rack-42-us-west-2");
-
-        let rack_id = RackId::from_str("i-am-just-a-rack-id").unwrap();
-        assert_eq!(rack_id.to_string(), "i-am-just-a-rack-id");
+    fn test_rack_id_parse_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy ps100-encoded rack ID",
+                    input: "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
+                    expect: Yields(
+                        "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg".to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "DCIM rack name",
+                    input: "P20",
+                    expect: Yields("P20".to_string()),
+                },
+                Case {
+                    scenario: "regional rack name",
+                    input: "rack-42-us-west-2",
+                    expect: Yields("rack-42-us-west-2".to_string()),
+                },
+                Case {
+                    scenario: "descriptive rack name",
+                    input: "i-am-just-a-rack-id",
+                    expect: Yields("i-am-just-a-rack-id".to_string()),
+                },
+                Case {
+                    scenario: "empty rack ID",
+                    input: "",
+                    expect: FailsWith(ParseFailure::Empty),
+                },
+            ],
+            parse_rack_id,
+        );
     }
 
     #[test]
-    fn test_rack_id_empty_fails() {
-        assert!(RackId::from_str("").is_err());
+    fn test_rack_id_conversions() {
+        check_values(
+            [
+                Check {
+                    scenario: "new",
+                    input: RackId::new("test-rack"),
+                    expect: (
+                        "test-rack".to_string(),
+                        "test-rack".to_string(),
+                        "test-rack".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "from str",
+                    input: RackId::from("another-rack"),
+                    expect: (
+                        "another-rack".to_string(),
+                        "another-rack".to_string(),
+                        "another-rack".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "from string",
+                    input: RackId::from(String::from("string-rack")),
+                    expect: (
+                        "string-rack".to_string(),
+                        "string-rack".to_string(),
+                        "string-rack".to_string(),
+                    ),
+                },
+            ],
+            |rack_id| {
+                (
+                    rack_id.as_str().to_string(),
+                    rack_id.to_string(),
+                    rack_id.as_ref().to_string(),
+                )
+            },
+        );
     }
 
     #[test]
-    fn test_rack_id_serde_round_trip() {
-        let rack_id = RackId::new("my-custom-rack");
-        let json = serde_json::to_string(&rack_id).unwrap();
-        assert_eq!(json, "\"my-custom-rack\"");
-        let deserialized: RackId = serde_json::from_str(&json).unwrap();
-        assert_eq!(rack_id, deserialized);
+    fn test_rack_id_serde_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid string",
+                    input: "\"my-custom-rack\"",
+                    expect: Yields("my-custom-rack".to_string()),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "\"\"",
+                    expect: Yields(String::new()),
+                },
+                Case {
+                    scenario: "non-string JSON",
+                    input: "42",
+                    expect: Fails,
+                },
+            ],
+            deserialize_rack_id,
+        );
+
+        let serialized = serde_json::to_string(&RackId::new("my-custom-rack"))
+            .expect("failed to serialize rack ID");
+        assert_eq!(serialized, "\"my-custom-rack\"");
     }
 
     #[test]
-    fn test_rack_id_from_str_impls() {
-        let rack_id: RackId = "test-rack".into();
-        assert_eq!(rack_id.as_str(), "test-rack");
+    fn test_rack_profile_id_parse_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "rack profile name",
+                    input: "NVL72",
+                    expect: Yields("NVL72".to_string()),
+                },
+                Case {
+                    scenario: "lowercase rack profile name",
+                    input: "nvl36",
+                    expect: Yields("nvl36".to_string()),
+                },
+                Case {
+                    scenario: "empty rack profile ID",
+                    input: "",
+                    expect: FailsWith(ParseFailure::Empty),
+                },
+            ],
+            parse_rack_profile_id,
+        );
+    }
 
-        let rack_id = RackId::from("another-rack");
-        assert_eq!(rack_id.as_str(), "another-rack");
+    #[test]
+    fn test_rack_profile_id_conversions() {
+        check_values(
+            [
+                Check {
+                    scenario: "new",
+                    input: RackProfileId::new("NVL72"),
+                    expect: (
+                        "NVL72".to_string(),
+                        "NVL72".to_string(),
+                        "NVL72".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "from str",
+                    input: RackProfileId::from("NVL36"),
+                    expect: (
+                        "NVL36".to_string(),
+                        "NVL36".to_string(),
+                        "NVL36".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "from string",
+                    input: RackProfileId::from(String::from("GB200")),
+                    expect: (
+                        "GB200".to_string(),
+                        "GB200".to_string(),
+                        "GB200".to_string(),
+                    ),
+                },
+            ],
+            |profile_id| {
+                (
+                    profile_id.as_str().to_string(),
+                    profile_id.to_string(),
+                    profile_id.as_ref().to_string(),
+                )
+            },
+        );
+    }
 
-        let rack_id = RackId::from(String::from("string-rack"));
-        assert_eq!(rack_id.as_str(), "string-rack");
+    #[test]
+    fn test_rack_profile_id_serde_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid string",
+                    input: "\"NVL72\"",
+                    expect: Yields("NVL72".to_string()),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "\"\"",
+                    expect: Yields(String::new()),
+                },
+                Case {
+                    scenario: "non-string JSON",
+                    input: "42",
+                    expect: Fails,
+                },
+            ],
+            deserialize_rack_profile_id,
+        );
+
+        let serialized = serde_json::to_string(&RackProfileId::new("NVL72"))
+            .expect("failed to serialize rack profile ID");
+        assert_eq!(serialized, "\"NVL72\"");
     }
 }
