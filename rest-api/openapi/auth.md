@@ -10,7 +10,7 @@ Authorization is role based. NICo supports two roles:
 
 The organization and role that NICo derives from the token determine which API flows are available to the caller. After authentication is configured, API users normally start by retrieving their current Service Account, Infrastructure Provider, or Tenant as described in the [Getting Started](/infra-controller/rest-api-reference/getting-started) section.
 
-Additional auth configuration details are documented in [`rest-api/auth/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/rest-api/auth/README.md).
+The sequence diagram below illustrates the typical authentication and authorization flow when using issuer config.
 
 ```mermaid
 sequenceDiagram
@@ -32,6 +32,8 @@ sequenceDiagram
     NICO-->>User: Reject request
   end
 ```
+
+Additional auth configuration details are documented in [`rest-api/auth/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/rest-api/auth/README.md).
 
 ### Choose an Authentication Mode
 NICo REST API supports two authentication configuration modes:
