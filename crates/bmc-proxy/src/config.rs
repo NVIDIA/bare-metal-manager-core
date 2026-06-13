@@ -70,7 +70,7 @@ impl Defaults {
 
     fn trust_config() -> TrustConfig {
         TrustConfig {
-            spiffe_trust_domain: "forge.local".to_string(),
+            spiffe_trust_domain: "nico.local".to_string(),
             spiffe_service_base_paths: vec![
                 "/forge-system/sa/".to_string(),
                 "/default/sa/".to_string(),
