@@ -36,3 +36,60 @@ impl RawMessageType for RawMessage {
         Self { payload: bytes }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct RawSummary {
+        payload: Vec<u8>,
+        bytes: Vec<u8>,
+        round_trip: RawMessage,
+    }
+
+    fn summarize(payload: Vec<u8>) -> RawSummary {
+        let message = RawMessage {
+            payload: payload.clone(),
+        };
+        let bytes = message.to_bytes();
+        let round_trip = RawMessage::from_bytes(bytes.clone());
+
+        RawSummary {
+            payload,
+            bytes,
+            round_trip,
+        }
+    }
+
+    #[test]
+    fn test_raw_message_bytes() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty payload",
+                    input: vec![],
+                    expect: RawSummary {
+                        payload: vec![],
+                        bytes: vec![],
+                        round_trip: RawMessage { payload: vec![] },
+                    },
+                },
+                Check {
+                    scenario: "binary payload",
+                    input: vec![0, 1, 2, 255],
+                    expect: RawSummary {
+                        payload: vec![0, 1, 2, 255],
+                        bytes: vec![0, 1, 2, 255],
+                        round_trip: RawMessage {
+                            payload: vec![0, 1, 2, 255],
+                        },
+                    },
+                },
+            ],
+            summarize,
+        );
+    }
+}

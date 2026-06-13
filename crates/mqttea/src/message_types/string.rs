@@ -105,3 +105,112 @@ impl std::fmt::Display for StringMessage {
         write!(f, "{}", self.content)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum StringSource {
+        New,
+        FromBorrowed,
+        FromOwned,
+        FromBytes,
+        FromStr,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct StringSummary {
+        content: String,
+        as_str: String,
+        bytes: Vec<u8>,
+        display: String,
+        into_string: String,
+    }
+
+    fn message_from(source: StringSource) -> StringMessage {
+        match source {
+            StringSource::New => StringMessage::new("hello"),
+            StringSource::FromBorrowed => StringMessage::from("hello"),
+            StringSource::FromOwned => StringMessage::from(String::from("hello")),
+            StringSource::FromBytes => StringMessage::from_bytes(b"hello".to_vec()),
+            StringSource::FromStr => StringMessage::from_str("hello").expect("infallible parse"),
+        }
+    }
+
+    fn summarize(source: StringSource) -> StringSummary {
+        let message = message_from(source);
+        let content = message.content.clone();
+        let as_str = message.as_str().to_string();
+        let bytes = message.to_bytes();
+        let display = message.to_string();
+        let into_string = String::from(message);
+
+        StringSummary {
+            content,
+            as_str,
+            bytes,
+            display,
+            into_string,
+        }
+    }
+
+    #[test]
+    fn test_string_message_sources() {
+        let expected = StringSummary {
+            content: "hello".to_string(),
+            as_str: "hello".to_string(),
+            bytes: b"hello".to_vec(),
+            display: "hello".to_string(),
+            into_string: "hello".to_string(),
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "new",
+                    input: StringSource::New,
+                    expect: expected.clone(),
+                },
+                Check {
+                    scenario: "from borrowed",
+                    input: StringSource::FromBorrowed,
+                    expect: expected.clone(),
+                },
+                Check {
+                    scenario: "from owned",
+                    input: StringSource::FromOwned,
+                    expect: expected.clone(),
+                },
+                Check {
+                    scenario: "from bytes",
+                    input: StringSource::FromBytes,
+                    expect: expected.clone(),
+                },
+                Check {
+                    scenario: "from str",
+                    input: StringSource::FromStr,
+                    expect: expected,
+                },
+            ],
+            summarize,
+        );
+    }
+
+    #[test]
+    fn test_string_message_into_string() {
+        assert_eq!(StringMessage::new("hello").into_string(), "hello");
+    }
+
+    #[test]
+    fn test_string_message_invalid_utf8() {
+        let message = StringMessage::from_bytes(vec![0xff]);
+
+        assert!(message.content.starts_with("Invalid UTF-8 data:"));
+        assert!(message.to_bytes().starts_with(b"Invalid UTF-8 data:"));
+    }
+}

@@ -7022,6 +7022,7 @@ name = "mqttea"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-test-support",
  "chrono",
  "clap",
  "oauth2",
