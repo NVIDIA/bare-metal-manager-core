@@ -85,7 +85,7 @@ impl<'de> Deserialize<'de> for BaseMac {
 #[cfg(test)]
 mod test {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
 
@@ -97,45 +97,35 @@ mod test {
 
     #[test]
     fn display_formats_uppercase_hex_without_colons() {
-        check_values(
-            [
-                Check {
-                    scenario: "ascending low bytes",
-                    input: mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                    expect: "010203040506".to_string(),
-                },
-                Check {
-                    scenario: "high bytes uppercase",
-                    input: mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
-                    expect: "AABBCCDDEEFF".to_string(),
-                },
-                Check {
-                    scenario: "all zeros",
-                    input: mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                    expect: "000000000000".to_string(),
-                },
-                Check {
-                    scenario: "all ones",
-                    input: mac([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]),
-                    expect: "FFFFFFFFFFFF".to_string(),
-                },
-                Check {
-                    scenario: "single-digit bytes zero-padded",
-                    input: mac([0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C]),
-                    expect: "000A000B000C".to_string(),
-                },
-                Check {
-                    scenario: "lowercase-hex digits rendered uppercase",
-                    input: mac([0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
-                    expect: "0A0B0C0D0E0F".to_string(),
-                },
-                Check {
-                    scenario: "mixed bytes",
-                    input: mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
-                    expect: "FEDCBA987654".to_string(),
-                },
-            ],
-            |m| m.to_string(),
+        value_scenarios!(
+            run = |m| m.to_string();
+            "ascending low bytes" {
+                mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) => "010203040506".to_string(),
+            }
+
+            "high bytes uppercase" {
+                mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]) => "AABBCCDDEEFF".to_string(),
+            }
+
+            "all zeros" {
+                mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) => "000000000000".to_string(),
+            }
+
+            "all ones" {
+                mac([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]) => "FFFFFFFFFFFF".to_string(),
+            }
+
+            "single-digit bytes zero-padded" {
+                mac([0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C]) => "000A000B000C".to_string(),
+            }
+
+            "lowercase-hex digits rendered uppercase" {
+                mac([0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]) => "0A0B0C0D0E0F".to_string(),
+            }
+
+            "mixed bytes" {
+                mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]) => "FEDCBA987654".to_string(),
+            }
         );
     }
 
@@ -143,25 +133,19 @@ mod test {
 
     #[test]
     fn to_mac_returns_wrapped_address() {
-        check_values(
-            [
-                Check {
-                    scenario: "ascending bytes",
-                    input: mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                    expect: MacAddress::new([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                },
-                Check {
-                    scenario: "zeros",
-                    input: mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                    expect: MacAddress::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                },
-                Check {
-                    scenario: "high bytes",
-                    input: mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
-                    expect: MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
-                },
-            ],
-            |m| m.to_mac(),
+        value_scenarios!(
+            run = |m| m.to_mac();
+            "ascending bytes" {
+                mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) => MacAddress::new([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+            }
+
+            "zeros" {
+                mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) => MacAddress::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+            }
+
+            "high bytes" {
+                mac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]) => MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
+            }
         );
     }
 
@@ -169,20 +153,15 @@ mod test {
 
     #[test]
     fn from_macaddress_wraps_unchanged() {
-        check_values(
-            [
-                Check {
-                    scenario: "ascending bytes",
-                    input: MacAddress::new([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                    expect: mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                },
-                Check {
-                    scenario: "high bytes",
-                    input: MacAddress::new([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
-                    expect: mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
-                },
-            ],
-            BaseMac::from,
+        value_scenarios!(
+            run = BaseMac::from;
+            "ascending bytes" {
+                MacAddress::new([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) => mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+            }
+
+            "high bytes" {
+                MacAddress::new([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]) => mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
+            }
         );
     }
 
@@ -291,28 +270,22 @@ mod test {
         // Overlaps with `from_str_parses_accepted_forms` on the same inputs by
         // design: that test pins *which* inputs fail, this one pins *what the
         // error message says*.
-        check_cases(
-            [
-                Case {
-                    scenario: "too short reports invalid length",
-                    input: ("0102030405", &["Invalid stripped MAC length"][..]),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "too long reports invalid length",
-                    input: ("0102030405060708", &["Invalid stripped MAC length"][..]),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "empty reports invalid length",
-                    input: ("", &["Invalid stripped MAC length"][..]),
-                    expect: Yields(true),
-                },
-            ],
-            |(value, tokens)| {
+        scenarios!(
+            run = |(value, tokens)| {
                 let produced = BaseMac::from_str(value).unwrap_err().to_string();
                 Ok::<_, ()>(tokens.iter().all(|t| produced.contains(t)))
-            },
+            };
+            "too short reports invalid length" {
+                ("0102030405", &["Invalid stripped MAC length"][..]) => Yields(true),
+            }
+
+            "too long reports invalid length" {
+                ("0102030405060708", &["Invalid stripped MAC length"][..]) => Yields(true),
+            }
+
+            "empty reports invalid length" {
+                ("", &["Invalid stripped MAC length"][..]) => Yields(true),
+            }
         );
     }
 
@@ -320,25 +293,19 @@ mod test {
 
     #[test]
     fn serialize_emits_quoted_display_string() {
-        check_cases(
-            [
-                Case {
-                    scenario: "ascending bytes",
-                    input: mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                    expect: Yields("\"010203040506\"".to_string()),
-                },
-                Case {
-                    scenario: "high bytes uppercase",
-                    input: mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
-                    expect: Yields("\"FEDCBA987654\"".to_string()),
-                },
-                Case {
-                    scenario: "zeros",
-                    input: mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                    expect: Yields("\"000000000000\"".to_string()),
-                },
-            ],
-            |m| serde_json::to_string(&m).map_err(drop),
+        scenarios!(
+            run = |m| serde_json::to_string(&m).map_err(drop);
+            "ascending bytes" {
+                mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) => Yields("\"010203040506\"".to_string()),
+            }
+
+            "high bytes uppercase" {
+                mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]) => Yields("\"FEDCBA987654\"".to_string()),
+            }
+
+            "zeros" {
+                mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) => Yields("\"000000000000\"".to_string()),
+            }
         );
     }
 
@@ -346,78 +313,62 @@ mod test {
 
     #[test]
     fn deserialize_parses_accepted_json_strings() {
-        check_cases(
-            [
-                Case {
-                    scenario: "raw hex string",
-                    input: "\"0a0b0c0d0e0f\"",
-                    expect: Yields("0A0B0C0D0E0F".to_string()),
-                },
-                Case {
-                    scenario: "colon separated string",
-                    input: "\"11:22:33:44:55:66\"",
-                    expect: Yields("112233445566".to_string()),
-                },
-                Case {
-                    scenario: "uppercase round-trips",
-                    input: "\"FEDCBA987654\"",
-                    expect: Yields("FEDCBA987654".to_string()),
-                },
-                Case {
-                    scenario: "non-string json number",
-                    input: "1234",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "null",
-                    input: "null",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "invalid mac text",
-                    input: "\"invalid-mac\"",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "too-short string",
-                    input: "\"0102030405\"",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "\"\"",
-                    expect: Fails,
-                },
-            ],
-            |json| {
+        scenarios!(
+            run = |json| {
                 serde_json::from_str::<BaseMac>(json)
                     .map(|m| m.to_string())
                     .map_err(drop)
-            },
+            };
+            "raw hex string" {
+                "\"0a0b0c0d0e0f\"" => Yields("0A0B0C0D0E0F".to_string()),
+            }
+
+            "colon separated string" {
+                "\"11:22:33:44:55:66\"" => Yields("112233445566".to_string()),
+            }
+
+            "uppercase round-trips" {
+                "\"FEDCBA987654\"" => Yields("FEDCBA987654".to_string()),
+            }
+
+            "non-string json number" {
+                "1234" => Fails,
+            }
+
+            "null" {
+                "null" => Fails,
+            }
+
+            "invalid mac text" {
+                "\"invalid-mac\"" => Fails,
+            }
+
+            "too-short string" {
+                "\"0102030405\"" => Fails,
+            }
+
+            "empty string" {
+                "\"\"" => Fails,
+            }
         );
     }
 
     #[test]
     fn deserialize_failure_carries_invalid_length_message() {
-        check_cases(
-            [
-                Case {
-                    scenario: "invalid text reports length",
-                    input: ("\"invalid-mac\"", &["Invalid stripped MAC length"][..]),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "short string reports length",
-                    input: ("\"0102030405\"", &["Invalid stripped MAC length"][..]),
-                    expect: Yields(true),
-                },
-            ],
-            |(json, tokens)| {
+        scenarios!(
+            run = |(json, tokens)| {
                 let produced = serde_json::from_str::<BaseMac>(json)
                     .unwrap_err()
                     .to_string();
                 Ok::<_, ()>(tokens.iter().all(|t| produced.contains(t)))
-            },
+            };
+            "invalid text reports length" {
+                ("\"invalid-mac\"", &["Invalid stripped MAC length"][..]) => Yields(true),
+            }
+
+            "short string reports length" {
+                ("\"0102030405\"", &["Invalid stripped MAC length"][..]) => Yields(true),
+            }
         );
     }
 
@@ -425,28 +376,22 @@ mod test {
 
     #[test]
     fn round_trips_through_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "high bytes",
-                    input: mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]),
-                    expect: Yields(mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54])),
-                },
-                Case {
-                    scenario: "ascending bytes",
-                    input: mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-                    expect: Yields(mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06])),
-                },
-                Case {
-                    scenario: "zeros",
-                    input: mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                    expect: Yields(mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00])),
-                },
-            ],
-            |original| {
+        scenarios!(
+            run = |original| {
                 let serialized = serde_json::to_string(&original).map_err(drop)?;
                 serde_json::from_str::<BaseMac>(&serialized).map_err(drop)
-            },
+            };
+            "high bytes" {
+                mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54]) => Yields(mac([0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54])),
+            }
+
+            "ascending bytes" {
+                mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]) => Yields(mac([0x01, 0x02, 0x03, 0x04, 0x05, 0x06])),
+            }
+
+            "zeros" {
+                mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) => Yields(mac([0x00, 0x00, 0x00, 0x00, 0x00, 0x00])),
+            }
         );
     }
 }

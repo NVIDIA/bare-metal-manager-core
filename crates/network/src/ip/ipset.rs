@@ -178,7 +178,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
 
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, check_values, value_scenarios};
 
     use super::*;
 
@@ -208,85 +208,66 @@ mod tests {
         // The set is the whole 10/8 net; check addresses and prefixes inside it,
         // on each boundary, and just outside on either side.
         let ipset = IpSet::from(pfx("10.0.0.0/8"));
-        check_values(
-            [
-                Check {
-                    scenario: "the defining prefix itself",
-                    input: "10.0.0.0/8",
-                    expect: true,
-                },
-                Check {
-                    scenario: "first address in range",
-                    input: "10.0.0.0/32",
-                    expect: true,
-                },
-                Check {
-                    scenario: "last address in range",
-                    input: "10.255.255.255/32",
-                    expect: true,
-                },
-                Check {
-                    scenario: "an interior subprefix",
-                    input: "10.128.0.0/9",
-                    expect: true,
-                },
-                Check {
-                    scenario: "a deep interior address",
-                    input: "10.1.2.3/32",
-                    expect: true,
-                },
-                Check {
-                    scenario: "one address before the range",
-                    input: "9.255.255.255/32",
-                    expect: false,
-                },
-                Check {
-                    scenario: "one address after the range",
-                    input: "11.0.0.0/32",
-                    expect: false,
-                },
-                Check {
-                    scenario: "a wider prefix that is not contained",
-                    input: "10.0.0.0/7",
-                    expect: false,
-                },
-                Check {
-                    scenario: "an unrelated v4 prefix",
-                    input: "192.168.0.0/16",
-                    expect: false,
-                },
-                Check {
-                    scenario: "an IPv6 prefix is never in a v4-only set",
-                    input: "2001:db8::/32",
-                    expect: false,
-                },
-            ],
-            |s| ipset.contains(pfx(s)),
+        value_scenarios!(
+            run = |s| ipset.contains(pfx(s));
+            "the defining prefix itself" {
+                "10.0.0.0/8" => true,
+            }
+
+            "first address in range" {
+                "10.0.0.0/32" => true,
+            }
+
+            "last address in range" {
+                "10.255.255.255/32" => true,
+            }
+
+            "an interior subprefix" {
+                "10.128.0.0/9" => true,
+            }
+
+            "a deep interior address" {
+                "10.1.2.3/32" => true,
+            }
+
+            "one address before the range" {
+                "9.255.255.255/32" => false,
+            }
+
+            "one address after the range" {
+                "11.0.0.0/32" => false,
+            }
+
+            "a wider prefix that is not contained" {
+                "10.0.0.0/7" => false,
+            }
+
+            "an unrelated v4 prefix" {
+                "192.168.0.0/16" => false,
+            }
+
+            "an IPv6 prefix is never in a v4-only set" {
+                "2001:db8::/32" => false,
+            }
         );
     }
 
     #[test]
     fn membership_of_the_empty_set_is_always_false() {
         let ipset = IpSet::new_empty();
-        check_values(
-            [
-                Check {
-                    scenario: "v4 address",
-                    input: "10.0.0.1/32",
-                    expect: false,
-                },
-                Check {
-                    scenario: "v4 prefix",
-                    input: "0.0.0.0/0",
-                    expect: false,
-                },
-                Check {
-                    scenario: "v6 prefix",
-                    input: "::/0",
-                    expect: false,
-                },
-            ],
-            |s| ipset.contains(pfx(s)),
+        value_scenarios!(
+            run = |s| ipset.contains(pfx(s));
+            "v4 address" {
+                "10.0.0.1/32" => false,
+            }
+
+            "v4 prefix" {
+                "0.0.0.0/0" => false,
+            }
+
+            "v6 prefix" {
+                "::/0" => false,
+            }
         );
     }
 
@@ -295,30 +276,23 @@ mod tests {
         // A set holding both a v4 and a v6 prefix; each family answers
         // independently and never crosses over.
         let ipset = IpSet::from([pfx("10.0.0.0/8"), pfx("2001:db8::/32")]);
-        check_values(
-            [
-                Check {
-                    scenario: "inside the v4 member",
-                    input: "10.5.5.5/32",
-                    expect: true,
-                },
-                Check {
-                    scenario: "inside the v6 member",
-                    input: "2001:db8:abcd::/48",
-                    expect: true,
-                },
-                Check {
-                    scenario: "outside the v4 member",
-                    input: "11.0.0.0/8",
-                    expect: false,
-                },
-                Check {
-                    scenario: "outside the v6 member",
-                    input: "2001:db9::/32",
-                    expect: false,
-                },
-            ],
-            |s| ipset.contains(pfx(s)),
+        value_scenarios!(
+            run = |s| ipset.contains(pfx(s));
+            "inside the v4 member" {
+                "10.5.5.5/32" => true,
+            }
+
+            "inside the v6 member" {
+                "2001:db8:abcd::/48" => true,
+            }
+
+            "outside the v4 member" {
+                "11.0.0.0/8" => false,
+            }
+
+            "outside the v6 member" {
+                "2001:db9::/32" => false,
+            }
         );
     }
 
@@ -326,84 +300,69 @@ mod tests {
     fn adding_prefixes_aggregates_and_dedups() {
         // Each row builds a fresh set from the given inputs and asserts the
         // resulting aggregate prefixes. Order of insertion must not matter.
-        check_values(
-            [
-                Check {
-                    scenario: "single prefix is stored verbatim",
-                    input: &["10.0.0.0/24"][..],
-                    expect: vec!["10.0.0.0/24".to_string()],
-                },
-                Check {
-                    scenario: "exact duplicate is a no-op",
-                    input: &["10.0.0.0/24", "10.0.0.0/24"][..],
-                    expect: vec!["10.0.0.0/24".to_string()],
-                },
-                Check {
-                    scenario: "a subprefix already covered is absorbed",
-                    input: &["10.0.0.0/8", "10.1.2.0/24"][..],
-                    expect: vec!["10.0.0.0/8".to_string()],
-                },
-                Check {
-                    scenario: "a superprefix swallows an existing entry",
-                    input: &["10.1.2.0/24", "10.0.0.0/8"][..],
-                    expect: vec!["10.0.0.0/8".to_string()],
-                },
-                Check {
-                    scenario: "two siblings aggregate into their supernet",
-                    input: &["10.0.0.0/24", "10.0.1.0/24"][..],
-                    expect: vec!["10.0.0.0/23".to_string()],
-                },
-                Check {
-                    scenario: "siblings aggregate regardless of insertion order",
-                    input: &["10.0.1.0/24", "10.0.0.0/24"][..],
-                    expect: vec!["10.0.0.0/23".to_string()],
-                },
-                Check {
-                    scenario: "non-sibling neighbors stay separate",
-                    input: &["10.0.1.0/24", "10.0.2.0/24"][..],
-                    expect: vec!["10.0.1.0/24".to_string(), "10.0.2.0/24".to_string()],
-                },
-                Check {
-                    scenario: "cascading aggregation up several levels",
-                    input: &[
-                        "10.0.0.0/26",
-                        "10.0.0.64/26",
-                        "10.0.0.128/26",
-                        "10.0.0.192/26",
-                    ][..],
-                    expect: vec!["10.0.0.0/24".to_string()],
-                },
-                Check {
-                    scenario: "filling a /24 from a /25 plus power-of-two pieces",
-                    input: &[
-                        "10.0.1.4/30",
-                        "10.0.1.8/29",
-                        "10.0.1.16/28",
-                        "10.0.1.32/27",
-                        "10.0.1.64/26",
-                        "10.0.1.128/25",
-                        "10.0.0.0/24",
-                        "10.0.1.0/30",
-                    ][..],
-                    expect: vec!["10.0.0.0/23".to_string()],
-                },
-                Check {
-                    scenario: "a v4 and a v6 prefix coexist, v4 sorts first",
-                    input: &["2001:db8::/32", "10.0.0.0/8"][..],
-                    expect: vec!["10.0.0.0/8".to_string(), "2001:db8::/32".to_string()],
-                },
-                Check {
-                    scenario: "v6 siblings aggregate too",
-                    input: &["2001:db8:0000::/34", "2001:db8:4000::/34"][..],
-                    expect: vec!["2001:db8::/33".to_string()],
-                },
-                Check {
-                    scenario: "a default route swallows everything in its family",
-                    input: &["0.0.0.0/0", "10.0.0.0/8", "192.168.0.0/16"][..],
-                    expect: vec!["0.0.0.0/0".to_string()],
-                },
-            ],
-            add_all_and_dump,
+        value_scenarios!(
+            run = add_all_and_dump;
+            "single prefix is stored verbatim" {
+                &["10.0.0.0/24"][..] => vec!["10.0.0.0/24".to_string()],
+            }
+
+            "exact duplicate is a no-op" {
+                &["10.0.0.0/24", "10.0.0.0/24"][..] => vec!["10.0.0.0/24".to_string()],
+            }
+
+            "a subprefix already covered is absorbed" {
+                &["10.0.0.0/8", "10.1.2.0/24"][..] => vec!["10.0.0.0/8".to_string()],
+            }
+
+            "a superprefix swallows an existing entry" {
+                &["10.1.2.0/24", "10.0.0.0/8"][..] => vec!["10.0.0.0/8".to_string()],
+            }
+
+            "two siblings aggregate into their supernet" {
+                &["10.0.0.0/24", "10.0.1.0/24"][..] => vec!["10.0.0.0/23".to_string()],
+            }
+
+            "siblings aggregate regardless of insertion order" {
+                &["10.0.1.0/24", "10.0.0.0/24"][..] => vec!["10.0.0.0/23".to_string()],
+            }
+
+            "non-sibling neighbors stay separate" {
+                &["10.0.1.0/24", "10.0.2.0/24"][..] => vec!["10.0.1.0/24".to_string(), "10.0.2.0/24".to_string()],
+            }
+
+            "cascading aggregation up several levels" {
+                &[
+                    "10.0.0.0/26",
+                    "10.0.0.64/26",
+                    "10.0.0.128/26",
+                    "10.0.0.192/26",
+                ][..] => vec!["10.0.0.0/24".to_string()],
+            }
+
+            "filling a /24 from a /25 plus power-of-two pieces" {
+                &[
+                    "10.0.1.4/30",
+                    "10.0.1.8/29",
+                    "10.0.1.16/28",
+                    "10.0.1.32/27",
+                    "10.0.1.64/26",
+                    "10.0.1.128/25",
+                    "10.0.0.0/24",
+                    "10.0.1.0/30",
+                ][..] => vec!["10.0.0.0/23".to_string()],
+            }
+
+            "a v4 and a v6 prefix coexist, v4 sorts first" {
+                &["2001:db8::/32", "10.0.0.0/8"][..] => vec!["10.0.0.0/8".to_string(), "2001:db8::/32".to_string()],
+            }
+
+            "v6 siblings aggregate too" {
+                &["2001:db8:0000::/34", "2001:db8:4000::/34"][..] => vec!["2001:db8::/33".to_string()],
+            }
+
+            "a default route swallows everything in its family" {
+                &["0.0.0.0/0", "10.0.0.0/8", "192.168.0.0/16"][..] => vec!["0.0.0.0/0".to_string()],
+            }
         );
     }
 
@@ -535,39 +494,32 @@ mod tests {
                 .collect();
             (v4, v6, ipset.get_prefixes().len())
         };
-        check_values(
-            [
-                Check {
-                    scenario: "mixed set splits into its two families",
-                    input: IpSet::from([
-                        pfx("10.0.0.0/8"),
-                        pfx("192.168.0.0/16"),
-                        pfx("2001:db8::/32"),
-                        pfx("fd00::/8"),
-                    ]),
-                    expect: (
-                        vec!["10.0.0.0/8".to_string(), "192.168.0.0/16".to_string()],
-                        vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()],
-                        4,
-                    ),
-                },
-                Check {
-                    scenario: "v4-only set yields nothing from the v6 getter",
-                    input: IpSet::from(pfx("10.0.0.0/8")),
-                    expect: (vec!["10.0.0.0/8".to_string()], vec![], 1),
-                },
-                Check {
-                    scenario: "v6-only set yields nothing from the v4 getter",
-                    input: IpSet::from(pfx("2001:db8::/32")),
-                    expect: (vec![], vec!["2001:db8::/32".to_string()], 1),
-                },
-                Check {
-                    scenario: "empty set yields nothing from either getter",
-                    input: IpSet::new_empty(),
-                    expect: (vec![], vec![], 0),
-                },
-            ],
-            project,
+        value_scenarios!(
+            run = project;
+            "mixed set splits into its two families" {
+                IpSet::from([
+                    pfx("10.0.0.0/8"),
+                    pfx("192.168.0.0/16"),
+                    pfx("2001:db8::/32"),
+                    pfx("fd00::/8"),
+                ]) => (
+                    vec!["10.0.0.0/8".to_string(), "192.168.0.0/16".to_string()],
+                    vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()],
+                    4,
+                ),
+            }
+
+            "v4-only set yields nothing from the v6 getter" {
+                IpSet::from(pfx("10.0.0.0/8")) => (vec!["10.0.0.0/8".to_string()], vec![], 1),
+            }
+
+            "v6-only set yields nothing from the v4 getter" {
+                IpSet::from(pfx("2001:db8::/32")) => (vec![], vec!["2001:db8::/32".to_string()], 1),
+            }
+
+            "empty set yields nothing from either getter" {
+                IpSet::new_empty() => (vec![], vec![], 0),
+            }
         );
     }
 
@@ -575,28 +527,22 @@ mod tests {
     fn from_iterator_constructs_an_aggregated_set() {
         // The `From<IntoIterator>` impl runs every item through `add`, so the
         // result is already aggregated and deduplicated.
-        check_values(
-            [
-                Check {
-                    scenario: "empty iterator yields the empty set",
-                    input: &[][..],
-                    expect: Vec::<String>::new(),
-                },
-                Check {
-                    scenario: "duplicates collapse",
-                    input: &["10.0.0.0/24", "10.0.0.0/24", "10.0.0.0/24"][..],
-                    expect: vec!["10.0.0.0/24".to_string()],
-                },
-                Check {
-                    scenario: "siblings aggregate",
-                    input: &["10.0.0.0/24", "10.0.1.0/24"][..],
-                    expect: vec!["10.0.0.0/23".to_string()],
-                },
-            ],
-            |strs: &[&str]| {
+        value_scenarios!(
+            run = |strs: &[&str]| {
                 let ipset = IpSet::from(pfxs(strs));
                 ipset.get_prefixes().iter().map(|p| p.to_string()).collect()
-            },
+            };
+            "empty iterator yields the empty set" {
+                &[][..] => Vec::<String>::new(),
+            }
+
+            "duplicates collapse" {
+                &["10.0.0.0/24", "10.0.0.0/24", "10.0.0.0/24"][..] => vec!["10.0.0.0/24".to_string()],
+            }
+
+            "siblings aggregate" {
+                &["10.0.0.0/24", "10.0.1.0/24"][..] => vec!["10.0.0.0/23".to_string()],
+            }
         );
     }
 
@@ -617,37 +563,31 @@ mod tests {
         // The original `test_aggregate_prefixes`, generalized: each row feeds a
         // (deliberately scrambled) list through the free `aggregate_prefixes`
         // helper and asserts the merged, v4-before-v6 result.
-        check_values(
-            [
-                Check {
-                    scenario: "empty input yields nothing",
-                    input: &[][..],
-                    expect: Vec::<String>::new(),
-                },
-                Check {
-                    scenario: "a single prefix passes through",
-                    input: &["10.0.0.0/24"][..],
-                    expect: vec!["10.0.0.0/24".to_string()],
-                },
-                Check {
-                    scenario: "mixed v4 and v6 merge within each family and sort",
-                    input: &[
-                        "2001:db8:8000::/33",
-                        "2001:db8:4000::/34",
-                        "2001:db8:0000::/34",
-                        "10.0.2.0/23",
-                        "10.0.1.0/24",
-                        "10.0.0.0/24",
-                    ][..],
-                    expect: vec!["10.0.0.0/22".to_string(), "2001:db8::/32".to_string()],
-                },
-            ],
-            |strs: &[&str]| {
+        value_scenarios!(
+            run = |strs: &[&str]| {
                 aggregate_prefixes(pfxs(strs))
                     .iter()
                     .map(|p| p.to_string())
                     .collect()
-            },
+            };
+            "empty input yields nothing" {
+                &[][..] => Vec::<String>::new(),
+            }
+
+            "a single prefix passes through" {
+                &["10.0.0.0/24"][..] => vec!["10.0.0.0/24".to_string()],
+            }
+
+            "mixed v4 and v6 merge within each family and sort" {
+                &[
+                    "2001:db8:8000::/33",
+                    "2001:db8:4000::/34",
+                    "2001:db8:0000::/34",
+                    "10.0.2.0/23",
+                    "10.0.1.0/24",
+                    "10.0.0.0/24",
+                ][..] => vec!["10.0.0.0/22".to_string(), "2001:db8::/32".to_string()],
+            }
         );
     }
 }
