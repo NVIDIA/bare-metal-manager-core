@@ -42,5 +42,8 @@ sqlx = { workspace = true, features = [
 ], optional = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

@@ -3503,6 +3503,7 @@ dependencies = [
 name = "config-version"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",
