@@ -165,7 +165,7 @@ func testAllocationConstraintBuildIPBlock(t *testing.T, dbSession *db.Session,
 	return ipBlock
 }
 
-func TestAllocationConstraintSQLDAO_CreateFromParams(t *testing.T) {
+func TestAllocationConstraintSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testAllocationConstraintInitDB(t)
 	defer dbSession.Close()
@@ -189,30 +189,28 @@ func TestAllocationConstraintSQLDAO_CreateFromParams(t *testing.T) {
 
 	tests := []struct {
 		desc               string
-		as                 []AllocationConstraint
+		inputs             []AllocationConstraintCreateInput
 		expectError        bool
 		verifyChildSpanner bool
 	}{
 		{
 			desc: "create constraint of InstanceType and IPBlock",
-			as: []AllocationConstraint{
+			inputs: []AllocationConstraintCreateInput{
 				{
-					AllocationID:      alloc1.ID,
-					ResourceType:      AllocationResourceTypeInstanceType,
-					ResourceTypeID:    insType.ID,
-					ConstraintType:    AllocationConstraintTypeReserved,
-					ConstraintValue:   100,
-					DerivedResourceID: nil,
-					CreatedBy:         user.ID,
+					AllocationID:    alloc1.ID,
+					ResourceType:    AllocationResourceTypeInstanceType,
+					ResourceTypeID:  insType.ID,
+					ConstraintType:  AllocationConstraintTypeReserved,
+					ConstraintValue: 100,
+					CreatedBy:       user.ID,
 				},
 				{
-					AllocationID:      alloc2.ID,
-					ResourceType:      AllocationResourceTypeIPBlock,
-					ResourceTypeID:    ipv4Block.ID,
-					ConstraintType:    AllocationConstraintTypeReserved,
-					ConstraintValue:   100,
-					DerivedResourceID: nil,
-					CreatedBy:         user.ID,
+					AllocationID:    alloc2.ID,
+					ResourceType:    AllocationResourceTypeIPBlock,
+					ResourceTypeID:  ipv4Block.ID,
+					ConstraintType:  AllocationConstraintTypeReserved,
+					ConstraintValue: 100,
+					CreatedBy:       user.ID,
 				},
 			},
 			expectError:        false,
@@ -220,39 +218,36 @@ func TestAllocationConstraintSQLDAO_CreateFromParams(t *testing.T) {
 		},
 		{
 			desc: "failure - foreign key violation on allocation_id",
-			as: []AllocationConstraint{
+			inputs: []AllocationConstraintCreateInput{
 				{
-					AllocationID:      uuid.New(),
-					ResourceType:      AllocationResourceTypeIPBlock,
-					ResourceTypeID:    ipv4Block.ID,
-					ConstraintType:    AllocationConstraintTypeReserved,
-					ConstraintValue:   100,
-					DerivedResourceID: nil,
-					CreatedBy:         user.ID,
+					AllocationID:    uuid.New(),
+					ResourceType:    AllocationResourceTypeIPBlock,
+					ResourceTypeID:  ipv4Block.ID,
+					ConstraintType:  AllocationConstraintTypeReserved,
+					ConstraintValue: 100,
+					CreatedBy:       user.ID,
 				},
 			},
 			expectError: true,
 		},
 		{
 			desc: "failure - multiple fields with nil",
-			as: []AllocationConstraint{
+			inputs: []AllocationConstraintCreateInput{
 				{
-					AllocationID:      alloc1.ID,
-					ResourceType:      "   ",
-					ResourceTypeID:    ipv4Block.ID,
-					ConstraintType:    AllocationConstraintTypeReserved,
-					ConstraintValue:   100,
-					DerivedResourceID: nil,
-					CreatedBy:         user.ID,
+					AllocationID:    alloc1.ID,
+					ResourceType:    "   ",
+					ResourceTypeID:  ipv4Block.ID,
+					ConstraintType:  AllocationConstraintTypeReserved,
+					ConstraintValue: 100,
+					CreatedBy:       user.ID,
 				},
 				{
-					AllocationID:      alloc1.ID,
-					ResourceType:      AllocationResourceTypeIPBlock,
-					ResourceTypeID:    ipv4Block.ID,
-					ConstraintType:    " ",
-					ConstraintValue:   100,
-					DerivedResourceID: nil,
-					CreatedBy:         user.ID,
+					AllocationID:    alloc1.ID,
+					ResourceType:    AllocationResourceTypeIPBlock,
+					ResourceTypeID:  ipv4Block.ID,
+					ConstraintType:  " ",
+					ConstraintValue: 100,
+					CreatedBy:       user.ID,
 				},
 			},
 			expectError: true,
@@ -260,12 +255,8 @@ func TestAllocationConstraintSQLDAO_CreateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			for _, i := range tc.as {
-				it, err := asd.CreateFromParams(
-					ctx, nil, i.AllocationID, i.ResourceType,
-					i.ResourceTypeID, i.ConstraintType,
-					i.ConstraintValue, i.DerivedResourceID,
-					i.CreatedBy)
+			for _, input := range tc.inputs {
+				it, err := asd.Create(ctx, nil, input)
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, it)
@@ -301,15 +292,25 @@ func TestAllocationConstraintSQLDAO_GetByID(t *testing.T) {
 
 	asd := NewAllocationConstraintDAO(dbSession)
 
-	a1, err := asd.CreateFromParams(
-		ctx, nil, alloc1.ID, AllocationResourceTypeInstanceType,
-		insType.ID, AllocationConstraintTypeReserved, 10, nil, user.ID)
+	a1, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+		AllocationID:    alloc1.ID,
+		ResourceType:    AllocationResourceTypeInstanceType,
+		ResourceTypeID:  insType.ID,
+		ConstraintType:  AllocationConstraintTypeReserved,
+		ConstraintValue: 10,
+		CreatedBy:       user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, a1)
 
-	a2, err := asd.CreateFromParams(
-		ctx, nil, alloc2.ID, AllocationResourceTypeIPBlock,
-		ipv4Block.ID, AllocationConstraintTypeReserved, 10, nil, user.ID)
+	a2, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+		AllocationID:    alloc2.ID,
+		ResourceType:    AllocationResourceTypeIPBlock,
+		ResourceTypeID:  ipv4Block.ID,
+		ConstraintType:  AllocationConstraintTypeReserved,
+		ConstraintValue: 10,
+		CreatedBy:       user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, a2)
 
@@ -397,20 +398,31 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 	totalCount := 30
 
 	asc1it := []AllocationConstraint{}
-	for i := 0; i < totalCount/2; i++ {
-		asc1, err := asd.CreateFromParams(
-			ctx, nil, alloc1.ID, AllocationResourceTypeInstanceType,
-			insType.ID, AllocationConstraintTypeReserved, 10, nil, user.ID)
+	for range totalCount / 2 {
+		asc1, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+			AllocationID:    alloc1.ID,
+			ResourceType:    AllocationResourceTypeInstanceType,
+			ResourceTypeID:  insType.ID,
+			ConstraintType:  AllocationConstraintTypeReserved,
+			ConstraintValue: 10,
+			CreatedBy:       user.ID,
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, asc1)
 		asc1it = append(asc1it, *asc1)
 	}
 
 	asc2ipb := []AllocationConstraint{}
-	for i := 0; i < totalCount/2; i++ {
-		asc2, err := asd.CreateFromParams(
-			ctx, nil, alloc2.ID, AllocationResourceTypeIPBlock,
-			ipv4Block.ID, AllocationConstraintTypeReserved, 10, cutil.GetPtr(uuid.New()), user.ID)
+	for range totalCount / 2 {
+		asc2, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+			AllocationID:      alloc2.ID,
+			ResourceType:      AllocationResourceTypeIPBlock,
+			ResourceTypeID:    ipv4Block.ID,
+			ConstraintType:    AllocationConstraintTypeReserved,
+			ConstraintValue:   10,
+			DerivedResourceID: cutil.GetPtr(uuid.New()),
+			CreatedBy:         user.ID,
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, asc2)
 		asc2ipb = append(asc2ipb, *asc2)
@@ -421,14 +433,8 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 
 	tests := []struct {
 		desc               string
-		allocationIDs      []uuid.UUID
-		resourceType       *string
-		resourceTypeID     *uuid.UUID
-		constraintType     *string
-		derivedResourceID  *uuid.UUID
-		offset             *int
-		limit              *int
-		orderBy            *paginator.OrderBy
+		filter             AllocationConstraintFilterInput
+		page               paginator.PageInput
 		firstEntry         *AllocationConstraint
 		expectedCount      int
 		expectedTotal      *int
@@ -438,102 +444,96 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 	}{
 		{
 			desc:               "GetAll with no filters returns objects",
-			allocationIDs:      nil,
-			resourceType:       nil,
-			resourceTypeID:     nil,
-			constraintType:     nil,
+			filter:             AllocationConstraintFilterInput{},
 			expectedCount:      paginator.DefaultLimit,
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
 		{
-			desc:           "GetAll with Allocation ID filter returns objects",
-			allocationIDs:  []uuid.UUID{alloc2.ID},
-			resourceType:   nil,
-			resourceTypeID: nil,
-			constraintType: nil,
+			desc: "GetAll with Allocation ID filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc2.ID},
+			},
 			expectedCount:  totalCount / 2,
 			expectedError:  false,
 			paramRelations: []string{AllocationRelationName},
 		},
 		{
-			desc:           "GetAll with Resource Type filter returns objects",
-			allocationIDs:  nil,
-			resourceType:   cutil.GetPtr(AllocationResourceTypeIPBlock),
-			resourceTypeID: nil,
-			constraintType: nil,
-			expectedCount:  totalCount / 2,
-			expectedError:  false,
+			desc: "GetAll with Resource Type filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				ResourceType: cutil.GetPtr(AllocationResourceTypeIPBlock),
+			},
+			expectedCount: totalCount / 2,
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with Resource Type ID filter returns objects",
-			allocationIDs:  nil,
-			resourceType:   nil,
-			resourceTypeID: &insType.ID,
-			constraintType: nil,
-			expectedCount:  totalCount / 2,
-			expectedError:  false,
+			desc: "GetAll with Resource Type ID filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				ResourceTypeIDs: []uuid.UUID{insType.ID},
+			},
+			expectedCount: totalCount / 2,
+			expectedError: false,
 		},
 		{
-			desc:              "GetAll with Derived Resource ID filter returns objects",
-			allocationIDs:     nil,
-			resourceType:      nil,
-			resourceTypeID:    nil,
-			constraintType:    nil,
-			derivedResourceID: asc2ipb[0].DerivedResourceID,
-			expectedCount:     1,
-			expectedError:     false,
+			desc: "GetAll with Derived Resource ID filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				DerivedResourceID: asc2ipb[0].DerivedResourceID,
+			},
+			expectedCount: 1,
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with invalid Resource Type ID filter returns no objects",
-			allocationIDs:  nil,
-			resourceType:   nil,
-			resourceTypeID: cutil.GetPtr(uuid.New()),
-			constraintType: nil,
-			expectedCount:  0,
-			expectedError:  false,
+			desc: "GetAll with invalid Resource Type ID filter returns no objects",
+			filter: AllocationConstraintFilterInput{
+				ResourceTypeIDs: []uuid.UUID{uuid.New()},
+			},
+			expectedCount: 0,
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with Constraint Type filter returns objects",
-			allocationIDs:  nil,
-			resourceType:   cutil.GetPtr(AllocationResourceTypeIPBlock),
-			resourceTypeID: nil,
-			constraintType: cutil.GetPtr(AllocationConstraintTypeReserved),
-			expectedCount:  totalCount / 2,
-			expectedError:  false,
+			desc: "GetAll with Constraint Type filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				ResourceType:   cutil.GetPtr(AllocationResourceTypeIPBlock),
+				ConstraintType: cutil.GetPtr(AllocationConstraintTypeReserved),
+			},
+			expectedCount: totalCount / 2,
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with limit returns objects",
-			allocationIDs:  []uuid.UUID{alloc1.ID},
-			resourceType:   nil,
-			resourceTypeID: nil,
-			constraintType: nil,
-			offset:         cutil.GetPtr(0),
-			limit:          cutil.GetPtr(5),
-			expectedCount:  5,
-			expectedTotal:  cutil.GetPtr(totalCount / 2),
-			expectedError:  false,
+			desc: "GetAll with limit returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc1.ID},
+			},
+			page: paginator.PageInput{
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(5),
+			},
+			expectedCount: 5,
+			expectedTotal: cutil.GetPtr(totalCount / 2),
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with offset returns objects",
-			allocationIDs:  []uuid.UUID{alloc2.ID},
-			resourceType:   nil,
-			resourceTypeID: nil,
-			constraintType: nil,
-			offset:         cutil.GetPtr(5),
-			expectedCount:  10,
-			expectedTotal:  cutil.GetPtr(totalCount / 2),
-			expectedError:  false,
+			desc: "GetAll with offset returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc2.ID},
+			},
+			page: paginator.PageInput{
+				Offset: cutil.GetPtr(5),
+			},
+			expectedCount: 10,
+			expectedTotal: cutil.GetPtr(totalCount / 2),
+			expectedError: false,
 		},
 		{
-			desc:           "GetAll with order by returns objects",
-			allocationIDs:  []uuid.UUID{alloc1.ID},
-			resourceType:   nil,
-			resourceTypeID: nil,
-			constraintType: nil,
-			orderBy: &paginator.OrderBy{
-				Field: "created",
-				Order: paginator.OrderAscending,
+			desc: "GetAll with order by returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc1.ID},
+			},
+			page: paginator.PageInput{
+				OrderBy: &paginator.OrderBy{
+					Field: "created",
+					Order: paginator.OrderAscending,
+				},
 			},
 			firstEntry:    &asc1it[0],
 			expectedCount: totalCount / 2,
@@ -541,25 +541,31 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			desc:          "GetAll with resource Type filter returns none objects",
-			allocationIDs: []uuid.UUID{alloc1.ID},
-			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			desc: "GetAll with resource Type filter returns none objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc1.ID},
+				ResourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			},
 			expectedCount: 0,
 			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
-			desc:          "GetAll with resource Type filter returns objects",
-			allocationIDs: []uuid.UUID{alloc2.ID},
-			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			desc: "GetAll with resource Type filter returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc2.ID},
+				ResourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			},
 			expectedCount: totalCount / 2,
 			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
-			desc:          "GetAll with resource Type filter with mixed allocation uuids returns objects",
-			allocationIDs: []uuid.UUID{alloc1.ID, alloc2.ID},
-			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			desc: "GetAll with resource Type filter with mixed allocation uuids returns objects",
+			filter: AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{alloc1.ID, alloc2.ID},
+				ResourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
+			},
 			expectedCount: totalCount / 2,
 			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
@@ -567,19 +573,14 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			var resourceIDs []uuid.UUID
-			if tc.resourceTypeID != nil {
-				resourceIDs = append(resourceIDs, *tc.resourceTypeID)
-			}
-			got, total, err := asd.GetAll(ctx, nil, tc.allocationIDs, tc.resourceType, resourceIDs, tc.constraintType,
-				tc.derivedResourceID, tc.paramRelations, tc.offset, tc.limit, tc.orderBy)
+			got, total, err := asd.GetAll(ctx, nil, tc.filter, tc.page, tc.paramRelations)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if tc.expectedError {
 				assert.Equal(t, nil, got)
 			} else {
 				assert.Equal(t, tc.expectedCount, len(got))
-				if len(tc.paramRelations) > 0 && len(tc.allocationIDs) > 0 {
-					assert.Equal(t, tc.allocationIDs[0], got[0].Allocation.ID)
+				if len(tc.paramRelations) > 0 && len(tc.filter.AllocationIDs) > 0 {
+					assert.Equal(t, tc.filter.AllocationIDs[0], got[0].Allocation.ID)
 				}
 			}
 
@@ -597,7 +598,7 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 	}
 }
 
-func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
+func TestAllocationConstraintSQLDAO_Update(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testAllocationConstraintInitDB(t)
 	defer dbSession.Close()
@@ -620,9 +621,15 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 	derivedResourceID2 := uuid.New()
 	constraintValue := 1
 	constraintValue2 := 2
-	a1, err := asd.CreateFromParams(
-		ctx, nil, alloc1.ID, AllocationResourceTypeInstanceType, insType.ID,
-		AllocationConstraintTypeReserved, constraintValue, &derivedResourceID, user.ID)
+	a1, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+		AllocationID:      alloc1.ID,
+		ResourceType:      AllocationResourceTypeInstanceType,
+		ResourceTypeID:    insType.ID,
+		ConstraintType:    AllocationConstraintTypeReserved,
+		ConstraintValue:   constraintValue,
+		DerivedResourceID: &derivedResourceID,
+		CreatedBy:         user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, a1)
 
@@ -630,14 +637,8 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		desc string
-
-		paramAllocationID      *uuid.UUID
-		paramResourceType      *string
-		paramResourceTypeID    *uuid.UUID
-		paramConstraintType    *string
-		paramConstraintValue   *int
-		paramDerivedResourceID *uuid.UUID
+		desc  string
+		input AllocationConstraintUpdateInput
 
 		expectedError bool
 
@@ -651,13 +652,10 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 		verifyChildSpanner        bool
 	}{
 		{
-			desc:                   "can update nothing",
-			paramAllocationID:      nil,
-			paramResourceType:      nil,
-			paramResourceTypeID:    nil,
-			paramConstraintType:    nil,
-			paramConstraintValue:   nil,
-			paramDerivedResourceID: nil,
+			desc: "can update nothing",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+			},
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc1.ID,
@@ -670,13 +668,11 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			verifyChildSpanner:        true,
 		},
 		{
-			desc:                   "error updating due to foreign key violation",
-			paramAllocationID:      &derivedResourceID,
-			paramResourceType:      nil,
-			paramResourceTypeID:    nil,
-			paramConstraintType:    nil,
-			paramConstraintValue:   nil,
-			paramDerivedResourceID: nil,
+			desc: "error updating due to foreign key violation",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+				AllocationID:           &derivedResourceID,
+			},
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc1.ID,
@@ -688,13 +684,13 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			expectedUpdate:            true,
 		},
 		{
-			desc:                   "can update AllocationID ResourceType n ID",
-			paramAllocationID:      &alloc2.ID,
-			paramResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
-			paramResourceTypeID:    &ipv4Block.ID,
-			paramConstraintType:    nil,
-			paramConstraintValue:   nil,
-			paramDerivedResourceID: nil,
+			desc: "can update AllocationID ResourceType and ResourceTypeID",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+				AllocationID:           &alloc2.ID,
+				ResourceType:           cutil.GetPtr(AllocationResourceTypeIPBlock),
+				ResourceTypeID:         &ipv4Block.ID,
+			},
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc2.ID,
@@ -706,13 +702,13 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			expectedUpdate:            true,
 		},
 		{
-			desc:                   "can update Constraint Type Value n ResourceID",
-			paramAllocationID:      nil,
-			paramResourceType:      nil,
-			paramResourceTypeID:    nil,
-			paramConstraintType:    cutil.GetPtr(AllocationConstraintTypePreemptible),
-			paramConstraintValue:   &constraintValue2,
-			paramDerivedResourceID: &derivedResourceID2,
+			desc: "can update Constraint Type Value and ResourceID",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+				ConstraintType:         cutil.GetPtr(AllocationConstraintTypePreemptible),
+				ConstraintValue:        &constraintValue2,
+				DerivedResourceID:      &derivedResourceID2,
+			},
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc2.ID,
@@ -724,13 +720,11 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			expectedUpdate:            true,
 		},
 		{
-			desc:                   "invalid Constraint Type",
-			paramAllocationID:      nil,
-			paramResourceType:      nil,
-			paramResourceTypeID:    nil,
-			paramConstraintType:    cutil.GetPtr(" "),
-			paramConstraintValue:   nil,
-			paramDerivedResourceID: nil,
+			desc: "invalid Constraint Type",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+				ConstraintType:         cutil.GetPtr(" "),
+			},
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc2.ID,
@@ -742,13 +736,11 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			expectedUpdate:            true,
 		},
 		{
-			desc:                   "invalid Constraint Type",
-			paramAllocationID:      nil,
-			paramResourceType:      cutil.GetPtr(" "),
-			paramResourceTypeID:    nil,
-			paramConstraintType:    nil,
-			paramConstraintValue:   nil,
-			paramDerivedResourceID: nil,
+			desc: "invalid Resource Type",
+			input: AllocationConstraintUpdateInput{
+				AllocationConstraintID: a1.ID,
+				ResourceType:           cutil.GetPtr(" "),
+			},
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc2.ID,
@@ -762,10 +754,7 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := asd.UpdateFromParams(ctx, nil, a1.ID,
-				tc.paramAllocationID, tc.paramResourceType,
-				tc.paramResourceTypeID, tc.paramConstraintType,
-				tc.paramConstraintValue, tc.paramDerivedResourceID)
+			got, err := asd.Update(ctx, nil, tc.input)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if !tc.expectedError {
 				assert.NotNil(t, got)
@@ -791,7 +780,7 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestAllocationConstraintSQLDAO_ClearFromParams(t *testing.T) {
+func TestAllocationConstraintSQLDAO_Clear(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testAllocationConstraintInitDB(t)
 	defer dbSession.Close()
@@ -808,10 +797,15 @@ func TestAllocationConstraintSQLDAO_ClearFromParams(t *testing.T) {
 
 	asd := NewAllocationConstraintDAO(dbSession)
 
-	a1, err := asd.CreateFromParams(
-		ctx, nil, alloc.ID, AllocationResourceTypeInstanceType,
-		insType.ID, AllocationConstraintTypeReserved, 10,
-		&dummyUID, user.ID)
+	a1, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+		AllocationID:      alloc.ID,
+		ResourceType:      AllocationResourceTypeInstanceType,
+		ResourceTypeID:    insType.ID,
+		ConstraintType:    AllocationConstraintTypeReserved,
+		ConstraintValue:   10,
+		DerivedResourceID: &dummyUID,
+		CreatedBy:         user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, a1)
 
@@ -820,21 +814,22 @@ func TestAllocationConstraintSQLDAO_ClearFromParams(t *testing.T) {
 
 	tests := []struct {
 		desc                      string
-		a                         *AllocationConstraint
-		paramDerivedResourceID    bool
+		input                     AllocationConstraintClearInput
 		expectedDerivedResourceID *uuid.UUID
 		verifyChildSpanner        bool
 	}{
 		{
-			desc:                      "can clear derivedResourceId",
-			a:                         a1,
-			paramDerivedResourceID:    true,
+			desc: "can clear derivedResourceId",
+			input: AllocationConstraintClearInput{
+				AllocationConstraintID: a1.ID,
+				DerivedResourceID:      true,
+			},
 			expectedDerivedResourceID: nil,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := asd.ClearFromParams(ctx, nil, tc.a.ID, tc.paramDerivedResourceID)
+			got, err := asd.Clear(ctx, nil, tc.input)
 			assert.Nil(t, err)
 			assert.NotNil(t, got)
 			assert.Equal(t, tc.expectedDerivedResourceID == nil,
@@ -844,7 +839,7 @@ func TestAllocationConstraintSQLDAO_ClearFromParams(t *testing.T) {
 					*got.DerivedResourceID)
 			}
 
-			assert.True(t, got.Updated.After(tc.a.Updated))
+			assert.True(t, got.Updated.After(a1.Updated))
 
 			if tc.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -872,9 +867,14 @@ func TestAllocationConstraintSQLDAO_DeleteByID(t *testing.T) {
 
 	asd := NewAllocationConstraintDAO(dbSession)
 
-	a1, err := asd.CreateFromParams(
-		ctx, nil, alloc.ID, AllocationResourceTypeInstanceType,
-		insType.ID, AllocationConstraintTypeReserved, 10, nil, user.ID)
+	a1, err := asd.Create(ctx, nil, AllocationConstraintCreateInput{
+		AllocationID:    alloc.ID,
+		ResourceType:    AllocationResourceTypeInstanceType,
+		ResourceTypeID:  insType.ID,
+		ConstraintType:  AllocationConstraintTypeReserved,
+		ConstraintValue: 10,
+		CreatedBy:       user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, a1)
 

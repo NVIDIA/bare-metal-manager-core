@@ -1219,7 +1219,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
         id: Some(uuid::Uuid::new_v4()),
         bmc_mac_address: mock_host.bmc_mac_address,
         data: model::expected_machine::ExpectedMachineData {
-            dpf_enabled: None,
+            dpf_enabled: Some(false),
             ..Default::default()
         },
     };
@@ -1252,7 +1252,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
             // DPU has no expected-machine entry, so it always defaults to `true`
             assert!(machine.dpf.enabled);
         } else {
-            // Host has exepcted-machine entry. No `dpf_enabled` means `false`.
+            // Host has expected-machine entry with `dpf_enabled: Some(false)`.
             assert!(!machine.dpf.enabled);
         }
     }

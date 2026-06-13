@@ -62,6 +62,8 @@ mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
 mod metrics;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
@@ -410,6 +412,7 @@ impl SiteExplorer {
             "explore_site",
             span_id,
             carbide.trace_root = true,
+            component = "site-explorer",
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
             created_machines = tracing::field::Empty,

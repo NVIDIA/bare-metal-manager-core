@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_test_harness::prelude::*;
-use carbide_test_harness::test_support::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
 use db::ObjectColumnFilter;
 use mac_address::MacAddress;
@@ -125,10 +124,20 @@ async fn test_site_explorer_power_shelf_discovery(
     db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(false.into()),
+        power_shelves_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
+    explorer.insert_endpoint_result(
         power_shelf.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -164,19 +173,6 @@ async fn test_site_explorer_power_shelf_discovery(
             remediation_error: None,
         }),
     );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -190,7 +186,7 @@ async fn test_site_explorer_power_shelf_discovery(
 
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap();
         assert!(res.is_ok());
         assert_eq!(
@@ -244,10 +240,20 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         ))
         .await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
+    explorer.insert_endpoint_result(
         power_shelf.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -283,19 +289,6 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
             remediation_error: None,
         }),
     );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -309,7 +302,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap();
         assert!(res.is_ok());
         assert_eq!(
@@ -375,14 +368,10 @@ async fn power_shelf_skips_creation_when_bmc_mac_already_used(
     .await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let explorer = env.new_site_explorer(
-        SiteExplorerConfig {
-            create_power_shelves: Arc::new(true.into()),
-            ..Default::default()
-        },
-        &endpoint_explorer,
-    );
+    let explorer = env.test_site_explorer(SiteExplorerConfig {
+        create_power_shelves: Arc::new(true.into()),
+        ..Default::default()
+    });
 
     let explored_endpoint = ExploredEndpoint {
         address: bmc_ip,
@@ -502,10 +491,20 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(false.into()),
+        power_shelves_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock power shelf exploration result with matching serial
-    endpoint_explorer.insert_endpoint_result(
+    explorer.insert_endpoint_result(
         power_shelf.ip.parse().unwrap(), // Use expected IP address, not DHCP-assigned IP
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -541,19 +540,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
             remediation_error: None,
         }),
     );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -617,11 +603,21 @@ async fn test_site_explorer_power_shelf_creation_limit(
     }
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 3,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(false.into()),
+        power_shelves_created_per_run: 2, // Limit to 2 per run
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock exploration results for all power shelves
     for power_shelf in &power_shelves {
-        endpoint_explorer.insert_endpoint_result(
+        explorer.insert_endpoint_result(
             power_shelf.ip.parse().unwrap(), // Use expected IP address, not DHCP-assigned IP
             Ok(EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
@@ -659,19 +655,6 @@ async fn test_site_explorer_power_shelf_creation_limit(
             }),
         );
     }
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 3,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 2, // Limit to 2 per run
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -741,10 +724,20 @@ async fn test_site_explorer_power_shelf_disabled(
     db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(false.into()), // Disabled
+        explore_power_shelves_from_static_ip: Arc::new(false.into()),
+        power_shelves_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
+    explorer.insert_endpoint_result(
         power_shelf.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -777,19 +770,6 @@ async fn test_site_explorer_power_shelf_disabled(
             remediation_error: None,
         }),
     );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(false.into()), // Disabled
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -848,18 +828,6 @@ async fn test_site_explorer_power_shelf_error_handling(
     db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration error
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(),
-        Err(EndpointExplorationError::Unauthorized {
-            details: "Not authorized".to_string(),
-            response_body: None,
-            response_code: None,
-        }),
-    );
-
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 1,
@@ -871,7 +839,16 @@ async fn test_site_explorer_power_shelf_error_handling(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
+    // Mock power shelf exploration error
+    explorer.insert_endpoint_result(
+        power_shelf.ip.parse().unwrap(),
+        Err(EndpointExplorationError::Unauthorized {
+            details: "Not authorized".to_string(),
+            response_body: None,
+            response_code: None,
+        }),
+    );
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -911,7 +888,6 @@ async fn test_site_explorer_creates_power_shelf(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -924,7 +900,7 @@ async fn test_site_explorer_creates_power_shelf(
         ..Default::default()
     };
 
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
 
     // Create a power shelf using FakePowerShelf
     let mut power_shelf = env.new_power_shelf("B8:3F:D2:90:97:B0", "", "PS123456789");
@@ -1173,7 +1149,6 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         pause_ingestion_and_poweron: false,
     };
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -1186,7 +1161,7 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         ..Default::default()
     };
 
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
 
     // Create the power shelf using site explorer
     assert!(
@@ -1417,7 +1392,6 @@ async fn test_power_shelf_state_history_multiple(
         pause_ingestion_and_poweron: false,
     };
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -1430,7 +1404,7 @@ async fn test_power_shelf_state_history_multiple(
         ..Default::default()
     };
 
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
 
     // Create the power shelves using site explorer
     assert!(
@@ -1633,7 +1607,6 @@ async fn test_power_shelf_state_history_error_handling(
         pause_ingestion_and_poweron: false,
     };
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -1646,7 +1619,7 @@ async fn test_power_shelf_state_history_error_handling(
         ..Default::default()
     };
 
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
 
     // Create the power shelf using site explorer
     assert!(

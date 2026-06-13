@@ -27,7 +27,7 @@ use tracing::span::{self, Attributes};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
-use tracing_subscriber::registry::{LookupSpan, SpanRef};
+use tracing_subscriber::registry::LookupSpan;
 
 /// Construct a new `LogFmtLayer`
 pub fn layer<S>() -> LogFmtLayer<S>
@@ -39,7 +39,37 @@ where
         make_writer: Arc::new(|| Box::new(std::io::stdout())),
         emit_span_logs: true,
         write_end_time: false,
-        extra_event_fields: Vec::new(),
+        event_fields: Vec::new(),
+    }
+}
+
+/// A span attribute surfaced on event and `level=SPAN` lines.
+///
+/// On each line the rendered value is, in precedence order: the value the line's
+/// own span set for `name`; else the value inherited from a parent span; else the
+/// configured default, if any; else the field is omitted. So a field built with
+/// [`EventField::with_default`] renders on every line, and one built with
+/// [`EventField::new`] renders only where a span set or inherited it.
+pub struct EventField {
+    name: String,
+    default: Option<String>,
+}
+
+impl EventField {
+    /// Surfaced only when a span sets or inherits it (no fallback).
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            default: None,
+        }
+    }
+
+    /// Surfaced on every line, falling back to `default` when no span set it.
+    pub fn with_default(name: impl Into<String>, default: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            default: Some(default.into()),
+        }
     }
 }
 
@@ -56,7 +86,9 @@ pub struct LogFmtLayer<S> {
     make_writer: Arc<dyn Fn() -> Box<dyn Write> + Send + Sync>,
     emit_span_logs: bool,
     write_end_time: bool,
-    extra_event_fields: Vec<String>,
+    /// Span attributes surfaced on event and span lines, each with an optional
+    /// fallback. See [`EventField`]. Set via `with_event_fields`.
+    event_fields: Vec<EventField>,
 }
 
 impl<S> LogFmtLayer<S>
@@ -87,12 +119,46 @@ where
         }
     }
 
-    /// Add extra span attribute keys to emit in event logs
-    pub fn with_event_fields(self, extra_event_fields: Vec<String>) -> Self {
+    /// Surface span attributes on event and `level=SPAN` lines. Each [`EventField`]
+    /// renders with its span's own value, else an inherited parent value, else its
+    /// default (if any). Calling this replaces the field set (it assigns, it does
+    /// not append); duplicate names are dropped (the first wins) so a name is never
+    /// emitted twice.
+    pub fn with_event_fields(self, fields: impl IntoIterator<Item = EventField>) -> Self {
+        let mut seen = std::collections::HashSet::new();
         Self {
-            extra_event_fields,
+            event_fields: fields
+                .into_iter()
+                .filter(|field| seen.insert(field.name.clone()))
+                .collect(),
             ..self
         }
+    }
+
+    /// Iterate the names of every configured event field. Used to decide which of
+    /// a span's attributes are inherited by its child spans.
+    fn configured_field_names(&self) -> impl Iterator<Item = &str> {
+        self.event_fields.iter().map(|field| field.name.as_str())
+    }
+
+    /// Resolve every configured event field for a line from a span's
+    /// `resolved_event_fields` (its own or inherited value), applying each field's
+    /// fallback. A field with a default always yields a value; one without is
+    /// included only when the span set or inherited it.
+    fn resolve_event_fields(
+        &self,
+        resolved: Option<&BTreeMap<String, String>>,
+    ) -> Vec<(String, String)> {
+        self.event_fields
+            .iter()
+            .filter_map(|field| {
+                let value = resolved
+                    .and_then(|fields| fields.get(&field.name))
+                    .cloned()
+                    .or_else(|| field.default.clone());
+                value.map(|value| (field.name.clone(), value))
+            })
+            .collect()
     }
 }
 
@@ -126,6 +192,22 @@ struct LogFmtData {
     /// Formatted Span attributes
     /// This is a BTreeMap to guarantee order when formatting
     attributes: BTreeMap<String, String>,
+    /// The resolved value of each configured event field for this span (one entry
+    /// per `EventField` set on the layer that this span or an ancestor set). Kept
+    /// separate from `attributes` because it also holds values inherited from
+    /// ancestor spans, which the span never recorded itself.
+    ///
+    /// Computed when the span is created (`on_new_span`): this span's own
+    /// attribute if it set one, otherwise the value inherited from its parent
+    /// span. Refreshed in `on_record` if the span sets a value later. Event and
+    /// span lines read this map directly. A name is absent when neither this span
+    /// nor any of its parent spans set it; the configured default (or omission) is
+    /// applied at write time.
+    ///
+    /// Inheritance is captured at child-creation time: a parent that sets a field
+    /// (via `record`) after a child span already exists does not propagate to that
+    /// child.
+    resolved_event_fields: BTreeMap<String, String>,
 }
 
 impl LogFmtData {
@@ -134,6 +216,7 @@ impl LogFmtData {
             timing: Timing::new(),
             suppressed: false,
             attributes: BTreeMap::new(),
+            resolved_event_fields: BTreeMap::new(),
         }
     }
 
@@ -159,6 +242,44 @@ where
         let mut data = LogFmtData::new();
         let mut visitor = SpanAttributeVisitor { data: &mut data };
         attrs.record(&mut visitor);
+
+        // Resolve every configured field's value now, when the span is
+        // created, so log lines can read it directly.
+        //
+        // Resolve the parent span before locking the new span's extensions.
+        // `attrs.parent()` gives an explicit parent (`span!(parent: ..)`); when
+        // absent and the span is not a root, the parent is the contextual current
+        // span. Copying the parent's already-resolved `resolved_event_fields` (a
+        // small map — only the configured fields) is what lets a field set on a
+        // parent span be inherited here.
+        let parent = if let Some(parent_id) = attrs.parent() {
+            ctx.span(parent_id)
+        } else if attrs.is_root() {
+            None
+        } else {
+            ctx.lookup_current()
+        };
+        let parent_resolved = parent.as_ref().map(|p| {
+            p.extensions()
+                .get::<LogFmtData>()
+                .map(|d| d.resolved_event_fields.clone())
+                .unwrap_or_default()
+        });
+
+        for name in self.configured_field_names() {
+            if let Some(value) = data.attributes.get(name) {
+                // This span set the field itself -> its own value wins.
+                data.resolved_event_fields
+                    .insert(name.to_string(), value.clone());
+            } else if let Some(value) = parent_resolved.as_ref().and_then(|fields| fields.get(name))
+            {
+                // Inherit the parent's already-resolved value.
+                data.resolved_event_fields
+                    .insert(name.to_string(), value.clone());
+            }
+            // Otherwise leave it unset; the default (or omission) is applied at
+            // write time.
+        }
 
         let span = ctx.span(id).expect("Span not found, this is a bug");
         let mut extensions = span.extensions_mut();
@@ -194,42 +315,62 @@ where
         let mut extensions = span.extensions_mut();
         if let Some(data) = extensions.get_mut::<LogFmtData>() {
             values.record(&mut SpanAttributeVisitor { data });
+
+            // A value recorded after span creation (e.g. a field declared
+            // `tracing::field::Empty` and filled in via `span.record`) must update
+            // the span's resolved value. A span's own value always wins over an
+            // inherited one, so re-sync each configured field that now has a
+            // concrete attribute value.
+            for name in self.configured_field_names() {
+                if let Some(value) = data.attributes.get(name).cloned() {
+                    data.resolved_event_fields.insert(name.to_string(), value);
+                }
+            }
         }
     }
 
     fn on_follows_from(&self, _id: &span::Id, _follows: &span::Id, _ctx: Context<S>) {}
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
-        // If the event doesn't happen in the scope of a Span, we don't log some span data
         let current_span = ctx.lookup_current();
 
-        /// This formatting subfunction exists so that we can use the ? operator
-        /// on write! results
-        fn write_event_data<'a, R: LookupSpan<'a>>(
-            event: &Event<'_>,
-            current_span: Option<&SpanRef<'a, R>>,
-            out: &mut Vec<u8>,
-            extra_event_fields: &[String],
-        ) -> Result<(), std::io::Error> {
-            write!(out, "level={} ", event.metadata().level())?;
-
-            // TODO: More metadata?
-
-            if let Some(current_span) = current_span {
-                // Get the span_id to correlate the event with the actual span
-                let ext = current_span.extensions();
+        // Resolve the event fields and read `span_id` under a single extensions
+        // borrow (no extra clone of the span's resolved map). Outside any span the
+        // fields fall back to their defaults (or are omitted) and there is no
+        // `span_id`.
+        let (event_fields, span_id) = match current_span.as_ref() {
+            Some(span) => {
+                let ext = span.extensions();
                 let data = ext
                     .get::<LogFmtData>()
                     .expect("Unable to find LogFmtData in extensions; this is a bug");
+                let fields = self.resolve_event_fields(Some(&data.resolved_event_fields));
+                let span_id = data.attributes.get("span_id").cloned();
+                (fields, span_id)
+            }
+            None => (self.resolve_event_fields(None), None),
+        };
 
-                if let Some(span_id) = data.attributes.get("span_id") {
-                    write!(out, "{} ", kvp("span_id", span_id))?;
-                }
-                for key in extra_event_fields {
-                    if let Some(value) = data.attributes.get(key) {
-                        write!(out, "{} ", kvp(key, value))?;
-                    }
-                }
+        /// This formatting subfunction exists so that we can use the ? operator
+        /// on write! results
+        fn write_event_data(
+            event: &Event<'_>,
+            out: &mut Vec<u8>,
+            event_fields: &[(String, String)],
+            span_id: Option<&str>,
+        ) -> Result<(), std::io::Error> {
+            write!(out, "level={} ", event.metadata().level())?;
+
+            // Configured event fields (the span's own or inherited value, else a
+            // default) are emitted right after `level=`, so every line carries
+            // them — including events emitted outside any span.
+            for (name, value) in event_fields {
+                write!(out, "{} ", kvp(name, value))?;
+            }
+
+            // span_id correlates the event with the span it was logged in.
+            if let Some(span_id) = span_id {
+                write!(out, "{} ", kvp("span_id", span_id))?;
             }
 
             let mut visitor = FieldVisitor {
@@ -259,12 +400,7 @@ where
         // The format buffer is kept around as a threadlocal variable to reduce allocations
         FORMAT_BUFFER.with(|fbuf| {
             let format_buffer: &mut Vec<u8> = &mut fbuf.borrow_mut();
-            if let Ok(()) = write_event_data(
-                event,
-                current_span.as_ref(),
-                format_buffer,
-                &self.extra_event_fields,
-            ) {
+            if write_event_data(event, format_buffer, &event_fields, span_id.as_deref()).is_ok() {
                 let mut writer = (self.make_writer)();
                 let _ = writer.write_all(format_buffer);
             }
@@ -293,6 +429,9 @@ where
         if data.suppressed {
             return;
         }
+
+        // Resolve from this span's own resolved values.
+        let event_fields = self.resolve_event_fields(Some(&data.resolved_event_fields));
 
         data.attributes.insert(
             "timing_start_time".to_string(),
@@ -332,8 +471,17 @@ where
             span_metadata: &tracing::Metadata,
             mut data: LogFmtData,
             out: &mut Vec<u8>,
+            event_fields: &[(String, String)],
         ) -> Result<(), std::io::Error> {
             write!(out, "level=SPAN")?;
+
+            // Resolved event fields are emitted right after `level=SPAN`, mirroring
+            // event lines. Remove each from the span's own attributes first so it
+            // is not emitted twice (a span may set the attribute directly).
+            for (name, value) in event_fields {
+                data.attributes.remove(name);
+                write!(out, " {}", kvp(name, value))?;
+            }
 
             // Start writing the span_id and span_name for consistency
             if let Some(value) = data.attributes.remove("span_id") {
@@ -356,7 +504,7 @@ where
         // The format buffer is kept around as a threadlocal variable to reduce allocations
         FORMAT_BUFFER.with(|fbuf| {
             let format_buffer: &mut Vec<u8> = &mut fbuf.borrow_mut();
-            if let Ok(()) = write_span_data(span.metadata(), data, format_buffer) {
+            if let Ok(()) = write_span_data(span.metadata(), data, format_buffer, &event_fields) {
                 let mut writer = (self.make_writer)();
                 let _ = writer.write_all(format_buffer);
             }
@@ -850,12 +998,161 @@ mod tests {
     }
 
     #[test]
-    fn test_object_id_in_event_logs() {
+    fn test_default_field_on_event_and_span() {
         let writer = TestWriter::new();
         let cloned_writer = writer.clone();
         let layer = layer()
             .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
-            .with_event_fields(vec!["object_id".to_string()]);
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        let span = tracing::span!(tracing::Level::INFO, "test_span", span_id = "s1234",);
+        let _entered = span.enter();
+        tracing::info!("inside");
+        drop(_entered);
+        drop(span);
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        assert_eq!(lines.len(), 2, "got {}: {:?}", lines.len(), lines);
+        // The default is emitted right after `level=` on both lines.
+        assert!(
+            lines[0].starts_with(r#"level=INFO service=service-a span_id=s1234 msg=inside "#),
+            "Line is: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1]
+                .starts_with(r#"level=SPAN service=service-a span_id=s1234 span_name=test_span "#),
+            "Line is: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn test_span_value_overrides_default_once() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        let span = tracing::span!(
+            tracing::Level::INFO,
+            "outer",
+            span_id = "s1",
+            service = "service-b",
+        );
+        let _entered = span.enter();
+        tracing::info!("inside");
+        drop(_entered);
+        drop(span);
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        assert_eq!(lines.len(), 2, "got {}: {:?}", lines.len(), lines);
+        // The span value overrides the default, and `service` appears once.
+        assert!(
+            lines[0].starts_with(r#"level=INFO service=service-b span_id=s1 msg=inside "#),
+            "Line is: {}",
+            lines[0]
+        );
+        assert!(
+            !lines[0].contains("service-a"),
+            "default leaked: {}",
+            lines[0]
+        );
+        assert_eq!(
+            lines[0].matches("service=").count(),
+            1,
+            "duplicate service key: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].starts_with(r#"level=SPAN service=service-b span_id=s1 span_name=outer "#),
+            "Line is: {}",
+            lines[1]
+        );
+        assert_eq!(
+            lines[1].matches("service=").count(),
+            1,
+            "duplicate service key: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn test_default_field_inherited_by_nested_span() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        // Root span sets `service`; the nested child span does not.
+        let root = tracing::span!(
+            tracing::Level::INFO,
+            "outer",
+            span_id = "root",
+            service = "service-b",
+        );
+        let _root_entered = root.enter();
+        let child = tracing::span!(tracing::Level::INFO, "inner", span_id = "child");
+        let _child_entered = child.enter();
+        tracing::warn!("inner_event");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        // The event fires in the child span, which set no `service`; it must
+        // inherit `service-b` from the root span.
+        let event_line = lines
+            .iter()
+            .find(|l| l.contains("msg=inner_event"))
+            .expect("event line not found");
+        assert!(
+            event_line.contains("service=service-b"),
+            "nested event did not inherit service: {event_line}"
+        );
+        assert!(
+            !event_line.contains("service=service-a"),
+            "nested event fell back to default: {event_line}"
+        );
+    }
+
+    #[test]
+    fn test_no_field_when_unset() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer().with_writer(Arc::new(move || Box::new(cloned_writer.clone())));
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        tracing::warn!("e");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        // With no default and no span override, no `service` field is emitted,
+        // guaranteeing byte-identical output for the existing snapshot tests.
+        assert!(
+            lines[0].starts_with(r#"level=WARN msg=e "#),
+            "Line is: {}",
+            lines[0]
+        );
+        assert!(
+            !lines[0].contains("service="),
+            "unexpected service: {}",
+            lines[0]
+        );
+    }
+
+    #[test]
+    fn test_extra_field_on_event_line() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::new("request_id")]);
 
         let _subscriber = tracing_subscriber::registry().with(layer).set_default();
 
@@ -863,11 +1160,11 @@ mod tests {
             tracing::Level::INFO,
             "test_span",
             span_id = "s1234",
-            object_id = "machine-abc-123",
+            request_id = "req-abc-123",
         );
 
         let _entered = span.enter();
-        tracing::info!("event inside span with object_id");
+        tracing::info!("event inside span with request_id");
         drop(_entered);
         drop(span);
 
@@ -880,11 +1177,271 @@ mod tests {
             lines.len(),
             lines
         );
-        // Event should include both span_id and object_id
+        // Event should include both span_id and request_id
         assert!(
-            lines[0].starts_with(r#"level=INFO span_id=s1234 object_id=machine-abc-123 msg="event inside span with object_id" location=""#),
+            lines[0].starts_with(r#"level=INFO request_id=req-abc-123 span_id=s1234 msg="event inside span with request_id" location=""#),
             "Line is: {}",
             lines[0]
+        );
+    }
+
+    #[test]
+    fn test_extra_field_inherited_from_parent_span() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::new("request_id")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        // Parent sets `request_id`; the nested child does not -> the child's event
+        // inherits it from the parent span.
+        let root = tracing::span!(
+            tracing::Level::INFO,
+            "outer",
+            span_id = "root",
+            request_id = "req-1",
+        );
+        let _root = root.enter();
+        let child = tracing::span!(tracing::Level::INFO, "inner", span_id = "child");
+        let _child = child.enter();
+        tracing::info!("inner_event");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let event_line = lines
+            .iter()
+            .find(|l| l.contains("msg=inner_event"))
+            .expect("event line not found");
+        assert!(
+            event_line.contains("request_id=req-1"),
+            "nested event did not inherit request_id: {event_line}"
+        );
+    }
+
+    #[test]
+    fn test_extra_field_child_value_overrides_parent() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::new("request_id")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        // Both parent and child set `request_id` -> the child's own value wins
+        // over the inherited parent value; a parent never replaces a child's value.
+        let root = tracing::span!(
+            tracing::Level::INFO,
+            "outer",
+            span_id = "root",
+            request_id = "req-parent",
+        );
+        let _root = root.enter();
+        let child = tracing::span!(
+            tracing::Level::INFO,
+            "inner",
+            span_id = "child",
+            request_id = "req-child",
+        );
+        let _child = child.enter();
+        tracing::info!("inner_event");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let event_line = lines
+            .iter()
+            .find(|l| l.contains("msg=inner_event"))
+            .expect("event line not found");
+        assert!(
+            event_line.contains("request_id=req-child"),
+            "child's own request_id should win: {event_line}"
+        );
+        assert!(
+            !event_line.contains("req-parent"),
+            "parent value leaked: {event_line}"
+        );
+    }
+
+    #[test]
+    fn test_extra_field_on_span_line() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::new("request_id")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        // A plain extra field is emitted on span-close lines too (not just event
+        // lines): the span that sets it carries it on its own close line, and a
+        // nested span that doesn't set it inherits it onto its close line.
+        let root = tracing::span!(
+            tracing::Level::INFO,
+            "outer",
+            span_id = "root",
+            request_id = "req-1",
+        );
+        let _root = root.enter();
+        let child = tracing::span!(tracing::Level::INFO, "inner", span_id = "child");
+        drop(child); // child's SPAN line
+        drop(_root);
+        drop(root); // outer's SPAN line
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let child_span = lines
+            .iter()
+            .find(|l| l.contains("span_name=inner"))
+            .expect("child span line not found");
+        let outer_span = lines
+            .iter()
+            .find(|l| l.contains("span_name=outer"))
+            .expect("outer span line not found");
+        // Inherited onto the child's close line, present on the outer's, once each.
+        assert!(
+            child_span.contains("request_id=req-1"),
+            "child span line missing inherited request_id: {child_span}"
+        );
+        assert_eq!(
+            child_span.matches("request_id=").count(),
+            1,
+            "duplicate request_id on child span line: {child_span}"
+        );
+        assert!(
+            outer_span.contains("request_id=req-1"),
+            "outer span line missing request_id: {outer_span}"
+        );
+        assert_eq!(
+            outer_span.matches("request_id=").count(),
+            1,
+            "duplicate request_id on outer span line: {outer_span}"
+        );
+    }
+
+    // --- event-field inheritance edge cases ---
+
+    #[test]
+    fn test_explicit_parent_inheritance() {
+        // Inheritance must follow an explicit `parent:` link, not just the
+        // contextual current span. Here the child is created with an explicit
+        // parent that is NOT entered, so contextual lookup would miss it.
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        let parent = tracing::span!(
+            tracing::Level::INFO,
+            "parent",
+            span_id = "p",
+            service = "service-b",
+        );
+        // Note: parent is never entered. The child names it explicitly.
+        let child = tracing::span!(parent: &parent, tracing::Level::INFO, "child", span_id = "c");
+        let _entered = child.enter();
+        tracing::info!("explicit_parent_event");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let event_line = lines
+            .iter()
+            .find(|l| l.contains("msg=explicit_parent_event"))
+            .expect("event line not found");
+        assert!(
+            event_line.contains("service=service-b"),
+            "explicit parent value not inherited: {event_line}"
+        );
+        assert!(
+            !event_line.contains("service-a"),
+            "fell back to default instead of inheriting explicit parent: {event_line}"
+        );
+    }
+
+    #[test]
+    fn test_empty_field_recorded_after_creation_overrides_inherited() {
+        // A child declares the field as `Empty` (so it has no own value at
+        // creation and inherits the parent's resolved value), then fills it in
+        // via `span.record`. `on_record` must refresh the resolved value so the
+        // span's own value wins over the inherited one.
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        let root = tracing::span!(
+            tracing::Level::INFO,
+            "root",
+            span_id = "root",
+            service = "parent-comp",
+        );
+        let _root = root.enter();
+        let child = tracing::span!(
+            tracing::Level::INFO,
+            "child",
+            span_id = "child",
+            service = tracing::field::Empty,
+        );
+        let _child = child.enter();
+        // Before record: should inherit `parent-comp`.
+        tracing::info!("before_record");
+        child.record("service", "child-comp");
+        // After record: the span's own value wins.
+        tracing::info!("after_record");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let before = lines
+            .iter()
+            .find(|l| l.contains("msg=before_record"))
+            .expect("before line not found");
+        let after = lines
+            .iter()
+            .find(|l| l.contains("msg=after_record"))
+            .expect("after line not found");
+        assert!(
+            before.contains("service=parent-comp"),
+            "child with Empty field did not inherit parent before record: {before}"
+        );
+        assert!(
+            after.contains("service=child-comp"),
+            "on_record did not refresh resolved value: {after}"
+        );
+    }
+
+    #[test]
+    fn test_deeply_nested_inheritance() {
+        // Only the outermost span sets the field; deeply nested descendants must
+        // still see it. Each level copies its parent's already-resolved value, so
+        // the value propagates down through every nested span.
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer()
+            .with_writer(Arc::new(move || Box::new(cloned_writer.clone())))
+            .with_event_fields([EventField::with_default("service", "service-a")]);
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        let s1 = tracing::span!(tracing::Level::INFO, "s1", service = "deep-comp");
+        let _e1 = s1.enter();
+        let s2 = tracing::span!(tracing::Level::INFO, "s2");
+        let _e2 = s2.enter();
+        let s3 = tracing::span!(tracing::Level::INFO, "s3");
+        let _e3 = s3.enter();
+        let s4 = tracing::span!(tracing::Level::INFO, "s4");
+        let _e4 = s4.enter();
+        tracing::info!("deep_event");
+
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        let event_line = lines
+            .iter()
+            .find(|l| l.contains("msg=deep_event"))
+            .expect("event line not found");
+        assert!(
+            event_line.contains("service=deep-comp"),
+            "deeply nested span did not inherit service: {event_line}"
         );
     }
 }

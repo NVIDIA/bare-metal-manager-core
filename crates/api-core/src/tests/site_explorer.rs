@@ -20,13 +20,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
-use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
+use carbide_site_explorer::endpoint_exploration_work_key;
 use common::api_fixtures::TestEnv;
-use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
 use model::site_explorer::{
@@ -40,9 +38,7 @@ use sqlx::PgPool;
 use tonic::Request;
 
 use crate::sqlx_test;
-use crate::test_support::fixture_config::{
-    DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
-};
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -57,12 +53,6 @@ const HOST_BMC_VENDOR_STRING: &str = "SomeVendor";
 const DPU_BMC_VENDOR_STRING: &str = "NVIDIA/BF/BMC";
 
 trait TestEnvExt {
-    fn new_site_explorer(
-        &self,
-        explorer_config: SiteExplorerConfig,
-        endpoint_explorer: &Arc<MockEndpointExplorer>,
-    ) -> SiteExplorer;
-
     async fn dhcp_discover(
         &self,
         bmc_mac_address: MacAddress,
@@ -71,24 +61,6 @@ trait TestEnvExt {
 }
 
 impl TestEnvExt for TestEnv {
-    fn new_site_explorer(
-        &self,
-        explorer_config: SiteExplorerConfig,
-        endpoint_explorer: &Arc<MockEndpointExplorer>,
-    ) -> SiteExplorer {
-        SiteExplorer::new(
-            self.pool.clone(),
-            explorer_config,
-            self.test_meter.meter(),
-            endpoint_explorer.clone(),
-            Arc::new(self.config.get_firmware_config()),
-            self.common_pools.clone(),
-            self.api.work_lock_manager_handle.clone(),
-            self.rms_sim.as_rms_client(),
-            self.test_credential_manager.clone(),
-        )
-    }
-
     async fn dhcp_discover(
         &self,
         bmc_mac_address: MacAddress,
@@ -166,133 +138,6 @@ async fn test_disable_machine_creation_outside_site_explorer(
         .await;
 
     // assert!(dm_response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) =
-        common::api_fixtures::create_managed_host(&env).await.into();
-    let segment_id = env.create_vpc_and_tenant_segment().await;
-    let host_machine = env.find_machine(host_machine_id).await.remove(0);
-    let dpu_machine = env.find_machine(dpu_machine_id).await.remove(0);
-    let bmc_ip: std::net::IpAddr = host_machine
-        .bmc_info
-        .as_ref()
-        .unwrap()
-        .ip()
-        .parse()
-        .unwrap();
-    let chassis_serial = host_machine
-        .discovery_info
-        .as_ref()
-        .unwrap()
-        .dmi_data
-        .as_ref()
-        .unwrap()
-        .chassis_serial
-        .clone();
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    // Start with one successful site explorer to update ExploredEndpoints with valid info
-    endpoint_explorer.insert_endpoint_results(vec![
-        (
-            bmc_ip,
-            Ok(ManagedHostConfig::with_serial(chassis_serial.clone()).into()),
-        ),
-        (
-            dpu_machine.bmc_info.as_ref().unwrap().ip().parse().unwrap(),
-            Ok(DpuConfig::with_serial(
-                dpu_machine
-                    .discovery_info
-                    .as_ref()
-                    .unwrap()
-                    .dmi_data
-                    .as_ref()
-                    .unwrap()
-                    .product_serial
-                    .clone(),
-            )
-            .into()),
-        ),
-    ]);
-
-    // This is a hack to Make Site Explorer work against the ingested BMC IPs
-    // There is currently no separate segment for tenant, admin and underlay networks,
-    // which prevents site explorer from running
-    let mut txn = env.pool.begin().await?;
-    let query = "UPDATE network_segments SET network_segment_type='underlay' WHERE id=$1";
-    sqlx::query::<_>(query)
-        .bind(segment_id)
-        .execute(&mut *txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        retained_boot_interface_window: None,
-        explorations_per_run: 10,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
-
-    // Run site explorer and check the health state of the Machine
-    explorer.run_single_iteration().await.unwrap();
-
-    let host_machine = env.find_machine(host_machine_id).await.remove(0);
-
-    let alerts = &host_machine.health.as_ref().unwrap().alerts;
-    assert!(alerts.is_empty());
-
-    // Now mark the Machine as unreachable. A health alert should be emitted
-    endpoint_explorer.insert_endpoint_result(
-        host_machine
-            .bmc_info
-            .as_ref()
-            .unwrap()
-            .ip()
-            .parse()
-            .unwrap(),
-        Err(EndpointExplorationError::Unreachable { details: None }),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-
-    let host_machine = env.find_machine(host_machine_id).await.remove(0);
-
-    let mut alerts = host_machine.health.as_ref().unwrap().alerts.clone();
-    assert_eq!(alerts.len(), 1);
-    for alert in alerts.iter_mut() {
-        assert!(alert.in_alert_since.is_some());
-        alert.in_alert_since = None;
-    }
-    alerts
-        .sort_by(|alert1, alert2| (&alert1.id, &alert1.target).cmp(&(&alert2.id, &alert2.target)));
-    assert_eq!(
-        alerts,
-        vec![rpc::health::HealthProbeAlert {
-            id: "BmcExplorationFailure".to_string(),
-            target: Some(bmc_ip.to_string()),
-            in_alert_since: None,
-            message: "Endpoint exploration failed: The endpoint was not reachable due to a generic network issue: None"
-                .to_string(),
-            tenant_message: None,
-            classifications: vec!["PreventAllocations".to_string()]
-        }]
-    );
 
     Ok(())
 }
@@ -1040,71 +885,6 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
         primary.boot_interface_id.as_deref(),
         Some("NIC.Slot.5-1"),
         "exploration should backfill the Redfish interface id onto the machine_interface row",
-    );
-
-    Ok(())
-}
-
-/// A Managed Host whose `expected_machines` row is later removed becomes an
-/// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
-/// alert on the host's Machine. Re-adding the entry clears the alert on the
-/// next iteration.
-#[sqlx_test]
-async fn test_orphan_managed_host_alert_emitted(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let host_config = ManagedHostConfig::default();
-    let host_bmc_mac = host_config.bmc_mac_address;
-    let chassis_serial = host_config.serial.clone();
-    let mh = common::api_fixtures::create_managed_host_with_config(&env, host_config).await;
-
-    // Orphan the host by deleting its expected_machines entry.
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::delete_by_mac(&mut txn, host_bmc_mac).await?;
-    txn.commit().await?;
-
-    // Run an iteration: audit_exploration_results should emit the orphan alert.
-    env.run_site_explorer_iteration().await;
-    let alerts = env
-        .find_machine(mh.id)
-        .await
-        .remove(0)
-        .health
-        .unwrap()
-        .alerts;
-    assert!(
-        alerts.iter().any(|a| a.id == "OrphanManagedHost"),
-        "expected OrphanManagedHost alert, got: {alerts:#?}"
-    );
-
-    // Re-add the expected_machines entry — the alert should clear next iteration.
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: host_bmc_mac,
-            data: ExpectedMachineData {
-                serial_number: chassis_serial,
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    env.run_site_explorer_iteration().await;
-    let alerts = env
-        .find_machine(mh.id)
-        .await
-        .remove(0)
-        .health
-        .unwrap()
-        .alerts;
-    assert!(
-        !alerts.iter().any(|a| a.id == "OrphanManagedHost"),
-        "expected no OrphanManagedHost alert after re-adding expected_machines, got: {alerts:#?}"
     );
 
     Ok(())

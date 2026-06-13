@@ -36,7 +36,7 @@ type Manager struct {
 	nicoClient nicoapi.Client
 	// readiness guards power/firmware operations on a switch from running
 	// while any host on the switch's rack is reported as not ready for
-	// the operation by its persisted ComponentStatus. A switch reset
+	// the operation by its persisted ComponentOperationStatus. A switch reset
 	// typically disrupts NVLink traffic for the whole rack, so this check
 	// is rack-scoped rather than component-scoped.
 	readiness readiness.Gate
@@ -141,7 +141,7 @@ func switchIDsProto(ids []string) *pb.SwitchIdList {
 // ensureRackOperable is the per-Manager policy gate for disruptive
 // operations on the racks that own the given switches. The default policy
 // refuses to proceed while any host on the resolved rack(s) is reported
-// as not ready for the operation by its persisted ComponentStatus,
+// as not ready for the operation by its persisted ComponentOperationStatus,
 // because a switch reset disrupts NVLink traffic for the entire rack.
 //
 // When overrideReadinessCheck is true the gate is short-circuited

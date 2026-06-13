@@ -82,6 +82,8 @@ func TestNewAPIRack(t *testing.T) {
 							SlotId: 1,
 						},
 						ComponentId: "nico-machine-123",
+						Status:      &flowv1.ComponentOperationStatus{Phase: flowv1.Phase_PHASE_READY},
+						LeakStatus:  flowv1.LeakStatus_LEAK_STATUS_NOT_DETECTED,
 					},
 					{
 						Type: flowv1.ComponentType_COMPONENT_TYPE_TORSWITCH,
@@ -109,12 +111,16 @@ func TestNewAPIRack(t *testing.T) {
 						Manufacturer:    "NVIDIA",
 						FirmwareVersion: "1.0.0",
 						SlotID:          1,
+						OperationStatus: "Ready",
+						LeakStatus:      "NoLeak",
 					},
 					{
-						ID:     "comp-2",
-						Type:   "TORSwitch",
-						Name:   "switch-1",
-						SlotID: 48,
+						ID:              "comp-2",
+						Type:            "TORSwitch",
+						Name:            "switch-1",
+						SlotID:          48,
+						OperationStatus: "Unknown",
+						LeakStatus:      "Unknown",
 					},
 				},
 			},
@@ -183,6 +189,8 @@ func TestNewAPIRack(t *testing.T) {
 					assert.Equal(t, wantComp.Manufacturer, gotComp.Manufacturer)
 					assert.Equal(t, wantComp.FirmwareVersion, gotComp.FirmwareVersion)
 					assert.Equal(t, wantComp.SlotID, gotComp.SlotID)
+					assert.Equal(t, wantComp.OperationStatus, gotComp.OperationStatus)
+					assert.Equal(t, wantComp.LeakStatus, gotComp.LeakStatus)
 				}
 			} else {
 				assert.Nil(t, got.Components)

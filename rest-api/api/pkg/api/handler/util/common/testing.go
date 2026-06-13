@@ -321,10 +321,18 @@ func TestBuildAllocationConstraint(t *testing.T, dbSession *cdb.Session, al *cdb
 	var ac *cdbm.AllocationConstraint
 	var err error
 	if it != nil {
-		ac, err = acDAO.CreateFromParams(context.Background(), nil, al.ID, cdbm.AllocationResourceTypeInstanceType, it.ID, cdbm.AllocationConstraintTypeReserved, constraintValue, nil, user.ID)
+		ac, err = acDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+			AllocationID: al.ID, ResourceType: cdbm.AllocationResourceTypeInstanceType,
+			ResourceTypeID: it.ID, ConstraintType: cdbm.AllocationConstraintTypeReserved,
+			ConstraintValue: constraintValue, CreatedBy: user.ID,
+		})
 		assert.Nil(t, err)
 	} else if ipb != nil {
-		ac, err = acDAO.CreateFromParams(context.Background(), nil, al.ID, cdbm.AllocationResourceTypeIPBlock, ipb.ID, cdbm.AllocationConstraintTypeReserved, constraintValue, nil, user.ID)
+		ac, err = acDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+			AllocationID: al.ID, ResourceType: cdbm.AllocationResourceTypeIPBlock,
+			ResourceTypeID: ipb.ID, ConstraintType: cdbm.AllocationConstraintTypeReserved,
+			ConstraintValue: constraintValue, CreatedBy: user.ID,
+		})
 		assert.Nil(t, err)
 	}
 	return ac

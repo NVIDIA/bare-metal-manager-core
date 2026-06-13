@@ -59,7 +59,7 @@ type Manager struct {
 	powerDelay time.Duration
 	// readiness guards mutating operations from running while any target
 	// machine is reported as not ready for the operation by its persisted
-	// ComponentStatus.
+	// ComponentOperationStatus.
 	readiness readiness.Gate
 	// dpuReprovOpts is forwarded to dpureprov.ReprovisionHosts when
 	// SubTargets contains "dpu". Zero in production so the dpureprov
@@ -180,7 +180,7 @@ func (m *Manager) PowerControl(
 	}
 
 	// Refuse to power-cycle a host that is not ready for the operation.
-	// The poll blocks until the persisted ComponentStatus reports the host
+	// The poll blocks until the persisted ComponentOperationStatus reports the host
 	// as ready, or returns an error at the deadline. The operator may set
 	// OverrideReadinessCheck to bypass this gate for supervised
 	// maintenance; the bypass is logged inside ensureMachinesOperable.
@@ -914,7 +914,7 @@ func nicoToBringUpState(
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
 // while any target host is reported as not ready for op by its persisted
-// ComponentStatus.
+// ComponentOperationStatus.
 //
 // When overrideReadinessCheck is true the gate is short-circuited and the
 // operation runs against the current set of machines unconditionally. The

@@ -55,7 +55,6 @@ type ExpectedPowerShelf struct {
 	Manufacturer      *string   `bun:"manufacturer"`
 	Model             *string   `bun:"model"`
 	Description       *string   `bun:"description"`
-	FirmwareVersion   *string   `bun:"firmware_version"`
 	SlotID            *int32    `bun:"slot_id"`
 	TrayIdx           *int32    `bun:"tray_idx"`
 	HostID            *int32    `bun:"host_id"`
@@ -102,9 +101,6 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 	if eps.Description != nil {
 		proto.Description = eps.Description
 	}
-	if eps.FirmwareVersion != nil {
-		proto.FirmwareVersion = eps.FirmwareVersion
-	}
 	if eps.SlotID != nil {
 		proto.SlotId = eps.SlotID
 	}
@@ -124,13 +120,12 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 
 	metadata := &cwssaws.Metadata{
 		Labels: expectedComponentLabelsInput{
-			Manufacturer:    eps.Manufacturer,
-			Model:           eps.Model,
-			FirmwareVersion: eps.FirmwareVersion,
-			SlotID:          eps.SlotID,
-			TrayIdx:         eps.TrayIdx,
-			HostID:          eps.HostID,
-			Labels:          eps.Labels,
+			Manufacturer: eps.Manufacturer,
+			Model:        eps.Model,
+			SlotID:       eps.SlotID,
+			TrayIdx:      eps.TrayIdx,
+			HostID:       eps.HostID,
+			Labels:       eps.Labels,
 		}.ToProto(),
 	}
 	if eps.Name != nil {
@@ -175,7 +170,6 @@ func (eps *ExpectedPowerShelf) FromProto(proto *cwssaws.ExpectedPowerShelf) {
 	eps.Manufacturer = proto.Manufacturer
 	eps.Model = proto.Model
 	eps.Description = proto.Description
-	eps.FirmwareVersion = proto.FirmwareVersion
 	eps.SlotID = proto.SlotId
 	eps.TrayIdx = proto.TrayIdx
 	eps.HostID = proto.HostId
@@ -194,7 +188,6 @@ type ExpectedPowerShelfCreateInput struct {
 	Manufacturer         *string
 	Model                *string
 	Description          *string
-	FirmwareVersion      *string
 	SlotID               *int32
 	TrayIdx              *int32
 	HostID               *int32
@@ -213,7 +206,6 @@ type ExpectedPowerShelfUpdateInput struct {
 	Manufacturer         *string
 	Model                *string
 	Description          *string
-	FirmwareVersion      *string
 	SlotID               *int32
 	TrayIdx              *int32
 	HostID               *int32
@@ -229,7 +221,6 @@ type ExpectedPowerShelfClearInput struct {
 	Manufacturer         bool
 	Model                bool
 	Description          bool
-	FirmwareVersion      bool
 	SlotID               bool
 	TrayIdx              bool
 	HostID               bool
@@ -314,7 +305,6 @@ func (epsd ExpectedPowerShelfSQLDAO) Create(ctx context.Context, tx *db.Tx, inpu
 		Manufacturer:      input.Manufacturer,
 		Model:             input.Model,
 		Description:       input.Description,
-		FirmwareVersion:   input.FirmwareVersion,
 		SlotID:            input.SlotID,
 		TrayIdx:           input.TrayIdx,
 		HostID:            input.HostID,
@@ -525,10 +515,6 @@ func (epsd ExpectedPowerShelfSQLDAO) Update(ctx context.Context, tx *db.Tx, inpu
 		eps.Description = input.Description
 		columnsSet["description"] = true
 	}
-	if input.FirmwareVersion != nil {
-		eps.FirmwareVersion = input.FirmwareVersion
-		columnsSet["firmware_version"] = true
-	}
 	if input.SlotID != nil {
 		eps.SlotID = input.SlotID
 		columnsSet["slot_id"] = true
@@ -614,10 +600,6 @@ func (epsd ExpectedPowerShelfSQLDAO) Clear(ctx context.Context, tx *db.Tx, input
 	if input.Description {
 		eps.Description = nil
 		updatedFields = append(updatedFields, "description")
-	}
-	if input.FirmwareVersion {
-		eps.FirmwareVersion = nil
-		updatedFields = append(updatedFields, "firmware_version")
 	}
 	if input.SlotID {
 		eps.SlotID = nil

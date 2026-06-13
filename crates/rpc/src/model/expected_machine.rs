@@ -146,7 +146,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                 .default_pause_ingestion_and_poweron,
             // This should be removed after few releases.
             #[allow(deprecated)]
-            dpf_enabled: expected_machine.data.dpf_enabled.unwrap_or_default(),
+            dpf_enabled: expected_machine.data.dpf_enabled.unwrap_or(true),
             is_dpf_enabled: expected_machine.data.dpf_enabled,
             // Optional configured BMC IP (proto optional string).
             bmc_ip_address: expected_machine

@@ -34,6 +34,28 @@ var ProtoToAPIComponentTypeName = map[flowv1.ComponentType]string{
 	flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF: "PowerShelf",
 }
 
+// ProtoToAPIPhaseName maps a component's protobuf operation-status Phase to the
+// string surfaced as `operationStatus`. A component with no computed status
+// (nil) resolves to "Unknown" via enumOr.
+var ProtoToAPIPhaseName = map[flowv1.Phase]string{
+	flowv1.Phase_PHASE_UNKNOWN:      "Unknown",
+	flowv1.Phase_PHASE_INITIALIZING: "Initializing",
+	flowv1.Phase_PHASE_READY:        "Ready",
+	flowv1.Phase_PHASE_IN_USE:       "InUse",
+	flowv1.Phase_PHASE_ERROR:        "Error",
+	flowv1.Phase_PHASE_DELETING:     "Deleting",
+}
+
+// ProtoToAPILeakStatusName maps Flow's leak-detection enum to the leak status
+// surfaced as `leakStatus`. Callers care whether a tray is considered leaking,
+// not about the underlying detection signal, so a fired detection maps to
+// "Leaking" and a clear detection to "NoLeak".
+var ProtoToAPILeakStatusName = map[flowv1.LeakStatus]string{
+	flowv1.LeakStatus_LEAK_STATUS_UNKNOWN:      "Unknown",
+	flowv1.LeakStatus_LEAK_STATUS_DETECTED:     "Leaking",
+	flowv1.LeakStatus_LEAK_STATUS_NOT_DETECTED: "NoLeak",
+}
+
 var validTrayTypesAny, ValidProtoComponentTypes = func() ([]interface{}, []flowv1.ComponentType) {
 	anyTypes := make([]interface{}, 0, len(APIToProtoComponentTypeName))
 	protoTypes := make([]flowv1.ComponentType, 0, len(APIToProtoComponentTypeName))
@@ -659,6 +681,8 @@ type APITray struct {
 	Description     string           `json:"description"`
 	FirmwareVersion string           `json:"firmwareVersion"`
 	PowerState      string           `json:"powerState"`
+	OperationStatus string           `json:"operationStatus"`
+	LeakStatus      string           `json:"leakStatus"`
 	Position        *APITrayPosition `json:"position"`
 	BMCs            []*APIBMC        `json:"bmcs"`
 	RackID          string           `json:"rackId"`
@@ -673,6 +697,8 @@ func (at *APITray) FromProto(comp *flowv1.Component) {
 	at.Type = enumOr(ProtoToAPIComponentTypeName, comp.GetType(), "unknown")
 	at.FirmwareVersion = comp.GetFirmwareVersion()
 	at.PowerState = comp.GetPowerState()
+	at.OperationStatus = enumOr(ProtoToAPIPhaseName, comp.GetStatus().GetPhase(), "Unknown")
+	at.LeakStatus = enumOr(ProtoToAPILeakStatusName, comp.GetLeakStatus(), "Unknown")
 	at.ComponentID = comp.GetComponentId()
 
 	// Get info from DeviceInfo

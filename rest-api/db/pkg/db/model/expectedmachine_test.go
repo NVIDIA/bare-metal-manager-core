@@ -29,7 +29,6 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 	manufacturer := "ACME"
 	model := "M1"
 	description := "primary"
-	firmware := "1.2.3"
 	bmcIP := "10.0.0.1"
 	var slot, trayIdx, host int32 = 1, 2, 3
 
@@ -67,7 +66,6 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 			Manufacturer:             &manufacturer,
 			Model:                    &model,
 			Description:              &description,
-			FirmwareVersion:          &firmware,
 			SlotId:                   &slot,
 			TrayIdx:                  &trayIdx,
 			HostId:                   &host,
@@ -92,7 +90,6 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 		assert.Equal(t, &manufacturer, em.Manufacturer)
 		assert.Equal(t, &model, em.Model)
 		assert.Equal(t, &description, em.Description)
-		assert.Equal(t, &firmware, em.FirmwareVersion)
 		assert.Equal(t, &slot, em.SlotID)
 		assert.Equal(t, &trayIdx, em.TrayIdx)
 		assert.Equal(t, &host, em.HostID)

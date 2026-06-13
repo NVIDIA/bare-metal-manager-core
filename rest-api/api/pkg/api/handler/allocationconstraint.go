@@ -243,14 +243,13 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 				allocConstraints, _, derr := acDAO.GetAll(
 					ctx,
 					tx,
-					allocationIDs,
-					cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
-					[]uuid.UUID{dbit.ID},
-					cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
-					nil,
-					nil,
-					nil,
-					cutil.GetPtr(paginator.TotalLimit),
+					cdbm.AllocationConstraintFilterInput{
+						AllocationIDs:   allocationIDs,
+						ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+						ResourceTypeIDs: []uuid.UUID{dbit.ID},
+						ConstraintType:  cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
+					},
+					paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)},
 					nil,
 				)
 				if derr != nil {
@@ -424,7 +423,10 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 				}
 			}
 
-			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cutil.GetPtr(apiRequest.ConstraintValue), nil)
+			newac, derr := acDAO.Update(ctx, tx, cdbm.AllocationConstraintUpdateInput{
+				AllocationConstraintID: ac.ID,
+				ConstraintValue:        cutil.GetPtr(apiRequest.ConstraintValue),
+			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Allocation Constraint in DB")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Allocation Constraint with new constraint value, DB error", nil)

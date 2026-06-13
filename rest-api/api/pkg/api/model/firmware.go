@@ -44,6 +44,11 @@ type APIUpdateFirmwareRequest struct {
 	// RuleID, when set, overrides the default rule resolution and pins this
 	// firmware operation to the named Operation Rule.
 	RuleID *string `json:"ruleId"`
+	// OverrideReadinessCheck, when true, proceeds with the firmware update
+	// even if one or more target components (or hosts on the owning rack for
+	// rack-scoped components) are reported as not ready by their persisted
+	// status. Intended for operator-supervised maintenance.
+	OverrideReadinessCheck bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 // Validate validates the firmware update request
@@ -94,6 +99,9 @@ type APIBatchRackFirmwareUpdateRequest struct {
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
 	RuleID *string `json:"ruleId"`
+	// OverrideReadinessCheck applies the readiness-gate bypass to every task
+	// spawned by this batch. See APIUpdateFirmwareRequest for semantics.
+	OverrideReadinessCheck bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 // Validate checks required fields.
@@ -118,6 +126,9 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
 	RuleID *string `json:"ruleId"`
+	// OverrideReadinessCheck applies the readiness-gate bypass to every task
+	// spawned by this batch. See APIUpdateFirmwareRequest for semantics.
+	OverrideReadinessCheck bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 // Validate checks required fields and filter constraints.

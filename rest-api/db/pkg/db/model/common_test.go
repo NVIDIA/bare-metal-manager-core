@@ -119,23 +119,21 @@ func labelsAsMap(protoLabels []*cwssaws.Label) Labels {
 func TestExpectedComponentLabelsInput_ToProto(t *testing.T) {
 	t.Run("merges user labels with the flat device fields", func(t *testing.T) {
 		got := labelsAsMap(expectedComponentLabelsInput{
-			Manufacturer:    cutil.GetPtr("NVIDIA"),
-			Model:           cutil.GetPtr("MGX"),
-			FirmwareVersion: cutil.GetPtr("25.06-2"),
-			SlotID:          cutil.GetPtr(int32(3)),
-			TrayIdx:         cutil.GetPtr(int32(0)), // zero is a valid position
-			HostID:          cutil.GetPtr(int32(1)),
-			Labels:          Labels{"environment": "prod", "team": "infra"},
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			Model:        cutil.GetPtr("MGX"),
+			SlotID:       cutil.GetPtr(int32(3)),
+			TrayIdx:      cutil.GetPtr(int32(0)), // zero is a valid position
+			HostID:       cutil.GetPtr(int32(1)),
+			Labels:       Labels{"environment": "prod", "team": "infra"},
 		}.ToProto())
 		assert.Equal(t, Labels{
-			"environment":      "prod",
-			"team":             "infra",
-			"manufacturer":     "NVIDIA",
-			"model":            "MGX",
-			"firmware_version": "25.06-2",
-			"slot_id":          "3",
-			"tray_idx":         "0",
-			"host_id":          "1",
+			"environment":  "prod",
+			"team":         "infra",
+			"manufacturer": "NVIDIA",
+			"model":        "MGX",
+			"slot_id":      "3",
+			"tray_idx":     "0",
+			"host_id":      "1",
 		}, got)
 	})
 

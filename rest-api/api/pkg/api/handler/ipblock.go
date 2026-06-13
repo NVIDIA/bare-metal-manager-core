@@ -637,7 +637,10 @@ func (gadipbh GetAllDerivedIPBlockHandler) Handle(c echo.Context) error {
 
 	// Get allocation constraints by resourcetype ID (parent IPBlock)
 	acDAO := cdbm.NewAllocationConstraintDAO(gadipbh.dbSession)
-	acs, _, err := acDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{ipb.ID}, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	acs, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{
+		ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock),
+		ResourceTypeIDs: []uuid.UUID{ipb.ID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Allocation Constraints for parent IPBlock from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for parent IPBlock", nil)
@@ -1129,7 +1132,10 @@ func (dipbh DeleteIPBlockHandler) Handle(c echo.Context) error {
 
 	// Verify that the IPBlock does not have any allocations associated with it
 	acDAO := cdbm.NewAllocationConstraintDAO(dipbh.dbSession)
-	_, acCount, err := acDAO.GetAll(ctx, nil, nil, cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock), []uuid.UUID{ipb.ID}, nil, nil, nil, nil, nil, nil)
+	_, acCount, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{
+		ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock),
+		ResourceTypeIDs: []uuid.UUID{ipb.ID},
+	}, cdbp.PageInput{}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting allocation constraints")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Allocations for IP Block", nil)

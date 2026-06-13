@@ -191,9 +191,11 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	var constraints []cdbm.AllocationConstraint
 	if len(allocationIDs) > 0 {
 		acDAO := cdbm.NewAllocationConstraintDAO(gtitsh.dbSession)
-		constraints, _, err = acDAO.GetAll(ctx, nil, allocationIDs,
-			cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
-			nil, nil, []string{"Allocation.Tenant"}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		constraints, _, err = acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{
+			AllocationIDs:   allocationIDs,
+			ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+			ResourceTypeIDs: instanceTypeIDs,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Allocation.Tenant"})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving allocation constraints")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation constraints", nil)
@@ -526,9 +528,11 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	var constraints []cdbm.AllocationConstraint
 	if len(allocationIDs) > 0 {
 		acDAO := cdbm.NewAllocationConstraintDAO(gmitsh.dbSession)
-		constraints, _, err = acDAO.GetAll(ctx, nil, allocationIDs,
-			cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
-			nil, nil, []string{"Allocation.Tenant"}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		constraints, _, err = acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{
+			AllocationIDs:   allocationIDs,
+			ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+			ResourceTypeIDs: instanceTypeIDs,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Allocation.Tenant"})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving allocation constraints")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation constraints", nil)

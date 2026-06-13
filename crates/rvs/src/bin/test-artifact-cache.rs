@@ -73,7 +73,12 @@ async fn main() -> Result<(), RvsError> {
         .from_env_lossy();
 
     tracing_subscriber::registry()
-        .with(logfmt::layer())
+        .with(
+            logfmt::layer().with_event_fields([logfmt::EventField::with_default(
+                "component",
+                "nico-test-artifact-cache",
+            )]),
+        )
         .with(env_filter)
         .init();
 

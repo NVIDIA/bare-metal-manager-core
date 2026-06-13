@@ -32,6 +32,8 @@ type BatchRackFirmwareUpdateRequest struct {
 	Version NullableString `json:"version,omitempty"`
 	// Optional Operation Rule UUID. When set, pins every task spawned by this batch to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
+	// When true, proceed even if one or more target components (or hosts on the owning rack for rack-scoped components) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
+	OverrideReadinessCheck *bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 type _BatchRackFirmwareUpdateRequest BatchRackFirmwareUpdateRequest
@@ -43,6 +45,8 @@ type _BatchRackFirmwareUpdateRequest BatchRackFirmwareUpdateRequest
 func NewBatchRackFirmwareUpdateRequest(siteId string) *BatchRackFirmwareUpdateRequest {
 	this := BatchRackFirmwareUpdateRequest{}
 	this.SiteId = siteId
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -51,6 +55,8 @@ func NewBatchRackFirmwareUpdateRequest(siteId string) *BatchRackFirmwareUpdateRe
 // but it doesn't guarantee that properties required by API are set
 func NewBatchRackFirmwareUpdateRequestWithDefaults() *BatchRackFirmwareUpdateRequest {
 	this := BatchRackFirmwareUpdateRequest{}
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -185,6 +191,38 @@ func (o *BatchRackFirmwareUpdateRequest) SetRuleId(v string) {
 	o.RuleId = &v
 }
 
+// GetOverrideReadinessCheck returns the OverrideReadinessCheck field value if set, zero value otherwise.
+func (o *BatchRackFirmwareUpdateRequest) GetOverrideReadinessCheck() bool {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		var ret bool
+		return ret
+	}
+	return *o.OverrideReadinessCheck
+}
+
+// GetOverrideReadinessCheckOk returns a tuple with the OverrideReadinessCheck field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BatchRackFirmwareUpdateRequest) GetOverrideReadinessCheckOk() (*bool, bool) {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		return nil, false
+	}
+	return o.OverrideReadinessCheck, true
+}
+
+// HasOverrideReadinessCheck returns a boolean if a field has been set.
+func (o *BatchRackFirmwareUpdateRequest) HasOverrideReadinessCheck() bool {
+	if o != nil && !IsNil(o.OverrideReadinessCheck) {
+		return true
+	}
+
+	return false
+}
+
+// SetOverrideReadinessCheck gets a reference to the given bool and assigns it to the OverrideReadinessCheck field.
+func (o *BatchRackFirmwareUpdateRequest) SetOverrideReadinessCheck(v bool) {
+	o.OverrideReadinessCheck = &v
+}
+
 func (o BatchRackFirmwareUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -204,6 +242,9 @@ func (o BatchRackFirmwareUpdateRequest) ToMap() (map[string]interface{}, error) 
 	}
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId
+	}
+	if !IsNil(o.OverrideReadinessCheck) {
+		toSerialize["overrideReadinessCheck"] = o.OverrideReadinessCheck
 	}
 	return toSerialize, nil
 }

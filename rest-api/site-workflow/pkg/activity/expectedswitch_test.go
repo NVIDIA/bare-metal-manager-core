@@ -476,7 +476,6 @@ func Test_expectedSwitchToFlowComponent(t *testing.T) {
 			Manufacturer:       strPtr("NVIDIA"),
 			Model:              strPtr("NVL-400"),
 			Description:        strPtr("NVLink switch"),
-			FirmwareVersion:    strPtr("v3.0.0"),
 			SlotId:             int32Ptr(4),
 			TrayIdx:            int32Ptr(1),
 			HostId:             int32Ptr(0),
@@ -490,7 +489,6 @@ func Test_expectedSwitchToFlowComponent(t *testing.T) {
 		assert.Equal(t, "NVL-400", *component.Info.Model)
 		assert.Equal(t, "NVLink switch", *component.Info.Description)
 		assert.Equal(t, "es-001", component.ComponentId)
-		assert.Equal(t, "v3.0.0", component.FirmwareVersion)
 		assert.NotNil(t, component.Position)
 		assert.Equal(t, int32(4), component.Position.SlotId)
 		assert.Equal(t, int32(1), component.Position.TrayIdx)
@@ -511,7 +509,6 @@ func Test_expectedSwitchToFlowComponent(t *testing.T) {
 		assert.Empty(t, component.Info.Name)
 		assert.Empty(t, component.Info.Manufacturer)
 		assert.Nil(t, component.Info.Model)
-		assert.Empty(t, component.FirmwareVersion)
 		assert.Nil(t, component.Position)
 		assert.Nil(t, component.RackId)
 	})

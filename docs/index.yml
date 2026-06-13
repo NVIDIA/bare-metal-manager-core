@@ -123,6 +123,8 @@ navigation:
           path: configuration/org-permissions.md
         - page: Machine Identity
           path: configuration/machine_identity.md
+        - page: Host Naming
+          path: configuration/host-naming.md
 
     - section: Operations (Day 2)
       contents:
@@ -194,6 +196,8 @@ navigation:
               path: observability/core_metrics.md
             - page: Traces
               path: observability/tracing.md
+            - page: Logging
+              path: observability/logging.md
         - page: NICo Debug WebUI
           path: operations/debug_webui.md
         - section: Playbooks

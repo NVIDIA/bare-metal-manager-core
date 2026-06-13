@@ -129,6 +129,7 @@ async fn test_power_shelf_deletion_with_state_controller(
                 db_pool: pool.clone(),
                 component_manager: None,
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: env.per_object_metrics_registry(),
             }
             .into(),
         )

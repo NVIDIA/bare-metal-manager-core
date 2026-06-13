@@ -26,7 +26,6 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 	manufacturer := "ACME"
 	model := "PS1"
 	description := "primary"
-	firmware := "1.2.3"
 	var slot, trayIdx, host int32 = 1, 2, 3
 
 	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
@@ -60,7 +59,6 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 			Manufacturer:         &manufacturer,
 			Model:                &model,
 			Description:          &description,
-			FirmwareVersion:      &firmware,
 			SlotId:               &slot,
 			TrayIdx:              &trayIdx,
 			HostId:               &host,
@@ -84,7 +82,6 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 		assert.Equal(t, &manufacturer, eps.Manufacturer)
 		assert.Equal(t, &model, eps.Model)
 		assert.Equal(t, &description, eps.Description)
-		assert.Equal(t, &firmware, eps.FirmwareVersion)
 		assert.Equal(t, &slot, eps.SlotID)
 		assert.Equal(t, &trayIdx, eps.TrayIdx)
 		assert.Equal(t, &host, eps.HostID)

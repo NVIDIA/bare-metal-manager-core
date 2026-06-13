@@ -11,6 +11,7 @@ name = "carbide_site_explorer"
 
 [features]
 default = []
+test-support = []
 
 [dependencies]
 bmc-explorer = { path = "../bmc-explorer" }
@@ -51,13 +52,13 @@ version-compare = { workspace = true }
 
 [dev-dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-api-core = { path = "../api-core", features = ["test-support"] }
 carbide-api-model = { path = "../api-model", default-features = false, features = [
   "test-support",
 ] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-rpc = { path = "../rpc", features = ["test-support"] }
+carbide-site-explorer = { path = ".", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 
 tokio = { workspace = true, features = ["macros", "rt"] }

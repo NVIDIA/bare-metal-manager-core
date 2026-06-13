@@ -44,8 +44,6 @@ type APIExpectedSwitchCreateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -87,8 +85,6 @@ func (escr *APIExpectedSwitchCreateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&escr.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&escr.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -130,8 +126,6 @@ type APIExpectedSwitchUpdateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -187,8 +181,6 @@ func (esur *APIExpectedSwitchUpdateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&esur.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&esur.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -226,8 +218,6 @@ type APIExpectedSwitch struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected switch
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected switch
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -255,7 +245,6 @@ func NewAPIExpectedSwitch(dbModel *cdbm.ExpectedSwitch) *APIExpectedSwitch {
 		Manufacturer:       dbModel.Manufacturer,
 		Model:              dbModel.Model,
 		Description:        dbModel.Description,
-		FirmwareVersion:    dbModel.FirmwareVersion,
 		SlotID:             dbModel.SlotID,
 		TrayIdx:            dbModel.TrayIdx,
 		HostID:             dbModel.HostID,

@@ -34,7 +34,7 @@ type Manager struct {
 	nicoClient nicoapi.Client
 	// readiness guards power/firmware operations on a shelf from running
 	// while any host on the shelf's rack is reported as not ready for
-	// the operation by its persisted ComponentStatus. PowerShelves feed
+	// the operation by its persisted ComponentOperationStatus. PowerShelves feed
 	// the entire rack, so toggling one can power-cycle every host
 	// downstream of it; the check is therefore rack-scoped.
 	readiness readiness.Gate
@@ -111,7 +111,7 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 // operations on the racks that own the given power shelves. The default
 // policy refuses to proceed while any host on the resolved rack(s) is
 // reported as not ready for the operation by its persisted
-// ComponentStatus, because a shelf reset power-cycles every host
+// ComponentOperationStatus, because a shelf reset power-cycles every host
 // downstream of it.
 //
 // When overrideReadinessCheck is true the gate is short-circuited

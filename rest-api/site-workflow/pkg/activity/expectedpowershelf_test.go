@@ -477,7 +477,6 @@ func Test_expectedPowerShelfToFlowComponent(t *testing.T) {
 			Manufacturer:         strPtr("Vertiv"),
 			Model:                strPtr("GXT5-3000"),
 			Description:          strPtr("Power distribution shelf"),
-			FirmwareVersion:      strPtr("v1.5.0"),
 			SlotId:               int32Ptr(10),
 			TrayIdx:              int32Ptr(0),
 			HostId:               int32Ptr(0),
@@ -491,7 +490,6 @@ func Test_expectedPowerShelfToFlowComponent(t *testing.T) {
 		assert.Equal(t, "GXT5-3000", *component.Info.Model)
 		assert.Equal(t, "Power distribution shelf", *component.Info.Description)
 		assert.Equal(t, "eps-001", component.ComponentId)
-		assert.Equal(t, "v1.5.0", component.FirmwareVersion)
 		assert.NotNil(t, component.Position)
 		assert.Equal(t, int32(10), component.Position.SlotId)
 		if assert.Len(t, component.Bmcs, 1) {
@@ -513,7 +511,6 @@ func Test_expectedPowerShelfToFlowComponent(t *testing.T) {
 		assert.Empty(t, component.Info.Name)
 		assert.Empty(t, component.Info.Manufacturer)
 		assert.Nil(t, component.Info.Model)
-		assert.Empty(t, component.FirmwareVersion)
 		assert.Nil(t, component.Position)
 		assert.Nil(t, component.RackId)
 		if assert.Len(t, component.Bmcs, 1) {

@@ -65,6 +65,7 @@ applicable.
 | `network_security_group` | `NetworkSecurityGroupConfig` | *(see below)* | NSG settings (see [NetworkSecurityGroupConfig](#networksecuritygroupconfig)). |
 | `min_dpu_functioning_links` | `Option<u32>` | — | Minimum functioning DPU links for healthy status. If unset, all must work. |
 | `host_health` | `HostHealthConfig` | *(default)* | Host health monitoring thresholds for hardware health and DPU agent compliance. |
+| `observability` | `ObservabilityConfig` | *(default)* | Observability settings shared across all state controllers (see [ObservabilityConfig](#observabilityconfig)). |
 | `internet_l3_vni` | `u32` | `100001` | Network infrastructure-provided L3 VNI for FNN VPC Internet connectivity. Combined with `datacenter_asn` for route-target. |
 | `measured_boot_collector` | `MeasuredBootMetricsCollectorConfig` | *(see below)* | Measured boot metrics exporter (see [MeasuredBootMetricsCollectorConfig](#measuredbootmetricscollectorconfig)). |
 | `machine_validation_config` | `MachineValidationConfig` | *(see below)* | Machine validation tests (see [MachineValidationConfig](#machinevalidationconfig)). |
@@ -184,6 +185,14 @@ partition, DPA interface, rack, power shelf, switch, SPDM).
 | `processor_log_interval` | `Duration` | `60s` | How often the processor emits log messages. |
 | `metric_emission_interval` | `Duration` | `60s` | How often aggregate metrics are recalculated. |
 | `metric_hold_time` | `Duration` | `5m` | How long per-object metrics are held before eviction. |
+
+### `ObservabilityConfig`
+
+TOML section: `[observability]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `per_object_metrics_for_classifications` | `Vec<HealthAlertClassification>` | `[]` | Health alert classifications for which the per-object metric `carbide_object_unhealthy_by_classification_count` is emitted, labeled with `object_type` (e.g. `machine`, `switch`, `rack`, `power_shelf`) and `object_id`. Each entry adds up to one extra time series per matching object, so it defaults to empty (disabled) to keep metric cardinality bounded. When empty, the metric is not registered or exposed at all; aggregate health metrics are unaffected regardless. |
 
 ### `MachineStateControllerConfig`
 

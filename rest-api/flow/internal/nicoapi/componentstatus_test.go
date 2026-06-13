@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
-func TestMapComponentStatus_Compute(t *testing.T) {
+func TestMapComponentOperationStatus_Compute(t *testing.T) {
 	cases := []struct {
 		name      string
 		raw       string
@@ -52,14 +52,14 @@ func TestMapComponentStatus_Compute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := MapComponentStatus(types.ComponentTypeCompute, tc.raw)
+			got := MapComponentOperationStatus(types.ComponentTypeCompute, tc.raw)
 			assert.Equal(t, tc.wantPhase, got.Phase, "phase")
 			assert.Equal(t, tc.wantOps, got.BlockedOperations, "blocked ops")
 		})
 	}
 }
 
-func TestMapComponentStatus_Switch(t *testing.T) {
+func TestMapComponentOperationStatus_Switch(t *testing.T) {
 	cases := []struct {
 		name      string
 		raw       string
@@ -89,14 +89,14 @@ func TestMapComponentStatus_Switch(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := MapComponentStatus(types.ComponentTypeNVSwitch, tc.raw)
+			got := MapComponentOperationStatus(types.ComponentTypeNVSwitch, tc.raw)
 			assert.Equal(t, tc.wantPhase, got.Phase, "phase")
 			assert.Equal(t, tc.wantOps, got.BlockedOperations, "blocked ops")
 		})
 	}
 }
 
-func TestMapComponentStatus_PowerShelf(t *testing.T) {
+func TestMapComponentOperationStatus_PowerShelf(t *testing.T) {
 	cases := []struct {
 		name      string
 		raw       string
@@ -123,15 +123,15 @@ func TestMapComponentStatus_PowerShelf(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := MapComponentStatus(types.ComponentTypePowerShelf, tc.raw)
+			got := MapComponentOperationStatus(types.ComponentTypePowerShelf, tc.raw)
 			assert.Equal(t, tc.wantPhase, got.Phase, "phase")
 			assert.Equal(t, tc.wantOps, got.BlockedOperations, "blocked ops")
 		})
 	}
 }
 
-func TestMapComponentStatus_UnsupportedType(t *testing.T) {
-	got := MapComponentStatus(types.ComponentTypeTORSwitch, `{"state":"ready"}`)
+func TestMapComponentOperationStatus_UnsupportedType(t *testing.T) {
+	got := MapComponentOperationStatus(types.ComponentTypeTORSwitch, `{"state":"ready"}`)
 	assert.Equal(t, types.PhaseUnknown, got.Phase)
 	assert.Empty(t, got.BlockedOperations)
 }

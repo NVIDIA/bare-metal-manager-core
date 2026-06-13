@@ -72,7 +72,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    component = %info.component,
+                    firmware_name = %info.component,
                     version = %info.version,
                     "Firmware info event"
                 );

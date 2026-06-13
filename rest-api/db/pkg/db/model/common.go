@@ -75,12 +75,11 @@ func (l *Labels) FromProto(protoLabels []*cwssaws.Label) {
 // type (device + rack-position fields) carried explicitly, rather than packing
 // the values into stringly-typed labels. Follow-up PR.
 const (
-	ExpectedComponentLabelManufacturer    = "manufacturer"
-	ExpectedComponentLabelModel           = "model"
-	ExpectedComponentLabelFirmwareVersion = "firmware_version"
-	ExpectedComponentLabelSlotID          = "slot_id"
-	ExpectedComponentLabelTrayIdx         = "tray_idx"
-	ExpectedComponentLabelHostID          = "host_id"
+	ExpectedComponentLabelManufacturer = "manufacturer"
+	ExpectedComponentLabelModel        = "model"
+	ExpectedComponentLabelSlotID       = "slot_id"
+	ExpectedComponentLabelTrayIdx      = "tray_idx"
+	ExpectedComponentLabelHostID       = "host_id"
 )
 
 // expectedComponentLabelsInput carries the flat device/rack columns that its
@@ -88,13 +87,12 @@ const (
 // them into a struct keeps the call sites self-documenting and avoids a long,
 // transposition-prone arg list.
 type expectedComponentLabelsInput struct {
-	Manufacturer    *string
-	Model           *string
-	FirmwareVersion *string
-	SlotID          *int32
-	TrayIdx         *int32
-	HostID          *int32
-	Labels          Labels
+	Manufacturer *string
+	Model        *string
+	SlotID       *int32
+	TrayIdx      *int32
+	HostID       *int32
+	Labels       Labels
 }
 
 // ToProto merges the input's labels with the flat device/rack columns, each
@@ -105,7 +103,7 @@ type expectedComponentLabelsInput struct {
 // not labels -- callers set those on Metadata directly.
 func (in expectedComponentLabelsInput) ToProto() []*cwssaws.Label {
 	// Merge through a map so a system field overrides a colliding user label.
-	merged := make(map[string]string, len(in.Labels)+6)
+	merged := make(map[string]string, len(in.Labels)+5)
 	for k, v := range in.Labels {
 		merged[k] = v
 	}
@@ -114,9 +112,6 @@ func (in expectedComponentLabelsInput) ToProto() []*cwssaws.Label {
 	}
 	if in.Model != nil {
 		merged[ExpectedComponentLabelModel] = *in.Model
-	}
-	if in.FirmwareVersion != nil {
-		merged[ExpectedComponentLabelFirmwareVersion] = *in.FirmwareVersion
 	}
 	if in.SlotID != nil {
 		merged[ExpectedComponentLabelSlotID] = strconv.FormatInt(int64(*in.SlotID), 10)

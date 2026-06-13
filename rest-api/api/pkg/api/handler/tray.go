@@ -1008,7 +1008,7 @@ func (pcth UpdateTrayPowerStateHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecutePowerControlWorkflow(ctx, c, logger, stc, targetSpec, apiRequest.State,
-		apiRequest.RuleID, fmt.Sprintf("tray-power-state-update-%s-%s", apiRequest.State, trayStrID), "Tray")
+		apiRequest.RuleID, apiRequest.OverrideReadinessCheck, fmt.Sprintf("tray-power-state-update-%s-%s", apiRequest.State, trayStrID), "Tray")
 	if err != nil {
 		return err
 	}
@@ -1138,7 +1138,7 @@ func (pctbh BatchUpdateTrayPowerStateHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecutePowerControlWorkflow(ctx, c, logger, stc, targetSpec, request.State,
-		request.RuleID, fmt.Sprintf("tray-power-state-batch-update-%s-%s", request.State, common.RequestHash(request.Filter)), "Tray")
+		request.RuleID, request.OverrideReadinessCheck, fmt.Sprintf("tray-power-state-batch-update-%s-%s", request.State, common.RequestHash(request.Filter)), "Tray")
 	if err != nil {
 		return err
 	}
@@ -1272,7 +1272,7 @@ func (futh UpdateTrayFirmwareHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, apiRequest.Version,
-		apiRequest.Targets, apiRequest.RuleID, fmt.Sprintf("tray-firmware-update-%s", trayStrID), "Tray")
+		apiRequest.Targets, apiRequest.RuleID, apiRequest.OverrideReadinessCheck, fmt.Sprintf("tray-firmware-update-%s", trayStrID), "Tray")
 	if err != nil {
 		return err
 	}
@@ -1402,7 +1402,7 @@ func (futbh BatchUpdateTrayFirmwareHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, request.Version,
-		request.Targets, request.RuleID, fmt.Sprintf("tray-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Tray")
+		request.Targets, request.RuleID, request.OverrideReadinessCheck, fmt.Sprintf("tray-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Tray")
 	if err != nil {
 		return err
 	}

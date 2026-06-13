@@ -247,7 +247,10 @@ func testInstanceSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *c
 func testInstanceSiteBuildAllocationContraints(t *testing.T, dbSession *cdb.Session, al *cdbm.Allocation, rt string, rtID uuid.UUID, ct string, cv int, user *cdbm.User) *cdbm.AllocationConstraint {
 	alctDAO := cdbm.NewAllocationConstraintDAO(dbSession)
 
-	alct, err := alctDAO.CreateFromParams(context.Background(), nil, al.ID, rt, rtID, ct, cv, nil, user.ID)
+	alct, err := alctDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+		AllocationID: al.ID, ResourceType: rt, ResourceTypeID: rtID,
+		ConstraintType: ct, ConstraintValue: cv, CreatedBy: user.ID,
+	})
 	assert.Nil(t, err)
 
 	return alct

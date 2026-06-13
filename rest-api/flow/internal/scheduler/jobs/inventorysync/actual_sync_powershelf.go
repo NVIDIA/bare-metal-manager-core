@@ -164,5 +164,5 @@ func syncPowershelfStatuses(
 		log.Error().Msgf("Unable to retrieve power-shelf controller_states from NICo: %v", err)
 		return
 	}
-	persistComponentStatuses(ctx, pool, types.ComponentTypePowerShelf, statesByID, componentsByShelfID)
+	persistComponentOperationStatuses(ctx, pool, types.ComponentTypePowerShelf, statesByID, componentsByShelfID)
 }

@@ -101,47 +101,256 @@ impl IdentifyAddressFamily for ipnetwork::IpNetwork {
 #[cfg(test)]
 mod tests {
     use std::net::IpAddr;
-    use std::str::FromStr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use ipnet::IpNet;
 
     use super::*;
 
     #[test]
-    fn test_require_address_family_or_else() {
-        let addr = IpAddr::from_str("127.0.0.1").unwrap();
-
-        // The above is an IPv4 address, so it should come out the other side
-        // as an Ok variant.
-        assert_eq!(
-            addr.require_address_family_or_else(IpAddressFamily::Ipv4, |_| {}),
-            Ok(addr),
-        );
-
-        assert_eq!(
-            addr.require_address_family_or_else(IpAddressFamily::Ipv6, |_| 42),
-            Err(42)
-        )
-    }
-
-    #[test]
     fn test_interface_prefix_len() {
-        assert_eq!(IpAddressFamily::Ipv4.interface_prefix_len(), 32);
-        assert_eq!(IpAddressFamily::Ipv6.interface_prefix_len(), 128);
-
-        // Also test via the IdentifyAddressFamily trait on IpAddr.
-        let v4: IpAddr = "10.0.0.1".parse().unwrap();
-        let v6: IpAddr = "fd00::1".parse().unwrap();
-        assert_eq!(v4.address_family().interface_prefix_len(), 32);
-        assert_eq!(v6.address_family().interface_prefix_len(), 128);
+        check_values(
+            [
+                Check {
+                    scenario: "ipv4 is /32",
+                    input: IpAddressFamily::Ipv4,
+                    expect: 32,
+                },
+                Check {
+                    scenario: "ipv6 is /128",
+                    input: IpAddressFamily::Ipv6,
+                    expect: 128,
+                },
+            ],
+            |family| family.interface_prefix_len(),
+        );
     }
 
     #[test]
     fn test_pg_family() {
-        assert_eq!(IpAddressFamily::Ipv4.pg_family(), 4);
-        assert_eq!(IpAddressFamily::Ipv6.pg_family(), 6);
+        check_values(
+            [
+                Check {
+                    scenario: "ipv4 is postgres family 4",
+                    input: IpAddressFamily::Ipv4,
+                    expect: 4,
+                },
+                Check {
+                    scenario: "ipv6 is postgres family 6",
+                    input: IpAddressFamily::Ipv6,
+                    expect: 6,
+                },
+            ],
+            |family| family.pg_family(),
+        );
+    }
 
-        let v4: IpAddr = "10.0.0.1".parse().unwrap();
-        let v6: IpAddr = "fd00::1".parse().unwrap();
-        assert_eq!(v4.address_family().pg_family(), 4);
-        assert_eq!(v6.address_family().pg_family(), 6);
+    #[test]
+    fn test_ipaddr_address_family() {
+        check_values(
+            [
+                Check {
+                    scenario: "ipv4 loopback",
+                    input: "127.0.0.1",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv4 unspecified",
+                    input: "0.0.0.0",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv4 broadcast",
+                    input: "255.255.255.255",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv4 routable",
+                    input: "10.0.0.1",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv6 loopback",
+                    input: "::1",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv6 unspecified",
+                    input: "::",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv6 unique-local",
+                    input: "fd00::1",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv6 link-local",
+                    input: "fe80::1",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv4-mapped ipv6 stays ipv6",
+                    input: "::ffff:192.0.2.1",
+                    expect: IpAddressFamily::Ipv6,
+                },
+            ],
+            |s| s.parse::<IpAddr>().unwrap().address_family(),
+        );
+    }
+
+    #[test]
+    fn test_ipnet_address_family() {
+        check_values(
+            [
+                Check {
+                    scenario: "ipv4 host route",
+                    input: "10.0.0.1/32",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv4 default route",
+                    input: "0.0.0.0/0",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv4 subnet",
+                    input: "192.168.0.0/24",
+                    expect: IpAddressFamily::Ipv4,
+                },
+                Check {
+                    scenario: "ipv6 host route",
+                    input: "fd00::1/128",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv6 default route",
+                    input: "::/0",
+                    expect: IpAddressFamily::Ipv6,
+                },
+                Check {
+                    scenario: "ipv6 subnet",
+                    input: "2001:db8::/64",
+                    expect: IpAddressFamily::Ipv6,
+                },
+            ],
+            |s| s.parse::<IpNet>().unwrap().address_family(),
+        );
+    }
+
+    #[test]
+    fn test_is_address_family() {
+        struct Row {
+            value: &'static str,
+            family: IpAddressFamily,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "ipv4 matches ipv4",
+                    input: Row {
+                        value: "10.0.0.1",
+                        family: IpAddressFamily::Ipv4,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "ipv4 does not match ipv6",
+                    input: Row {
+                        value: "10.0.0.1",
+                        family: IpAddressFamily::Ipv6,
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "ipv6 matches ipv6",
+                    input: Row {
+                        value: "fd00::1",
+                        family: IpAddressFamily::Ipv6,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "ipv6 does not match ipv4",
+                    input: Row {
+                        value: "fd00::1",
+                        family: IpAddressFamily::Ipv4,
+                    },
+                    expect: false,
+                },
+            ],
+            |row| {
+                row.value
+                    .parse::<IpAddr>()
+                    .unwrap()
+                    .is_address_family(row.family)
+            },
+        );
+    }
+
+    #[test]
+    fn test_require_address_family_or_else() {
+        struct Row {
+            value: &'static str,
+            required: IpAddressFamily,
+        }
+
+        check_cases(
+            [
+                Case {
+                    scenario: "ipv4 required and present yields the address",
+                    input: Row {
+                        value: "127.0.0.1",
+                        required: IpAddressFamily::Ipv4,
+                    },
+                    expect: Yields("127.0.0.1".parse::<IpAddr>().unwrap()),
+                },
+                Case {
+                    scenario: "ipv6 required and present yields the address",
+                    input: Row {
+                        value: "fd00::1",
+                        required: IpAddressFamily::Ipv6,
+                    },
+                    expect: Yields("fd00::1".parse::<IpAddr>().unwrap()),
+                },
+                Case {
+                    scenario: "ipv6 required but ipv4 given fails",
+                    input: Row {
+                        value: "127.0.0.1",
+                        required: IpAddressFamily::Ipv6,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "ipv4 required but ipv6 given fails",
+                    input: Row {
+                        value: "fd00::1",
+                        required: IpAddressFamily::Ipv4,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |row| {
+                let addr = row.value.parse::<IpAddr>().unwrap();
+                addr.require_address_family_or_else(row.required, |_| ())
+            },
+        );
+    }
+
+    #[test]
+    fn test_require_address_family_or_else_passes_value_to_err() {
+        // The error closure receives the rejected value; assert it is threaded
+        // through so callers can fold the original address into their error.
+        let addr: IpAddr = "127.0.0.1".parse().unwrap();
+        Case {
+            scenario: "rejected value reaches the error closure",
+            input: addr,
+            expect: FailsWith(addr),
+        }
+        .check(|addr| {
+            addr.require_address_family_or_else(IpAddressFamily::Ipv6, |rejected| rejected)
+        });
     }
 }

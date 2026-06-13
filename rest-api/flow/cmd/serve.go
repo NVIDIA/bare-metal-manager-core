@@ -217,7 +217,7 @@ func doServe() {
 	}
 
 	// Open a DB session for the readiness gate. The gate consults the
-	// persisted ComponentStatus inventorysync writes to the component
+	// persisted ComponentOperationStatus inventorysync writes to the component
 	// table, so it must share the same database the service will migrate
 	// on startup. The deferred Close runs after doServe returns, i.e.
 	// after the service has fully stopped.

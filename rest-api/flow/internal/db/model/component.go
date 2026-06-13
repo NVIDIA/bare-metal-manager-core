@@ -32,18 +32,18 @@ type Component struct {
 	FirmwareVersion string         `bun:"firmware_version,nullzero"`
 	// RackID is uuid.Nil when the component has been ingested but is not yet
 	// assigned to a rack. Stored as NULL in the database thanks to nullzero.
-	RackID      uuid.UUID              `bun:"rack_id,type:uuid,nullzero"`
-	SlotID      int                    `bun:"slot_id"`
-	TrayIndex   int                    `bun:"tray_index"`
-	HostID      int                    `bun:"host_id"`
-	IngestedAt  *time.Time             `bun:"ingested_at"`
-	UpdatedAt   time.Time              `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
-	DeletedAt   *time.Time             `bun:"deleted_at,soft_delete"`
-	Rack        *Rack                  `bun:"rel:belongs-to,join:rack_id=id"`
-	BMCs        []BMC                  `bun:"rel:has-many,join:id=component_id"`
-	ComponentID *string                `bun:"external_id"`
-	PowerState  *nicoapi.PowerState    `bun:"power_state"`
-	Status      *types.ComponentStatus `bun:"status,type:jsonb,nullzero"`
+	RackID      uuid.UUID                       `bun:"rack_id,type:uuid,nullzero"`
+	SlotID      int                             `bun:"slot_id"`
+	TrayIndex   int                             `bun:"tray_index"`
+	HostID      int                             `bun:"host_id"`
+	IngestedAt  *time.Time                      `bun:"ingested_at"`
+	UpdatedAt   time.Time                       `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
+	DeletedAt   *time.Time                      `bun:"deleted_at,soft_delete"`
+	Rack        *Rack                           `bun:"rel:belongs-to,join:rack_id=id"`
+	BMCs        []BMC                           `bun:"rel:has-many,join:id=component_id"`
+	ComponentID *string                         `bun:"external_id"`
+	PowerState  *nicoapi.PowerState             `bun:"power_state"`
+	Status      *types.ComponentOperationStatus `bun:"status,type:jsonb,nullzero"`
 	// LeakStatus is owned by the leak-detection loop. nullzero so an
 	// insert that leaves it empty falls back to the DB default 'UNKNOWN'
 	// rather than writing an empty string.

@@ -26,7 +26,6 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 	manufacturer := "ACME"
 	model := "SW1"
 	description := "primary"
-	firmware := "1.2.3"
 	var slot, trayIdx, host int32 = 1, 2, 3
 
 	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
@@ -60,7 +59,6 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 			Manufacturer:       &manufacturer,
 			Model:              &model,
 			Description:        &description,
-			FirmwareVersion:    &firmware,
 			SlotId:             &slot,
 			TrayIdx:            &trayIdx,
 			HostId:             &host,
@@ -84,7 +82,6 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 		assert.Equal(t, &manufacturer, es.Manufacturer)
 		assert.Equal(t, &model, es.Model)
 		assert.Equal(t, &description, es.Description)
-		assert.Equal(t, &firmware, es.FirmwareVersion)
 		assert.Equal(t, &slot, es.SlotID)
 		assert.Equal(t, &trayIdx, es.TrayIdx)
 		assert.Equal(t, &host, es.HostID)

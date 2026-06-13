@@ -215,7 +215,12 @@ func GetAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx, db
 	var alconstraints []cdbm.AllocationConstraint
 	for _, ac := range allocations {
 		// improve this query by adding allocation slices in allocation constraints model
-		alcoss, _, err := alcsDAO.GetAll(ctx, tx, []uuid.UUID{ac.ID}, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), []uuid.UUID{instancetype.ID}, cutil.GetPtr(cdbm.AllocationConstraintTypeReserved), nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		alcoss, _, err := alcsDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+			AllocationIDs:   []uuid.UUID{ac.ID},
+			ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+			ResourceTypeIDs: []uuid.UUID{instancetype.ID},
+			ConstraintType:  cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -461,10 +466,16 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 	}
 
 	// Get all Allocation Constraints for Allocation IDs
-	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	acs, _, err := acDAO.GetAll(ctx, tx, allocationIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
-	if err != nil {
-		return nil, err
+	var acs []cdbm.AllocationConstraint
+	if len(allocationIDs) > 0 {
+		acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
+		acs, _, err = acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+			AllocationIDs: allocationIDs,
+			ResourceType:  cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	totalAllocationBySite := map[uuid.UUID]int{}
@@ -499,7 +510,12 @@ func GetTotalAllocationConstraintValueForInstanceType(ctx context.Context, tx *c
 	if instanceTypeID != nil {
 		instanceTypeIDs = []uuid.UUID{*instanceTypeID}
 	}
-	acs, _, err := acDAO.GetAll(ctx, tx, paramAllocationIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, constraintType, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	acs, _, err := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+		AllocationIDs:   paramAllocationIDs,
+		ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+		ResourceTypeIDs: instanceTypeIDs,
+		ConstraintType:  constraintType,
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -556,7 +572,14 @@ func GetAllAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx,
 	for _, alloc := range allocs {
 		allocIDs = append(allocIDs, alloc.ID)
 	}
-	acs, tot, serr := acDAO.GetAll(ctx, tx, allocIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), resourceTypeIDs, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	if len(allocIDs) == 0 {
+		return []cdbm.AllocationConstraint{}, 0, nil
+	}
+	acs, tot, serr := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+		AllocationIDs:   allocIDs,
+		ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+		ResourceTypeIDs: resourceTypeIDs,
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if serr != nil {
 		return nil, 0, serr
 	}
@@ -649,10 +672,17 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 	}
 
 	// Get all Allocation Constraints for the Instance Type IDs and Allocation IDs
-	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	acss, _, err := acDAO.GetAll(ctx, nil, aids, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
-	if err != nil {
-		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Allocations for Instance Type, DB error", nil)
+	var acss []cdbm.AllocationConstraint
+	if len(aids) > 0 {
+		acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
+		acss, _, err = acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{
+			AllocationIDs:   aids,
+			ResourceType:    cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
+			ResourceTypeIDs: instanceTypeIDs,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Allocations for Instance Type, DB error", nil)
+		}
 	}
 
 	// Get all Machines for the Instance Type IDs
@@ -1617,6 +1647,7 @@ func ExecutePowerControlWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	state string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
@@ -1628,39 +1659,44 @@ func ExecutePowerControlWorkflow(
 	case cam.PowerControlStateOn:
 		workflowName = "PowerOnRack"
 		flowRequest = &flowv1.PowerOnRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power on %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power on %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power off %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power off %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power cycle %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power cycle %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
-			TargetSpec:  targetSpec,
-			Forced:      true,
-			Description: fmt.Sprintf("API force power off %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Forced:                 true,
+			Description:            fmt.Sprintf("API force power off %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
-			TargetSpec:  targetSpec,
-			Forced:      true,
-			Description: fmt.Sprintf("API force power cycle %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Forced:                 true,
+			Description:            fmt.Sprintf("API force power cycle %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	default:
 		return nil, cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid power control state: %s", state), nil)
@@ -1710,13 +1746,15 @@ func ExecuteBringUpRackWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	description string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.BringUpRackRequest{
-		TargetSpec:  targetSpec,
-		Description: description,
-		RuleId:      GetFlowUUIDPtr(ruleID),
+		TargetSpec:             targetSpec,
+		Description:            description,
+		RuleId:                 GetFlowUUIDPtr(ruleID),
+		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1771,15 +1809,17 @@ func ExecuteFirmwareUpdateWorkflow(
 	version *string,
 	targets []string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.UpgradeFirmwareRequest{
-		TargetSpec:    targetSpec,
-		TargetVersion: version,
-		SubTargets:    targets,
-		Description:   fmt.Sprintf("API firmware update %s", entityName),
-		RuleId:        GetFlowUUIDPtr(ruleID),
+		TargetSpec:             targetSpec,
+		TargetVersion:          version,
+		SubTargets:             targets,
+		Description:            fmt.Sprintf("API firmware update %s", entityName),
+		RuleId:                 GetFlowUUIDPtr(ruleID),
+		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{

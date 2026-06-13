@@ -212,7 +212,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             rack_id: value.rack_id,
             default_pause_ingestion_and_poweron: value.default_pause_ingestion_and_poweron,
             #[allow(deprecated)]
-            dpf_enabled: value.dpf_enabled.unwrap_or_default(),
+            dpf_enabled: value.dpf_enabled.unwrap_or(true),
             is_dpf_enabled: value.dpf_enabled,
             bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: value.bmc_retain_credentials,

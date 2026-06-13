@@ -342,7 +342,10 @@ func TestBuildAllocation(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastr
 func TestBuildAllocationContraints(t *testing.T, dbSession *cdb.Session, al *cdbm.Allocation, rt string, rtID uuid.UUID, ct string, cv int, user *cdbm.User) *cdbm.AllocationConstraint {
 	alctDAO := cdbm.NewAllocationConstraintDAO(dbSession)
 
-	alct, err := alctDAO.CreateFromParams(context.Background(), nil, al.ID, rt, rtID, ct, cv, nil, user.ID)
+	alct, err := alctDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+		AllocationID: al.ID, ResourceType: rt, ResourceTypeID: rtID,
+		ConstraintType: ct, ConstraintValue: cv, CreatedBy: user.ID,
+	})
 	assert.Nil(t, err)
 
 	return alct
@@ -577,7 +580,11 @@ func TestUpdateVPC(t *testing.T, dbSession *cdb.Session, v *cdbm.Vpc) {
 // TestBuildAllocationConstraint creates a test Allocation Constraint of Instance Type
 func TestBuildAllocationConstraint(t *testing.T, dbSession *cdb.Session, al *cdbm.Allocation, it *cdbm.InstanceType, constraintValue int, user *cdbm.User) *cdbm.AllocationConstraint {
 	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	ac, err := acDAO.CreateFromParams(context.Background(), nil, al.ID, cdbm.AllocationResourceTypeInstanceType, it.ID, cdbm.AllocationConstraintTypeReserved, constraintValue, nil, user.ID)
+	ac, err := acDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+		AllocationID: al.ID, ResourceType: cdbm.AllocationResourceTypeInstanceType,
+		ResourceTypeID: it.ID, ConstraintType: cdbm.AllocationConstraintTypeReserved,
+		ConstraintValue: constraintValue, CreatedBy: user.ID,
+	})
 	assert.Nil(t, err)
 
 	return ac
