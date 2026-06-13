@@ -88,7 +88,7 @@ pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
     use tracing_subscriber::prelude::*;
 
     use super::*;
@@ -139,40 +139,31 @@ mod tests {
 
     #[test]
     fn dependency_log_filter_applies_caps_and_user_overrides() {
-        check_values(
-            [
-                Check {
-                    scenario: "application info allowed by default directive",
-                    input: FilterCase::DefaultAllowsApplicationInfo,
-                    expect: true,
-                },
-                Check {
-                    scenario: "hyper info suppressed by dependency cap",
-                    input: FilterCase::DefaultSuppressesHyperInfo,
-                    expect: false,
-                },
-                Check {
-                    scenario: "hyper error allowed by dependency cap",
-                    input: FilterCase::DefaultAllowsHyperError,
-                    expect: true,
-                },
-                Check {
-                    scenario: "user override allows application debug",
-                    input: FilterCase::UserOverrideAllowsApplicationDebug,
-                    expect: true,
-                },
-                Check {
-                    scenario: "dependency cap overrides vaultrs debug",
-                    input: FilterCase::DependencyCapOverridesVaultrsDebug,
-                    expect: false,
-                },
-                Check {
-                    scenario: "user override leaves unrelated dependency capped",
-                    input: FilterCase::UserOverrideDoesNotAffectHyperCap,
-                    expect: false,
-                },
-            ],
-            filter_allows,
+        value_scenarios!(
+            run = filter_allows;
+            "application info allowed by default directive" {
+                FilterCase::DefaultAllowsApplicationInfo => true,
+            }
+
+            "hyper info suppressed by dependency cap" {
+                FilterCase::DefaultSuppressesHyperInfo => false,
+            }
+
+            "hyper error allowed by dependency cap" {
+                FilterCase::DefaultAllowsHyperError => true,
+            }
+
+            "user override allows application debug" {
+                FilterCase::UserOverrideAllowsApplicationDebug => true,
+            }
+
+            "dependency cap overrides vaultrs debug" {
+                FilterCase::DependencyCapOverridesVaultrsDebug => false,
+            }
+
+            "user override leaves unrelated dependency capped" {
+                FilterCase::UserOverrideDoesNotAffectHyperCap => false,
+            }
         );
     }
 
