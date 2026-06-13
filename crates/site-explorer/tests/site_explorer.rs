@@ -2654,6 +2654,7 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
     let interfaces =
         db::machine_interface::find_by_machine_ids(&mut txn, &[created_host.host_machine_id])
             .await?;
+    txn.commit().await?;
     let primary = interfaces
         .get(&created_host.host_machine_id)
         .into_iter()

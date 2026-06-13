@@ -25,7 +25,7 @@ use rpc::forge::{
 };
 use tower::ServiceExt;
 
-use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
+use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
 
 const BANNER_TITLE: &str = "Default credential configuration incomplete";
@@ -65,7 +65,7 @@ async fn get_page(app: &axum::Router, uri: &str) -> String {
 }
 
 async fn configure_default(env: &TestEnv, credential_type: RpcCredentialType) {
-    env.api
+    env.api()
         .create_credential(tonic::Request::new(CredentialCreationRequest {
             credential_type: credential_type.into(),
             username: None,
@@ -79,12 +79,12 @@ async fn configure_default(env: &TestEnv, credential_type: RpcCredentialType) {
 
 #[crate::sqlx_test]
 async fn test_missing_credentials_banner(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
 
     // The root /admin page renders the active DPU agent-upgrade policy, which has
     // no row in a fresh database; set one so the page returns 200.
-    env.api
+    env.api()
         .dpu_agent_upgrade_policy_action(tonic::Request::new(DpuAgentUpgradePolicyRequest {
             new_policy: Some(AgentUpgradePolicy::Off as i32),
         }))

@@ -1466,6 +1466,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
+ "carbide-test-harness",
  "carbide-uuid",
  "carbide-version",
  "chrono",

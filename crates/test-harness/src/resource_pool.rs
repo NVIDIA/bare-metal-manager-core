@@ -26,6 +26,8 @@ use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 #[derive(Default)]
 pub struct ResourcePoolBuilder {
     secondary_vtep_ip: Option<IpNetwork>,
+    vlan_id_ranges: Option<Vec<(u32, u32)>>,
+    vni_ranges: Option<Vec<(u32, u32)>>,
 }
 
 impl ResourcePoolBuilder {
@@ -42,6 +44,24 @@ impl ResourcePoolBuilder {
         }
     }
 
+    pub fn with_vlan_ids(mut self, start: u32, end: u32) -> Self {
+        assert!(
+            start <= end,
+            "VLAN ID range start must be less than or equal to end"
+        );
+        self.vlan_id_ranges = Some(vec![(start, end)]);
+        self
+    }
+
+    pub fn with_vnis(mut self, start: u32, end: u32) -> Self {
+        assert!(
+            start <= end,
+            "VNI range start must be less than or equal to end"
+        );
+        self.vni_ranges = Some(vec![(start, end)]);
+        self
+    }
+
     pub fn build(self) -> HashMap<String, ResourcePoolDef> {
         let int_range_pool = |ranges: &[(u32, u32)]| resource_pool::ResourcePoolDef {
             pool_type: resource_pool::ResourcePoolType::Integer,
@@ -56,6 +76,8 @@ impl ResourcePoolBuilder {
             prefix: None,
             delegate_prefix_len: None,
         };
+        let vlan_id_ranges = self.vlan_id_ranges.unwrap_or_else(|| vec![(1, 2)]);
+        let vni_ranges = self.vni_ranges.unwrap_or_else(|| vec![(10001, 10002)]);
 
         [
             (
@@ -69,11 +91,11 @@ impl ResourcePoolBuilder {
             ),
             (
                 resource_pool::common::VLANID.to_string(),
-                int_range_pool(&[(1, 2)]),
+                int_range_pool(&vlan_id_ranges),
             ),
             (
                 resource_pool::common::VNI.to_string(),
-                int_range_pool(&[(10001, 10002)]),
+                int_range_pool(&vni_ranges),
             ),
             (
                 resource_pool::common::VPC_VNI.to_string(),

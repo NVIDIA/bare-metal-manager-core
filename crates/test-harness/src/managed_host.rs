@@ -19,17 +19,26 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_api_core::test_support::Api;
-use carbide_api_core::test_support::fixture_config::FixtureDefault as _;
+use carbide_api_core::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_site_explorer::test_support::TestSiteExplorer;
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use model::test_support::ManagedHostConfig;
+use model::hardware_info::HardwareInfo;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{Machine, ManagedHostState};
+use model::test_support::{DpuConfig, ManagedHostConfig};
 
 use crate::TestHarness;
 use crate::network::segment::TestNetworkSegment;
 use crate::rpc::forge::forge_server::Forge;
-use crate::rpc::forge::{DhcpDiscovery, ManagedHostNetworkConfigRequest};
+use crate::rpc::forge::{
+    DhcpDiscovery, DhcpRecord, HealthReportEntry, InsertMachineHealthReportRequest,
+    MachineDiscoveryResult, ManagedHostNetworkConfigRequest,
+};
+use crate::rpc::{DiscoveryData, DiscoveryInfo};
 
 pub struct TestManagedHost {
     pub managed_host: ManagedHostConfig,
@@ -40,14 +49,124 @@ pub struct TestManagedHost {
 }
 
 impl TestManagedHost {
-    pub async fn dhcp_discover_host_primary_iface(&self, api: &Api, segment: TestNetworkSegment) {
+    pub fn dpu_machine_id(&self, dpu_index: u8) -> MachineId {
+        *self
+            .dpu_machine_ids
+            .get(&dpu_index)
+            .expect("DPU machine id should exist")
+    }
+
+    pub fn dpu_bmc_ip(&self, dpu_index: u8) -> IpAddr {
+        self.dpu_bmc_ips
+            .iter()
+            .find(|(index, _)| *index == dpu_index)
+            .map(|(_, ip)| *ip)
+            .expect("DPU BMC IP should exist")
+    }
+
+    pub async fn dhcp_discover_host_primary_iface(
+        &self,
+        api: &Api,
+        segment: TestNetworkSegment,
+    ) -> DhcpRecord {
         api.discover_dhcp(
             DhcpDiscovery::builder(self.managed_host.dhcp_mac_address(), segment.relay_address)
                 .vendor_string("Bluefield")
                 .tonic_request(),
         )
         .await
-        .expect("host primary interface DHCP discovery should succeed");
+        .expect("host primary interface DHCP discovery should succeed")
+        .into_inner()
+    }
+
+    pub async fn discover_host_primary_iface(&mut self, api: &Api, segment: TestNetworkSegment) {
+        let dhcp_record = self.dhcp_discover_host_primary_iface(api, segment).await;
+        self.host_machine_id =
+            discover_machine(api, &dhcp_record, HardwareInfo::from(&self.managed_host))
+                .await
+                .machine_id
+                .expect("host discovery should return a machine id");
+    }
+
+    pub async fn dhcp_discover_dpu_oob_ifaces(
+        &self,
+        api: &Api,
+        segment: TestNetworkSegment,
+    ) -> Vec<DhcpRecord> {
+        let mut dhcp_records = Vec::new();
+        for dpu in &self.managed_host.dpus {
+            let dhcp_record = api
+                .discover_dhcp(
+                    DhcpDiscovery::builder(dpu.oob_mac_address, segment.relay_address)
+                        .vendor_string("SomeVendor")
+                        .tonic_request(),
+                )
+                .await
+                .expect("DPU OOB interface DHCP discovery should succeed")
+                .into_inner();
+            dhcp_records.push(dhcp_record);
+        }
+        dhcp_records
+    }
+
+    pub async fn discover_dpu_oob_ifaces(&mut self, api: &Api, segment: TestNetworkSegment) {
+        let dhcp_records = self.dhcp_discover_dpu_oob_ifaces(api, segment).await;
+        for (dpu_index, (dpu, dhcp_record)) in self
+            .managed_host
+            .dpus
+            .iter()
+            .zip(dhcp_records.iter())
+            .enumerate()
+        {
+            let dpu_index = dpu_index.try_into().expect("DPU index should fit into u8");
+            self.dpu_machine_ids.insert(
+                dpu_index,
+                discover_machine(api, dhcp_record, HardwareInfo::from(dpu))
+                    .await
+                    .machine_id
+                    .expect("DPU discovery should return a machine id"),
+            );
+        }
+    }
+
+    pub async fn insert_empty_host_health_report(&self, api: &Api, source: impl Into<String>) {
+        api.insert_machine_health_report(tonic::Request::new(InsertMachineHealthReportRequest {
+            health_report_entry: Some(HealthReportEntry {
+                report: Some(crate::rpc::health::HealthReport {
+                    source: source.into(),
+                    triggered_by: None,
+                    observed_at: None,
+                    successes: vec![],
+                    alerts: vec![],
+                }),
+                ..Default::default()
+            }),
+            machine_id: Some(self.host_machine_id),
+        }))
+        .await
+        .expect("empty host health report should be inserted");
+    }
+
+    pub async fn advance_host_state(&self, test_harness: &TestHarness, state: ManagedHostState) {
+        let mut txn = test_harness.db_txn().await;
+        let machine = self.host_db_machine(&mut txn).await;
+        db::machine::advance(&machine, &mut txn, &state, None)
+            .await
+            .expect("host state should be advanced");
+        txn.commit()
+            .await
+            .expect("database transaction should commit");
+    }
+
+    pub async fn host_db_machine(&self, txn: &mut sqlx::PgTransaction<'_>) -> Machine {
+        db::machine::find_one(
+            txn.as_mut(),
+            &self.host_machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await
+        .expect("host machine lookup should succeed")
+        .expect("host machine should exist")
     }
 
     /// Simulate forge-dpu-agent fetching, applying, and reporting DPU network status.
@@ -84,6 +203,13 @@ impl<'a> TestManagedHostBuilder<'a> {
     pub fn with_config(mut self, managed_host: ManagedHostConfig) -> Self {
         self.managed_host = managed_host;
         self
+    }
+
+    pub fn with_dpu_count(self, dpu_count: usize) -> Self {
+        assert!(dpu_count >= 1, "need to specify at least 1 DPU");
+        self.with_config(ManagedHostConfig::with_dpus(
+            (0..dpu_count).map(|_| DpuConfig::default()).collect(),
+        ))
     }
 
     /// Report DPU network status as part of `build`.
@@ -215,6 +341,32 @@ async fn discover_bmc(
     .address
     .parse()
     .expect("DHCP response address should be an IP address")
+}
+
+async fn discover_machine(
+    api: &Api,
+    dhcp_record: &DhcpRecord,
+    hardware_info: HardwareInfo,
+) -> MachineDiscoveryResult {
+    api.discover_machine(tonic::Request::new(
+        crate::rpc::forge::MachineDiscoveryInfo {
+            machine_interface_id: Some(
+                *dhcp_record
+                    .machine_interface_id
+                    .as_ref()
+                    .expect("DHCP record should include a machine interface id"),
+            ),
+            create_machine: true,
+            discovery_data: Some(DiscoveryData::Info(
+                DiscoveryInfo::try_from(hardware_info)
+                    .expect("hardware info should convert to discovery info"),
+            )),
+            ..Default::default()
+        },
+    ))
+    .await
+    .expect("machine discovery should succeed")
+    .into_inner()
 }
 
 async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {

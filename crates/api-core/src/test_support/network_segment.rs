@@ -162,15 +162,13 @@ pub async fn create_host_inband_network_segment(
 /// Creates a Flat VPC for the default test tenant and returns its id. Used as
 /// the implicit parent VPC for HostInband segment fixtures.
 pub async fn create_default_flat_vpc(api: &Api, name: &str) -> VpcId {
-    let request = crate::tests::common::rpc_builder::VpcCreationRequest::builder(
-        "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
-    )
-    .metadata(rpc::forge::Metadata {
-        name: name.to_string(),
-        ..Default::default()
-    })
-    .network_virtualization_type(rpc::forge::VpcVirtualizationType::Flat as i32)
-    .tonic_request();
+    let request = rpc::forge::VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+        .metadata(rpc::forge::Metadata {
+            name: name.to_string(),
+            ..Default::default()
+        })
+        .network_virtualization_type(rpc::forge::VpcVirtualizationType::Flat as i32)
+        .tonic_request();
     let vpc = api
         .create_vpc(request)
         .await

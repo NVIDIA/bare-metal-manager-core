@@ -19,13 +19,14 @@ use std::sync::Arc;
 
 use carbide_api_core::test_support::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
 };
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
 use carbide_utils::test_support::test_meter::TestMeter;
+use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use state_controller::controller::StateController;
 use tokio::sync::Mutex;
@@ -200,6 +201,68 @@ impl TestNetworkController {
             .create_network_segment(tonic::Request::new(request))
             .await
             .expect("Unable to create network segment")
+            .into_inner();
+
+        self.run_single_iteration().await;
+        self.run_single_iteration().await;
+
+        TestNetworkSegment {
+            id: segment
+                .id
+                .expect("Id must be returned by create_network_segment API request"),
+            relay_address: gateway,
+        }
+    }
+
+    pub async fn create_vpc(&self, name: &str) -> VpcId {
+        let vpc = self
+            .api
+            .create_vpc(
+                rpc::forge::VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                    .metadata(rpc::forge::Metadata {
+                        name: name.to_string(),
+                        ..Default::default()
+                    })
+                    .tonic_request(),
+            )
+            .await
+            .expect("Unable to create VPC")
+            .into_inner();
+        vpc.id.expect("Created VPC must have an id")
+    }
+
+    pub async fn create_tenant_segment(
+        &self,
+        domain: &TestDomain,
+        vpc_id: VpcId,
+    ) -> TestNetworkSegment {
+        let network = FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0];
+        let prefix = IpNetwork::new(network.network(), network.prefix())
+            .unwrap()
+            .to_string();
+        let gateway = network.ip();
+        let request = rpc::forge::NetworkSegmentCreationRequest {
+            id: None,
+            mtu: Some(1500),
+            name: "TENANT".to_string(),
+            prefixes: vec![rpc::forge::NetworkPrefix {
+                id: None,
+                prefix,
+                gateway: Some(gateway.to_string()),
+                reserve_first: 3,
+                free_ip_count: 0,
+                svi_ip: None,
+            }],
+            subdomain_id: Some(domain.id),
+            vpc_id: Some(vpc_id),
+            segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
+        };
+
+        let segment = self
+            .api
+            .create_network_segment(tonic::Request::new(request))
+            .await
+            .expect("Unable to create tenant network segment")
             .into_inner();
 
         self.run_single_iteration().await;
