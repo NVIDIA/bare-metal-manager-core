@@ -38,5 +38,8 @@ thiserror = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

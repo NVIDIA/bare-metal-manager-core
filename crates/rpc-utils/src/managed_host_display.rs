@@ -659,3 +659,74 @@ impl IfNonEmpty for String {
         if !self.is_empty() { Some(self) } else { None }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    fn memory(size_mb: Option<u32>) -> MemoryDevice {
+        MemoryDevice {
+            size_mb,
+            mem_type: None,
+        }
+    }
+
+    #[test]
+    fn formats_memory_details() {
+        value_scenarios!(
+            run = |devices| get_memory_details(&devices);
+            "missing memory" {
+                Vec::<MemoryDevice>::new() => None,
+                vec![memory(Some(0)), memory(None)] => None,
+            }
+
+            "single device" {
+                vec![memory(Some(32768))] => Some("32 GiB".to_string()),
+            }
+
+            "device breakdown" {
+                vec![
+                    memory(Some(32768)),
+                    memory(Some(32768)),
+                    memory(Some(65536)),
+                ] => Some("128 GiB (32 GiBx2, 64 GiBx1)".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn formats_timestamps_for_display() {
+        value_scenarios!(
+            run = |timestamp| to_time(timestamp, Some("machine-1"));
+            "timestamp values" {
+                None => None,
+                Some(Timestamp::from(UNIX_EPOCH)) => Some("1970-01-01 00:00:00 UTC".to_string()),
+                Some(Timestamp::from(UNIX_EPOCH + Duration::from_secs(1_700_000_000))) => Some("2023-11-14 22:13:20 UTC".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn filters_empty_display_fields() {
+        value_scenarios!(
+            run = |value| value.if_non_empty();
+            "option string" {
+                None::<String> => None,
+                Some(String::new()) => None,
+                Some("value".to_string()) => Some("value".to_string()),
+            }
+        );
+
+        value_scenarios!(
+            run = |value: String| value.if_non_empty();
+            "string" {
+                String::new() => None,
+                "value".to_string() => Some("value".to_string()),
+            }
+        );
+    }
+}
