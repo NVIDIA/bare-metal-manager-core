@@ -2521,6 +2521,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
