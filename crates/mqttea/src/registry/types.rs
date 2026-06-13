@@ -140,7 +140,7 @@ impl MessageTypeInfo {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -222,87 +222,74 @@ mod tests {
 
     #[test]
     fn test_publish_options_builders() {
-        check_values(
-            [
-                Check {
-                    scenario: "default",
-                    input: PublishOptionsBuild::Default,
-                    expect: (None, None),
-                },
-                Check {
-                    scenario: "qos",
-                    input: PublishOptionsBuild::Qos,
-                    expect: (Some(QoS::AtLeastOnce), None),
-                },
-                Check {
-                    scenario: "retain",
-                    input: PublishOptionsBuild::Retain,
-                    expect: (None, Some(true)),
-                },
-                Check {
-                    scenario: "qos and retain",
-                    input: PublishOptionsBuild::QosAndRetain,
-                    expect: (Some(QoS::ExactlyOnce), Some(false)),
-                },
-            ],
-            |build| {
+        value_scenarios!(
+            run = |build| {
                 let options = build_publish_options(build);
                 (options.qos, options.retain)
-            },
+            };
+            "default" {
+                PublishOptionsBuild::Default => (None, None),
+            }
+
+            "qos" {
+                PublishOptionsBuild::Qos => (Some(QoS::AtLeastOnce), None),
+            }
+
+            "retain" {
+                PublishOptionsBuild::Retain => (None, Some(true)),
+            }
+
+            "qos and retain" {
+                PublishOptionsBuild::QosAndRetain => (Some(QoS::ExactlyOnce), Some(false)),
+            }
         );
     }
 
     #[test]
     fn test_message_type_info_helpers() {
-        check_values(
-            [
-                Check {
-                    scenario: "json default",
-                    input: MessageInfoBuild::JsonDefault,
-                    expect: MessageInfoSummary {
-                        has_alpha: true,
-                        has_missing: false,
-                        pattern_count: 2,
-                        uses_qos_override: false,
-                        effective_qos: QoS::AtMostOnce,
-                        effective_retain: false,
-                        is_json: true,
-                        is_protobuf: false,
-                        is_raw: false,
-                    },
+        value_scenarios!(
+            run = |build| summarize_message_info(build_message_info(build));
+            "json default" {
+                MessageInfoBuild::JsonDefault => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 2,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    effective_retain: false,
+                    is_json: true,
+                    is_protobuf: false,
+                    is_raw: false,
                 },
-                Check {
-                    scenario: "protobuf qos override",
-                    input: MessageInfoBuild::ProtobufQosOverride,
-                    expect: MessageInfoSummary {
-                        has_alpha: true,
-                        has_missing: false,
-                        pattern_count: 1,
-                        uses_qos_override: true,
-                        effective_qos: QoS::ExactlyOnce,
-                        effective_retain: false,
-                        is_json: false,
-                        is_protobuf: true,
-                        is_raw: false,
-                    },
+            }
+
+            "protobuf qos override" {
+                MessageInfoBuild::ProtobufQosOverride => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 1,
+                    uses_qos_override: true,
+                    effective_qos: QoS::ExactlyOnce,
+                    effective_retain: false,
+                    is_json: false,
+                    is_protobuf: true,
+                    is_raw: false,
                 },
-                Check {
-                    scenario: "raw retain override",
-                    input: MessageInfoBuild::RawRetainOverride,
-                    expect: MessageInfoSummary {
-                        has_alpha: true,
-                        has_missing: false,
-                        pattern_count: 1,
-                        uses_qos_override: false,
-                        effective_qos: QoS::AtMostOnce,
-                        effective_retain: true,
-                        is_json: false,
-                        is_protobuf: false,
-                        is_raw: true,
-                    },
+            }
+
+            "raw retain override" {
+                MessageInfoBuild::RawRetainOverride => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 1,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    effective_retain: true,
+                    is_json: false,
+                    is_protobuf: false,
+                    is_raw: true,
                 },
-            ],
-            |build| summarize_message_info(build_message_info(build)),
+            }
         );
     }
 }
