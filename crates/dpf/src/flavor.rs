@@ -253,7 +253,7 @@ fn dhcp_acl_rules() -> String {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
     use crate::types::DpfProxyDetails;
@@ -287,116 +287,92 @@ mod tests {
 
     #[test]
     fn validate_proxy_string_accepts_and_rejects() {
-        check_cases(
-            [
-                Case {
-                    scenario: "typical proxy url",
-                    input: "http://proxy.corp.example.com:3128",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "cidr no_proxy entry",
-                    input: "10.0.0.0/8",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "hostname no_proxy entry",
-                    input: "localhost",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "dns suffix no_proxy entry",
-                    input: ".svc.cluster.local",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "high ascii printable is allowed",
-                    input: "host~name",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "space is allowed (>= 0x20, not quote/control)",
-                    input: "has space",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "tilde 0x7e is the last printable allowed",
-                    input: "~",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double quote rejected",
-                    input: "http://proxy:3128/\"evil",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "newline rejected",
-                    input: "http://proxy:3128\nEvil: injected",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "carriage return rejected",
-                    input: "http://proxy:3128\rinjected",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "tab (control char) rejected",
-                    input: "http://proxy:3128\tx",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "null byte rejected",
-                    input: "10.0.0.0/8\x00bad",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "0x01 control char rejected",
-                    input: "10.0.0.0/8\x01bad",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "0x1f (last control below 0x20) rejected",
-                    input: "x\x1fy",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "DEL 0x7f rejected",
-                    input: "x\x7fy",
-                    expect: Fails,
-                },
-            ],
-            |value| validate_proxy_string(value, "field").map_err(drop),
+        scenarios!(
+            run = |value| validate_proxy_string(value, "field").map_err(drop);
+            "typical proxy url" {
+                "http://proxy.corp.example.com:3128" => Yields(()),
+            }
+
+            "empty string" {
+                "" => Yields(()),
+            }
+
+            "cidr no_proxy entry" {
+                "10.0.0.0/8" => Yields(()),
+            }
+
+            "hostname no_proxy entry" {
+                "localhost" => Yields(()),
+            }
+
+            "dns suffix no_proxy entry" {
+                ".svc.cluster.local" => Yields(()),
+            }
+
+            "high ascii printable is allowed" {
+                "host~name" => Yields(()),
+            }
+
+            "space is allowed (>= 0x20, not quote/control)" {
+                "has space" => Yields(()),
+            }
+
+            "tilde 0x7e is the last printable allowed" {
+                "~" => Yields(()),
+            }
+
+            "double quote rejected" {
+                "http://proxy:3128/\"evil" => Fails,
+            }
+
+            "newline rejected" {
+                "http://proxy:3128\nEvil: injected" => Fails,
+            }
+
+            "carriage return rejected" {
+                "http://proxy:3128\rinjected" => Fails,
+            }
+
+            "tab (control char) rejected" {
+                "http://proxy:3128\tx" => Fails,
+            }
+
+            "null byte rejected" {
+                "10.0.0.0/8\x00bad" => Fails,
+            }
+
+            "0x01 control char rejected" {
+                "10.0.0.0/8\x01bad" => Fails,
+            }
+
+            "0x1f (last control below 0x20) rejected" {
+                "x\x1fy" => Fails,
+            }
+
+            "DEL 0x7f rejected" {
+                "x\x7fy" => Fails,
+            }
         );
     }
 
     #[test]
     fn validate_proxy_string_error_names_the_field() {
         // The rejected-string error message mentions the field name passed in.
-        check_cases(
-            [
-                Case {
-                    scenario: "field name appears in the error",
-                    input: ("\"", "https_proxy", &["https_proxy", "systemd"][..]),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "no_proxy field name appears in the error",
-                    input: ("\n", "no_proxy entry", &["no_proxy entry"][..]),
-                    expect: Yields(true),
-                },
-            ],
-            |(value, field, tokens): (&str, &str, &[&str])| {
+        scenarios!(
+            run = |(value, field, tokens): (&str, &str, &[&str])| {
                 let msg = match validate_proxy_string(value, field) {
                     Err(crate::error::DpfError::ConfigError(m)) => m,
                     other => return Err(format!("expected ConfigError, got {other:?}")),
                 };
                 Ok(tokens.iter().all(|t| msg.contains(t)))
-            },
+            };
+            "field name appears in the error" {
+                ("\"", "https_proxy", &["https_proxy", "systemd"][..]) => Yields(true),
+            }
+
+            "no_proxy field name appears in the error" {
+                ("\n", "no_proxy entry", &["no_proxy entry"][..]) => Yields(true),
+            }
         );
     }
 
@@ -404,58 +380,46 @@ mod tests {
 
     #[test]
     fn default_flavor_accepts_or_rejects_proxy() {
-        check_cases(
-            [
-                Case {
-                    scenario: "no proxy",
-                    input: None,
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "typical proxy with no_proxy list",
-                    input: proxy(
-                        "http://proxy.corp.example.com:3128",
-                        &["10.0.0.0/8", "localhost", ".svc.cluster.local"],
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "proxy with empty no_proxy",
-                    input: proxy("http://proxy:3128", &[]),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "https_proxy with quote rejected",
-                    input: proxy("http://proxy:3128/\"evil", &[]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "https_proxy with newline rejected",
-                    input: proxy("http://proxy:3128\nEvil: injected", &[]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "https_proxy with carriage return rejected",
-                    input: proxy("http://proxy:3128\rx", &[]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "no_proxy entry with control char rejected",
-                    input: proxy("http://proxy:3128", &["10.0.0.0/8\x01bad"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "no_proxy entry with DEL rejected",
-                    input: proxy("http://proxy:3128", &["ok", "bad\x7f"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "blank/whitespace-only no_proxy entries are skipped, not rejected",
-                    input: proxy("http://proxy:3128", &["", "  ", "\t"]),
-                    expect: Yields(()),
-                },
-            ],
-            |p| default_flavor("ns", &p).map(drop).map_err(drop),
+        scenarios!(
+            run = |p| default_flavor("ns", &p).map(drop).map_err(drop);
+            "no proxy" {
+                None => Yields(()),
+            }
+
+            "typical proxy with no_proxy list" {
+                proxy(
+                    "http://proxy.corp.example.com:3128",
+                    &["10.0.0.0/8", "localhost", ".svc.cluster.local"],
+                ) => Yields(()),
+            }
+
+            "proxy with empty no_proxy" {
+                proxy("http://proxy:3128", &[]) => Yields(()),
+            }
+
+            "https_proxy with quote rejected" {
+                proxy("http://proxy:3128/\"evil", &[]) => Fails,
+            }
+
+            "https_proxy with newline rejected" {
+                proxy("http://proxy:3128\nEvil: injected", &[]) => Fails,
+            }
+
+            "https_proxy with carriage return rejected" {
+                proxy("http://proxy:3128\rx", &[]) => Fails,
+            }
+
+            "no_proxy entry with control char rejected" {
+                proxy("http://proxy:3128", &["10.0.0.0/8\x01bad"]) => Fails,
+            }
+
+            "no_proxy entry with DEL rejected" {
+                proxy("http://proxy:3128", &["ok", "bad\x7f"]) => Fails,
+            }
+
+            "blank/whitespace-only no_proxy entries are skipped, not rejected" {
+                proxy("http://proxy:3128", &["", "  ", "\t"]) => Yields(()),
+            }
         );
     }
 
@@ -463,45 +427,34 @@ mod tests {
 
     #[test]
     fn default_flavor_namespace_is_passed_through() {
-        check_values(
-            [
-                Check {
-                    scenario: "plain namespace",
-                    input: "my-ns",
-                    expect: Some("my-ns".to_string()),
-                },
-                Check {
-                    scenario: "empty namespace is still set verbatim",
-                    input: "",
-                    expect: Some(String::new()),
-                },
-                Check {
-                    scenario: "namespace with hyphens",
-                    input: "dpf-system-test",
-                    expect: Some("dpf-system-test".to_string()),
-                },
-            ],
-            |ns| default_flavor(ns, &None).unwrap().metadata.namespace,
+        value_scenarios!(
+            run = |ns| default_flavor(ns, &None).unwrap().metadata.namespace;
+            "plain namespace" {
+                "my-ns" => Some("my-ns".to_string()),
+            }
+
+            "empty namespace is still set verbatim" {
+                "" => Some(String::new()),
+            }
+
+            "namespace with hyphens" {
+                "dpf-system-test" => Some("dpf-system-test".to_string()),
+            }
         );
     }
 
     #[test]
     fn default_flavor_metadata_name_is_always_none() {
         // The caller must set the name via unique_name(); the builder leaves it unset.
-        check_values(
-            [
-                Check {
-                    scenario: "no proxy",
-                    input: None,
-                    expect: true,
-                },
-                Check {
-                    scenario: "with proxy",
-                    input: proxy("http://proxy:3128", &["localhost"]),
-                    expect: true,
-                },
-            ],
-            |p| default_flavor("ns", &p).unwrap().metadata.name.is_none(),
+        value_scenarios!(
+            run = |p| default_flavor("ns", &p).unwrap().metadata.name.is_none();
+            "no proxy" {
+                None => true,
+            }
+
+            "with proxy" {
+                proxy("http://proxy:3128", &["localhost"]) => true,
+            }
         );
     }
 
@@ -509,45 +462,36 @@ mod tests {
     fn default_flavor_spec_invariants() {
         // Structural shape of the default spec that callers depend on.
         let flavor = default_flavor("ns", &None).unwrap();
-        check_values(
-            [
-                Check {
-                    scenario: "dpu_mode is ZeroTrust",
-                    input: matches!(flavor.spec.dpu_mode, Some(DpuFlavorDpuMode::ZeroTrust)),
-                    expect: true,
-                },
-                Check {
-                    scenario: "bfcfg has three parameters",
-                    input: flavor.spec.bfcfg_parameters.as_ref().map(|v| v.len()) == Some(3),
-                    expect: true,
-                },
-                Check {
-                    scenario: "exactly one nvconfig entry",
-                    input: flavor.spec.nvconfig.as_ref().map(|v| v.len()) == Some(1),
-                    expect: true,
-                },
-                Check {
-                    scenario: "ovs raw config script is present",
-                    input: flavor
-                        .spec
-                        .ovs
-                        .as_ref()
-                        .and_then(|o| o.raw_config_script.as_ref())
-                        .is_some(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "dpu_resources unset",
-                    input: flavor.spec.dpu_resources.is_none(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "containerd_config unset",
-                    input: flavor.spec.containerd_config.is_none(),
-                    expect: true,
-                },
-            ],
-            |present| present,
+        value_scenarios!(
+            run = |present| present;
+            "dpu_mode is ZeroTrust" {
+                matches!(flavor.spec.dpu_mode, Some(DpuFlavorDpuMode::ZeroTrust)) => true,
+            }
+
+            "bfcfg has three parameters" {
+                flavor.spec.bfcfg_parameters.as_ref().map(|v| v.len()) == Some(3) => true,
+            }
+
+            "exactly one nvconfig entry" {
+                flavor.spec.nvconfig.as_ref().map(|v| v.len()) == Some(1) => true,
+            }
+
+            "ovs raw config script is present" {
+                flavor
+                .spec
+                .ovs
+                .as_ref()
+                .and_then(|o| o.raw_config_script.as_ref())
+                .is_some() => true,
+            }
+
+            "dpu_resources unset" {
+                flavor.spec.dpu_resources.is_none() => true,
+            }
+
+            "containerd_config unset" {
+                flavor.spec.containerd_config.is_none() => true,
+            }
         );
     }
 
@@ -555,32 +499,26 @@ mod tests {
 
     #[test]
     fn config_file_count_depends_on_proxy() {
-        check_values(
-            [
-                Check {
-                    scenario: "no proxy yields five base files",
-                    input: None,
-                    expect: 5,
-                },
-                Check {
-                    scenario: "proxy with empty no_proxy appends a sixth",
-                    input: proxy("http://proxy:3128", &[]),
-                    expect: 6,
-                },
-                Check {
-                    scenario: "proxy with no_proxy list still appends exactly one",
-                    input: proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
-                    expect: 6,
-                },
-            ],
-            |p| {
+        value_scenarios!(
+            run = |p| {
                 default_flavor("ns", &p)
                     .unwrap()
                     .spec
                     .config_files
                     .unwrap()
                     .len()
-            },
+            };
+            "no proxy yields five base files" {
+                None => 5,
+            }
+
+            "proxy with empty no_proxy appends a sixth" {
+                proxy("http://proxy:3128", &[]) => 6,
+            }
+
+            "proxy with no_proxy list still appends exactly one" {
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 6,
+            }
         );
     }
 
@@ -590,27 +528,21 @@ mod tests {
         let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[])).unwrap();
         let files = flavor.spec.config_files.unwrap();
         let f = files.last().unwrap();
-        check_values(
-            [
-                Check {
-                    scenario: "path",
-                    input: f.path.is_some()
-                        && f.path.as_deref()
-                            == Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf"),
-                    expect: true,
-                },
-                Check {
-                    scenario: "permissions 0644",
-                    input: f.permissions.as_deref() == Some("0644"),
-                    expect: true,
-                },
-                Check {
-                    scenario: "override operation",
-                    input: matches!(f.operation, Some(DpuFlavorConfigFilesOperation::Override)),
-                    expect: true,
-                },
-            ],
-            |ok| ok,
+        value_scenarios!(
+            run = |ok| ok;
+            "path" {
+                f.path.is_some()
+                && f.path.as_deref()
+                    == Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf") => true,
+            }
+
+            "permissions 0644" {
+                f.permissions.as_deref() == Some("0644") => true,
+            }
+
+            "override operation" {
+                matches!(f.operation, Some(DpuFlavorConfigFilesOperation::Override)) => true,
+            }
         );
     }
 
@@ -623,35 +555,27 @@ mod tests {
             .config_files
             .unwrap();
         let paths: Vec<&str> = files.iter().filter_map(|f| f.path.as_deref()).collect();
-        check_values(
-            [
-                Check {
-                    scenario: "acltool.conf",
-                    input: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf",
-                    expect: true,
-                },
-                Check {
-                    scenario: "10-dhcp.rules",
-                    input: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules",
-                    expect: true,
-                },
-                Check {
-                    scenario: "mlnx-bf.conf",
-                    input: "/etc/mellanox/mlnx-bf.conf",
-                    expect: true,
-                },
-                Check {
-                    scenario: "mlnx-ovs.conf",
-                    input: "/etc/mellanox/mlnx-ovs.conf",
-                    expect: true,
-                },
-                Check {
-                    scenario: "mlnx-sf.conf",
-                    input: "/etc/mellanox/mlnx-sf.conf",
-                    expect: true,
-                },
-            ],
-            |path| paths.contains(&path),
+        value_scenarios!(
+            run = |path| paths.contains(&path);
+            "acltool.conf" {
+                "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf" => true,
+            }
+
+            "10-dhcp.rules" {
+                "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules" => true,
+            }
+
+            "mlnx-bf.conf" {
+                "/etc/mellanox/mlnx-bf.conf" => true,
+            }
+
+            "mlnx-ovs.conf" {
+                "/etc/mellanox/mlnx-ovs.conf" => true,
+            }
+
+            "mlnx-sf.conf" {
+                "/etc/mellanox/mlnx-sf.conf" => true,
+            }
         );
     }
 
@@ -722,20 +646,15 @@ mod tests {
     #[test]
     fn proxy_raw_omits_no_proxy_when_effectively_empty() {
         // Empty or blank-only no_proxy lists produce no NO_PROXY env lines at all.
-        check_values(
-            [
-                Check {
-                    scenario: "empty list",
-                    input: proxy_file_raw("http://proxy:3128", &[]),
-                    expect: false,
-                },
-                Check {
-                    scenario: "blank and whitespace-only entries are filtered out",
-                    input: proxy_file_raw("http://proxy:3128", &["", "   ", "\t"]),
-                    expect: false,
-                },
-            ],
-            |raw| raw.contains("NO_PROXY") || raw.contains("no_proxy"),
+        value_scenarios!(
+            run = |raw| raw.contains("NO_PROXY") || raw.contains("no_proxy");
+            "empty list" {
+                proxy_file_raw("http://proxy:3128", &[]) => false,
+            }
+
+            "blank and whitespace-only entries are filtered out" {
+                proxy_file_raw("http://proxy:3128", &["", "   ", "\t"]) => false,
+            }
         );
     }
 
@@ -744,25 +663,8 @@ mod tests {
     #[test]
     fn unique_name_has_expected_format() {
         // "<prefix>-<16 lowercase hex chars>" for several prefixes.
-        check_cases(
-            [
-                Case {
-                    scenario: "standard prefix",
-                    input: "dpu-flavor",
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "empty prefix still yields prefix-<hash>",
-                    input: "",
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "prefix containing hyphens",
-                    input: "a-b-c",
-                    expect: Yields(true),
-                },
-            ],
-            |prefix: &str| {
+        scenarios!(
+            run = |prefix: &str| {
                 let flavor = default_flavor("ns", &None).map_err(drop)?;
                 let name = flavor.unique_name(prefix).map_err(drop)?;
                 let (got_prefix, hash) = name.rsplit_once('-').ok_or(())?;
@@ -773,7 +675,18 @@ mod tests {
                             .chars()
                             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
                 )
-            },
+            };
+            "standard prefix" {
+                "dpu-flavor" => Yields(true),
+            }
+
+            "empty prefix still yields prefix-<hash>" {
+                "" => Yields(true),
+            }
+
+            "prefix containing hyphens" {
+                "a-b-c" => Yields(true),
+            }
         );
     }
 
@@ -781,52 +694,43 @@ mod tests {
     fn unique_name_equality_across_specs() {
         // true  => the two specs hash to the same name (stable / order- & dup-insensitive)
         // false => the specs differ, so the names must differ
-        check_values(
-            [
-                Check {
-                    scenario: "deterministic for identical specs",
-                    input: (name_for(&None), name_for(&None)),
-                    expect: true,
-                },
-                Check {
-                    scenario: "no_proxy order does not affect the name",
-                    input: (
-                        name_for(&proxy("http://proxy:3128", &["localhost", "10.0.0.0/8"])),
-                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "duplicate no_proxy entries do not affect the name",
-                    input: (
-                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
-                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "10.0.0.0/8"])),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "adding a proxy changes the name",
-                    input: (name_for(&None), name_for(&proxy("http://proxy:3128", &[]))),
-                    expect: false,
-                },
-                Check {
-                    scenario: "extending the no_proxy list changes the name",
-                    input: (
-                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
-                        name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "changing the https_proxy url changes the name",
-                    input: (
-                        name_for(&proxy("http://a:3128", &[])),
-                        name_for(&proxy("http://b:3128", &[])),
-                    ),
-                    expect: false,
-                },
-            ],
-            |(a, b)| a == b,
+        value_scenarios!(
+            run = |(a, b)| a == b;
+            "deterministic for identical specs" {
+                (name_for(&None), name_for(&None)) => true,
+            }
+
+            "no_proxy order does not affect the name" {
+                (
+                    name_for(&proxy("http://proxy:3128", &["localhost", "10.0.0.0/8"])),
+                    name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
+                ) => true,
+            }
+
+            "duplicate no_proxy entries do not affect the name" {
+                (
+                    name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
+                    name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "10.0.0.0/8"])),
+                ) => true,
+            }
+
+            "adding a proxy changes the name" {
+                (name_for(&None), name_for(&proxy("http://proxy:3128", &[]))) => false,
+            }
+
+            "extending the no_proxy list changes the name" {
+                (
+                    name_for(&proxy("http://proxy:3128", &["10.0.0.0/8"])),
+                    name_for(&proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"])),
+                ) => false,
+            }
+
+            "changing the https_proxy url changes the name" {
+                (
+                    name_for(&proxy("http://a:3128", &[])),
+                    name_for(&proxy("http://b:3128", &[])),
+                ) => false,
+            }
         );
     }
 
@@ -834,26 +738,21 @@ mod tests {
     fn unique_name_prefix_changes_the_output() {
         // The same spec under different prefixes yields different names.
         let flavor = default_flavor("ns", &None).unwrap();
-        check_values(
-            [
-                Check {
-                    scenario: "different prefixes differ",
-                    input: (
-                        flavor.unique_name("a").unwrap(),
-                        flavor.unique_name("b").unwrap(),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "same prefix matches",
-                    input: (
-                        flavor.unique_name("x").unwrap(),
-                        flavor.unique_name("x").unwrap(),
-                    ),
-                    expect: true,
-                },
-            ],
-            |(a, b)| a == b,
+        value_scenarios!(
+            run = |(a, b)| a == b;
+            "different prefixes differ" {
+                (
+                    flavor.unique_name("a").unwrap(),
+                    flavor.unique_name("b").unwrap(),
+                ) => false,
+            }
+
+            "same prefix matches" {
+                (
+                    flavor.unique_name("x").unwrap(),
+                    flavor.unique_name("x").unwrap(),
+                ) => true,
+            }
         );
     }
 
@@ -862,45 +761,35 @@ mod tests {
     #[test]
     fn dhcp_acl_rules_shape() {
         let rules = dhcp_acl_rules();
-        check_values(
-            [
-                Check {
-                    scenario: "starts with the iptables header",
-                    input: rules.starts_with("[iptables]\n"),
-                    expect: true,
-                },
-                Check {
-                    scenario: "covers the host-facing pf0hpf interface",
-                    input: rules.contains("--physdev-in pf0hpf_if "),
-                    expect: true,
-                },
-                Check {
-                    scenario: "covers vf0",
-                    input: rules.contains("--physdev-in pf0vf0_if "),
-                    expect: true,
-                },
-                Check {
-                    scenario: "covers vf15 (last in range)",
-                    input: rules.contains("--physdev-in pf0vf15_if "),
-                    expect: true,
-                },
-                Check {
-                    scenario: "does not over-run to vf16",
-                    input: rules.contains("pf0vf16_if"),
-                    expect: false,
-                },
-                Check {
-                    scenario: "header line plus 17 rule lines (hpf + vf0..15)",
-                    input: rules.lines().count() == 18,
-                    expect: true,
-                },
-                Check {
-                    scenario: "every rule drops DHCP broadcast to .255",
-                    input: rules.matches("-d 255.255.255.255").count() == 17,
-                    expect: true,
-                },
-            ],
-            |v| v,
+        value_scenarios!(
+            run = |v| v;
+            "starts with the iptables header" {
+                rules.starts_with("[iptables]\n") => true,
+            }
+
+            "covers the host-facing pf0hpf interface" {
+                rules.contains("--physdev-in pf0hpf_if ") => true,
+            }
+
+            "covers vf0" {
+                rules.contains("--physdev-in pf0vf0_if ") => true,
+            }
+
+            "covers vf15 (last in range)" {
+                rules.contains("--physdev-in pf0vf15_if ") => true,
+            }
+
+            "does not over-run to vf16" {
+                rules.contains("pf0vf16_if") => false,
+            }
+
+            "header line plus 17 rule lines (hpf + vf0..15)" {
+                rules.lines().count() == 18 => true,
+            }
+
+            "every rule drops DHCP broadcast to .255" {
+                rules.matches("-d 255.255.255.255").count() == 17 => true,
+            }
         );
     }
 
@@ -933,38 +822,31 @@ mod tests {
     #[test]
     fn default_nvconfig_shape() {
         let nv = get_default_nvconfig();
-        check_values(
-            [
-                Check {
-                    scenario: "device is the only allowed wildcard variant",
-                    input: matches!(nv.device, Some(DpuFlavorNvconfigDevice::KopiumVariant0)),
-                    expect: true,
-                },
-                Check {
-                    scenario: "parameter count",
-                    input: nv.parameters.as_ref().map(|p| p.len()) == Some(16),
-                    expect: true,
-                },
-                Check {
-                    scenario: "carries the SRIOV enable flag",
-                    input: nv
-                        .parameters
-                        .as_ref()
-                        .map(|p| p.iter().any(|s| s == "SRIOV_EN=1"))
-                        == Some(true),
-                    expect: true,
-                },
-                Check {
-                    scenario: "carries NUM_OF_VFS=16",
-                    input: nv
-                        .parameters
-                        .as_ref()
-                        .map(|p| p.iter().any(|s| s == "NUM_OF_VFS=16"))
-                        == Some(true),
-                    expect: true,
-                },
-            ],
-            |v| v,
+        value_scenarios!(
+            run = |v| v;
+            "device is the only allowed wildcard variant" {
+                matches!(nv.device, Some(DpuFlavorNvconfigDevice::KopiumVariant0)) => true,
+            }
+
+            "parameter count" {
+                nv.parameters.as_ref().map(|p| p.len()) == Some(16) => true,
+            }
+
+            "carries the SRIOV enable flag" {
+                nv
+                .parameters
+                .as_ref()
+                .map(|p| p.iter().any(|s| s == "SRIOV_EN=1"))
+                == Some(true) => true,
+            }
+
+            "carries NUM_OF_VFS=16" {
+                nv
+                .parameters
+                .as_ref()
+                .map(|p| p.iter().any(|s| s == "NUM_OF_VFS=16"))
+                == Some(true) => true,
+            }
         );
     }
 }
