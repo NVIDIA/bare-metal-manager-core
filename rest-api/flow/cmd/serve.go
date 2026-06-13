@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -49,6 +50,12 @@ const (
 	// TODO: remove this override and the compute/nicolegacy package once
 	// every Flow deployment runs on the Component Manager path.
 	computeImplEnvVar = "COMPONENT_MANAGER_COMPUTE"
+
+	// wholeRackUseRMSEnvVar makes whole-rack power and firmware operations hand
+	// the rack to Core's component manager (RMS) as a single unit instead of
+	// Flow expanding the rack into per-component targets. Accepts the values
+	// strconv.ParseBool understands (1, t, true, 0, f, false, ...).
+	wholeRackUseRMSEnvVar = "FLOW_WHOLE_RACK_USE_RMS"
 )
 
 var (
@@ -166,6 +173,27 @@ func applyComputeImplementationOverride(cfg *cmconfig.Config) {
 		Str("previous_implementation", previous).
 		Str("implementation", override).
 		Msg("Compute component manager implementation overridden by environment")
+}
+
+// wholeRackUseRMSEnabled reports whether the FLOW_WHOLE_RACK_USE_RMS env var
+// requests the RMS rack-dispatch path. An unset or empty value is false; an
+// unparseable value is treated as false and logged so a typo does not silently
+// flip behaviour.
+func wholeRackUseRMSEnabled() bool {
+	raw := strings.TrimSpace(os.Getenv(wholeRackUseRMSEnvVar))
+	if raw == "" {
+		return false
+	}
+
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Warn().
+			Str("env_var", wholeRackUseRMSEnvVar).
+			Str("value", raw).
+			Msg("Unparseable FLOW_WHOLE_RACK_USE_RMS value, defaulting to disabled")
+		return false
+	}
+	return enabled
 }
 
 // doServe is the main entry point for the serve subcommand. It loads all
@@ -297,6 +325,7 @@ func doServe() {
 			CMConfig:         cmConfig,
 			ProviderRegistry: providerRegistry,
 			DevMode:          devMode,
+			WholeRackUseRMS:  wholeRackUseRMSEnabled(),
 			CertConfig: pkgcerts.Config{
 				CACert:  globalCACert,
 				TLSCert: globalTLSCert,

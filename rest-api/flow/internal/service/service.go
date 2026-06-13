@@ -82,6 +82,7 @@ func New(ctx context.Context, c Config) (*Service, error) {
 			InventoryStore: invStore,
 			TaskStore:      tskStore,
 			ExecutorConfig: c.ExecutorConf,
+			WholeRackUseRMS: c.WholeRackUseRMS,
 		},
 	)
 	if err != nil {

@@ -20,6 +20,11 @@ const (
 	ComponentTypeToRSwitch
 	ComponentTypeUMS
 	ComponentTypeCDU
+	// ComponentTypeRack targets a whole rack as a single unit. It is not a
+	// physical component: it routes rack-scoped operations to the rack
+	// component manager, which hands the rack id to Core instead of Flow
+	// expanding the rack into per-component targets.
+	ComponentTypeRack
 )
 
 var (
@@ -31,6 +36,7 @@ var (
 		ComponentTypeToRSwitch:  "ToRSwitch",
 		ComponentTypeUMS:        "UMS",
 		ComponentTypeCDU:        "CDU",
+		ComponentTypeRack:       "Rack",
 	}
 
 	componentTypeStringMaxLen int
@@ -54,6 +60,7 @@ func ComponentTypes() []ComponentType {
 		ComponentTypeToRSwitch,
 		ComponentTypeUMS,
 		ComponentTypeCDU,
+		ComponentTypeRack,
 	}
 }
 

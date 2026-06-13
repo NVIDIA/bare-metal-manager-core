@@ -14,6 +14,7 @@ import (
 	powershelfnico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/powershelf/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	racknico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/rack/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
@@ -30,6 +31,7 @@ func defaultServiceComponentManagers() map[devicetypes.ComponentType]string {
 		devicetypes.ComponentTypeCompute:    computenicolegacy.ImplementationName,
 		devicetypes.ComponentTypeNVSwitch:   nvswitchnico.ImplementationName,
 		devicetypes.ComponentTypePowerShelf: powershelfnico.ImplementationName,
+		devicetypes.ComponentTypeRack:       racknico.ImplementationName,
 	}
 }
 
@@ -61,6 +63,7 @@ func serviceDescriptors() []cmcatalog.Descriptor {
 		computenicolegacy.Descriptor(),
 		nvswitchnico.Descriptor(),
 		powershelfnico.Descriptor(),
+		racknico.Descriptor(),
 	}
 
 	descriptors = append(descriptors, mock.Descriptors()...)
@@ -88,6 +91,7 @@ func serviceFactorySpecs(
 		computenicolegacy.FactorySpec(computePowerDelay, gate),
 		nvswitchnico.FactorySpec(gate),
 		powershelfnico.FactorySpec(gate),
+		racknico.FactorySpec(),
 	}
 
 	factorySpecs = append(factorySpecs, mock.FactorySpecs()...)

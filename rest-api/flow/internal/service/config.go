@@ -72,6 +72,11 @@ type Config struct {
 	// logging. Must not be set in staging/production environments.
 	DevMode bool
 
+	// WholeRackUseRMS makes whole-rack power and firmware operations dispatch the
+	// rack to Core's component manager (RMS) as a single unit instead of
+	// expanding it into per-component targets.
+	WholeRackUseRMS bool
+
 	// CertConfig holds certificate file paths for the gRPC server listener.
 	// When set, these take precedence over CERTDIR / the k8s default.
 	// Either all three fields must be set or none.

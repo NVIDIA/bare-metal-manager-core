@@ -48,6 +48,12 @@ type Config struct {
 	// PromoterConfig tunes the Promoter's sweep interval and channel size.
 	// Zero values use the Promoter's own defaults.
 	PromoterConfig conflict.PromoterConfig
+
+	// WholeRackUseRMS makes whole-rack power and firmware operations dispatch the
+	// rack to Core's component manager (RMS) as a single unit, instead of Flow
+	// expanding the rack into per-component targets. Other operation types are
+	// unaffected.
+	WholeRackUseRMS bool
 }
 
 func (c *Config) applyDefaults() {
@@ -101,6 +107,7 @@ type ManagerImpl struct {
 
 	maxWaitingPerRack   int
 	defaultQueueTimeout time.Duration
+	wholeRackUseRMS     bool
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -120,6 +127,7 @@ func New(ctx context.Context, conf *Config) (*ManagerImpl, error) {
 		inventoryStore:      conf.InventoryStore,
 		maxWaitingPerRack:   conf.MaxWaitingTasksPerRack,
 		defaultQueueTimeout: conf.DefaultQueueTimeout,
+		wholeRackUseRMS:     conf.WholeRackUseRMS,
 	}
 
 	// Promoter needs m.promoteTask.
@@ -379,25 +387,57 @@ func (m *ManagerImpl) promoteTask(ctx context.Context, taskID uuid.UUID) error {
 	return m.resolveAndExecuteTask(ctx, task, targetRack)
 }
 
-// resolveAndExecuteTask resolves the operation rule for a task, executes it,
-// and updates the task record with the execution result. It is shared by the
-// immediate-execution path in createAndExecuteTask and the promotion path in
-// promoteTask.
-func (m *ManagerImpl) resolveAndExecuteTask(
+// isRMSOperation reports whether an operation type is dispatched to the rack
+// component manager as a single unit when whole-rack RMS is enabled. Only
+// power and firmware operations take the rack path; bring-up, ingest, and the
+// like keep Flow's per-component expansion.
+func isRMSOperation(t taskcommon.TaskType) bool {
+	return t == taskcommon.TaskTypePowerControl ||
+		t == taskcommon.TaskTypeFirmwareControl
+}
+
+// planExecution selects the rule definition and the set of workflow components
+// to execute for a task. In whole-rack RMS mode a rack-scoped power or firmware
+// operation resolves to the single-step rack rule and a single rack
+// pseudo-component, bypassing Flow's rack-to-component expansion and rule
+// resolution; Core then owns the per-component sequencing. Every other case
+// keeps the existing behaviour: resolve the stored / default rule and expand
+// the rack into its tracked components.
+func (m *ManagerImpl) planExecution(
 	ctx context.Context,
 	task *taskdef.Task,
 	targetRack *rack.Rack,
-) error {
+) (*operationrules.RuleDefinition, []taskdef.WorkflowComponent, error) {
+	if m.wholeRackUseRMS && isRMSOperation(task.Operation.Type) {
+		ruleDef := operationrules.BuildRackRule(task.Operation.Type)
+		if ruleDef == nil {
+			return nil, nil, fmt.Errorf(
+				"RMS rack rule unavailable for operation type %s",
+				task.Operation.Type,
+			)
+		}
+		log.Info().
+			Str("operation_type", string(task.Operation.Type)).
+			Str("operation", task.Operation.Code).
+			Str("rack_id", task.RackID.String()).
+			Msg("Whole-rack RMS: dispatching rack as a single unit")
+		components := []taskdef.WorkflowComponent{{
+			Type:        devicetypes.ComponentTypeRack,
+			ComponentID: task.RackID.String(),
+		}}
+		return ruleDef, components, nil
+	}
+
 	ruleID := operations.ExtractRuleID(task.Operation.Info)
 
 	rule, err := m.ruleResolver.ResolveRule(
 		ctx, task.Operation.Type, task.Operation.Code, task.RackID, ruleID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to resolve operation rule: %w", err)
+		return nil, nil, fmt.Errorf("failed to resolve operation rule: %w", err)
 	}
 	if rule == nil {
-		return fmt.Errorf("resolver returned nil rule (should never happen)")
+		return nil, nil, fmt.Errorf("resolver returned nil rule (should never happen)")
 	}
 
 	if rule.ID != uuid.Nil {
@@ -418,7 +458,24 @@ func (m *ManagerImpl) resolveAndExecuteTask(
 			Msg("Using hardcoded default rule for task")
 	}
 
-	resp, err := m.executeTask(ctx, task, targetRack, &rule.RuleDefinition)
+	return &rule.RuleDefinition, workflowComponentsFrom(targetRack), nil
+}
+
+// resolveAndExecuteTask resolves the operation rule for a task, executes it,
+// and updates the task record with the execution result. It is shared by the
+// immediate-execution path in createAndExecuteTask and the promotion path in
+// promoteTask.
+func (m *ManagerImpl) resolveAndExecuteTask(
+	ctx context.Context,
+	task *taskdef.Task,
+	targetRack *rack.Rack,
+) error {
+	ruleDef, components, err := m.planExecution(ctx, task, targetRack)
+	if err != nil {
+		return err
+	}
+
+	resp, err := m.executeTask(ctx, task, components, ruleDef)
 	if err != nil {
 		if uerr := m.taskStore.UpdateTaskStatus(ctx, &taskdef.TaskStatusUpdate{
 			ID:      task.ID,
@@ -535,7 +592,7 @@ func workflowComponentsFrom(
 func (m *ManagerImpl) executeTask(
 	ctx context.Context,
 	task *taskdef.Task,
-	targetRack *rack.Rack,
+	components []taskdef.WorkflowComponent,
 	ruleDef *operationrules.RuleDefinition,
 ) (*taskdef.ExecutionResponse, error) {
 	if task == nil {
@@ -545,7 +602,7 @@ func (m *ManagerImpl) executeTask(
 	req := taskdef.ExecutionRequest{
 		Info: taskdef.ExecutionInfo{
 			TaskID:         task.ID,
-			Components:     workflowComponentsFrom(targetRack),
+			Components:     components,
 			RuleDefinition: ruleDef,
 			OperationType:  task.Operation.Type,
 			OperationInfo:  task.Operation.Info, // already json.RawMessage from the DB
