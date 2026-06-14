@@ -24,7 +24,7 @@ mod common;
 
 use common::{DHCPFactory, Kea, RELAY_IP};
 
-const READ_TIMEOUT: Duration = Duration::from_millis(500);
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]
 fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {

@@ -210,29 +210,46 @@ impl Kea {
         // (default) or `target/...something.../debug/` (when CARGO_BUILD_TARGET
         // is set in the env). Check release before debug so a `--release`
         // test build wins.
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let candidates: Vec<String> = {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let candidates: Vec<PathBuf> = {
+            let mut target_roots = Vec::new();
+            if let Some(target_dir) = std::env::var_os("CARGO_TARGET_DIR") {
+                target_roots.push(PathBuf::from(target_dir));
+            }
+            target_roots.push(manifest_dir.join("../../target"));
+
             let target_triple = std::env::var("CARGO_BUILD_TARGET").ok();
-            let triple_subdir = target_triple
-                .as_deref()
-                .map(|t| format!("{t}/"))
-                .unwrap_or_default();
             // NOTE: cargo only updates the non-deps `libdhcp.so` on the first
             // build after a clean; subsequent rebuilds touch `deps/libdhcp.so`
             // only. Prefer the deps copy so we always pick up fresh rebuilds.
-            vec![
-                format!("{manifest_dir}/../../target/{triple_subdir}release/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/release/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}debug/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/debug/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}release/libdhcp.so"),
-                format!("{manifest_dir}/../../target/release/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}debug/libdhcp.so"),
-                format!("{manifest_dir}/../../target/debug/libdhcp.so"),
-            ]
+            target_roots
+                .into_iter()
+                .flat_map(|root| {
+                    [
+                        target_triple
+                            .as_ref()
+                            .map(|triple| root.join(triple).join("release/deps/libdhcp.so")),
+                        Some(root.join("release/deps/libdhcp.so")),
+                        target_triple
+                            .as_ref()
+                            .map(|triple| root.join(triple).join("debug/deps/libdhcp.so")),
+                        Some(root.join("debug/deps/libdhcp.so")),
+                        target_triple
+                            .as_ref()
+                            .map(|triple| root.join(triple).join("release/libdhcp.so")),
+                        Some(root.join("release/libdhcp.so")),
+                        target_triple
+                            .as_ref()
+                            .map(|triple| root.join(triple).join("debug/libdhcp.so")),
+                        Some(root.join("debug/libdhcp.so")),
+                    ]
+                    .into_iter()
+                    .flatten()
+                })
+                .collect()
         };
-        let hook_lib = match candidates.iter().find(|p| Path::new(p).exists()) {
-            Some(p) => p.clone(),
+        let hook_lib = match candidates.iter().find(|p| p.exists()) {
+            Some(p) => p.to_string_lossy().into_owned(),
             None => {
                 // If `cargo build` has not been run yet (after a `cargo clean`),
                 // the `build.rs` script won't have generated libdhcp.so, so lets
@@ -243,7 +260,8 @@ impl Kea {
                 test_cdylib::build_current_project();
                 candidates
                     .into_iter()
-                    .find(|p| Path::new(p).exists())
+                    .find(|p| p.exists())
+                    .map(|p| p.to_string_lossy().into_owned())
                     .expect("test_cdylib build did not produce libdhcp.so at any expected path")
             }
         };
