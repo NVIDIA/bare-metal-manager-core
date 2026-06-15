@@ -32,8 +32,8 @@ use sqlx::PgConnection;
 use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 
-use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
+use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
 use crate::tests::power_shelf_state_controller::fixtures::power_shelf::{
     mark_power_shelf_as_deleted, set_power_shelf_controller_state,
 };
@@ -51,14 +51,15 @@ async fn services(
     };
     let component_manager = component_manager::component_manager::build_component_manager(
         &config,
+        get_config_with_rack_profiles().rack_profiles,
         env.rms_sim.as_rms_client(),
         None,
         Some(env.pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new);
+    .expect("test component manager should build");
+    let component_manager = Some(Arc::new(component_manager));
 
     PowerShelfStateHandlerServices {
         db_pool: env.pool.clone(),

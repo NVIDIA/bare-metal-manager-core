@@ -437,6 +437,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         env.pool.clone(),
         explorer_config,
         env.common_pools.clone(),
+        Arc::new(env.config.rack_profiles.clone()),
         None,
         env.test_credential_manager.clone(),
     );

@@ -34,7 +34,10 @@ use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHa
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::site_explorer::new_switch;
-use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
+use crate::tests::common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+    get_config_with_rack_profiles,
+};
 use crate::tests::switch_state_controller::fixtures::switch::set_switch_controller_state;
 
 fn cm_power_action(operation: SwitchMaintenanceOperation) -> SystemPowerControl {
@@ -138,7 +141,11 @@ async fn services_with_component_manager(env: &TestEnv) -> SwitchStateHandlerSer
 async fn ready_transitions_to_maintenance_when_request_is_set(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(get_config_with_rack_profiles()),
+    )
+    .await;
     let switch_id = new_switch(&env, None, None).await?;
 
     request_switch_maintenance_via_cm(&env, &switch_id, SwitchMaintenanceOperation::PowerOff).await;

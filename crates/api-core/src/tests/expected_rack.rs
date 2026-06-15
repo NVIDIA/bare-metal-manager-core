@@ -19,7 +19,7 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackProfile, RackProfileConfig,
+    RackProductFamily, RackProfile, RackProfileConfig,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
@@ -34,6 +34,7 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "NVL72".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
                     rack_capabilities: RackCapabilitiesSet {
                         compute: RackCapabilityCompute {
                             name: Some("GB200".to_string()),
@@ -60,6 +61,7 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "NVL36".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
                     rack_capabilities: RackCapabilitiesSet {
                         compute: RackCapabilityCompute {
                             name: None,
