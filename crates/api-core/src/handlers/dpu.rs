@@ -595,6 +595,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .map(|addr| addr.to_string())
             .collect(),
         route_servers,
+        ntp_servers: api
+            .runtime_config
+            .ntp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect(),
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
         // exploded representation, so we either need to reconstruct the

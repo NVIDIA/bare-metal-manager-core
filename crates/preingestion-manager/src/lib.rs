@@ -23,7 +23,7 @@ mod metrics;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -95,6 +95,7 @@ struct PreingestionManagerStatic {
     bfb_rshim_copier: Arc<BfbRshimCopier>,
     bfb_copy_state: Arc<BfbCopyManager>,
     bfb_copy_limiter: Arc<Semaphore>,
+    ntp_servers: Vec<Ipv4Addr>,
 }
 
 impl PreingestionManager {
@@ -113,6 +114,7 @@ impl PreingestionManager {
         upload_limiter: Option<Arc<Semaphore>>,
         credential_reader: Option<Arc<dyn CredentialReader>>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        ntp_servers: Vec<Ipv4Addr>,
     ) -> PreingestionManager {
         let hold_period = config
             .run_interval
@@ -133,6 +135,7 @@ impl PreingestionManager {
                 bfb_rshim_copier,
                 bfb_copy_state: Default::default(),
                 bfb_copy_limiter: Arc::new(Semaphore::new(config.max_concurrent_bfb_copies)),
+                ntp_servers,
                 config,
             }),
             metric_holder,
@@ -1680,6 +1683,16 @@ impl PreingestionManagerStatic {
                 if let Err(e) = redfish_client.set_utc_timezone().await {
                     tracing::error!("Could not set UTC timezone on {}: {e}", endpoint.address);
                     return Err(PreingestionManagerError::RedfishError(e));
+                }
+                if !self.ntp_servers.is_empty() {
+                    let ntp_servers: Vec<String> =
+                        self.ntp_servers.iter().map(ToString::to_string).collect();
+                    if let Err(e) = redfish_client.set_ntp_servers(&ntp_servers).await {
+                        tracing::warn!(
+                            "Could not set NTP servers on {}: {e}; continuing time sync reset",
+                            endpoint.address
+                        );
+                    }
                 }
                 if !self
                     .execute_power_off_and_bmc_reset(redfish_client.as_ref(), endpoint)

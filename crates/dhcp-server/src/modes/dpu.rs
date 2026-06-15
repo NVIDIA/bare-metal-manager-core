@@ -44,6 +44,7 @@ fn from_host_conf(value: &InterfaceInfo, interface_id: MachineInterfaceId) -> Dh
         gateway: Some(value.gateway.to_string()),
         booturl: value.booturl.clone(),
         last_invalidation_time: None,
+        ntp_servers: vec![],
     }
 }
 

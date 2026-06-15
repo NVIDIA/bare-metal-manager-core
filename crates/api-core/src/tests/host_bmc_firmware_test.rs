@@ -77,6 +77,7 @@ async fn test_preingestion_bmc_upgrade(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -267,6 +268,7 @@ async fn test_preingestion_upgrade_script(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
@@ -978,6 +980,7 @@ async fn test_preingestion_preupdate_powercycling(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2307,6 +2310,7 @@ async fn test_preingestion_time_sync_ok(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2358,6 +2362,7 @@ async fn test_preingestion_time_sync_reset_flow(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
@@ -2399,6 +2404,12 @@ async fn test_preingestion_time_sync_reset_flow(
     assert!(
         all_actions.contains(&RedfishSimAction::SetUtcTimezone),
         "Expected SetUtcTimezone action to be called during TimeSyncReset Start phase"
+    );
+    assert!(
+        all_actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetNtpServers(_))),
+        "Expected SetNtpServers action to be called during TimeSyncReset Start phase"
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2483,6 +2494,7 @@ async fn test_preingestion_time_sync_check_error_fails(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
@@ -2539,6 +2551,7 @@ async fn test_preingestion_time_sync_retry_logic(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
@@ -2626,6 +2639,7 @@ async fn test_time_sync_retry_reenters_reset_before_failing(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
@@ -2696,6 +2710,7 @@ async fn test_time_sync_fails_after_max_attempts(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
     );
 
     let response = env
