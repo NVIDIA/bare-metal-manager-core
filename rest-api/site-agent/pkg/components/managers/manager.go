@@ -30,6 +30,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/networksecuritygroup"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/nvlinklogicalpartition"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/operatingsystem"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/site"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sku"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sshkeygroup"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/subnet"
@@ -50,6 +51,7 @@ func NewAPIHandlers() {
 	managerapi.ManagerHandler = managerapi.ManagerAPI{
 		// Add all the Managers here
 		Orchestrator:           &workflow.API{},
+		Site:                   &site.API{},
 		VPC:                    &vpc.API{},
 		VpcPrefix:              &vpcprefix.API{},
 		VpcPeering:             &vpcpeering.API{},
@@ -97,6 +99,7 @@ func NewInstance(superforge *elektratypes.Elektra) (*Manager, error) {
 func (Managers *Manager) NewInstance() {
 	// Instantiate all the managers here
 	Managers.Orchestrator()
+	Managers.Site()
 	Managers.VPC()
 	Managers.VpcPrefix()
 	Managers.Subnet()
@@ -148,6 +151,7 @@ func (Managers *Manager) Init() {
 	ManagerAccess.Data.EB.HealthStatus.Store(uint64(computils.CompUnhealthy))
 
 	Managers.Orchestrator().Init()
+	Managers.Site().Init()
 	Managers.CoreGrpc().Init()
 	Managers.Bootstrap().Init()
 	Managers.VPC().Init()
