@@ -565,7 +565,7 @@ function main() {
 
 	echo "Imaging $file to $image_disk" | tee $log_output
 	qemu-img convert -p -O raw -S 0 $file $image_disk 2>&1 | tee $log_output
-	ret=$?
+	ret=${PIPESTATUS[0]}
 	if [ $ret -ne 0 ]; then
 		echo "Imaging failed $ret" | tee $log_output
 		return $ret;
