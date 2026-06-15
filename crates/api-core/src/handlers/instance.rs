@@ -1363,10 +1363,10 @@ async fn update_instance_network_config(
     // Auto-ness can't change for an existing instance. If a tenant has created
     // an instance with auto, it must remain auto until it is released. Maybe
     // eventually this can change, but for now this is what we support.
-    if network.auto != instance.config.network.auto {
+    if network.auto_config != instance.config.network.auto_config {
         return Err(CarbideError::InvalidArgument(format!(
-            "cannot change `InstanceNetworkConfig.auto` on an existing instance (was {}, update requested {})",
-            instance.config.network.auto, network.auto,
+            "cannot change `InstanceNetworkConfig.auto_config` on an existing instance (was {:?}, update requested {:?})",
+            instance.config.network.auto_config, network.auto_config,
         )));
     }
 
@@ -1374,7 +1374,16 @@ async fn update_instance_network_config(
     // HostInband segments before any diff check. Same machine state == no-op
     // via the diff check below. Operator-added or removed HostInband segments
     // since allocation == reflected in the update.
-    if network.auto {
+    if let Some(requested_auto_config) = network.auto_config {
+        if let Some(current_auto_config) = instance.config.network.auto_config
+            && current_auto_config.vpc_id != requested_auto_config.vpc_id
+        {
+            return Err(CarbideError::InvalidArgument(format!(
+                "cannot change `InstanceNetworkConfig.vpc_id` on an existing auto-networked instance (was {}, update requested {})",
+                current_auto_config.vpc_id, requested_auto_config.vpc_id
+            )));
+        }
+
         // Just to make sure, an auto instance should still be on a zero-DPU
         // host. If this machine suddenly has DPUs, we should yell, at least
         // for now. I guess there's a world where we might have a primary NIC

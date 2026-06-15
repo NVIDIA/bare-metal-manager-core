@@ -20,6 +20,7 @@ use std::convert::Into;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
@@ -147,6 +148,7 @@ impl InstanceNetworkStatus {
                                     addresses: obs_iface.addresses.clone(),
                                     prefixes: obs_iface.prefixes.clone(),
                                     gateways: obs_iface.gateways.clone(),
+                                    vpc_id: config_iface.vpc_id,
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -174,6 +176,7 @@ impl InstanceNetworkStatus {
                                     addresses: Vec::new(),
                                     prefixes: Vec::new(),
                                     gateways: Vec::new(),
+                                    vpc_id: config_iface.vpc_id,
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -195,6 +198,7 @@ impl InstanceNetworkStatus {
                             addresses: Vec::new(),
                             prefixes: Vec::new(),
                             gateways: Vec::new(),
+                            vpc_id: config_iface.vpc_id,
                             device: config_iface
                                 .device_locator
                                 .as_ref()
@@ -241,6 +245,7 @@ impl InstanceNetworkStatus {
                                     addresses: intf_obs.addresses.clone(),
                                     prefixes: intf_obs.prefixes.clone(),
                                     gateways: intf_obs.gateways.clone(),
+                                    vpc_id: config_iface.vpc_id,
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -267,6 +272,7 @@ impl InstanceNetworkStatus {
                                     addresses: Vec::new(),
                                     prefixes: Vec::new(),
                                     gateways: Vec::new(),
+                                    vpc_id: config_iface.vpc_id,
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -313,6 +319,7 @@ impl InstanceNetworkStatus {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    vpc_id: iface.vpc_id,
                     device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
                     device_instance: iface
                         .device_locator
@@ -367,6 +374,9 @@ pub struct InstanceInterfaceStatus {
     /// The list of gateways, in CIDR notation, one for each address in `addresses`.
     pub gateways: Vec<IpNetwork>,
 
+    /// The logical VPC this interface belongs to.
+    pub vpc_id: Option<VpcId>,
+
     pub device: Option<String>,
     pub device_instance: usize,
 }
@@ -408,6 +418,7 @@ impl InstanceInterfaceStatus {
             addresses,
             prefixes,
             gateways,
+            vpc_id: value.vpc_id,
             device: None,
             device_instance: 0,
         }
@@ -651,6 +662,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -674,6 +686,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -697,9 +710,10 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
                 },
             ],
-            auto: false,
+            auto_config: None,
         }
     }
 
@@ -733,6 +747,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid1,
+                    vpc_id: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
@@ -756,6 +771,7 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid2,
+                    vpc_id: None,
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
@@ -779,9 +795,10 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: internal_uuid3,
+                    vpc_id: None,
                 },
             ],
-            auto: false,
+            auto_config: None,
         }
     }
 
@@ -842,6 +859,7 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -851,6 +869,7 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -860,6 +879,7 @@ mod tests {
                     addresses: Vec::new(),
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -880,6 +900,7 @@ mod tests {
             addresses: iface.ip_addrs.values().copied().collect(),
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
+            vpc_id: iface.vpc_id,
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -895,6 +916,7 @@ mod tests {
             addresses: iface.ip_addrs.values().copied().collect(),
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
+            vpc_id: iface.vpc_id,
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -911,6 +933,7 @@ mod tests {
             addresses: iface.ip_addrs.values().copied().collect(),
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
+            vpc_id: iface.vpc_id,
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -934,6 +957,7 @@ mod tests {
                     addresses: vec!["127.0.1.2".parse().unwrap()],
                     prefixes: vec!["127.0.1.0/24".parse().unwrap()],
                     gateways: vec!["127.0.1.1/24".parse().unwrap()],
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -943,6 +967,7 @@ mod tests {
                     addresses: vec!["127.0.2.2".parse().unwrap()],
                     prefixes: vec!["127.0.2.0/24".parse().unwrap()],
                     gateways: vec!["127.0.2.1/24".parse().unwrap()],
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -952,6 +977,7 @@ mod tests {
                     addresses: vec!["127.0.3.2".parse().unwrap()],
                     prefixes: vec!["127.0.3.0/24".parse().unwrap()],
                     gateways: vec!["127.0.3.1/24".parse().unwrap()],
+                    vpc_id: None,
                     device: None,
                     device_instance: 0,
                 },

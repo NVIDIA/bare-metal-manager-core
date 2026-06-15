@@ -21,6 +21,7 @@ use std::fmt::Write;
 use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 use rpc::Machine;
 
@@ -428,7 +429,7 @@ pub async fn get_next_free_machine(
     api_client: &ApiClient,
     machine_ids: &mut VecDeque<MachineId>,
     min_interface_count: usize,
-    zero_dpu: bool,
+    flat_vpc_id: Option<VpcId>,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
         tracing::debug!("Checking {}", id);
@@ -437,7 +438,7 @@ pub async fn get_next_free_machine(
                 tracing::debug!("Machine is not ready");
                 continue;
             }
-            if zero_dpu {
+            if flat_vpc_id.is_some() {
                 return Some(machine);
             }
             if let Some(discovery_info) = &machine.discovery_info {

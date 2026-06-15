@@ -49,6 +49,7 @@ use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::db_init;
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::network_segment::FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS;
 use crate::tests::common::api_fixtures::{
@@ -68,7 +69,7 @@ async fn test_advance_network_prefix_state(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(rpc::forge::Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -592,7 +593,7 @@ pub async fn test_create_initial_vpc_and_attached_network(
     let vpcs = HashMap::from([(
         "zero-dpu-vpc".to_string(),
         VpcDefinition {
-            organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+            organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
             network_virtualization_type: VpcVirtualizationType::Flat,
             routing_profile_type: None,
             vni: None,
@@ -623,10 +624,7 @@ pub async fn test_create_initial_vpc_and_attached_network(
     let seeded_vpcs = db::vpc::find_by_name(txn.as_mut(), "zero-dpu-vpc").await?;
     assert_eq!(seeded_vpcs.len(), 1);
     let seeded_vpc = &seeded_vpcs[0];
-    assert_eq!(
-        seeded_vpc.tenant_organization_id,
-        "2829bbe3-c169-4cd9-8b2a-19a8b1618a93"
-    );
+    assert_eq!(seeded_vpc.tenant_organization_id, FIXTURE_TENANT_ORG_ID);
     assert_eq!(
         seeded_vpc.network_virtualization_type,
         VpcVirtualizationType::Flat
@@ -1323,7 +1321,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "dual-stack vpc".to_string(),
                     ..Default::default()
@@ -1408,7 +1406,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "uncontained-ipv6-vpc".to_string(),
                     description: "".to_string(),
@@ -1585,7 +1583,7 @@ async fn flat_vpc_accepts_host_inband_segment(
     let (_vpc_id, vpc) = common::api_fixtures::vpc::create_flat_vpc(
         &env,
         "flat".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(FIXTURE_TENANT_ORG_ID.to_string()),
     )
     .await;
 
@@ -1629,7 +1627,7 @@ async fn flat_vpc_rejects_tenant_segment(
     let (_vpc_id, vpc) = common::api_fixtures::vpc::create_flat_vpc(
         &env,
         "flat".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(FIXTURE_TENANT_ORG_ID.to_string()),
     )
     .await;
 
@@ -1679,7 +1677,7 @@ async fn etv_vpc_rejects_host_inband_segment(
     let (_vpc_id, vpc) = common::api_fixtures::vpc::create_vpc(
         &env,
         "etv".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(FIXTURE_TENANT_ORG_ID.to_string()),
         None,
     )
     .await;

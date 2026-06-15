@@ -21,7 +21,7 @@ use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::vpc::VpcPrefixId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use serde::ser::SerializeMap;
@@ -110,7 +110,7 @@ pub struct InstanceNetworkConfig {
     /// hosts (well, no DPU, *or* DPU in NIC mode).
     ///
     /// It is also important to note that on the wire (request AND response),
-    /// `auto: true` only travels with `interfaces: []`, but internally some
+    /// `auto_config: {...}` only travels with `interfaces: []`, but internally some
     /// other things are happening.
     ///
     /// On allocation/update, NICo resolves the empty interfaces: [] into
@@ -120,12 +120,20 @@ pub struct InstanceNetworkConfig {
     ///
     /// Then, at the model <-> RPC boundary, the resolved interfaces are
     /// stripped off to `[]`, so callers reading the instance config back
-    /// simply see what they originally sent (`auto: true` with no interfaces).
+    /// simply see what they originally sent (`auto: {...}` with no interfaces).
     ///
     /// The resolved per-interface details (IP, MAC, gateway, prefix) appear in
     /// `Instance.status.network.interfaces` like usual.
-    #[serde(default)]
-    pub auto: bool,
+    pub auto_config: Option<InstanceNetworkAutoConfig>,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceNetworkAutoConfig {
+    /// The logical VPC to allocate into when `auto` networking is used.
+    ///
+    /// Auto networking resolves the concrete HostInband segment from the host,
+    /// so the segment itself does not have to carry VPC ownership.
+    pub vpc_id: VpcId,
 }
 
 /// Struct to store instance network config updated request with current config.
@@ -147,6 +155,7 @@ impl InstanceNetworkConfig {
     pub fn for_segment_ids(
         network_segment_ids: &[NetworkSegmentId],
         device_locators: &[DeviceLocator],
+        vpc_ids: &[VpcId],
     ) -> Self {
         if device_locators.is_empty() {
             Self {
@@ -165,8 +174,9 @@ impl InstanceNetworkConfig {
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::nil(),
+                    vpc_id: vpc_ids.first().copied(),
                 }],
-                auto: false,
+                auto_config: None,
             }
         } else {
             Self {
@@ -188,18 +198,16 @@ impl InstanceNetworkConfig {
                         host_inband_mac_address: None,
                         device_locator: Some(dl.clone()),
                         internal_uuid: uuid::Uuid::nil(),
+                        vpc_id: vpc_ids.get(dl_index).copied(),
                     })
                     .collect(),
-                auto: false,
+                auto_config: None,
             }
         }
     }
 
     /// Returns a network configuration for a single physical interface
-    pub fn for_vpc_prefix_id(
-        vpc_prefix_id: VpcPrefixId,
-        _dpu_machine_id: Option<MachineId>,
-    ) -> Self {
+    pub fn for_vpc_prefix_id(vpc_prefix_id: VpcPrefixId, vpc_id: Option<VpcId>) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
@@ -214,8 +222,9 @@ impl InstanceNetworkConfig {
                 host_inband_mac_address: None,
                 device_locator: None,
                 internal_uuid: uuid::Uuid::nil(),
+                vpc_id,
             }],
-            auto: false,
+            auto_config: None,
         }
     }
 
@@ -230,10 +239,10 @@ impl InstanceNetworkConfig {
     /// back to them as they sent it, and mask any internal interface
     /// resolution that happened as a result of `auto`.
     pub fn into_external_view(self) -> Self {
-        if self.auto {
+        if self.auto_config.is_some() {
             Self {
                 interfaces: vec![],
-                auto: true,
+                auto_config: self.auto_config,
             }
         } else {
             self
@@ -388,6 +397,7 @@ impl InstanceNetworkConfig {
             iface.network_segment_gateways.clear();
             iface.host_inband_mac_address = None;
             iface.internal_uuid = uuid::Uuid::nil();
+            iface.vpc_id = None;
 
             // It is possible that cloud sends network_segment_id with network_details as well.
             if iface.network_details.is_some() {
@@ -401,6 +411,7 @@ impl InstanceNetworkConfig {
                 iface.network_segment_id = None;
             }
             iface.internal_uuid = uuid::Uuid::nil();
+            iface.vpc_id = None;
         }
 
         current != new_config
@@ -460,6 +471,7 @@ impl InstanceNetworkConfig {
                 if interface.network_details.is_some() {
                     interface.network_segment_id = existing_interface.network_segment_id;
                 }
+                interface.vpc_id = existing_interface.vpc_id;
                 common_function_ids.push(existing_interface);
             }
         }
@@ -659,6 +671,13 @@ pub struct InstanceInterfaceConfig {
 
     /// An internal ID used to associate an interface status with the interface config
     pub internal_uuid: uuid::Uuid,
+
+    /// Logical VPC ownership for this resolved interface.
+    ///
+    /// For legacy segment-bound allocations this is derived from the segment.
+    /// For Flat zero-DPU auto allocations this is copied from
+    /// [`InstanceNetworkConfig::vpc_id`] after HostInband segment resolution.
+    pub vpc_id: Option<VpcId>,
 }
 
 impl InstanceInterfaceConfig {
@@ -811,11 +830,12 @@ mod tests {
             network_details: None,
             device_locator: None,
             internal_uuid,
+            vpc_id: None,
         };
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"routing_profile":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"routing_profile":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f","vpc_id":null}"#
         );
 
         assert_eq!(
@@ -849,14 +869,39 @@ mod tests {
                     network_details: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
                 }
             })
             .collect();
 
         InstanceNetworkConfig {
             interfaces,
-            auto: false,
+            auto_config: None,
         }
+    }
+
+    #[test]
+    fn network_update_detection_ignores_derived_vpc_id() {
+        let mut current = create_valid_network_config();
+        let mut requested = current.clone();
+
+        current.interfaces[0].vpc_id = Some(VpcId::new());
+        requested.interfaces[0].vpc_id = None;
+        requested.interfaces[0].internal_uuid = uuid::Uuid::new_v4();
+
+        assert!(!current.is_network_config_update_requested(&requested));
+    }
+
+    #[test]
+    fn copy_existing_resources_preserves_derived_vpc_id() {
+        let vpc_id = VpcId::new();
+        let mut current = create_valid_network_config();
+        current.interfaces[0].vpc_id = Some(vpc_id);
+
+        let mut requested = create_valid_network_config();
+        requested.copy_existing_resources(&current);
+
+        assert_eq!(requested.interfaces[0].vpc_id, Some(vpc_id));
     }
 
     // InstanceNetworkConfig::validate over a base valid config mutated per row.

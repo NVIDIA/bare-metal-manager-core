@@ -1261,7 +1261,42 @@ impl ApiClient {
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::InstanceAllocationRequest> {
         let mut vf_function_id = 0;
-        let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
+        let (interface_configs, tenant_org, vpc_id) = if let Some(vpc_id) =
+            allocate_instance.flat_vpc_id
+        {
+            if !allocate_instance.vpc_prefix_id.is_empty()
+                || !allocate_instance.vf_vpc_prefix_id.is_empty()
+                || !allocate_instance.vf_subnet.is_empty()
+            {
+                return Err(CarbideCliError::GenericError(
+                    "--flat-vpc-id does not support explicit VPC prefixes or VF subnets"
+                        .to_string(),
+                ));
+            }
+
+            let vpc = self
+                .0
+                .find_vpcs_by_ids(VpcsByIdsRequest {
+                    vpc_ids: vec![vpc_id],
+                })
+                .await?
+                .vpcs
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    CarbideCliError::GenericError(format!("VPC {vpc_id} was not found"))
+                })?;
+
+            let VpcVirtualizationType::Flat = vpc.network_virtualization_type() else {
+                return Err(CarbideCliError::GenericError(format!(
+                    "VPC {} is not a flat VPC, is of type {}",
+                    vpc_id,
+                    vpc.network_virtualization_type().as_str_name()
+                )));
+            };
+
+            (Vec::new(), vpc.tenant_organization_id, Some(vpc_id))
+        } else if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
                 return Err(CarbideCliError::GenericError(
                     "Cannot use vf_vpc_prefix_id with subnet".to_string(),
@@ -1299,9 +1334,7 @@ impl ApiClient {
                     .pci_properties
                     .as_ref()
                     .map(|pci| &pci.vendor)
-                    .is_some_and(|v| {
-                        v.to_ascii_lowercase().contains("mellanox") || allocate_instance.zero_dpu
-                    })
+                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
             });
             let mut interface_config = Vec::default();
             let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
@@ -1362,7 +1395,9 @@ impl ApiClient {
                 allocate_instance
                     .tenant_org
                     .as_deref()
-                    .unwrap_or("devenv_test_org"),
+                    .unwrap_or("devenv_test_org")
+                    .to_string(),
+                None,
             )
         } else if !allocate_instance.vpc_prefix_id.is_empty() {
             let Some(discovery_info) = &machine.discovery_info else {
@@ -1470,11 +1505,12 @@ impl ApiClient {
 
             (
                 interface_configs,
-                allocate_instance.tenant_org.as_deref().ok_or_else(|| {
+                allocate_instance.tenant_org.clone().ok_or_else(|| {
                     CarbideCliError::GenericError(
                         "Tenant org is mandatory in case of vpc_prefix.".to_string(),
                     )
                 })?,
+                None,
             )
         } else {
             return Err(CarbideCliError::GenericError(
@@ -1482,11 +1518,12 @@ impl ApiClient {
             ));
         };
 
-        if interface_configs.len()
-            != (allocate_instance.subnet.len()
-                + allocate_instance.vf_subnet.len()
-                + allocate_instance.vpc_prefix_id.len()
-                + allocate_instance.vf_vpc_prefix_id.len())
+        if allocate_instance.flat_vpc_id.is_none()
+            && interface_configs.len()
+                != (allocate_instance.subnet.len()
+                    + allocate_instance.vf_subnet.len()
+                    + allocate_instance.vpc_prefix_id.len()
+                    + allocate_instance.vf_vpc_prefix_id.len())
         {
             return Err(CarbideCliError::GenericError(
                 "Could not create the correct number of interface configs to satisfy request."
@@ -1494,7 +1531,7 @@ impl ApiClient {
             ));
         }
         let tenant_config = rpc::TenantConfig {
-            tenant_organization_id: tenant_org.to_string(),
+            tenant_organization_id: tenant_org,
             tenant_keyset_ids: vec![],
             hostname: None,
         };
@@ -1503,12 +1540,12 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: if allocate_instance.zero_dpu {
-                    vec![]
-                } else {
-                    interface_configs
-                },
-                auto: allocate_instance.zero_dpu,
+                interfaces: interface_configs,
+                auto_config: vpc_id.map(|vpc_id| rpc::InstanceNetworkAutoConfig {
+                    vpc_id: Some(vpc_id),
+                }),
+                #[allow(deprecated)]
+                auto: allocate_instance.flat_vpc_id.is_some(),
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
