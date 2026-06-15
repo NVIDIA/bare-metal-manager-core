@@ -2635,7 +2635,7 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
     let dpu = DpuConfig::default();
     let host_pf_mac = dpu.host_mac_address;
     let managed_host = ManagedHostConfig::default().with_dpus(vec![dpu]);
-    let created_host = test_harness
+    let (created_host, _) = test_harness
         .managed_host_builder(&explorer, underlay_segment)
         .with_config(managed_host)
         .build()
@@ -2645,7 +2645,8 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
     // preingestion complete. Its second iteration creates the predicted host-PF
     // interface with the Redfish boot interface id from the endpoint report.
     created_host
-        .dhcp_discover_host_primary_iface(test_harness.api(), admin_segment)
+        .host
+        .dhcp_discover_primary_iface(admin_segment)
         .await;
 
     // Third iteration: the DHCP-created row is matched by MAC and receives
@@ -2654,11 +2655,10 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
 
     let mut txn = test_harness.db_txn().await;
     let interfaces =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[created_host.host_machine_id])
-            .await?;
+        db::machine_interface::find_by_machine_ids(&mut txn, &[created_host.host.id]).await?;
     txn.commit().await?;
     let primary = interfaces
-        .get(&created_host.host_machine_id)
+        .get(&created_host.host.id)
         .into_iter()
         .flatten()
         .find(|i| i.primary_interface)
