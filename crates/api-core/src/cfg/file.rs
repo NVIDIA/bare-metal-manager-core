@@ -3170,6 +3170,10 @@ mod tests {
 
         assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
         let nvl72 = config.rack_profiles.get("NVL72").unwrap();
+        assert_eq!(
+            nvl72.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl72.rack_capabilities.compute.count, 18);
         assert_eq!(
             nvl72.rack_capabilities.compute.name.as_deref(),
@@ -3182,6 +3186,10 @@ mod tests {
         assert_eq!(nvl72.rack_capabilities.switch.count, 9);
         assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
         let nvl36 = config.rack_profiles.get("NVL36").unwrap();
+        assert_eq!(
+            nvl36.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);

@@ -17,7 +17,7 @@
 
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProfile,
+    RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProductFamily, RackProfile,
 };
 
 use crate as rpc;
@@ -32,6 +32,31 @@ impl From<RackHardwareType> for rpc::common::RackHardwareType {
 impl From<rpc::common::RackHardwareType> for RackHardwareType {
     fn from(value: rpc::common::RackHardwareType) -> Self {
         RackHardwareType(value.value)
+    }
+}
+
+impl From<RackProductFamily> for rpc::forge::RackProductFamily {
+    fn from(value: RackProductFamily) -> Self {
+        match value {
+            RackProductFamily::Gb200 => rpc::forge::RackProductFamily::Gb200,
+            RackProductFamily::Gb300 => rpc::forge::RackProductFamily::Gb300,
+        }
+    }
+}
+
+impl TryFrom<rpc::forge::RackProductFamily> for RackProductFamily {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::RackProductFamily) -> Result<Self, Self::Error> {
+        match value {
+            rpc::forge::RackProductFamily::Gb200 => Ok(RackProductFamily::Gb200),
+            rpc::forge::RackProductFamily::Gb300 => Ok(RackProductFamily::Gb300),
+            rpc::forge::RackProductFamily::Unspecified => {
+                Err(RpcDataConversionError::InvalidArgument(
+                    "unspecified rack product family".to_string(),
+                ))
+            }
+        }
     }
 }
 
@@ -176,6 +201,10 @@ impl From<&RackProfile> for rpc::forge::RackProfile {
                 .map(|c| rpc::forge::RackHardwareClass::from(c) as i32)
                 .unwrap_or(rpc::forge::RackHardwareClass::Unspecified as i32),
             capabilities: Some((&value.rack_capabilities).into()),
+            product_family: value
+                .product_family
+                .map(|p| rpc::forge::RackProductFamily::from(p) as i32)
+                .unwrap_or(rpc::forge::RackProductFamily::Unspecified as i32),
         }
     }
 }
@@ -187,6 +216,51 @@ mod tests {
 
     use super::*;
     // Proto conversion tests.
+
+    #[test]
+    fn test_rack_product_family_proto_round_trip() {
+        struct Row {
+            scenario: &'static str,
+            model: RackProductFamily,
+            proto: rpc::forge::RackProductFamily,
+        }
+
+        check_cases(
+            [
+                Row {
+                    scenario: "gb200",
+                    model: RackProductFamily::Gb200,
+                    proto: rpc::forge::RackProductFamily::Gb200,
+                },
+                Row {
+                    scenario: "gb300",
+                    model: RackProductFamily::Gb300,
+                    proto: rpc::forge::RackProductFamily::Gb300,
+                },
+            ]
+            .map(|row| Case {
+                scenario: row.scenario,
+                input: (row.model, row.proto),
+                expect: Yields(row.model),
+            }),
+            |(model, proto)| {
+                let converted: rpc::forge::RackProductFamily = model.into();
+                assert_eq!(converted, proto);
+
+                RackProductFamily::try_from(proto).map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn test_rack_product_family_proto_unspecified_errors() {
+        Case {
+            scenario: "unspecified product family rejected",
+            input: rpc::forge::RackProductFamily::Unspecified,
+            expect: Fails,
+        }
+        .check(|proto| RackProductFamily::try_from(proto).map_err(drop));
+    }
 
     // Each topology round-trips: model -> proto matches the expected proto, and the
     // proto -> model TryFrom yields the original model. The op asserts the forward
@@ -306,6 +380,7 @@ mod tests {
     #[test]
     fn test_rack_profile_proto_conversion() {
         let profile = RackProfile {
+            product_family: Some(RackProductFamily::Gb200),
             rack_hardware_type: Some(RackHardwareType::from("dsx_gb200nvl_72x1")),
             rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
             rack_hardware_class: Some(RackHardwareClass::Prod),
@@ -333,6 +408,10 @@ mod tests {
 
         let proto: rpc::forge::RackProfile = (&profile).into();
 
+        assert_eq!(
+            proto.product_family,
+            rpc::forge::RackProductFamily::Gb200 as i32
+        );
         assert_eq!(proto.rack_hardware_type.unwrap().value, "dsx_gb200nvl_72x1");
         assert_eq!(
             proto.rack_hardware_topology,
@@ -366,6 +445,10 @@ mod tests {
         let profile = RackProfile::default();
         let proto: rpc::forge::RackProfile = (&profile).into();
 
+        assert_eq!(
+            proto.product_family,
+            rpc::forge::RackProductFamily::Unspecified as i32
+        );
         assert_eq!(proto.rack_hardware_type, None);
         assert_eq!(
             proto.rack_hardware_topology,

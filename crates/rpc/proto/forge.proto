@@ -7230,6 +7230,12 @@ enum RackHardwareTopology {
   RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
 }
 
+enum RackProductFamily {
+  RACK_PRODUCT_FAMILY_UNSPECIFIED = 0;
+  RACK_PRODUCT_FAMILY_GB200 = 1;
+  RACK_PRODUCT_FAMILY_GB300 = 2;
+}
+
 enum RackHardwareClass {
   RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
   RACK_HARDWARE_CLASS_DEV = 1;
@@ -7268,6 +7274,7 @@ message RackProfile {
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
   RackCapabilitiesSet capabilities = 4;
+  RackProductFamily product_family = 5;
 }
 
 message GetRackProfileRequest {
