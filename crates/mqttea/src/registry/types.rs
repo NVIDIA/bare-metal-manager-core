@@ -137,3 +137,159 @@ impl MessageTypeInfo {
         self.format == format
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum PublishOptionsBuild {
+        Default,
+        Qos,
+        Retain,
+        QosAndRetain,
+    }
+
+    #[derive(Clone, Copy)]
+    enum MessageInfoBuild {
+        JsonDefault,
+        ProtobufQosOverride,
+        RawRetainOverride,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct MessageInfoSummary {
+        has_alpha: bool,
+        has_missing: bool,
+        pattern_count: usize,
+        uses_qos_override: bool,
+        effective_qos: QoS,
+        effective_retain: bool,
+        is_json: bool,
+        is_protobuf: bool,
+        is_raw: bool,
+    }
+
+    fn build_publish_options(build: PublishOptionsBuild) -> PublishOptions {
+        match build {
+            PublishOptionsBuild::Default => PublishOptions::default(),
+            PublishOptionsBuild::Qos => PublishOptions::default().with_qos(QoS::AtLeastOnce),
+            PublishOptionsBuild::Retain => PublishOptions::default().with_retain(true),
+            PublishOptionsBuild::QosAndRetain => PublishOptions::default()
+                .with_qos(QoS::ExactlyOnce)
+                .with_retain(false),
+        }
+    }
+
+    fn build_message_info(build: MessageInfoBuild) -> MessageTypeInfo {
+        match build {
+            MessageInfoBuild::JsonDefault => MessageTypeInfo {
+                type_name: "JsonMessage".to_string(),
+                patterns: vec!["alpha".to_string(), "beta".to_string()],
+                publish_options: None,
+                format: SerializationFormat::Json,
+            },
+            MessageInfoBuild::ProtobufQosOverride => MessageTypeInfo {
+                type_name: "ProtoMessage".to_string(),
+                patterns: vec!["alpha".to_string()],
+                publish_options: Some(PublishOptions::default().with_qos(QoS::ExactlyOnce)),
+                format: SerializationFormat::Protobuf,
+            },
+            MessageInfoBuild::RawRetainOverride => MessageTypeInfo {
+                type_name: "RawMessage".to_string(),
+                patterns: vec!["alpha".to_string()],
+                publish_options: Some(PublishOptions::default().with_retain(true)),
+                format: SerializationFormat::Raw,
+            },
+        }
+    }
+
+    fn summarize_message_info(info: MessageTypeInfo) -> MessageInfoSummary {
+        MessageInfoSummary {
+            has_alpha: info.has_pattern("alpha"),
+            has_missing: info.has_pattern("missing"),
+            pattern_count: info.pattern_count(),
+            uses_qos_override: info.uses_qos_override(),
+            effective_qos: info.effective_qos(QoS::AtMostOnce),
+            effective_retain: info.effective_retain(false),
+            is_json: info.is_format(SerializationFormat::Json),
+            is_protobuf: info.is_format(SerializationFormat::Protobuf),
+            is_raw: info.is_format(SerializationFormat::Raw),
+        }
+    }
+
+    #[test]
+    fn test_publish_options_builders() {
+        value_scenarios!(
+            run = |build| {
+                let options = build_publish_options(build);
+                (options.qos, options.retain)
+            };
+            "default" {
+                PublishOptionsBuild::Default => (None, None),
+            }
+
+            "qos" {
+                PublishOptionsBuild::Qos => (Some(QoS::AtLeastOnce), None),
+            }
+
+            "retain" {
+                PublishOptionsBuild::Retain => (None, Some(true)),
+            }
+
+            "qos and retain" {
+                PublishOptionsBuild::QosAndRetain => (Some(QoS::ExactlyOnce), Some(false)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_message_type_info_helpers() {
+        value_scenarios!(
+            run = |build| summarize_message_info(build_message_info(build));
+            "json default" {
+                MessageInfoBuild::JsonDefault => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 2,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    effective_retain: false,
+                    is_json: true,
+                    is_protobuf: false,
+                    is_raw: false,
+                },
+            }
+
+            "protobuf qos override" {
+                MessageInfoBuild::ProtobufQosOverride => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 1,
+                    uses_qos_override: true,
+                    effective_qos: QoS::ExactlyOnce,
+                    effective_retain: false,
+                    is_json: false,
+                    is_protobuf: true,
+                    is_raw: false,
+                },
+            }
+
+            "raw retain override" {
+                MessageInfoBuild::RawRetainOverride => MessageInfoSummary {
+                    has_alpha: true,
+                    has_missing: false,
+                    pattern_count: 1,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    effective_retain: true,
+                    is_json: false,
+                    is_protobuf: false,
+                    is_raw: true,
+                },
+            }
+        );
+    }
+}

@@ -17851,6 +17851,23 @@ components:
         powerState:
           type: string
           description: Current power state of the component
+        operationStatus:
+          type: string
+          enum:
+            - Unknown
+            - Initializing
+            - Ready
+            - InUse
+            - Error
+            - Deleting
+          description: Flow-derived operability phase of the component
+        leakStatus:
+          type: string
+          enum:
+            - Unknown
+            - NoLeak
+            - Leaking
+          description: Whether the component is considered leaking coolant
     BMCInfo:
       title: BMCInfo
       type: object
@@ -17925,6 +17942,23 @@ components:
         powerState:
           type: string
           description: Current power state of the tray
+        operationStatus:
+          type: string
+          enum:
+            - Unknown
+            - Initializing
+            - Ready
+            - InUse
+            - Error
+            - Deleting
+          description: Flow-derived operability phase of the tray
+        leakStatus:
+          type: string
+          enum:
+            - Unknown
+            - NoLeak
+            - Leaking
+          description: Whether the tray is considered leaking coolant
         position:
           $ref: '#/components/schemas/TrayPosition'
           description: 'Position of the Tray within the Rack'
@@ -18031,6 +18065,14 @@ components:
             Optional Operation Rule UUID. When set, pins every task spawned by
             this batch to the named rule and overrides Flow's default rule
             resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
     BatchUpdateTrayPowerStateRequest:
       title: BatchUpdateTrayPowerStateRequest
       type: object
@@ -18062,6 +18104,14 @@ components:
             Optional Operation Rule UUID. When set, pins every task spawned by
             this batch to the named rule and overrides Flow's default rule
             resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
     BatchRackFirmwareUpdateRequest:
       title: BatchRackFirmwareUpdateRequest
       type: object
@@ -18088,6 +18138,14 @@ components:
             Optional Operation Rule UUID. When set, pins every task spawned by
             this batch to the named rule and overrides Flow's default rule
             resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
     BringUpRackRequest:
       title: BringUpRackRequest
       type: object
@@ -18108,6 +18166,13 @@ components:
           description: |-
             Optional Operation Rule UUID. When set, pins this bring-up to the
             named rule and overrides Flow's default rule resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack) are reported as not ready by their persisted
+            status. Intended for operator-supervised maintenance.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
         - siteId: 550e8400-e29b-41d4-a716-446655440000
@@ -18136,6 +18201,13 @@ components:
             Optional Operation Rule UUID. When set, pins every bring-up task
             spawned by this batch to the named rule and overrides Flow's default
             rule resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack) are reported as not ready by their persisted
+            status. Intended for operator-supervised maintenance.
     BringUpRackResponse:
       title: BringUpRackResponse
       type: object
@@ -18630,6 +18702,7 @@ components:
               - nvos
               - pmc
               - psu
+              - dpu
           description: |-
             Optional subset of firmware targets to update within each matched tray.
             Names are lowercase and select sub-parts of the tray
@@ -18646,8 +18719,15 @@ components:
                 and the whole bundle is applied. Will be honored once
                 compute moves to UpdateComponentFirmware.)
             Omitted or empty means "update everything in the bundle"
-            (the historical default). Unknown names are rejected.
-            Requires `version` to be set.
+            (the historical default) for compute-tray-internal targets.
+            Unknown names are rejected. Requires `version` to be set.
+            The special target `dpu`, valid only on compute trays,
+            requests DPU reprovisioning on each matched host. Unlike
+            the other targets, `dpu` is NOT covered by the
+            "omitted/empty means everything" default — it must be
+            listed explicitly. `version` is ignored on the `dpu`
+            branch; the target firmware version comes from site
+            configuration.
         ruleId:
           type: string
           format: uuid
@@ -18655,6 +18735,14 @@ components:
             Optional Operation Rule UUID. When set, pins every task spawned by
             this batch to the named rule and overrides Flow's default rule
             resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
@@ -18694,6 +18782,14 @@ components:
           description: |-
             Optional Operation Rule UUID. When set, pins this operation to the
             named rule and overrides Flow's default rule resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           state: 'on'
@@ -18743,6 +18839,7 @@ components:
               - nvos
               - pmc
               - psu
+              - dpu
           description: |-
             Optional subset of firmware targets to update within the targeted tray.
             Names are lowercase and select sub-parts of the tray
@@ -18759,14 +18856,29 @@ components:
                 and the whole bundle is applied. Will be honored once
                 compute moves to UpdateComponentFirmware.)
             Omitted or empty means "update everything in the bundle"
-            (the historical default). Unknown names are rejected.
-            Requires `version` to be set.
+            (the historical default) for compute-tray-internal targets.
+            Unknown names are rejected. Requires `version` to be set.
+            The special target `dpu`, valid only on compute trays,
+            requests DPU reprovisioning on the matched host. Unlike
+            the other targets, `dpu` is NOT covered by the
+            "omitted/empty means everything" default — it must be
+            listed explicitly. `version` is ignored on the `dpu`
+            branch; the target firmware version comes from site
+            configuration.
         ruleId:
           type: string
           format: uuid
           description: |-
             Optional Operation Rule UUID. When set, pins this firmware update to
             the named rule and overrides Flow's default rule resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           version: '24.11.0'
@@ -19840,11 +19952,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -19967,11 +20074,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20097,11 +20199,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20191,11 +20288,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20302,11 +20394,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20411,11 +20498,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20726,11 +20808,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20849,11 +20926,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer
@@ -20969,11 +21041,6 @@ components:
             - string
             - 'null'
           description: Description of this component
-        firmwareVersion:
-          type:
-            - string
-            - 'null'
-          description: Firmware version of this component
         slotId:
           type:
             - integer

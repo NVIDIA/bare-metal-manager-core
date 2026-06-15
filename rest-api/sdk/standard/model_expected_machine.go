@@ -53,8 +53,6 @@ type ExpectedMachine struct {
 	Model NullableString `json:"model,omitempty"`
 	// Description of this component
 	Description NullableString `json:"description,omitempty"`
-	// Firmware version of this component
-	FirmwareVersion NullableString `json:"firmwareVersion,omitempty"`
 	// Slot ID within the rack
 	SlotId NullableInt32 `json:"slotId,omitempty"`
 	// Tray index within the rack
@@ -654,49 +652,6 @@ func (o *ExpectedMachine) UnsetDescription() {
 	o.Description.Unset()
 }
 
-// GetFirmwareVersion returns the FirmwareVersion field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *ExpectedMachine) GetFirmwareVersion() string {
-	if o == nil || IsNil(o.FirmwareVersion.Get()) {
-		var ret string
-		return ret
-	}
-	return *o.FirmwareVersion.Get()
-}
-
-// GetFirmwareVersionOk returns a tuple with the FirmwareVersion field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *ExpectedMachine) GetFirmwareVersionOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.FirmwareVersion.Get(), o.FirmwareVersion.IsSet()
-}
-
-// HasFirmwareVersion returns a boolean if a field has been set.
-func (o *ExpectedMachine) HasFirmwareVersion() bool {
-	if o != nil && o.FirmwareVersion.IsSet() {
-		return true
-	}
-
-	return false
-}
-
-// SetFirmwareVersion gets a reference to the given NullableString and assigns it to the FirmwareVersion field.
-func (o *ExpectedMachine) SetFirmwareVersion(v string) {
-	o.FirmwareVersion.Set(&v)
-}
-
-// SetFirmwareVersionNil sets the value for FirmwareVersion to be an explicit nil
-func (o *ExpectedMachine) SetFirmwareVersionNil() {
-	o.FirmwareVersion.Set(nil)
-}
-
-// UnsetFirmwareVersion ensures that no value is present for FirmwareVersion, not even an explicit nil
-func (o *ExpectedMachine) UnsetFirmwareVersion() {
-	o.FirmwareVersion.Unset()
-}
-
 // GetSlotId returns the SlotId field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *ExpectedMachine) GetSlotId() int32 {
 	if o == nil || IsNil(o.SlotId.Get()) {
@@ -976,9 +931,6 @@ func (o ExpectedMachine) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Description.IsSet() {
 		toSerialize["description"] = o.Description.Get()
-	}
-	if o.FirmwareVersion.IsSet() {
-		toSerialize["firmwareVersion"] = o.FirmwareVersion.Get()
 	}
 	if o.SlotId.IsSet() {
 		toSerialize["slotId"] = o.SlotId.Get()

@@ -214,7 +214,7 @@ mod tests {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
 
@@ -235,103 +235,83 @@ mod coverage_tests {
     // case-insensitively, and any unknown token is rejected.
     #[test]
     fn parse_device_field_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "device_type canonical",
-                    input: "device_type",
-                    expect: Yields(DeviceField::DeviceType),
-                },
-                Case {
-                    scenario: "type alias",
-                    input: "type",
-                    expect: Yields(DeviceField::DeviceType),
-                },
-                Case {
-                    scenario: "device_type uppercased (lowercased internally)",
-                    input: "DEVICE_TYPE",
-                    expect: Yields(DeviceField::DeviceType),
-                },
-                Case {
-                    scenario: "part_number canonical",
-                    input: "part_number",
-                    expect: Yields(DeviceField::PartNumber),
-                },
-                Case {
-                    scenario: "part alias",
-                    input: "part",
-                    expect: Yields(DeviceField::PartNumber),
-                },
-                Case {
-                    scenario: "firmware_version canonical",
-                    input: "firmware_version",
-                    expect: Yields(DeviceField::FirmwareVersion),
-                },
-                Case {
-                    scenario: "firmware alias",
-                    input: "firmware",
-                    expect: Yields(DeviceField::FirmwareVersion),
-                },
-                Case {
-                    scenario: "fw alias",
-                    input: "fw",
-                    expect: Yields(DeviceField::FirmwareVersion),
-                },
-                Case {
-                    scenario: "mac_address canonical",
-                    input: "mac_address",
-                    expect: Yields(DeviceField::MacAddress),
-                },
-                Case {
-                    scenario: "mac alias",
-                    input: "mac",
-                    expect: Yields(DeviceField::MacAddress),
-                },
-                Case {
-                    scenario: "description canonical",
-                    input: "description",
-                    expect: Yields(DeviceField::Description),
-                },
-                Case {
-                    scenario: "desc alias",
-                    input: "desc",
-                    expect: Yields(DeviceField::Description),
-                },
-                Case {
-                    scenario: "pci_name canonical",
-                    input: "pci_name",
-                    expect: Yields(DeviceField::PciName),
-                },
-                Case {
-                    scenario: "pci alias",
-                    input: "pci",
-                    expect: Yields(DeviceField::PciName),
-                },
-                Case {
-                    scenario: "status canonical",
-                    input: "status",
-                    expect: Yields(DeviceField::Status),
-                },
-                Case {
-                    scenario: "unknown field rejected",
-                    input: "bogus",
-                    expect: FailsWith(
-                        "Unknown field 'bogus'. Valid fields: device_type, part_number, \
-                         firmware_version, mac_address, description, pci_name, status"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "empty field rejected",
-                    input: "",
-                    expect: FailsWith(
-                        "Unknown field ''. Valid fields: device_type, part_number, \
-                         firmware_version, mac_address, description, pci_name, status"
-                            .to_string(),
-                    ),
-                },
-            ],
-            parse_device_field,
+        scenarios!(
+            run = parse_device_field;
+            "device_type canonical" {
+                "device_type" => Yields(DeviceField::DeviceType),
+            }
+
+            "type alias" {
+                "type" => Yields(DeviceField::DeviceType),
+            }
+
+            "device_type uppercased (lowercased internally)" {
+                "DEVICE_TYPE" => Yields(DeviceField::DeviceType),
+            }
+
+            "part_number canonical" {
+                "part_number" => Yields(DeviceField::PartNumber),
+            }
+
+            "part alias" {
+                "part" => Yields(DeviceField::PartNumber),
+            }
+
+            "firmware_version canonical" {
+                "firmware_version" => Yields(DeviceField::FirmwareVersion),
+            }
+
+            "firmware alias" {
+                "firmware" => Yields(DeviceField::FirmwareVersion),
+            }
+
+            "fw alias" {
+                "fw" => Yields(DeviceField::FirmwareVersion),
+            }
+
+            "mac_address canonical" {
+                "mac_address" => Yields(DeviceField::MacAddress),
+            }
+
+            "mac alias" {
+                "mac" => Yields(DeviceField::MacAddress),
+            }
+
+            "description canonical" {
+                "description" => Yields(DeviceField::Description),
+            }
+
+            "desc alias" {
+                "desc" => Yields(DeviceField::Description),
+            }
+
+            "pci_name canonical" {
+                "pci_name" => Yields(DeviceField::PciName),
+            }
+
+            "pci alias" {
+                "pci" => Yields(DeviceField::PciName),
+            }
+
+            "status canonical" {
+                "status" => Yields(DeviceField::Status),
+            }
+
+            "unknown field rejected" {
+                "bogus" => FailsWith(
+                    "Unknown field 'bogus'. Valid fields: device_type, part_number, \
+                     firmware_version, mac_address, description, pci_name, status"
+                        .to_string(),
+                ),
+            }
+
+            "empty field rejected" {
+                "" => FailsWith(
+                    "Unknown field ''. Valid fields: device_type, part_number, \
+                     firmware_version, mac_address, description, pci_name, status"
+                        .to_string(),
+                ),
+            }
         );
     }
 
@@ -339,44 +319,35 @@ mod coverage_tests {
     // MatchMode arm; anything else is rejected with the canonical message.
     #[test]
     fn parse_match_mode_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "regex",
-                    input: "regex",
-                    expect: Yields(MatchMode::Regex),
-                },
-                Case {
-                    scenario: "exact",
-                    input: "exact",
-                    expect: Yields(MatchMode::Exact),
-                },
-                Case {
-                    scenario: "prefix",
-                    input: "prefix",
-                    expect: Yields(MatchMode::Prefix),
-                },
-                Case {
-                    scenario: "uppercased prefix (lowercased internally)",
-                    input: "PREFIX",
-                    expect: Yields(MatchMode::Prefix),
-                },
-                Case {
-                    scenario: "unknown mode rejected",
-                    input: "fuzzy",
-                    expect: FailsWith(
-                        "Unknown match mode 'fuzzy'. Valid modes: regex, exact, prefix".to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "empty mode rejected",
-                    input: "",
-                    expect: FailsWith(
-                        "Unknown match mode ''. Valid modes: regex, exact, prefix".to_string(),
-                    ),
-                },
-            ],
-            parse_match_mode,
+        scenarios!(
+            run = parse_match_mode;
+            "regex" {
+                "regex" => Yields(MatchMode::Regex),
+            }
+
+            "exact" {
+                "exact" => Yields(MatchMode::Exact),
+            }
+
+            "prefix" {
+                "prefix" => Yields(MatchMode::Prefix),
+            }
+
+            "uppercased prefix (lowercased internally)" {
+                "PREFIX" => Yields(MatchMode::Prefix),
+            }
+
+            "unknown mode rejected" {
+                "fuzzy" => FailsWith(
+                    "Unknown match mode 'fuzzy'. Valid modes: regex, exact, prefix".to_string(),
+                ),
+            }
+
+            "empty mode rejected" {
+                "" => FailsWith(
+                    "Unknown match mode ''. Valid modes: regex, exact, prefix".to_string(),
+                ),
+            }
         );
     }
 
@@ -436,54 +407,46 @@ mod coverage_tests {
     // that collapses to empty after trimming.
     #[test]
     fn parse_filter_expression_err_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "single part (no colon) rejected",
-                    input: "device_type",
-                    expect: FailsWith(
-                        "Invalid filter expression 'device_type'. Expected format: \
-                         field:value[,value2,value3] or \
-                         field:value[,value2,value3]:match_mode"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "four parts rejected",
-                    input: "a:b:c:d",
-                    expect: FailsWith(
-                        "Invalid filter expression 'a:b:c:d'. Expected format: \
-                         field:value[,value2,value3] or \
-                         field:value[,value2,value3]:match_mode"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "unknown field propagated",
-                    input: "nope:value",
-                    expect: FailsWith(
-                        "Unknown field 'nope'. Valid fields: device_type, part_number, \
-                         firmware_version, mac_address, description, pci_name, status"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "unknown mode propagated",
-                    input: "device_type:val:bogus",
-                    expect: FailsWith(
-                        "Unknown match mode 'bogus'. Valid modes: regex, exact, prefix".to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "values empty after trim/drop",
-                    input: "device_type: , :exact",
-                    expect: FailsWith(
-                        "No valid values found in filter expression 'device_type: , :exact'"
-                            .to_string(),
-                    ),
-                },
-            ],
-            |expr| parse_filter_expression(expr).map(|f| parts(&f)),
+        scenarios!(
+            run = |expr| parse_filter_expression(expr).map(|f| parts(&f));
+            "single part (no colon) rejected" {
+                "device_type" => FailsWith(
+                    "Invalid filter expression 'device_type'. Expected format: \
+                     field:value[,value2,value3] or \
+                     field:value[,value2,value3]:match_mode"
+                        .to_string(),
+                ),
+            }
+
+            "four parts rejected" {
+                "a:b:c:d" => FailsWith(
+                    "Invalid filter expression 'a:b:c:d'. Expected format: \
+                     field:value[,value2,value3] or \
+                     field:value[,value2,value3]:match_mode"
+                        .to_string(),
+                ),
+            }
+
+            "unknown field propagated" {
+                "nope:value" => FailsWith(
+                    "Unknown field 'nope'. Valid fields: device_type, part_number, \
+                     firmware_version, mac_address, description, pci_name, status"
+                        .to_string(),
+                ),
+            }
+
+            "unknown mode propagated" {
+                "device_type:val:bogus" => FailsWith(
+                    "Unknown match mode 'bogus'. Valid modes: regex, exact, prefix".to_string(),
+                ),
+            }
+
+            "values empty after trim/drop" {
+                "device_type: , :exact" => FailsWith(
+                    "No valid values found in filter expression 'device_type: , :exact'"
+                        .to_string(),
+                ),
+            }
         );
     }
 
@@ -492,35 +455,29 @@ mod coverage_tests {
     // expression aborts the whole build.
     #[test]
     fn build_filter_set_ok_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "empty input -> empty set",
-                    input: vec![],
-                    expect: Yields(vec![]),
-                },
-                Case {
-                    scenario: "single valid expression",
-                    input: vec!["device_type:ConnectX:exact".to_string()],
-                    expect: Yields(vec![(
-                        DeviceField::DeviceType,
-                        owned(&["ConnectX"]),
-                        MatchMode::Exact,
-                    )]),
-                },
-                Case {
-                    scenario: "multiple expressions accumulate in order",
-                    input: vec!["part:MCX:prefix".to_string(), "status:ok".to_string()],
-                    expect: Yields(vec![
-                        (DeviceField::PartNumber, owned(&["MCX"]), MatchMode::Prefix),
-                        (DeviceField::Status, owned(&["ok"]), MatchMode::Regex),
-                    ]),
-                },
-            ],
-            |exprs| {
+        scenarios!(
+            run = |exprs| {
                 build_filter_set_from_filter_args(exprs)
                     .map(|set| set.filters.iter().map(parts).collect::<Vec<_>>())
-            },
+            };
+            "empty input -> empty set" {
+                vec![] => Yields(vec![]),
+            }
+
+            "single valid expression" {
+                vec!["device_type:ConnectX:exact".to_string()] => Yields(vec![(
+                    DeviceField::DeviceType,
+                    owned(&["ConnectX"]),
+                    MatchMode::Exact,
+                )]),
+            }
+
+            "multiple expressions accumulate in order" {
+                vec!["part:MCX:prefix".to_string(), "status:ok".to_string()] => Yields(vec![
+                    (DeviceField::PartNumber, owned(&["MCX"]), MatchMode::Prefix),
+                    (DeviceField::Status, owned(&["ok"]), MatchMode::Regex),
+                ]),
+            }
         );
     }
 
@@ -528,32 +485,27 @@ mod coverage_tests {
     // surfaces that expression's error verbatim.
     #[test]
     fn build_filter_set_propagates_first_error() {
-        check_cases(
-            [
-                Case {
-                    scenario: "invalid field aborts the build",
-                    input: vec!["device_type:ok".to_string(), "nope:value".to_string()],
-                    expect: FailsWith(
-                        "Unknown field 'nope'. Valid fields: device_type, part_number, \
-                         firmware_version, mac_address, description, pci_name, status"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "malformed expression aborts the build",
-                    input: vec!["justonepart".to_string()],
-                    expect: FailsWith(
-                        "Invalid filter expression 'justonepart'. Expected format: \
-                         field:value[,value2,value3] or \
-                         field:value[,value2,value3]:match_mode"
-                            .to_string(),
-                    ),
-                },
-            ],
-            |exprs| {
+        scenarios!(
+            run = |exprs| {
                 build_filter_set_from_filter_args(exprs)
                     .map(|set| set.filters.iter().map(parts).collect::<Vec<_>>())
-            },
+            };
+            "invalid field aborts the build" {
+                vec!["device_type:ok".to_string(), "nope:value".to_string()] => FailsWith(
+                    "Unknown field 'nope'. Valid fields: device_type, part_number, \
+                     firmware_version, mac_address, description, pci_name, status"
+                        .to_string(),
+                ),
+            }
+
+            "malformed expression aborts the build" {
+                vec!["justonepart".to_string()] => FailsWith(
+                    "Invalid filter expression 'justonepart'. Expected format: \
+                     field:value[,value2,value3] or \
+                     field:value[,value2,value3]:match_mode"
+                        .to_string(),
+                ),
+            }
         );
     }
 
@@ -561,30 +513,23 @@ mod coverage_tests {
     // every variant's kebab-cased name.
     #[test]
     fn output_format_value_enum_round_trip() {
-        check_values(
-            [
-                Check {
-                    scenario: "ascii-table",
-                    input: "ascii-table",
-                    expect: true,
-                },
-                Check {
-                    scenario: "json",
-                    input: "json",
-                    expect: true,
-                },
-                Check {
-                    scenario: "yaml",
-                    input: "yaml",
-                    expect: true,
-                },
-                Check {
-                    scenario: "unknown format not accepted",
-                    input: "xml",
-                    expect: false,
-                },
-            ],
-            |name| OutputFormat::from_str(name, true).is_ok(),
+        value_scenarios!(
+            run = |name| OutputFormat::from_str(name, true).is_ok();
+            "ascii-table" {
+                "ascii-table" => true,
+            }
+
+            "json" {
+                "json" => true,
+            }
+
+            "yaml" {
+                "yaml" => true,
+            }
+
+            "unknown format not accepted" {
+                "xml" => false,
+            }
         );
     }
 }

@@ -30,10 +30,12 @@ type BatchTrayFirmwareUpdateRequest struct {
 	Filter *TrayFilter `json:"filter,omitempty"`
 	// Target firmware version.
 	Version NullableString `json:"version,omitempty"`
-	// Optional subset of firmware targets to update within each matched tray. Names are lowercase and select sub-parts of the tray (BMC, BIOS, etc.). The accepted set per tray type comes from the Flow service's NICo proto bindings (which mirror Core's per-tray-type enums in `NICo-core/crates/rpc/proto/forge.proto`), so the supported values track Core as new sub-parts are added:   - switch trays (NvSwitchComponent): currently bmc, cpld, bios, nvos   - powershelf trays (PowerShelfComponent): currently pmc, psu   - compute trays (ComputeTrayComponent): currently bmc, bios     (currently NOT honored end-to-end: the NICo compute-firmware     path goes through SetFirmwareUpdateTimeWindow + auto-update,     which has no per-target selection; the request is logged     and the whole bundle is applied. Will be honored once     compute moves to UpdateComponentFirmware.) Omitted or empty means \"update everything in the bundle\" (the historical default). Unknown names are rejected. Requires `version` to be set.
+	// Optional subset of firmware targets to update within each matched tray. Names are lowercase and select sub-parts of the tray (BMC, BIOS, etc.). The accepted set per tray type comes from the Flow service's NICo proto bindings (which mirror Core's per-tray-type enums in `NICo-core/crates/rpc/proto/forge.proto`), so the supported values track Core as new sub-parts are added:   - switch trays (NvSwitchComponent): currently bmc, cpld, bios, nvos   - powershelf trays (PowerShelfComponent): currently pmc, psu   - compute trays (ComputeTrayComponent): currently bmc, bios     (currently NOT honored end-to-end: the NICo compute-firmware     path goes through SetFirmwareUpdateTimeWindow + auto-update,     which has no per-target selection; the request is logged     and the whole bundle is applied. Will be honored once     compute moves to UpdateComponentFirmware.) Omitted or empty means \"update everything in the bundle\" (the historical default) for compute-tray-internal targets. Unknown names are rejected. Requires `version` to be set. The special target `dpu`, valid only on compute trays, requests DPU reprovisioning on each matched host. Unlike the other targets, `dpu` is NOT covered by the \"omitted/empty means everything\" default — it must be listed explicitly. `version` is ignored on the `dpu` branch; the target firmware version comes from site configuration.
 	Targets []string `json:"targets,omitempty"`
 	// Optional Operation Rule UUID. When set, pins every task spawned by this batch to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
+	// When true, proceed even if one or more target components (or hosts on the owning rack for rack-scoped components) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
+	OverrideReadinessCheck *bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 type _BatchTrayFirmwareUpdateRequest BatchTrayFirmwareUpdateRequest
@@ -45,6 +47,8 @@ type _BatchTrayFirmwareUpdateRequest BatchTrayFirmwareUpdateRequest
 func NewBatchTrayFirmwareUpdateRequest(siteId string) *BatchTrayFirmwareUpdateRequest {
 	this := BatchTrayFirmwareUpdateRequest{}
 	this.SiteId = siteId
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -53,6 +57,8 @@ func NewBatchTrayFirmwareUpdateRequest(siteId string) *BatchTrayFirmwareUpdateRe
 // but it doesn't guarantee that properties required by API are set
 func NewBatchTrayFirmwareUpdateRequestWithDefaults() *BatchTrayFirmwareUpdateRequest {
 	this := BatchTrayFirmwareUpdateRequest{}
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -219,6 +225,38 @@ func (o *BatchTrayFirmwareUpdateRequest) SetRuleId(v string) {
 	o.RuleId = &v
 }
 
+// GetOverrideReadinessCheck returns the OverrideReadinessCheck field value if set, zero value otherwise.
+func (o *BatchTrayFirmwareUpdateRequest) GetOverrideReadinessCheck() bool {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		var ret bool
+		return ret
+	}
+	return *o.OverrideReadinessCheck
+}
+
+// GetOverrideReadinessCheckOk returns a tuple with the OverrideReadinessCheck field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BatchTrayFirmwareUpdateRequest) GetOverrideReadinessCheckOk() (*bool, bool) {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		return nil, false
+	}
+	return o.OverrideReadinessCheck, true
+}
+
+// HasOverrideReadinessCheck returns a boolean if a field has been set.
+func (o *BatchTrayFirmwareUpdateRequest) HasOverrideReadinessCheck() bool {
+	if o != nil && !IsNil(o.OverrideReadinessCheck) {
+		return true
+	}
+
+	return false
+}
+
+// SetOverrideReadinessCheck gets a reference to the given bool and assigns it to the OverrideReadinessCheck field.
+func (o *BatchTrayFirmwareUpdateRequest) SetOverrideReadinessCheck(v bool) {
+	o.OverrideReadinessCheck = &v
+}
+
 func (o BatchTrayFirmwareUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -241,6 +279,9 @@ func (o BatchTrayFirmwareUpdateRequest) ToMap() (map[string]interface{}, error) 
 	}
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId
+	}
+	if !IsNil(o.OverrideReadinessCheck) {
+		toSerialize["overrideReadinessCheck"] = o.OverrideReadinessCheck
 	}
 	return toSerialize, nil
 }

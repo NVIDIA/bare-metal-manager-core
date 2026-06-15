@@ -27,7 +27,7 @@
 // Custom Validators - Test external input validation functions.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::common::{BmcCredentialType, UefiCredentialType, password_validator, url_validator};
@@ -54,37 +54,32 @@ fn verify_cmd_structure() {
 // token defaults to the empty string when its optional flag is omitted.
 #[test]
 fn parse_add_ufm_fields() {
-    check_cases(
-        [
-            Case {
-                scenario: "required args only -- token defaults to empty",
-                input: &["credential", "add-ufm", "--url", "https://ufm.example.com"][..],
-                expect: Yields(("https://ufm.example.com".to_string(), String::new())),
-            },
-            Case {
-                scenario: "with optional --token",
-                input: &[
-                    "credential",
-                    "add-ufm",
-                    "--url",
-                    "https://ufm.example.com",
-                    "--token",
-                    "my-secret-token",
-                ][..],
-                expect: Yields((
-                    "https://ufm.example.com".to_string(),
-                    "my-secret-token".to_string(),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::AddUFM(args) => (args.url, args.token),
                     _ => panic!("expected AddUFM variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "required args only -- token defaults to empty" {
+            &["credential", "add-ufm", "--url", "https://ufm.example.com"][..] => Yields(("https://ufm.example.com".to_string(), String::new())),
+        }
+
+        "with optional --token" {
+            &[
+                "credential",
+                "add-ufm",
+                "--url",
+                "https://ufm.example.com",
+                "--token",
+                "my-secret-token",
+            ][..] => Yields((
+                "https://ufm.example.com".to_string(),
+                "my-secret-token".to_string(),
+            )),
+        }
     );
 }
 
@@ -160,36 +155,30 @@ fn parse_add_nic_lockdown_ikm() {
 // its required flag, or a --kind value passed without the required `=` separator.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "add-ufm without required --url",
-                input: &["credential", "add-ufm"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "add-bmc --kind without the = separator",
-                input: &[
-                    "credential",
-                    "add-bmc",
-                    "--kind",
-                    "site-wide-root",
-                    "--password",
-                    "secret",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "add-nic-lockdown-ikm without required --password",
-                input: &["credential", "add-nic-lockdown-ikm"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "add-ufm without required --url" {
+            &["credential", "add-ufm"][..] => Fails,
+        }
+
+        "add-bmc --kind without the = separator" {
+            &[
+                "credential",
+                "add-bmc",
+                "--kind",
+                "site-wide-root",
+                "--password",
+                "secret",
+            ][..] => Fails,
+        }
+
+        "add-nic-lockdown-ikm without required --password" {
+            &["credential", "add-nic-lockdown-ikm"][..] => Fails,
+        }
     );
 }
 
@@ -312,35 +301,27 @@ fn uefi_credential_type_value_enum() {
 // not parse as a URL (including the empty string).
 #[test]
 fn url_validator_accepts_only_valid_urls() {
-    check_cases(
-        [
-            Case {
-                scenario: "https host",
-                input: "https://example.com",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "http host with port",
-                input: "http://localhost:8080",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "https host with path",
-                input: "https://ufm.corp.example.com/api",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "not a url",
-                input: "not a url",
-                expect: Fails,
-            },
-            Case {
-                scenario: "empty string",
-                input: "",
-                expect: Fails,
-            },
-        ],
-        |url| url_validator(url.to_string()).map(|_| ()).map_err(drop),
+    scenarios!(
+        run = |url| url_validator(url.to_string()).map(|_| ()).map_err(drop);
+        "https host" {
+            "https://example.com" => Yields(()),
+        }
+
+        "http host with port" {
+            "http://localhost:8080" => Yields(()),
+        }
+
+        "https host with path" {
+            "https://ufm.corp.example.com/api" => Yields(()),
+        }
+
+        "not a url" {
+            "not a url" => Fails,
+        }
+
+        "empty string" {
+            "" => Fails,
+        }
     );
 }
 
@@ -348,29 +329,22 @@ fn url_validator_accepts_only_valid_urls() {
 // string.
 #[test]
 fn password_validator_accepts_only_non_empty() {
-    check_cases(
-        [
-            Case {
-                scenario: "ordinary password",
-                input: "secret123",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "single character",
-                input: "a",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "spaces are allowed",
-                input: "spaces are ok",
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "empty string is rejected",
-                input: "",
-                expect: Fails,
-            },
-        ],
-        |pw| password_validator(pw.to_string()).map(|_| ()).map_err(drop),
+    scenarios!(
+        run = |pw| password_validator(pw.to_string()).map(|_| ()).map_err(drop);
+        "ordinary password" {
+            "secret123" => Yields(()),
+        }
+
+        "single character" {
+            "a" => Yields(()),
+        }
+
+        "spaces are allowed" {
+            "spaces are ok" => Yields(()),
+        }
+
+        "empty string is rejected" {
+            "" => Fails,
+        }
     );
 }

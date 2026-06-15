@@ -165,3 +165,180 @@ pub struct ClientTlsIdentity {
     // wire or generated ephemerally.
     pub private_key: Vec<u8>,
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum OptionsBuild {
+        Default,
+        KeepAlive,
+        MessageCapacity,
+        Qos,
+        Retain,
+        PublishOptions,
+        MaxConcurrency,
+        Credentials,
+        CombinedPublishOptions,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct OptionsSummary {
+        keep_alive_secs: Option<u64>,
+        message_channel_capacity: Option<usize>,
+        qos: Option<QoS>,
+        retain: Option<bool>,
+        max_concurrency: Option<usize>,
+        has_credentials_provider: bool,
+    }
+
+    fn build_options(build: OptionsBuild) -> ClientOptions {
+        match build {
+            OptionsBuild::Default => ClientOptions::default(),
+            OptionsBuild::KeepAlive => {
+                ClientOptions::default().with_keep_alive(Duration::from_secs(7))
+            }
+            OptionsBuild::MessageCapacity => {
+                ClientOptions::default().with_message_channel_capacity(512)
+            }
+            OptionsBuild::Qos => ClientOptions::default().with_qos(QoS::AtLeastOnce),
+            OptionsBuild::Retain => ClientOptions::default().with_retain(true),
+            OptionsBuild::PublishOptions => ClientOptions::default().with_publish_options(
+                PublishOptions::default()
+                    .with_qos(QoS::ExactlyOnce)
+                    .with_retain(false),
+            ),
+            OptionsBuild::MaxConcurrency => ClientOptions::default().with_max_concurrency(16),
+            OptionsBuild::Credentials => {
+                ClientOptions::default().with_credentials(ClientCredentials {
+                    username: "user".to_string(),
+                    password: "pass".to_string(),
+                })
+            }
+            OptionsBuild::CombinedPublishOptions => ClientOptions::default()
+                .with_qos(QoS::AtMostOnce)
+                .with_retain(true),
+        }
+    }
+
+    fn summarize(options: ClientOptions) -> OptionsSummary {
+        let publish_options = options.publish_options.as_ref();
+
+        OptionsSummary {
+            keep_alive_secs: options.keep_alive.map(|duration| duration.as_secs()),
+            message_channel_capacity: options.message_channel_capacity,
+            qos: publish_options.and_then(|opts| opts.qos),
+            retain: publish_options.and_then(|opts| opts.retain),
+            max_concurrency: options.max_concurrency,
+            has_credentials_provider: options.credentials_provider.is_some(),
+        }
+    }
+
+    #[test]
+    fn test_client_options_builders() {
+        value_scenarios!(
+            run = |build| summarize(build_options(build));
+            "default" {
+                OptionsBuild::Default => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: None,
+                    retain: None,
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "keep alive" {
+                OptionsBuild::KeepAlive => OptionsSummary {
+                    keep_alive_secs: Some(7),
+                    message_channel_capacity: None,
+                    qos: None,
+                    retain: None,
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "message capacity" {
+                OptionsBuild::MessageCapacity => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: Some(512),
+                    qos: None,
+                    retain: None,
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "qos" {
+                OptionsBuild::Qos => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: Some(QoS::AtLeastOnce),
+                    retain: None,
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "retain" {
+                OptionsBuild::Retain => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: None,
+                    retain: Some(true),
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "publish options" {
+                OptionsBuild::PublishOptions => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: Some(QoS::ExactlyOnce),
+                    retain: Some(false),
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+
+            "max concurrency" {
+                OptionsBuild::MaxConcurrency => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: None,
+                    retain: None,
+                    max_concurrency: Some(16),
+                    has_credentials_provider: false,
+                },
+            }
+
+            "credentials" {
+                OptionsBuild::Credentials => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: None,
+                    retain: None,
+                    max_concurrency: None,
+                    has_credentials_provider: true,
+                },
+            }
+
+            "combined publish options" {
+                OptionsBuild::CombinedPublishOptions => OptionsSummary {
+                    keep_alive_secs: None,
+                    message_channel_capacity: None,
+                    qos: Some(QoS::AtMostOnce),
+                    retain: Some(true),
+                    max_concurrency: None,
+                    has_credentials_provider: false,
+                },
+            }
+        );
+    }
+}

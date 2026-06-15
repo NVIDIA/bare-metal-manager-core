@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{CommandFactory, Parser};
 
@@ -54,30 +54,8 @@ fn verify_cmd_structure() {
 // empty name filter, and `add-update` carries its file-name/name through.
 #[test]
 fn parse_external_config_routes_and_carries_fields() {
-    check_cases(
-        [
-            Case {
-                scenario: "show defaults to an empty name filter",
-                input: &["machine-validation", "external-config", "show"][..],
-                expect: Yields((String::new(), String::new())),
-            },
-            Case {
-                scenario: "add-update carries file-name and name",
-                input: &[
-                    "machine-validation",
-                    "external-config",
-                    "add-update",
-                    "--file-name",
-                    "config.yaml",
-                    "--name",
-                    "my-config",
-                    "--description",
-                    "Test config",
-                ][..],
-                expect: Yields(("config.yaml".to_string(), "my-config".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::ExternalConfig(external_config::Args::Show(args)) => {
@@ -91,7 +69,24 @@ fn parse_external_config_routes_and_carries_fields() {
                     _ => panic!("expected ExternalConfig variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show defaults to an empty name filter" {
+            &["machine-validation", "external-config", "show"][..] => Yields((String::new(), String::new())),
+        }
+
+        "add-update carries file-name and name" {
+            &[
+                "machine-validation",
+                "external-config",
+                "add-update",
+                "--file-name",
+                "config.yaml",
+                "--name",
+                "my-config",
+                "--description",
+                "Test config",
+            ][..] => Yields(("config.yaml".to_string(), "my-config".to_string())),
+        }
     );
 }
 
@@ -99,19 +94,8 @@ fn parse_external_config_routes_and_carries_fields() {
 // and defaulting --run-unverified-tests to false.
 #[test]
 fn parse_on_demand_start_carries_machine() {
-    check_cases(
-        [Case {
-            scenario: "start with a machine ID",
-            input: &[
-                "machine-validation",
-                "on-demand",
-                "start",
-                "--machine",
-                TEST_MACHINE_ID,
-            ][..],
-            expect: Yields((TEST_MACHINE_ID.to_string(), false)),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::OnDemand(on_demand::Args::Start(args)) => {
@@ -120,7 +104,16 @@ fn parse_on_demand_start_carries_machine() {
                     _ => panic!("expected OnDemand Start variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "start with a machine ID" {
+            &[
+                "machine-validation",
+                "on-demand",
+                "start",
+                "--machine",
+                TEST_MACHINE_ID,
+            ][..] => Yields((TEST_MACHINE_ID.to_string(), false)),
+        }
     );
 }
 
@@ -128,33 +121,28 @@ fn parse_on_demand_start_carries_machine() {
 // unset (and --history defaults off), with --machine the filter is present.
 #[test]
 fn parse_runs_show_machine_filter() {
-    check_cases(
-        [
-            Case {
-                scenario: "no machine filter (and history defaults off)",
-                input: &["machine-validation", "runs", "show"][..],
-                expect: Yields((false, false)),
-            },
-            Case {
-                scenario: "with a machine filter",
-                input: &[
-                    "machine-validation",
-                    "runs",
-                    "show",
-                    "--machine",
-                    TEST_MACHINE_ID,
-                ][..],
-                expect: Yields((true, false)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Runs(runs::Args::Show(args)) => (args.machine.is_some(), args.history),
                     _ => panic!("expected Runs Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no machine filter (and history defaults off)" {
+            &["machine-validation", "runs", "show"][..] => Yields((false, false)),
+        }
+
+        "with a machine filter" {
+            &[
+                "machine-validation",
+                "runs",
+                "show",
+                "--machine",
+                TEST_MACHINE_ID,
+            ][..] => Yields((true, false)),
+        }
     );
 }
 
@@ -163,32 +151,8 @@ fn parse_runs_show_machine_filter() {
 #[test]
 fn parse_results_show_filters() {
     let validation_id = MachineValidationId::new();
-    check_cases(
-        [
-            Case {
-                scenario: "with a machine filter",
-                input: &[
-                    "machine-validation",
-                    "results",
-                    "show",
-                    "--machine",
-                    TEST_MACHINE_ID,
-                ][..],
-                expect: Yields((true, None)),
-            },
-            Case {
-                scenario: "with a validation-id filter",
-                input: &[
-                    "machine-validation",
-                    "results",
-                    "show",
-                    "--validation-id",
-                    validation_id.to_string().as_str(),
-                ][..],
-                expect: Yields((false, Some(validation_id))),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Results(results::Args::Show(args)) => {
@@ -197,7 +161,26 @@ fn parse_results_show_filters() {
                     _ => panic!("expected Results Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "with a machine filter" {
+            &[
+                "machine-validation",
+                "results",
+                "show",
+                "--machine",
+                TEST_MACHINE_ID,
+            ][..] => Yields((true, None)),
+        }
+
+        "with a validation-id filter" {
+            &[
+                "machine-validation",
+                "results",
+                "show",
+                "--validation-id",
+                validation_id.to_string().as_str(),
+            ][..] => Yields((false, Some(validation_id))),
+        }
     );
 }
 
@@ -205,43 +188,8 @@ fn parse_results_show_filters() {
 // carries test-id/version, and `add` carries name/command/args.
 #[test]
 fn parse_tests_subcommands() {
-    check_cases(
-        [
-            Case {
-                scenario: "show leaves test-id unset",
-                input: &["machine-validation", "tests", "show"][..],
-                expect: Yields((false, String::new(), String::new())),
-            },
-            Case {
-                scenario: "verify carries test-id and version",
-                input: &[
-                    "machine-validation",
-                    "tests",
-                    "verify",
-                    "--test-id",
-                    "test-123",
-                    "--version",
-                    "v1",
-                ][..],
-                expect: Yields((true, "test-123".to_string(), "v1".to_string())),
-            },
-            Case {
-                scenario: "add carries name, command, and args",
-                input: &[
-                    "machine-validation",
-                    "tests",
-                    "add",
-                    "--name",
-                    "my-test",
-                    "--command",
-                    "/bin/test",
-                    "--args",
-                    "--verbose",
-                ][..],
-                expect: Yields((true, "my-test".to_string(), "/bin/test".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Tests(tests_cmd::Args::Show(args)) => {
@@ -260,7 +208,36 @@ fn parse_tests_subcommands() {
                     _ => panic!("expected Tests variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show leaves test-id unset" {
+            &["machine-validation", "tests", "show"][..] => Yields((false, String::new(), String::new())),
+        }
+
+        "verify carries test-id and version" {
+            &[
+                "machine-validation",
+                "tests",
+                "verify",
+                "--test-id",
+                "test-123",
+                "--version",
+                "v1",
+            ][..] => Yields((true, "test-123".to_string(), "v1".to_string())),
+        }
+
+        "add carries name, command, and args" {
+            &[
+                "machine-validation",
+                "tests",
+                "add",
+                "--name",
+                "my-test",
+                "--command",
+                "/bin/test",
+                "--args",
+                "--verbose",
+            ][..] => Yields((true, "my-test".to_string(), "/bin/test".to_string())),
+        }
     );
 }
 
@@ -268,16 +245,14 @@ fn parse_tests_subcommands() {
 // its required filters cannot parse.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "results show without machine/validation_id/test_name",
-            input: &["machine-validation", "results", "show"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "results show without machine/validation_id/test_name" {
+            &["machine-validation", "results", "show"][..] => Fails,
+        }
     );
 }

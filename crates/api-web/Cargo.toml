@@ -98,13 +98,13 @@ carbide-version = { path = "../version" }
 workspace = true
 
 [dev-dependencies]
-# The admin-UI tests build a real `Api` via carbide-api-core's `test-support` fixtures. The other
-# entries provide test-only crates not needed by the library itself (e.g. db access, the sqlx_test
-# macro, request-body helpers). `db`/`model` resolve via carbide-api-db/carbide-api-model's lib
-# names, already normal deps.
-carbide-api-core = { path = "../api-core", features = ["test-support"] }
+# The admin-UI tests build a real `Api` through carbide-test-harness. The other entries provide
+# test-only crates not needed by the library itself (e.g. the sqlx_test macro and request-body
+# helpers). `db`/`model` resolve via carbide-api-db/carbide-api-model's lib names, already normal
+# deps.
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+carbide-test-harness = { path = "../test-harness" }
 http-body-util = { workspace = true }
 sqlx = { workspace = true, features = [
   "runtime-tokio",

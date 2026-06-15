@@ -356,22 +356,215 @@ pub mod spdm {
 
 #[cfg(test)]
 mod test {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+
     use super::*;
-    use crate::attestation::spdm::SpdmObjectId;
+    use crate::attestation::spdm::{
+        DeviceType, SpdmAttestationState, SpdmDeviceAttestationDetails, SpdmObjectId,
+    };
+
+    // A valid serialized MachineId, reused across rows.
+    const VALID_MACHINE_ID: &str = "fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0";
+
+    fn machine_id() -> MachineId {
+        VALID_MACHINE_ID.parse().expect("valid machine id")
+    }
 
     #[test]
-    fn test_spdmobject_id_from_str() {
-        let machine_id: MachineId = "fm100htv4fu8fpktl0e0qrg4dl58g2bc2g7naq0l6c15ruc22po1i5rfsq0"
-            .parse()
-            .unwrap();
-        let device_id = "Device-1".to_string();
-        let spdm_object_id = SpdmObjectId(machine_id, device_id.clone());
+    fn spdm_object_id_round_trips() {
+        let spdm_object_id = SpdmObjectId(machine_id(), "Device-1".to_string());
 
-        let expected_str = format!("{},{}", machine_id, device_id);
+        let expected_str = format!("{VALID_MACHINE_ID},Device-1");
         assert_eq!(expected_str, spdm_object_id.to_string());
 
         let parsed_object_id: SpdmObjectId = spdm_object_id.to_string().parse().unwrap();
-
         assert_eq!(parsed_object_id, spdm_object_id);
+    }
+
+    #[test]
+    fn spdm_object_id_display() {
+        value_scenarios!(
+            run = |id| id.to_string();
+            "simple device id" {
+                SpdmObjectId(machine_id(), "Device-1".to_string()) => format!("{VALID_MACHINE_ID},Device-1"),
+            }
+
+            "empty device id" {
+                SpdmObjectId(machine_id(), String::new()) => format!("{VALID_MACHINE_ID},"),
+            }
+
+            "device id with internal comma" {
+                SpdmObjectId(machine_id(), "a,b".to_string()) => format!("{VALID_MACHINE_ID},a,b"),
+            }
+
+            "device id with spaces" {
+                SpdmObjectId(machine_id(), "HGX IRoT GPU 0".to_string()) => format!("{VALID_MACHINE_ID},HGX IRoT GPU 0"),
+            }
+        );
+    }
+
+    #[test]
+    fn spdm_object_id_from_str() {
+        // SpdmObjectIdParseError has no PartialEq, so use Fails (+ map_err(drop)).
+        check_cases(
+            [
+                Case {
+                    scenario: "valid two parts",
+                    input: format!("{VALID_MACHINE_ID},Device-1"),
+                    expect: Yields(SpdmObjectId(machine_id(), "Device-1".to_string())),
+                },
+                Case {
+                    scenario: "valid with empty device id",
+                    input: format!("{VALID_MACHINE_ID},"),
+                    expect: Yields(SpdmObjectId(machine_id(), String::new())),
+                },
+                Case {
+                    scenario: "no comma is wrong format",
+                    input: VALID_MACHINE_ID.to_string(),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty string is wrong format",
+                    input: String::new(),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "three parts is wrong format",
+                    input: format!("{VALID_MACHINE_ID},Device-1,extra"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "only a comma is wrong format",
+                    input: ",".to_string(),
+                    // two parts ("" and ""), but the first fails to parse as MachineId
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "bad machine id",
+                    input: "not-a-machine-id,Device-1".to_string(),
+                    expect: Fails,
+                },
+            ],
+            |s| s.parse::<SpdmObjectId>().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn device_type_from_str() {
+        // SpdmHandlerError is PartialEq, but from_str never errors — it always
+        // classifies. Use the Display name as the observable, pure result.
+        scenarios!(
+            run = |s| {
+                Ok::<_, ()>(format!(
+                    "{:?}",
+                    s.parse::<DeviceType>().expect("never errors")
+                ))
+            };
+            "gpu token present" {
+                "HGX_IRoT_GPU_0" => Yields("Gpu".to_string()),
+            }
+
+            "gpu token bare" {
+                "GPU" => Yields("Gpu".to_string()),
+            }
+
+            "cx7 token present" {
+                "HGX_ERoT_CX7_1" => Yields("Cx7".to_string()),
+            }
+
+            "cx7 token bare" {
+                "CX7" => Yields("Cx7".to_string()),
+            }
+
+            "gpu wins when both present (checked first)" {
+                "GPU_CX7" => Yields("Gpu".to_string()),
+            }
+
+            "cpu is unknown" {
+                "HGX_ERoT_CPU_0" => Yields("Unknown".to_string()),
+            }
+
+            "bmc is unknown" {
+                "BMC" => Yields("Unknown".to_string()),
+            }
+
+            "empty is unknown" {
+                "" => Yields("Unknown".to_string()),
+            }
+
+            "lowercase gpu does not match (case sensitive)" {
+                "gpu" => Yields("Unknown".to_string()),
+            }
+
+            "lowercase cx7 does not match (case sensitive)" {
+                "cx7" => Yields("Unknown".to_string()),
+            }
+        );
+    }
+
+    fn details_with_state(state: SpdmAttestationState) -> SpdmDeviceAttestationDetails {
+        let now = Utc::now();
+        SpdmDeviceAttestationDetails {
+            machine_id: machine_id(),
+            device_id: "GPU_0".to_string(),
+            state,
+            started_at: now,
+            cancelled_at: None,
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn get_failure_cause() {
+        value_scenarios!(
+            run = |details| details.get_failure_cause();
+            "failed state yields a cause naming device and reason" {
+                details_with_state(SpdmAttestationState::Failed(
+                    "signature mismatch".to_string(),
+                )) => Some("Device: GPU_0, failed reason: signature mismatch".to_string()),
+            }
+
+            "failed with empty reason" {
+                details_with_state(SpdmAttestationState::Failed(String::new())) => Some("Device: GPU_0, failed reason: ".to_string()),
+            }
+
+            "passed state has no cause" {
+                details_with_state(SpdmAttestationState::Passed) => None,
+            }
+
+            "cancelled state has no cause" {
+                details_with_state(SpdmAttestationState::Cancelled) => None,
+            }
+
+            "fetch metadata state has no cause" {
+                details_with_state(SpdmAttestationState::FetchMetadata) => None,
+            }
+
+            "fetch certificate state has no cause" {
+                details_with_state(SpdmAttestationState::FetchCertificate) => None,
+            }
+
+            "trigger evidence collection state has no cause" {
+                details_with_state(SpdmAttestationState::TriggerEvidenceCollection {
+                    retry_count: 0,
+                }) => None,
+            }
+
+            "poll evidence collection state has no cause" {
+                details_with_state(SpdmAttestationState::PollEvidenceCollection {
+                    task_id: "t1".to_string(),
+                    retry_count: 2,
+                }) => None,
+            }
+
+            "nras verification state has no cause" {
+                details_with_state(SpdmAttestationState::NrasVerification) => None,
+            }
+
+            "apply appraisal policy state has no cause" {
+                details_with_state(SpdmAttestationState::ApplyAppraisalPolicy) => None,
+            }
+        );
     }
 }

@@ -254,7 +254,7 @@ pub struct UnexpectedMachine {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -362,36 +362,31 @@ mod tests {
     /// `HostLifecycleProfile::default()`, whose only field is `disable_lockdown`).
     #[test]
     fn host_lifecycle_profile_deserializes_from_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "missing host_lifecycle_profile defaults to None",
-                    input: r#"{
-                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-                        "bmc_username": "root",
-                        "bmc_password": "pass",
-                        "serial_number": "SN-1"
-                    }"#,
-                    expect: Yields(None),
-                },
-                Case {
-                    scenario: "present host_lifecycle_profile parses disable_lockdown",
-                    input: r#"{
-                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-                        "bmc_username": "root",
-                        "bmc_password": "pass",
-                        "serial_number": "SN-1",
-                        "host_lifecycle_profile": {"disable_lockdown": true}
-                    }"#,
-                    expect: Yields(Some(true)),
-                },
-            ],
+        scenarios!(
             // serde_json::Error is not PartialEq, so discard it on the error path.
-            |json| {
+            run = |json| {
                 serde_json::from_str::<ExpectedMachine>(json)
                     .map(|em| em.data.host_lifecycle_profile.disable_lockdown)
                     .map_err(drop)
-            },
+            };
+            "missing host_lifecycle_profile defaults to None" {
+                r#"{
+                            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                            "bmc_username": "root",
+                            "bmc_password": "pass",
+                            "serial_number": "SN-1"
+                        }"# => Yields(None),
+            }
+
+            "present host_lifecycle_profile parses disable_lockdown" {
+                r#"{
+                            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                            "bmc_username": "root",
+                            "bmc_password": "pass",
+                            "serial_number": "SN-1",
+                            "host_lifecycle_profile": {"disable_lockdown": true}
+                        }"# => Yields(Some(true)),
+            }
         );
     }
 

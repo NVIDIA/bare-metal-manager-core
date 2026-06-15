@@ -25,7 +25,7 @@
 // ValueEnum Parsing - Test clap ValueEnum translations (if applicable).
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -62,29 +62,23 @@ fn verify_cmd_structure() {
 // `get` always, and `add`/`remove`/`replace` accept an empty IP list too.
 #[test]
 fn subcommands_route_to_their_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "get with no args",
-                input: &["route-server", "get"][..],
-                expect: Yields("get"),
-            },
-            Case {
-                scenario: "remove with an IP",
-                input: &["route-server", "remove", "192.168.1.1"][..],
-                expect: Yields("remove"),
-            },
-            Case {
-                scenario: "replace with an IP",
-                input: &["route-server", "replace", "192.168.1.1"][..],
-                expect: Yields("replace"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| variant(&cmd))
                 .map_err(drop)
-        },
+        };
+        "get with no args" {
+            &["route-server", "get"][..] => Yields("get"),
+        }
+
+        "remove with an IP" {
+            &["route-server", "remove", "192.168.1.1"][..] => Yields("remove"),
+        }
+
+        "replace with an IP" {
+            &["route-server", "replace", "192.168.1.1"][..] => Yields("replace"),
+        }
     );
 }
 
@@ -102,39 +96,31 @@ fn ip_list_parses_for_each_subcommand() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "add with a single IP",
-                input: &["route-server", "add", "192.168.1.1"][..],
-                expect: Yields(1),
-            },
-            Case {
-                scenario: "add with comma-separated IPs",
-                input: &["route-server", "add", "192.168.1.1,192.168.1.2,10.0.0.1"][..],
-                expect: Yields(3),
-            },
-            Case {
-                scenario: "add with no IPs",
-                input: &["route-server", "add"][..],
-                expect: Yields(0),
-            },
-            Case {
-                scenario: "remove with no IPs",
-                input: &["route-server", "remove"][..],
-                expect: Yields(0),
-            },
-            Case {
-                scenario: "replace with no IPs",
-                input: &["route-server", "replace"][..],
-                expect: Yields(0),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| ip_count(&cmd))
                 .map_err(drop)
-        },
+        };
+        "add with a single IP" {
+            &["route-server", "add", "192.168.1.1"][..] => Yields(1),
+        }
+
+        "add with comma-separated IPs" {
+            &["route-server", "add", "192.168.1.1,192.168.1.2,10.0.0.1"][..] => Yields(3),
+        }
+
+        "add with no IPs" {
+            &["route-server", "add"][..] => Yields(0),
+        }
+
+        "remove with no IPs" {
+            &["route-server", "remove"][..] => Yields(0),
+        }
+
+        "replace with no IPs" {
+            &["route-server", "replace"][..] => Yields(0),
+        }
     );
 }
 
@@ -142,20 +128,18 @@ fn ip_list_parses_for_each_subcommand() {
 // argument is parsed into a real address type rather than a raw string.
 #[test]
 fn parse_add_single_ip_renders_back() {
-    check_cases(
-        [Case {
-            scenario: "single IP round-trips its string form",
-            input: &["route-server", "add", "192.168.1.1"][..],
-            expect: Yields("192.168.1.1".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Add(args) => args.inner.ip[0].to_string(),
                     _ => panic!("expected Add variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "single IP round-trips its string form" {
+            &["route-server", "add", "192.168.1.1"][..] => Yields("192.168.1.1".to_string()),
+        }
     );
 }
 
@@ -169,39 +153,34 @@ fn parse_add_single_ip_renders_back() {
 // config_file = 0, admin_api = 1. Yields the parsed source_type as i32.
 #[test]
 fn add_source_type_maps_to_proto_int() {
-    check_cases(
-        [
-            Case {
-                scenario: "admin_api is 1",
-                input: &[
-                    "route-server",
-                    "add",
-                    "192.168.1.1",
-                    "--source-type",
-                    "admin_api",
-                ][..],
-                expect: Yields(1),
-            },
-            Case {
-                scenario: "config_file is 0",
-                input: &[
-                    "route-server",
-                    "add",
-                    "192.168.1.1",
-                    "--source-type",
-                    "config_file",
-                ][..],
-                expect: Yields(0),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Add(args) => args.inner.source_type as i32,
                     _ => panic!("expected Add variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "admin_api is 1" {
+            &[
+                "route-server",
+                "add",
+                "192.168.1.1",
+                "--source-type",
+                "admin_api",
+            ][..] => Yields(1),
+        }
+
+        "config_file is 0" {
+            &[
+                "route-server",
+                "add",
+                "192.168.1.1",
+                "--source-type",
+                "config_file",
+            ][..] => Yields(0),
+        }
     );
 }
 
@@ -209,29 +188,24 @@ fn add_source_type_maps_to_proto_int() {
 // --source-type value, and a positional that isn't a valid IP address.
 #[test]
 fn invalid_add_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "unknown --source-type value",
-                input: &[
-                    "route-server",
-                    "add",
-                    "192.168.1.1",
-                    "--source-type",
-                    "invalid",
-                ][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "positional is not an IP",
-                input: &["route-server", "add", "not-an-ip"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "unknown --source-type value" {
+            &[
+                "route-server",
+                "add",
+                "192.168.1.1",
+                "--source-type",
+                "invalid",
+            ][..] => Fails,
+        }
+
+        "positional is not an IP" {
+            &["route-server", "add", "not-an-ip"][..] => Fails,
+        }
     );
 }

@@ -325,7 +325,7 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -352,49 +352,42 @@ mod tests {
         let sot_no_token = temp_sot_file(r#"{"Id":"fw-object"}"#);
         let sot_empty_token = temp_sot_file(r#"{"Id":"fw-object"}"#);
 
-        check_cases(
-            [
-                Case {
-                    scenario: "legacy --target-version passes through with no token",
-                    input: FirmwareSourceArgs {
-                        target_version: Some("fw-1.0".to_string()),
-                        sot_json_file: None,
-                        access_token: None,
-                    },
-                    expect: Yields(("fw-1.0".to_string(), None)),
-                },
-                Case {
-                    scenario: "SOT JSON file resolves to its contents and the access token",
-                    input: FirmwareSourceArgs {
-                        target_version: None,
-                        sot_json_file: Some(sot_token.clone()),
-                        access_token: Some("token".to_string()),
-                    },
-                    expect: Yields((
-                        r#"{"Id":"fw-object"}"#.to_string(),
-                        Some("token".to_string()),
-                    )),
-                },
-                Case {
-                    scenario: "SOT JSON file resolves without an access token",
-                    input: FirmwareSourceArgs {
-                        target_version: None,
-                        sot_json_file: Some(sot_no_token.clone()),
-                        access_token: None,
-                    },
-                    expect: Yields((r#"{"Id":"fw-object"}"#.to_string(), None)),
-                },
-                Case {
-                    scenario: "an empty access token collapses to None",
-                    input: FirmwareSourceArgs {
-                        target_version: None,
-                        sot_json_file: Some(sot_empty_token.clone()),
-                        access_token: Some(String::new()),
-                    },
-                    expect: Yields((r#"{"Id":"fw-object"}"#.to_string(), None)),
-                },
-            ],
-            |source| resolve_firmware_source(source).map_err(drop),
+        scenarios!(
+            run = |source| resolve_firmware_source(source).map_err(drop);
+            "legacy --target-version passes through with no token" {
+                FirmwareSourceArgs {
+                    target_version: Some("fw-1.0".to_string()),
+                    sot_json_file: None,
+                    access_token: None,
+                } => Yields(("fw-1.0".to_string(), None)),
+            }
+
+            "SOT JSON file resolves to its contents and the access token" {
+                FirmwareSourceArgs {
+                    target_version: None,
+                    sot_json_file: Some(sot_token.clone()),
+                    access_token: Some("token".to_string()),
+                } => Yields((
+                    r#"{"Id":"fw-object"}"#.to_string(),
+                    Some("token".to_string()),
+                )),
+            }
+
+            "SOT JSON file resolves without an access token" {
+                FirmwareSourceArgs {
+                    target_version: None,
+                    sot_json_file: Some(sot_no_token.clone()),
+                    access_token: None,
+                } => Yields((r#"{"Id":"fw-object"}"#.to_string(), None)),
+            }
+
+            "an empty access token collapses to None" {
+                FirmwareSourceArgs {
+                    target_version: None,
+                    sot_json_file: Some(sot_empty_token.clone()),
+                    access_token: Some(String::new()),
+                } => Yields((r#"{"Id":"fw-object"}"#.to_string(), None)),
+            }
         );
 
         let _ = std::fs::remove_file(sot_token);
@@ -410,28 +403,23 @@ mod tests {
     fn firmware_source_rejects_incoherent_inputs() {
         let invalid_json = temp_sot_file("not-json");
 
-        check_cases(
-            [
-                Case {
-                    scenario: "access token without a SOT JSON file",
-                    input: FirmwareSourceArgs {
-                        target_version: Some("fw-1.0".to_string()),
-                        sot_json_file: None,
-                        access_token: Some("token".to_string()),
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "SOT JSON file whose contents are not valid JSON",
-                    input: FirmwareSourceArgs {
-                        target_version: None,
-                        sot_json_file: Some(invalid_json.clone()),
-                        access_token: Some("token".to_string()),
-                    },
-                    expect: Fails,
-                },
-            ],
-            |source| resolve_firmware_source(source).map_err(drop),
+        scenarios!(
+            run = |source| resolve_firmware_source(source).map_err(drop);
+            "access token without a SOT JSON file" {
+                FirmwareSourceArgs {
+                    target_version: Some("fw-1.0".to_string()),
+                    sot_json_file: None,
+                    access_token: Some("token".to_string()),
+                } => Fails,
+            }
+
+            "SOT JSON file whose contents are not valid JSON" {
+                FirmwareSourceArgs {
+                    target_version: None,
+                    sot_json_file: Some(invalid_json.clone()),
+                    access_token: Some("token".to_string()),
+                } => Fails,
+            }
         );
 
         let _ = std::fs::remove_file(invalid_json);

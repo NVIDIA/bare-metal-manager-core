@@ -42,6 +42,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
@@ -61,10 +62,16 @@ type Manager struct {
 	nicoClient nicoapi.Client
 	// readiness guards mutating operations from running while any target
 	// machine is reported as not ready for the operation by its persisted
-	// ComponentStatus. Identical safety contract to compute/nicolegacy:
+	// ComponentOperationStatus. Identical safety contract to compute/nicolegacy:
 	// the gate runs in Flow because Core's Component Manager dispatch
 	// does not (yet) check host readiness state on its own.
 	readiness readiness.Gate
+	// dpuReprovOpts is the Options struct forwarded to dpureprov when
+	// the DPU branch of FirmwareControl runs. Production leaves this
+	// zero-valued so the dpureprov package's defaults (30s poll, 90min
+	// timeout) apply; tests inject a tighter clock + interval via
+	// the package-internal helper to keep poll loops virtual.
+	dpuReprovOpts dpureprov.Options
 }
 
 // New creates a new compute Manager that drives Core's Component Manager
@@ -139,7 +146,7 @@ func machineIDsProto(ids []string) *pb.MachineIdList {
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
 // while any target host is reported as not ready for op by its persisted
-// ComponentStatus.
+// ComponentOperationStatus.
 //
 // When overrideReadinessCheck is true the gate is short-circuited and
 // the operation runs unconditionally; the bypass is logged so it remains
@@ -300,12 +307,29 @@ func (m *Manager) GetPowerStatus(
 // the Core ComputeTrayComponent enum so the update can be scoped to
 // e.g. just BMC or BIOS.
 //
-// info.TargetVersion is forwarded verbatim. Unlike compute/nicolegacy
-// this is no longer a JSON object of component versions but the SoT
-// firmware-object identifier interpreted by Core; Flow does not
-// pre-validate it. info.StartTime / info.EndTime are not used by this
-// path (Core does not expose a maintenance-window scheduling parameter
-// on UpdateComponentFirmware) and are logged when set.
+// info.TargetVersion is forwarded verbatim to UpdateComponentFirmware.
+// Unlike compute/nicolegacy this is no longer a JSON object of component
+// versions but the SoT firmware-object identifier interpreted by Core;
+// Flow does not pre-validate it. info.StartTime / info.EndTime are not
+// used by this path (Core does not expose a maintenance-window
+// scheduling parameter on UpdateComponentFirmware) and are logged when
+// set.
+//
+// # The "dpu" sub-target
+//
+// When info.SubTargets contains "dpu" the function ALSO runs the DPU
+// reprovisioning sequence (see compute/common/dpureprov) against the targeted
+// hosts. The two paths are sequenced rather than concurrent: any
+// compute-tray-internal sub-targets (BMC / BIOS / NIC / etc.) are
+// dispatched to UpdateComponentFirmware first, and DPU reprovisioning
+// runs only after that call returns. This matches the operator runbook
+// the manual `fac ytl` flow follows and keeps the host's BMC / BIOS at
+// the desired version *before* the DPU reprov reboot kicks in.
+//
+// "dpu" is intentionally NOT included in the "empty SubTargets means
+// update everything" default; the caller has to opt in explicitly.
+// info.TargetVersion is ignored on the DPU branch (see dpureprov
+// package doc for the rationale).
 func (m *Manager) FirmwareControl(
 	ctx context.Context,
 	target common.Target,
@@ -332,7 +356,51 @@ func (m *Manager) FirmwareControl(
 			Msg("compute/nico ignores firmware update time window; Core schedules immediately via UpdateComponentFirmware")
 	}
 
-	subComponents, err := firmwarecomponents.ParseNICoComputeTray(info.SubTargets)
+	computeTraySubs, hasDpu := firmwarecomponents.SplitNICoComputeTraySubTargets(info.SubTargets)
+
+	// Run the compute-tray-internal update unless the request was
+	// scoped to "dpu" only. We treat (info.SubTargets non-empty AND
+	// computeTraySubs empty AND hasDpu) as "DPU-only" -- i.e. an opt-in
+	// to the reprovisioning side-channel without touching tray
+	// firmware. This explicit branch is needed because Core's
+	// UpdateComponentFirmware with an empty Components list means
+	// "update everything in the bundle", which is NOT what the caller
+	// asked for in a DPU-only request.
+	dpuOnly := hasDpu && len(info.SubTargets) > 0 && len(computeTraySubs) == 0
+	if !dpuOnly {
+		if err := m.firmwareControlComputeTrays(
+			ctx, target, info.TargetVersion, computeTraySubs, info.OverrideReadinessCheck,
+		); err != nil {
+			return err
+		}
+	}
+
+	if hasDpu {
+		if err := m.firmwareControlDpus(ctx, target); err != nil {
+			return err
+		}
+	}
+
+	log.Info().
+		Str("components", target.String()).
+		Str("target_version", info.TargetVersion).
+		Bool("dpu_target", hasDpu).
+		Msg("Firmware update completed for compute via NICo Component Manager")
+	return nil
+}
+
+// firmwareControlComputeTrays dispatches the compute-tray-internal
+// (BMC / BIOS / NIC / etc.) firmware update via Core's
+// UpdateComponentFirmware. Split out from FirmwareControl so the DPU
+// branch can skip it cleanly when the request is DPU-only.
+func (m *Manager) firmwareControlComputeTrays(
+	ctx context.Context,
+	target common.Target,
+	targetVersion string,
+	computeTraySubs []string,
+	bypassStateController bool,
+) error {
+	subComponents, err := firmwarecomponents.ParseNICoComputeTray(computeTraySubs)
 	if err != nil {
 		return err
 	}
@@ -344,8 +412,8 @@ func (m *Manager) FirmwareControl(
 				Components: subComponents,
 			},
 		},
-		TargetVersion:         info.TargetVersion,
-		BypassStateController: info.OverrideReadinessCheck,
+		TargetVersion:         targetVersion,
+		BypassStateController: bypassStateController,
 	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)
@@ -358,12 +426,24 @@ func (m *Manager) FirmwareControl(
 			return fmt.Errorf("firmware update failed for %s: %s", r.GetComponentId(), r.GetError())
 		}
 	}
-
-	log.Info().
-		Str("components", target.String()).
-		Str("target_version", info.TargetVersion).
-		Msg("Firmware update started for compute via NICo Component Manager")
 	return nil
+}
+
+// firmwareControlDpus runs DPU reprovisioning on every host listed in
+// the target. Each host is reprovisioned serially via the four-step
+// sequence implemented in compute/common/dpureprov. The per-request
+// target version is not forwarded to Core: its reprovisioning state
+// machine resolves the target firmware version from site configuration
+// rather than per request — see the dpureprov package doc.
+func (m *Manager) firmwareControlDpus(
+	ctx context.Context,
+	target common.Target,
+) error {
+	return dpureprov.ReprovisionHosts(
+		ctx, m.nicoClient, target.ComponentIDs,
+		true, // update_firmware: tenant-driven DPU reprov always rolls firmware
+		m.dpuReprovOpts,
+	)
 }
 
 // GetFirmwareStatus returns the current firmware update status for each

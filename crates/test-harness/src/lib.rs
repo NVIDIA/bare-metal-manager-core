@@ -20,21 +20,31 @@ use std::sync::Arc;
 
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 pub use carbide_api_core::test_support::{self, Api, rpc};
+use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::config::SiteExplorerConfig;
+pub use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer};
 use carbide_utils::test_support::test_meter::TestMeter;
-use sqlx::PgPool;
+use carbide_uuid::machine::MachineId;
+use sqlx::{PgPool, PgTransaction};
 use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 
+use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
 use crate::builder::TestHarnessBuilder;
 use crate::dns::TestDomain;
 use crate::network::controller::TestNetworkController;
+use crate::network::segment::TestNetworkSegment;
 
+pub mod asset;
 pub mod builder;
 pub mod dns;
+pub mod managed_host;
 pub mod network;
 pub mod prelude;
 pub mod resource_pool;
+
+pub use managed_host::{TestManagedHost, TestManagedHostBuilder};
 
 pub struct TestHarness {
     api: Arc<ApiHandle>,
@@ -54,6 +64,18 @@ impl TestHarness {
 
     pub fn api(&self) -> &Api {
         self.api.deref()
+    }
+
+    pub fn api_arc(&self) -> Arc<Api> {
+        self.api.api.clone()
+    }
+
+    pub async fn db_txn(&self) -> PgTransaction<'static> {
+        self.api
+            .database_connection
+            .begin()
+            .await
+            .expect("database transaction should start")
     }
 
     pub async fn test_domain(&self) -> TestDomain {
@@ -80,10 +102,63 @@ impl TestHarness {
             &self.test_meter,
         )
     }
+
+    pub fn managed_host_builder<'a>(
+        &'a self,
+        site_explorer: &'a TestSiteExplorer,
+        segment: TestNetworkSegment,
+    ) -> TestManagedHostBuilder<'a> {
+        TestManagedHostBuilder::new(self, site_explorer, segment)
+    }
+
+    pub fn test_site_explorer(&self, config: SiteExplorerConfig) -> TestSiteExplorer {
+        let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+        let api = self.api();
+        let site_explorer = SiteExplorer::new(
+            api.database_connection.clone(),
+            config,
+            self.test_meter.meter(),
+            endpoint_explorer.clone(),
+            Arc::new(api.runtime_config.get_firmware_config()),
+            api.common_pools().clone(),
+            api.work_lock_manager_handle(),
+            None,
+            api.credential_manager().clone(),
+        );
+        TestSiteExplorer::new(site_explorer, endpoint_explorer)
+    }
+
+    pub fn default_test_site_explorer(&self) -> TestSiteExplorer {
+        self.test_site_explorer(SiteExplorerConfig::default())
+    }
+
+    pub async fn find_machine(&self, id: MachineId) -> Vec<rpc::forge::Machine> {
+        self.api
+            .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+                machine_ids: vec![id],
+                include_history: true,
+            }))
+            .await
+            .expect("machine lookup by id should succeed")
+            .into_inner()
+            .machines
+    }
+
+    pub async fn create_rack(&self) -> TestRack {
+        TestRack::create(self).await
+    }
+
+    pub async fn create_switch(&self, slot_number: i32, tray_index: i32) -> TestSwitch {
+        TestSwitch::create(self, slot_number, tray_index).await
+    }
+
+    pub async fn create_power_shelf(&self) -> TestPowerShelf {
+        TestPowerShelf::create(self).await
+    }
 }
 
-struct ApiHandle {
-    api: Api,
+pub(crate) struct ApiHandle {
+    api: Arc<Api>,
     cancel_token: CancellationToken,
     _drop_guard: DropGuard,
     _js: JoinSet<()>,
@@ -92,7 +167,7 @@ struct ApiHandle {
 impl Deref for ApiHandle {
     type Target = Api;
     fn deref(&self) -> &Self::Target {
-        &self.api
+        self.api.as_ref()
     }
 }
 

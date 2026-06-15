@@ -16,7 +16,7 @@
  */
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, Check, check_cases, check_values};
+use carbide_test_support::{Case, scenarios, value_scenarios};
 use libmlx::variables::spec::MlxVariableSpec;
 use libmlx::variables::value::{MlxValueError, MlxValueType};
 use libmlx::variables::variable::MlxConfigVariable;
@@ -92,28 +92,22 @@ fn enum_values_validate_against_the_spec() {
         },
     );
 
-    check_cases(
-        [
-            Case {
-                scenario: "a valid option",
-                input: "medium",
-                expect: Yields(MlxValueType::Enum("medium".to_string())),
-            },
-            Case {
-                scenario: "another valid option",
-                input: "high",
-                expect: Yields(MlxValueType::Enum("high".to_string())),
-            },
-            Case {
-                scenario: "an unknown option",
-                input: "invalid",
-                expect: FailsWith(MlxValueError::InvalidEnumOption {
-                    value: "invalid".to_string(),
-                    allowed: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
-                }),
-            },
-        ],
-        |input| var.with(input).map(|v| v.value),
+    scenarios!(
+        run = |input| var.with(input).map(|v| v.value);
+        "a valid option" {
+            "medium" => Yields(MlxValueType::Enum("medium".to_string())),
+        }
+
+        "another valid option" {
+            "high" => Yields(MlxValueType::Enum("high".to_string())),
+        }
+
+        "an unknown option" {
+            "invalid" => FailsWith(MlxValueError::InvalidEnumOption {
+                value: "invalid".to_string(),
+                allowed: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+            }),
+        }
     );
 }
 
@@ -124,20 +118,15 @@ fn enum_values_validate_against_the_spec() {
 fn preset_values_respect_the_max() {
     let var = create_test_variable("test_preset", MlxVariableSpec::Preset { max_preset: 5 });
 
-    check_cases(
-        [
-            Case {
-                scenario: "in range",
-                input: 3u8,
-                expect: Yields(MlxValueType::Preset(3)),
-            },
-            Case {
-                scenario: "above the max",
-                input: 10u8,
-                expect: Fails,
-            },
-        ],
-        |input| var.with(input).map(|v| v.value),
+    scenarios!(
+        run = |input| var.with(input).map(|v| v.value);
+        "in range" {
+            3u8 => Yields(MlxValueType::Preset(3)),
+        }
+
+        "above the max" {
+            10u8 => Fails,
+        }
     );
 }
 
@@ -148,25 +137,20 @@ fn preset_values_respect_the_max() {
 fn boolean_arrays_validate_size_and_convert() {
     let var = create_test_variable("test_bool_array", MlxVariableSpec::BooleanArray { size: 4 });
 
-    check_cases(
-        [
-            Case {
-                scenario: "a right-sized Vec<bool> converts to the sparse form",
-                input: vec![true, false, true, false],
-                expect: Yields(MlxValueType::BooleanArray(vec![
-                    Some(true),
-                    Some(false),
-                    Some(true),
-                    Some(false),
-                ])),
-            },
-            Case {
-                scenario: "a wrong-sized input is rejected",
-                input: vec![true, false],
-                expect: Fails,
-            },
-        ],
-        |input| var.with(input).map(|v| v.value),
+    scenarios!(
+        run = |input| var.with(input).map(|v| v.value);
+        "a right-sized Vec<bool> converts to the sparse form" {
+            vec![true, false, true, false] => Yields(MlxValueType::BooleanArray(vec![
+                Some(true),
+                Some(false),
+                Some(true),
+                Some(false),
+            ])),
+        }
+
+        "a wrong-sized input is rejected" {
+            vec![true, false] => Fails,
+        }
     );
 }
 
@@ -389,109 +373,83 @@ fn test_string_parsing_for_single_values() {
     }
 
     let bool_var = create_test_variable("test_bool", MlxVariableSpec::Boolean);
-    check_cases(
-        [
-            Case {
-                scenario: "'true'",
-                input: "true",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "'1'",
-                input: "1",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "'YES'",
-                input: "YES",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "'enabled'",
-                input: "enabled",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "'on'",
-                input: "on",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "'false'",
-                input: "false",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "'0'",
-                input: "0",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "'NO'",
-                input: "NO",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "'disabled'",
-                input: "disabled",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "'off'",
-                input: "off",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "'maybe' is not a boolean",
-                input: "maybe",
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&bool_var, raw),
+    scenarios!(
+        run = |raw| parsed(&bool_var, raw);
+        "'true'" {
+            "true" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "'1'" {
+            "1" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "'YES'" {
+            "YES" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "'enabled'" {
+            "enabled" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "'on'" {
+            "on" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "'false'" {
+            "false" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "'0'" {
+            "0" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "'NO'" {
+            "NO" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "'disabled'" {
+            "disabled" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "'off'" {
+            "off" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "'maybe' is not a boolean" {
+            "maybe" => Fails,
+        }
     );
 
     let int_var = create_test_variable("test_int", MlxVariableSpec::Integer);
-    check_cases(
-        [
-            Case {
-                scenario: "positive",
-                input: "42",
-                expect: Yields(MlxValueType::Integer(42)),
-            },
-            Case {
-                scenario: "negative",
-                input: "-123",
-                expect: Yields(MlxValueType::Integer(-123)),
-            },
-            Case {
-                scenario: "zero",
-                input: "0",
-                expect: Yields(MlxValueType::Integer(0)),
-            },
-            Case {
-                scenario: "non-number is rejected",
-                input: "not_a_number",
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&int_var, raw),
+    scenarios!(
+        run = |raw| parsed(&int_var, raw);
+        "positive" {
+            "42" => Yields(MlxValueType::Integer(42)),
+        }
+
+        "negative" {
+            "-123" => Yields(MlxValueType::Integer(-123)),
+        }
+
+        "zero" {
+            "0" => Yields(MlxValueType::Integer(0)),
+        }
+
+        "non-number is rejected" {
+            "not_a_number" => Fails,
+        }
     );
 
     let str_var = create_test_variable("test_string", MlxVariableSpec::String);
-    check_cases(
-        [
-            Case {
-                scenario: "stored as-is",
-                input: "hello world",
-                expect: Yields(MlxValueType::String("hello world".to_string())),
-            },
-            Case {
-                scenario: "surrounding whitespace trimmed",
-                input: "  trimmed  ",
-                expect: Yields(MlxValueType::String("trimmed".to_string())),
-            },
-        ],
-        |raw| parsed(&str_var, raw),
+    scenarios!(
+        run = |raw| parsed(&str_var, raw);
+        "stored as-is" {
+            "hello world" => Yields(MlxValueType::String("hello world".to_string())),
+        }
+
+        "surrounding whitespace trimmed" {
+            "  trimmed  " => Yields(MlxValueType::String("trimmed".to_string())),
+        }
     );
 
     let enum_var = create_test_variable(
@@ -500,81 +458,61 @@ fn test_string_parsing_for_single_values() {
             options: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
         },
     );
-    check_cases(
-        [
-            Case {
-                scenario: "a valid option",
-                input: "medium",
-                expect: Yields(MlxValueType::Enum("medium".to_string())),
-            },
-            Case {
-                scenario: "another valid option",
-                input: "high",
-                expect: Yields(MlxValueType::Enum("high".to_string())),
-            },
-            Case {
-                scenario: "trimmed before matching",
-                input: " low ",
-                expect: Yields(MlxValueType::Enum("low".to_string())),
-            },
-            Case {
-                scenario: "an unknown option is rejected",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&enum_var, raw),
+    scenarios!(
+        run = |raw| parsed(&enum_var, raw);
+        "a valid option" {
+            "medium" => Yields(MlxValueType::Enum("medium".to_string())),
+        }
+
+        "another valid option" {
+            "high" => Yields(MlxValueType::Enum("high".to_string())),
+        }
+
+        "trimmed before matching" {
+            " low " => Yields(MlxValueType::Enum("low".to_string())),
+        }
+
+        "an unknown option is rejected" {
+            "invalid" => Fails,
+        }
     );
 
     let preset_var =
         create_test_variable("test_preset", MlxVariableSpec::Preset { max_preset: 10 });
-    check_cases(
-        [
-            Case {
-                scenario: "mid-range",
-                input: "5",
-                expect: Yields(MlxValueType::Preset(5)),
-            },
-            Case {
-                scenario: "the floor",
-                input: "0",
-                expect: Yields(MlxValueType::Preset(0)),
-            },
-            Case {
-                scenario: "the ceiling",
-                input: "10",
-                expect: Yields(MlxValueType::Preset(10)),
-            },
-            Case {
-                scenario: "above the max is rejected",
-                input: "15",
-                expect: Fails,
-            },
-            Case {
-                scenario: "non-number is rejected",
-                input: "not_a_number",
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&preset_var, raw),
+    scenarios!(
+        run = |raw| parsed(&preset_var, raw);
+        "mid-range" {
+            "5" => Yields(MlxValueType::Preset(5)),
+        }
+
+        "the floor" {
+            "0" => Yields(MlxValueType::Preset(0)),
+        }
+
+        "the ceiling" {
+            "10" => Yields(MlxValueType::Preset(10)),
+        }
+
+        "above the max is rejected" {
+            "15" => Fails,
+        }
+
+        "non-number is rejected" {
+            "not_a_number" => Fails,
+        }
     );
 
     // Binary, Bytes, and Opaque all parse hex -- with or without an 0x/0X prefix.
     let binary_var = create_test_variable("test_binary", MlxVariableSpec::Binary);
-    check_cases(
-        [
-            Case {
-                scenario: "0x-prefixed hex",
-                input: "0x1a2b3c",
-                expect: Yields(MlxValueType::Binary(vec![0x1a, 0x2b, 0x3c])),
-            },
-            Case {
-                scenario: "non-hex is rejected",
-                input: "not_hex",
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&binary_var, raw),
+    scenarios!(
+        run = |raw| parsed(&binary_var, raw);
+        "0x-prefixed hex" {
+            "0x1a2b3c" => Yields(MlxValueType::Binary(vec![0x1a, 0x2b, 0x3c])),
+        }
+
+        "non-hex is rejected" {
+            "not_hex" => Fails,
+        }
     );
     let bytes_var = create_test_variable("test_bytes", MlxVariableSpec::Bytes);
     Case {
@@ -629,73 +567,59 @@ fn test_vec_string_parsing_for_array_values() {
     // Boolean array -- dense, sparse ("-" or "" = None), wrong size, bad element.
     let bool_array_var =
         create_test_variable("test_bool_array", MlxVariableSpec::BooleanArray { size: 4 });
-    check_cases(
-        [
-            Case {
-                scenario: "dense",
-                input: vec!["true", "0", "YES", "disabled"],
-                expect: Yields(MlxValueType::BooleanArray(vec![
-                    Some(true),
-                    Some(false),
-                    Some(true),
-                    Some(false),
-                ])),
-            },
-            Case {
-                scenario: "sparse via - and empty string",
-                input: vec!["true", "-", "false", ""],
-                expect: Yields(MlxValueType::BooleanArray(vec![
-                    Some(true),
-                    None,
-                    Some(false),
-                    None,
-                ])),
-            },
-            Case {
-                scenario: "wrong size",
-                input: vec!["true", "false"],
-                expect: Fails,
-            },
-            Case {
-                scenario: "invalid boolean element",
-                input: vec!["true", "maybe", "false", "true"],
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&bool_array_var, raw),
+    scenarios!(
+        run = |raw| parsed(&bool_array_var, raw);
+        "dense" {
+            vec!["true", "0", "YES", "disabled"] => Yields(MlxValueType::BooleanArray(vec![
+                Some(true),
+                Some(false),
+                Some(true),
+                Some(false),
+            ])),
+        }
+
+        "sparse via - and empty string" {
+            vec!["true", "-", "false", ""] => Yields(MlxValueType::BooleanArray(vec![
+                Some(true),
+                None,
+                Some(false),
+                None,
+            ])),
+        }
+
+        "wrong size" {
+            vec!["true", "false"] => Fails,
+        }
+
+        "invalid boolean element" {
+            vec!["true", "maybe", "false", "true"] => Fails,
+        }
     );
 
     // Integer array -- same dense/sparse/size/element coverage.
     let int_array_var =
         create_test_variable("test_int_array", MlxVariableSpec::IntegerArray { size: 3 });
-    check_cases(
-        [
-            Case {
-                scenario: "dense",
-                input: vec!["42", "-123", "0"],
-                expect: Yields(MlxValueType::IntegerArray(vec![
-                    Some(42),
-                    Some(-123),
-                    Some(0),
-                ])),
-            },
-            Case {
-                scenario: "sparse via -",
-                input: vec!["42", "-", "0"],
-                expect: Yields(MlxValueType::IntegerArray(vec![Some(42), None, Some(0)])),
-            },
-            Case {
-                scenario: "wrong size",
-                input: vec!["1", "2"],
-                expect: Fails,
-            },
-            Case {
-                scenario: "invalid integer element",
-                input: vec!["42", "not_a_number", "0"],
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&int_array_var, raw),
+    scenarios!(
+        run = |raw| parsed(&int_array_var, raw);
+        "dense" {
+            vec!["42", "-123", "0"] => Yields(MlxValueType::IntegerArray(vec![
+                Some(42),
+                Some(-123),
+                Some(0),
+            ])),
+        }
+
+        "sparse via -" {
+            vec!["42", "-", "0"] => Yields(MlxValueType::IntegerArray(vec![Some(42), None, Some(0)])),
+        }
+
+        "wrong size" {
+            vec!["1", "2"] => Fails,
+        }
+
+        "invalid integer element" {
+            vec!["42", "not_a_number", "0"] => Fails,
+        }
     );
 
     // Enum array -- trims; dense/sparse pass; wrong size fails; a bad option fails
@@ -711,48 +635,41 @@ fn test_vec_string_parsing_for_array_values() {
             size: 4,
         },
     );
-    check_cases(
-        [
-            Case {
-                scenario: "dense, trimmed",
-                input: vec!["input", " output ", "bidirectional", "input"],
-                expect: Yields(MlxValueType::EnumArray(vec![
-                    Some("input".to_string()),
-                    Some("output".to_string()),
-                    Some("bidirectional".to_string()),
-                    Some("input".to_string()),
-                ])),
-            },
-            Case {
-                scenario: "sparse via - and empty string",
-                input: vec!["input", "-", "output", ""],
-                expect: Yields(MlxValueType::EnumArray(vec![
-                    Some("input".to_string()),
-                    None,
-                    Some("output".to_string()),
-                    None,
-                ])),
-            },
-            Case {
-                scenario: "wrong size",
-                input: vec!["input", "output"],
-                expect: Fails,
-            },
-            Case {
-                scenario: "bad option pins position, value, and allowed set",
-                input: vec!["input", "invalid", "output", "input"],
-                expect: FailsWith(MlxValueError::InvalidEnumArrayOption {
-                    position: 1,
-                    value: "invalid".to_string(),
-                    allowed: vec![
-                        "input".to_string(),
-                        "output".to_string(),
-                        "bidirectional".to_string(),
-                    ],
-                }),
-            },
-        ],
-        |raw| parsed(&enum_array_var, raw),
+    scenarios!(
+        run = |raw| parsed(&enum_array_var, raw);
+        "dense, trimmed" {
+            vec!["input", " output ", "bidirectional", "input"] => Yields(MlxValueType::EnumArray(vec![
+                Some("input".to_string()),
+                Some("output".to_string()),
+                Some("bidirectional".to_string()),
+                Some("input".to_string()),
+            ])),
+        }
+
+        "sparse via - and empty string" {
+            vec!["input", "-", "output", ""] => Yields(MlxValueType::EnumArray(vec![
+                Some("input".to_string()),
+                None,
+                Some("output".to_string()),
+                None,
+            ])),
+        }
+
+        "wrong size" {
+            vec!["input", "output"] => Fails,
+        }
+
+        "bad option pins position, value, and allowed set" {
+            vec!["input", "invalid", "output", "input"] => FailsWith(MlxValueError::InvalidEnumArrayOption {
+                position: 1,
+                value: "invalid".to_string(),
+                allowed: vec![
+                    "input".to_string(),
+                    "output".to_string(),
+                    "bidirectional".to_string(),
+                ],
+            }),
+        }
     );
 
     // Binary array -- hex with or without an 0x/0X prefix, dense and sparse.
@@ -760,38 +677,31 @@ fn test_vec_string_parsing_for_array_values() {
         "test_binary_array",
         MlxVariableSpec::BinaryArray { size: 3 },
     );
-    check_cases(
-        [
-            Case {
-                scenario: "dense, mixed prefixes and whitespace",
-                input: vec!["0x1a2b", "3c4d", " 0X5E6F "],
-                expect: Yields(MlxValueType::BinaryArray(vec![
-                    Some(vec![0x1a, 0x2b]),
-                    Some(vec![0x3c, 0x4d]),
-                    Some(vec![0x5e, 0x6f]),
-                ])),
-            },
-            Case {
-                scenario: "sparse via -",
-                input: vec!["0x1a2b", "-", "3c4d"],
-                expect: Yields(MlxValueType::BinaryArray(vec![
-                    Some(vec![0x1a, 0x2b]),
-                    None,
-                    Some(vec![0x3c, 0x4d]),
-                ])),
-            },
-            Case {
-                scenario: "wrong size",
-                input: vec!["0x1a2b", "3c4d"],
-                expect: Fails,
-            },
-            Case {
-                scenario: "invalid hex element",
-                input: vec!["0x1a2b", "invalid", "3c4d"],
-                expect: Fails,
-            },
-        ],
-        |raw| parsed(&binary_array_var, raw),
+    scenarios!(
+        run = |raw| parsed(&binary_array_var, raw);
+        "dense, mixed prefixes and whitespace" {
+            vec!["0x1a2b", "3c4d", " 0X5E6F "] => Yields(MlxValueType::BinaryArray(vec![
+                Some(vec![0x1a, 0x2b]),
+                Some(vec![0x3c, 0x4d]),
+                Some(vec![0x5e, 0x6f]),
+            ])),
+        }
+
+        "sparse via -" {
+            vec!["0x1a2b", "-", "3c4d"] => Yields(MlxValueType::BinaryArray(vec![
+                Some(vec![0x1a, 0x2b]),
+                None,
+                Some(vec![0x3c, 0x4d]),
+            ])),
+        }
+
+        "wrong size" {
+            vec!["0x1a2b", "3c4d"] => Fails,
+        }
+
+        "invalid hex element" {
+            vec!["0x1a2b", "invalid", "3c4d"] => Fails,
+        }
     );
 
     // A multi-element vec can't satisfy a single-value spec.
@@ -944,83 +854,67 @@ fn test_mixed_dense_and_sparse_operations() {
 // loop into one table over `is_array_type`.
 #[test]
 fn is_array_type_flags_only_typed_arrays() {
-    check_values(
-        [
-            Check {
-                scenario: "boolean array",
-                input: MlxValueType::BooleanArray(vec![Some(true), None, Some(false)]),
-                expect: true,
-            },
-            Check {
-                scenario: "integer array",
-                input: MlxValueType::IntegerArray(vec![Some(42), None, Some(100)]),
-                expect: true,
-            },
-            Check {
-                scenario: "enum array",
-                input: MlxValueType::EnumArray(vec![
-                    Some("option1".to_string()),
-                    None,
-                    Some("option2".to_string()),
-                ]),
-                expect: true,
-            },
-            Check {
-                scenario: "binary array",
-                input: MlxValueType::BinaryArray(vec![
-                    Some(vec![0x01, 0x02]),
-                    None,
-                    Some(vec![0x03, 0x04]),
-                ]),
-                expect: true,
-            },
-            Check {
-                scenario: "boolean scalar",
-                input: MlxValueType::Boolean(true),
-                expect: false,
-            },
-            Check {
-                scenario: "integer scalar",
-                input: MlxValueType::Integer(42),
-                expect: false,
-            },
-            Check {
-                scenario: "string scalar",
-                input: MlxValueType::String("test".to_string()),
-                expect: false,
-            },
-            Check {
-                scenario: "enum scalar",
-                input: MlxValueType::Enum("option".to_string()),
-                expect: false,
-            },
-            Check {
-                scenario: "preset",
-                input: MlxValueType::Preset(5),
-                expect: false,
-            },
-            Check {
-                scenario: "binary scalar",
-                input: MlxValueType::Binary(vec![0x01, 0x02]),
-                expect: false,
-            },
-            Check {
-                scenario: "bytes",
-                input: MlxValueType::Bytes(vec![0x01, 0x02]),
-                expect: false,
-            },
-            Check {
-                scenario: "untyped string array",
-                input: MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]),
-                expect: false,
-            },
-            Check {
-                scenario: "opaque",
-                input: MlxValueType::Opaque(vec![0x01, 0x02]),
-                expect: false,
-            },
-        ],
-        |value| value.is_array_type(),
+    value_scenarios!(
+        run = |value| value.is_array_type();
+        "boolean array" {
+            MlxValueType::BooleanArray(vec![Some(true), None, Some(false)]) => true,
+        }
+
+        "integer array" {
+            MlxValueType::IntegerArray(vec![Some(42), None, Some(100)]) => true,
+        }
+
+        "enum array" {
+            MlxValueType::EnumArray(vec![
+                Some("option1".to_string()),
+                None,
+                Some("option2".to_string()),
+            ]) => true,
+        }
+
+        "binary array" {
+            MlxValueType::BinaryArray(vec![
+                Some(vec![0x01, 0x02]),
+                None,
+                Some(vec![0x03, 0x04]),
+            ]) => true,
+        }
+
+        "boolean scalar" {
+            MlxValueType::Boolean(true) => false,
+        }
+
+        "integer scalar" {
+            MlxValueType::Integer(42) => false,
+        }
+
+        "string scalar" {
+            MlxValueType::String("test".to_string()) => false,
+        }
+
+        "enum scalar" {
+            MlxValueType::Enum("option".to_string()) => false,
+        }
+
+        "preset" {
+            MlxValueType::Preset(5) => false,
+        }
+
+        "binary scalar" {
+            MlxValueType::Binary(vec![0x01, 0x02]) => false,
+        }
+
+        "bytes" {
+            MlxValueType::Bytes(vec![0x01, 0x02]) => false,
+        }
+
+        "untyped string array" {
+            MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]) => false,
+        }
+
+        "opaque" {
+            MlxValueType::Opaque(vec![0x01, 0x02]) => false,
+        }
     );
 }
 
@@ -1031,136 +925,114 @@ fn is_array_type_flags_only_typed_arrays() {
 // "is it ascending?" assertion is subsumed.
 #[test]
 fn get_set_indices_lists_set_positions_for_arrays_only() {
-    check_cases(
-        [
-            Case {
-                scenario: "boolean array, mixed set/unset",
-                input: MlxValueType::BooleanArray(vec![
-                    Some(true),
-                    None,
-                    Some(false),
-                    None,
-                    Some(true),
-                ]),
-                expect: Yields(vec![0, 2, 4]),
-            },
-            Case {
-                scenario: "integer array, leading gap",
-                input: MlxValueType::IntegerArray(vec![None, Some(42), Some(100), None]),
-                expect: Yields(vec![1, 2]),
-            },
-            Case {
-                scenario: "enum array, interior gap",
-                input: MlxValueType::EnumArray(vec![
-                    Some("option1".to_string()),
-                    Some("option2".to_string()),
-                    None,
-                    Some("option3".to_string()),
-                ]),
-                expect: Yields(vec![0, 1, 3]),
-            },
-            Case {
-                scenario: "binary array, interior gaps",
-                input: MlxValueType::BinaryArray(vec![
-                    Some(vec![0x01, 0x02]),
-                    None,
-                    None,
-                    Some(vec![0x03, 0x04]),
-                ]),
-                expect: Yields(vec![0, 3]),
-            },
-            Case {
-                scenario: "all unset",
-                input: MlxValueType::BooleanArray(vec![None, None, None]),
-                expect: Yields(vec![]),
-            },
-            Case {
-                scenario: "all set",
-                input: MlxValueType::IntegerArray(vec![Some(1), Some(2), Some(3), Some(4)]),
-                expect: Yields(vec![0, 1, 2, 3]),
-            },
-            Case {
-                scenario: "empty array",
-                input: MlxValueType::BooleanArray(vec![]),
-                expect: Yields(vec![]),
-            },
-            Case {
-                scenario: "single set element",
-                input: MlxValueType::EnumArray(vec![Some("only_option".to_string())]),
-                expect: Yields(vec![0]),
-            },
-            Case {
-                scenario: "realistic sparse host pattern",
-                input: MlxValueType::EnumArray(vec![
-                    Some("HOST_0".to_string()),
-                    None,
-                    None,
-                    Some("HOST_3".to_string()),
-                    None,
-                    None,
-                    Some("HOST_6".to_string()),
-                    None,
-                ]),
-                expect: Yields(vec![0, 3, 6]),
-            },
-            Case {
-                scenario: "indices stay in ascending order",
-                input: MlxValueType::IntegerArray(vec![
-                    None,
-                    Some(10),
-                    None,
-                    Some(30),
-                    None,
-                    Some(50),
-                ]),
-                expect: Yields(vec![1, 3, 5]),
-            },
-            Case {
-                scenario: "boolean scalar has no indices",
-                input: MlxValueType::Boolean(true),
-                expect: Fails,
-            },
-            Case {
-                scenario: "integer scalar has no indices",
-                input: MlxValueType::Integer(42),
-                expect: Fails,
-            },
-            Case {
-                scenario: "string scalar has no indices",
-                input: MlxValueType::String("test".to_string()),
-                expect: Fails,
-            },
-            Case {
-                scenario: "enum scalar has no indices",
-                input: MlxValueType::Enum("option".to_string()),
-                expect: Fails,
-            },
-            Case {
-                scenario: "preset has no indices",
-                input: MlxValueType::Preset(5),
-                expect: Fails,
-            },
-            Case {
-                scenario: "binary scalar has no indices",
-                input: MlxValueType::Binary(vec![0x01, 0x02]),
-                expect: Fails,
-            },
-            Case {
-                scenario: "bytes have no indices",
-                input: MlxValueType::Bytes(vec![0x01, 0x02]),
-                expect: Fails,
-            },
-            Case {
-                scenario: "untyped string array has no indices",
-                input: MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]),
-                expect: Fails,
-            },
-            Case {
-                scenario: "opaque has no indices",
-                input: MlxValueType::Opaque(vec![0x01, 0x02]),
-                expect: Fails,
-            },
-        ],
-        |value| value.get_set_indices().ok_or(()),
+    scenarios!(
+        run = |value| value.get_set_indices().ok_or(());
+        "boolean array, mixed set/unset" {
+            MlxValueType::BooleanArray(vec![
+                Some(true),
+                None,
+                Some(false),
+                None,
+                Some(true),
+            ]) => Yields(vec![0, 2, 4]),
+        }
+
+        "integer array, leading gap" {
+            MlxValueType::IntegerArray(vec![None, Some(42), Some(100), None]) => Yields(vec![1, 2]),
+        }
+
+        "enum array, interior gap" {
+            MlxValueType::EnumArray(vec![
+                Some("option1".to_string()),
+                Some("option2".to_string()),
+                None,
+                Some("option3".to_string()),
+            ]) => Yields(vec![0, 1, 3]),
+        }
+
+        "binary array, interior gaps" {
+            MlxValueType::BinaryArray(vec![
+                Some(vec![0x01, 0x02]),
+                None,
+                None,
+                Some(vec![0x03, 0x04]),
+            ]) => Yields(vec![0, 3]),
+        }
+
+        "all unset" {
+            MlxValueType::BooleanArray(vec![None, None, None]) => Yields(vec![]),
+        }
+
+        "all set" {
+            MlxValueType::IntegerArray(vec![Some(1), Some(2), Some(3), Some(4)]) => Yields(vec![0, 1, 2, 3]),
+        }
+
+        "empty array" {
+            MlxValueType::BooleanArray(vec![]) => Yields(vec![]),
+        }
+
+        "single set element" {
+            MlxValueType::EnumArray(vec![Some("only_option".to_string())]) => Yields(vec![0]),
+        }
+
+        "realistic sparse host pattern" {
+            MlxValueType::EnumArray(vec![
+                Some("HOST_0".to_string()),
+                None,
+                None,
+                Some("HOST_3".to_string()),
+                None,
+                None,
+                Some("HOST_6".to_string()),
+                None,
+            ]) => Yields(vec![0, 3, 6]),
+        }
+
+        "indices stay in ascending order" {
+            MlxValueType::IntegerArray(vec![
+                None,
+                Some(10),
+                None,
+                Some(30),
+                None,
+                Some(50),
+            ]) => Yields(vec![1, 3, 5]),
+        }
+
+        "boolean scalar has no indices" {
+            MlxValueType::Boolean(true) => Fails,
+        }
+
+        "integer scalar has no indices" {
+            MlxValueType::Integer(42) => Fails,
+        }
+
+        "string scalar has no indices" {
+            MlxValueType::String("test".to_string()) => Fails,
+        }
+
+        "enum scalar has no indices" {
+            MlxValueType::Enum("option".to_string()) => Fails,
+        }
+
+        "preset has no indices" {
+            MlxValueType::Preset(5) => Fails,
+        }
+
+        "binary scalar has no indices" {
+            MlxValueType::Binary(vec![0x01, 0x02]) => Fails,
+        }
+
+        "bytes have no indices" {
+            MlxValueType::Bytes(vec![0x01, 0x02]) => Fails,
+        }
+
+        "untyped string array has no indices" {
+            MlxValueType::Array(vec!["item1".to_string(), "item2".to_string()]) => Fails,
+        }
+
+        "opaque has no indices" {
+            MlxValueType::Opaque(vec![0x01, 0x02]) => Fails,
+        }
     );
 }

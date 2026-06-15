@@ -47,6 +47,7 @@ oauth2 = { workspace = true }
 reqwest = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 prost-build = { workspace = true }
 tokio-test = { workspace = true }
 

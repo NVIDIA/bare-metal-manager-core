@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 use rpc::forge::DpaInterfaceType;
 
@@ -51,20 +51,18 @@ fn verify_cmd_structure() {
 // is left unset (the "all DPAs" case).
 #[test]
 fn parse_show() {
-    check_cases(
-        [Case {
-            scenario: "show with no arguments leaves id unset",
-            input: &["dpa", "show"][..],
-            expect: Yields(true),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.id.is_none(),
                     other => panic!("expected Show, got {other:?}"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments leaves id unset" {
+            &["dpa", "show"][..] => Yields(true),
+        }
     );
 }
 
@@ -72,27 +70,8 @@ fn parse_show() {
 // to the parsed fields (machine id, MAC, device type, PCI name, interface).
 #[test]
 fn parse_ensure() {
-    check_cases(
-        [Case {
-            scenario: "ensure with all positional arguments",
-            input: &[
-                "dpa",
-                "ensure",
-                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
-                "00:11:22:33:44:55",
-                "BlueField3",
-                "01:00.0",
-                "svpc",
-            ][..],
-            expect: Yields((
-                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30".to_string(),
-                "00:11:22:33:44:55".to_string(),
-                "BlueField3".to_string(),
-                "01:00.0".to_string(),
-                DpaInterfaceType::Svpc,
-            )),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Ensure(args) => (
@@ -105,6 +84,23 @@ fn parse_ensure() {
                     other => panic!("expected Ensure, got {other:?}"),
                 })
                 .map_err(drop)
-        },
+        };
+        "ensure with all positional arguments" {
+            &[
+                "dpa",
+                "ensure",
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+                "00:11:22:33:44:55",
+                "BlueField3",
+                "01:00.0",
+                "svpc",
+            ][..] => Yields((
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30".to_string(),
+                "00:11:22:33:44:55".to_string(),
+                "BlueField3".to_string(),
+                "01:00.0".to_string(),
+                DpaInterfaceType::Svpc,
+            )),
+        }
     );
 }

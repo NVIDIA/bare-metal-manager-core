@@ -37,25 +37,58 @@ type mockClient struct {
 	expectedMachineDetails    map[string]ExpectedMachineDetail    // by ExpectedMachineID (UUID)
 	expectedSwitchDetails     map[string]ExpectedSwitchDetail     // by ExpectedSwitchID (UUID)
 	expectedPowerShelfDetails map[string]ExpectedPowerShelfDetail // by ExpectedPowerShelfID (UUID)
+
+	// DPU reprovisioning mock state. Populated by tests via the
+	// SetDpu... helpers. The mock keeps the list of pending DPUs by host
+	// id and the configured (host -> instance) and (host -> dpu ids)
+	// mappings independently so a test can mix-and-match e.g. a host
+	// without an instance but with DPUs.
+	pendingDpuReprovHosts         map[string]bool         // host machine id -> still pending
+	hostToDpuMachineIds           map[string][]string     // host machine id -> dpu machine ids
+	hostToInstanceID              map[string]string       // host machine id -> instance id ("" if none)
+	hostUpdateInProgressOverrides map[string]string       // host machine id -> last "message"
+	dpuReprovisioningTriggers     []DpuReprovisioningCall // recorded TriggerDpuReprovisioning calls
+	instancePowerCalls            []InstancePowerCall     // recorded InvokeInstancePower calls
+	insertHostUpdateOverrideErr   error                   // if set, InsertHostUpdateInProgressHealthOverride returns this
+	triggerDpuReprovisioningErr   error                   // if set, TriggerDpuReprovisioning returns this
+	invokeInstancePowerErr        error                   // if set, InvokeInstancePower returns this
+}
+
+// DpuReprovisioningCall captures a TriggerDpuReprovisioning invocation
+// for assertion in tests.
+type DpuReprovisioningCall struct {
+	MachineID      string
+	UpdateFirmware bool
+}
+
+// InstancePowerCall captures an InvokeInstancePower invocation for
+// assertion in tests.
+type InstancePowerCall struct {
+	InstanceID   string
+	ApplyUpdates bool
 }
 
 // NewMockClient returns a "GRPC" client that returns mock values so it can be used in unit tests.
 func NewMockClient() Client {
 	return &mockClient{
-		machines:                   map[string]MachineDetail{},
-		powerStates:                map[string]PowerState{},
-		machineInterfaces:          map[string]MachineInterface{},
-		expectedSwitches:           map[string]ExpectedSwitchInfo{},
-		switchRackIDs:              map[string]string{},
-		powerShelfRackIDs:          map[string]string{},
-		switchControllerStates:     map[string]string{},
-		switchNvosIPs:              map[string]string{},
-		powerShelfControllerStates: map[string]string{},
-		hostMachinesByRackID:       map[string][]string{},
-		expectedRackDetails:        map[string]ExpectedRackDetail{},
-		expectedMachineDetails:     map[string]ExpectedMachineDetail{},
-		expectedSwitchDetails:      map[string]ExpectedSwitchDetail{},
-		expectedPowerShelfDetails:  map[string]ExpectedPowerShelfDetail{},
+		machines:                      map[string]MachineDetail{},
+		powerStates:                   map[string]PowerState{},
+		machineInterfaces:             map[string]MachineInterface{},
+		expectedSwitches:              map[string]ExpectedSwitchInfo{},
+		switchRackIDs:                 map[string]string{},
+		powerShelfRackIDs:             map[string]string{},
+		switchControllerStates:        map[string]string{},
+		switchNvosIPs:                 map[string]string{},
+		powerShelfControllerStates:    map[string]string{},
+		hostMachinesByRackID:          map[string][]string{},
+		expectedRackDetails:           map[string]ExpectedRackDetail{},
+		expectedMachineDetails:        map[string]ExpectedMachineDetail{},
+		expectedSwitchDetails:         map[string]ExpectedSwitchDetail{},
+		expectedPowerShelfDetails:     map[string]ExpectedPowerShelfDetail{},
+		pendingDpuReprovHosts:         map[string]bool{},
+		hostToDpuMachineIds:           map[string][]string{},
+		hostToInstanceID:              map[string]string{},
+		hostUpdateInProgressOverrides: map[string]string{},
 	}
 }
 
@@ -420,4 +453,150 @@ func (c *mockClient) AddExpectedSwitchDetail(detail ExpectedSwitchDetail) {
 // GetAllExpectedPowerShelfDetails call.
 func (c *mockClient) AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail) {
 	c.expectedPowerShelfDetails[detail.ExpectedPowerShelfID] = detail
+}
+
+// === DPU reprovisioning mock surface =====================================
+//
+// Mocks here record incoming requests so tests can assert ordering /
+// call counts without owning the mock client struct. The companion
+// SetDpu... helpers seed test fixtures.
+
+func (c *mockClient) InsertHostUpdateInProgressHealthOverride(
+	_ context.Context, machineID string, message string,
+) error {
+	if c.insertHostUpdateOverrideErr != nil {
+		return c.insertHostUpdateOverrideErr
+	}
+	c.hostUpdateInProgressOverrides[machineID] = message
+	return nil
+}
+
+func (c *mockClient) RemoveHostUpdateInProgressHealthOverride(
+	_ context.Context, machineID string,
+) error {
+	delete(c.hostUpdateInProgressOverrides, machineID)
+	return nil
+}
+
+func (c *mockClient) TriggerDpuReprovisioning(
+	_ context.Context, machineID string, updateFirmware bool,
+) error {
+	if c.triggerDpuReprovisioningErr != nil {
+		return c.triggerDpuReprovisioningErr
+	}
+	c.dpuReprovisioningTriggers = append(c.dpuReprovisioningTriggers, DpuReprovisioningCall{
+		MachineID:      machineID,
+		UpdateFirmware: updateFirmware,
+	})
+	c.pendingDpuReprovHosts[machineID] = true
+	return nil
+}
+
+func (c *mockClient) IsDpuReprovisioningPendingForHost(
+	_ context.Context, hostMachineID string,
+) (bool, error) {
+	return c.pendingDpuReprovHosts[hostMachineID], nil
+}
+
+func (c *mockClient) FindAssociatedDpuMachineIds(
+	_ context.Context, hostMachineID string,
+) ([]string, error) {
+	if hostMachineID == "" {
+		return nil, errors.New("host machine id is required")
+	}
+	ids := c.hostToDpuMachineIds[hostMachineID]
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out, nil
+}
+
+func (c *mockClient) FindInstanceIdByMachineId(
+	_ context.Context, machineID string,
+) (string, error) {
+	if machineID == "" {
+		return "", errors.New("machine id is required")
+	}
+	return c.hostToInstanceID[machineID], nil
+}
+
+func (c *mockClient) InvokeInstancePower(
+	_ context.Context, instanceID string, applyUpdates bool,
+) error {
+	if c.invokeInstancePowerErr != nil {
+		return c.invokeInstancePowerErr
+	}
+	if instanceID == "" {
+		return errors.New("instance id is required")
+	}
+	c.instancePowerCalls = append(c.instancePowerCalls, InstancePowerCall{
+		InstanceID:   instanceID,
+		ApplyUpdates: applyUpdates,
+	})
+	return nil
+}
+
+// SetHostDpuMachineIds wires a host machine to its DPU children for the
+// FindAssociatedDpuMachineIds lookup (mock only).
+func (c *mockClient) SetHostDpuMachineIds(hostMachineID string, dpuIDs []string) {
+	out := make([]string, len(dpuIDs))
+	copy(out, dpuIDs)
+	c.hostToDpuMachineIds[hostMachineID] = out
+}
+
+// SetHostInstanceID configures the instance currently attached to the
+// host. Pass "" to record "no instance attached" (mock only).
+func (c *mockClient) SetHostInstanceID(hostMachineID string, instanceID string) {
+	c.hostToInstanceID[hostMachineID] = instanceID
+}
+
+// SetDpuReprovisioningPending toggles whether
+// IsDpuReprovisioningPendingForHost reports a host as still in progress
+// (mock only). Tests use this to simulate "DPU disappeared from the
+// pending list" between polls.
+func (c *mockClient) SetDpuReprovisioningPending(hostMachineID string, pending bool) {
+	c.pendingDpuReprovHosts[hostMachineID] = pending
+}
+
+// SetInsertHostUpdateOverrideError configures the error returned by
+// InsertHostUpdateInProgressHealthOverride (mock only).
+func (c *mockClient) SetInsertHostUpdateOverrideError(err error) {
+	c.insertHostUpdateOverrideErr = err
+}
+
+// SetTriggerDpuReprovisioningError configures the error returned by
+// TriggerDpuReprovisioning (mock only).
+func (c *mockClient) SetTriggerDpuReprovisioningError(err error) {
+	c.triggerDpuReprovisioningErr = err
+}
+
+// SetInvokeInstancePowerError configures the error returned by
+// InvokeInstancePower (mock only).
+func (c *mockClient) SetInvokeInstancePowerError(err error) {
+	c.invokeInstancePowerErr = err
+}
+
+// DpuReprovisioningTriggers returns the recorded TriggerDpuReprovisioning
+// calls in order (mock only). Returned slice is a defensive copy.
+func (c *mockClient) DpuReprovisioningTriggers() []DpuReprovisioningCall {
+	out := make([]DpuReprovisioningCall, len(c.dpuReprovisioningTriggers))
+	copy(out, c.dpuReprovisioningTriggers)
+	return out
+}
+
+// InstancePowerCalls returns the recorded InvokeInstancePower calls in
+// order (mock only). Returned slice is a defensive copy.
+func (c *mockClient) InstancePowerCalls() []InstancePowerCall {
+	out := make([]InstancePowerCall, len(c.instancePowerCalls))
+	copy(out, c.instancePowerCalls)
+	return out
+}
+
+// HostUpdateOverridesActive returns the set of machine ids for which the
+// HostUpdateInProgress override is currently inserted (mock only).
+func (c *mockClient) HostUpdateOverridesActive() map[string]string {
+	out := make(map[string]string, len(c.hostUpdateInProgressOverrides))
+	for k, v := range c.hostUpdateInProgressOverrides {
+		out[k] = v
+	}
+	return out
 }

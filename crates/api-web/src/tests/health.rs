@@ -22,16 +22,13 @@ use rpc::forge::AdminForceDeleteMachineRequest;
 use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
-use crate::tests::common::api_fixtures::site_explorer::{
-    TestRackDbBuilder, new_power_shelf, new_switch,
-};
-use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
 
 #[crate::sqlx_test]
 async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
 
     async fn verify_history(app: &axum::Router, machine_id: String) {
         let response = app
@@ -65,8 +62,8 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
     .await;
 
     // Health page for Machine which was force deleted
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
-    env.api
+    let host_machine_id = env.create_ready_managed_host(1).await.host_machine_id;
+    env.api()
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: host_machine_id.to_string(),
             delete_interfaces: false,
@@ -78,16 +75,21 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(env.find_machine(host_machine_id).await.is_empty());
+    assert!(
+        env.test_harness
+            .find_machine(host_machine_id)
+            .await
+            .is_empty()
+    );
 
     verify_history(&app, host_machine_id.to_string()).await;
 }
 
 #[crate::sqlx_test]
 async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let host_machine_id = env.create_ready_managed_host(1).await.host_machine_id;
 
     let payload = r#"{
         "mode": "Merge",
@@ -119,8 +121,8 @@ async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_add_remove_nvlink_domain_health_report_via_web_ui(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
     let domain_id = "00000000-0000-0000-0000-000000000001";
 
     let payload = r#"{
@@ -163,9 +165,11 @@ async fn test_add_remove_nvlink_domain_health_report_via_web_ui(pool: sqlx::PgPo
 
 #[crate::sqlx_test]
 async fn test_add_replace_remove_dpu_health_report_via_web_ui(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let host = env.create_ready_managed_host(1).await;
+    let host_machine_id = host.host_machine_id;
+    let dpu_machine_id = host.dpu_machine_id(0);
 
     let merge_payload = r#"{
         "mode": "Merge",
@@ -282,12 +286,9 @@ async fn test_add_replace_remove_dpu_health_report_via_web_ui(pool: sqlx::PgPool
 
 #[crate::sqlx_test]
 async fn test_health_of_rack(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-    let app = make_test_app(&env);
-
-    let mut txn = pool.acquire().await.unwrap();
-    let rack_id = TestRackDbBuilder::new().persist(&mut txn).await.unwrap();
-    drop(txn);
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let rack_id = env.test_harness.create_rack().await.id;
 
     let response = app
         .clone()
@@ -402,9 +403,9 @@ async fn test_health_of_rack(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_health_of_switch(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    let switch_id = new_switch(&env, None, None).await.unwrap();
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let switch_id = env.test_harness.create_switch(1, 1).await.id;
 
     let response = app
         .clone()
@@ -519,9 +520,9 @@ async fn test_health_of_switch(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_health_of_power_shelf(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    let power_shelf_id = new_power_shelf(&env, None, None, None, None).await.unwrap();
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let power_shelf_id = env.test_harness.create_power_shelf().await.id;
 
     let response = app
         .clone()

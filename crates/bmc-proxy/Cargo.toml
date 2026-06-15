@@ -101,5 +101,8 @@ serde = { features = ["derive"], workspace = true }
 [build-dependencies]
 carbide-version = { path = "../version" }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

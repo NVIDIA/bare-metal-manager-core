@@ -58,6 +58,7 @@ use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -133,13 +134,12 @@ use crate::test_support::fixture_config::{
 };
 use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
+pub use crate::test_support::network_segment;
 use crate::test_support::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
-pub use crate::test_support::{endpoint_explorer, network_segment};
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub mod dpu;
@@ -327,7 +327,22 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
+            per_object_metrics_registry: self.per_object_metrics_registry(),
         }
+    }
+
+    /// Creates a per-object metrics registry from this test environment's
+    /// observability config (disabled unless the config opts in).
+    pub fn per_object_metrics_registry(
+        &self,
+    ) -> std::sync::Arc<carbide_health_metrics::PerObjectMetricsRegistry> {
+        carbide_health_metrics::PerObjectMetricsRegistry::new(
+            self.config
+                .observability
+                .per_object_metrics_for_classifications
+                .clone(),
+            std::time::Duration::from_secs(60),
+        )
     }
 
     /// Creates an instance of RackStateHandlerServices that are suitable for this
@@ -344,6 +359,7 @@ impl TestEnv {
             .into(),
             switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
+            per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
 
@@ -1347,6 +1363,14 @@ pub async fn create_test_env_with_overrides(
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
 
+    let per_object_metrics_registry = carbide_health_metrics::PerObjectMetricsRegistry::new(
+        config
+            .observability
+            .per_object_metrics_for_classifications
+            .clone(),
+        std::time::Duration::from_secs(60),
+    );
+
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_machines", test_meter.meter())
@@ -1358,6 +1382,7 @@ pub async fn create_test_env_with_overrides(
                 redfish_client_pool: redfish_sim.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1462,6 +1487,7 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1478,6 +1504,7 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1501,6 +1528,7 @@ pub async fn create_test_env_with_overrides(
                 .into(),
                 switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )

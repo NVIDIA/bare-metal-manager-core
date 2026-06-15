@@ -510,6 +510,8 @@ impl MachineCapabilitiesSet {
 mod tests {
     use std::str::FromStr;
 
+    use carbide_test_support::{Check, value_scenarios};
+
     use super::*;
     use crate::hardware_info::*;
     use crate::ib::DEFAULT_IB_FABRIC_NAME;
@@ -848,5 +850,215 @@ mod tests {
         compare_cap.sort();
 
         assert_eq!(expected_ib_caps, compare_cap.infiniband);
+    }
+
+    #[test]
+    fn capability_type_display_covers_every_variant() {
+        value_scenarios!(
+            run = |variant| variant.to_string();
+            "cpu" {
+                MachineCapabilityType::Cpu => "CPU".to_string(),
+            }
+
+            "gpu" {
+                MachineCapabilityType::Gpu => "GPU".to_string(),
+            }
+
+            "memory" {
+                MachineCapabilityType::Memory => "MEMORY".to_string(),
+            }
+
+            "storage" {
+                MachineCapabilityType::Storage => "STORAGE".to_string(),
+            }
+
+            "network" {
+                MachineCapabilityType::Network => "NETWORK".to_string(),
+            }
+
+            "infiniband" {
+                MachineCapabilityType::Infiniband => "INFINIBAND".to_string(),
+            }
+
+            "dpu" {
+                MachineCapabilityType::Dpu => "DPU".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn capability_type_default_is_cpu() {
+        Check {
+            scenario: "default capability type",
+            input: (),
+            expect: MachineCapabilityType::Cpu,
+        }
+        .check(|()| MachineCapabilityType::default());
+    }
+
+    #[test]
+    fn device_type_display_covers_every_variant() {
+        value_scenarios!(
+            run = |variant| variant.to_string();
+            "unknown" {
+                MachineCapabilityDeviceType::Unknown => "UNKNOWN".to_string(),
+            }
+
+            "dpu" {
+                MachineCapabilityDeviceType::Dpu => "DPU".to_string(),
+            }
+
+            "nvlink" {
+                MachineCapabilityDeviceType::NvLink => "NVLINK".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn cpu_capability_from_cpu_info_maps_every_field() {
+        fn cpu_info(model: &str, vendor: &str, sockets: u32, cores: u32, threads: u32) -> CpuInfo {
+            CpuInfo {
+                model: model.to_string(),
+                vendor: vendor.to_string(),
+                sockets,
+                cores,
+                threads,
+            }
+        }
+
+        value_scenarios!(
+            run = |info| MachineCapabilityCpu::from(&info);
+            "typical dual-socket" {
+                cpu_info("Xeon Gold 6354", "GenuineIntel", 2, 18, 36) => MachineCapabilityCpu {
+                    name: "Xeon Gold 6354".to_string(),
+                    count: 2,
+                    vendor: Some("GenuineIntel".to_string()),
+                    cores: Some(18),
+                    threads: Some(36),
+                },
+            }
+
+            "single socket" {
+                cpu_info("EPYC 7763", "AuthenticAMD", 1, 64, 128) => MachineCapabilityCpu {
+                    name: "EPYC 7763".to_string(),
+                    count: 1,
+                    vendor: Some("AuthenticAMD".to_string()),
+                    cores: Some(64),
+                    threads: Some(128),
+                },
+            }
+
+            "all-zero / empty defaults" {
+                cpu_info("", "", 0, 0, 0) => MachineCapabilityCpu {
+                    name: String::new(),
+                    count: 0,
+                    // From always wraps the source fields in Some, even when empty/zero.
+                    vendor: Some(String::new()),
+                    cores: Some(0),
+                    threads: Some(0),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn infiniband_caps_from_interfaces_and_status() {
+        fn iface(guid: &str, pci: Option<PciDeviceProperties>) -> InfinibandInterface {
+            InfinibandInterface {
+                guid: guid.to_string(),
+                pci_properties: pci,
+            }
+        }
+
+        fn pci(vendor: &str, description: Option<&str>, slot: Option<&str>) -> PciDeviceProperties {
+            PciDeviceProperties {
+                vendor: vendor.to_string(),
+                device: String::new(),
+                path: String::new(),
+                numa_node: 0,
+                description: description.map(str::to_string),
+                slot: slot.map(str::to_string),
+            }
+        }
+
+        // No status observation: every device defaults to inactive.
+        value_scenarios!(
+            run = |interfaces| {
+                MachineCapabilityInfiniband::from_ib_interfaces_and_status(&interfaces, None).len()
+            };
+            "empty interface list -> no capabilities" {
+                Vec::<InfinibandInterface>::new() => 0,
+            }
+
+            "interface without pci_properties is skipped" {
+                vec![iface("g0", None)] => 0,
+            }
+
+            "pci_properties without description is skipped" {
+                vec![iface("g0", Some(pci("0x15b3", None, Some("0"))))] => 0,
+            }
+
+            "two devices of the same model roll into one capability" {
+                vec![
+                    iface("g0", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
+                    iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("0")))),
+                ] => 1,
+            }
+
+            "two distinct models produce two capabilities" {
+                vec![
+                    iface("g0", Some(pci("0x15b3", Some("ConnectX-5"), Some("0")))),
+                    iface("g1", Some(pci("0x15b3", Some("ConnectX-7"), Some("1")))),
+                ] => 2,
+            }
+        );
+    }
+
+    #[test]
+    fn infiniband_caps_count_and_inactive_without_status() {
+        // Without a status observation, lid lookups never succeed, so every
+        // device is treated as inactive and recorded in inactive_devices.
+        let interfaces = vec![
+            InfinibandInterface {
+                guid: "g0".to_string(),
+                pci_properties: Some(PciDeviceProperties {
+                    vendor: "0x15b3".to_string(),
+                    device: String::new(),
+                    path: String::new(),
+                    numa_node: 0,
+                    description: Some("ConnectX-7".to_string()),
+                    slot: Some("0".to_string()),
+                }),
+            },
+            InfinibandInterface {
+                guid: "g1".to_string(),
+                pci_properties: Some(PciDeviceProperties {
+                    vendor: "0x15b3".to_string(),
+                    device: String::new(),
+                    path: String::new(),
+                    numa_node: 0,
+                    description: Some("ConnectX-7".to_string()),
+                    slot: Some("1".to_string()),
+                }),
+            },
+        ];
+
+        let caps = MachineCapabilityInfiniband::from_ib_interfaces_and_status(&interfaces, None);
+        assert_eq!(caps.len(), 1);
+
+        value_scenarios!(
+            run = |field| match field {
+                "count" => caps[0].count,
+                "inactive_len" => caps[0].inactive_devices.len() as u32,
+                other => panic!("unknown field {other}"),
+            };
+            "rolled-up count" {
+                "count" => 2u32,
+            }
+
+            "all inactive without status" {
+                "inactive_len" => 2u32,
+            }
+        );
     }
 }

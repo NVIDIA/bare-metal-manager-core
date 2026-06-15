@@ -21,7 +21,7 @@
 use std::fs;
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use libmlx::runner::error::MlxRunnerError;
 use libmlx::runner::exec_options::ExecOptions;
 use libmlx::runner::json_parser::JsonResponseParser;
@@ -216,30 +216,8 @@ fn test_missing_file() {
 #[test]
 fn test_boolean_parsing_variations() {
     let registry = common::create_minimal_test_registry();
-    check_cases(
-        [
-            Case {
-                scenario: "True(1)",
-                input: "True(1)",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "False(0)",
-                input: "False(0)",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-            Case {
-                scenario: "TRUE",
-                input: "TRUE",
-                expect: Yields(MlxValueType::Boolean(true)),
-            },
-            Case {
-                scenario: "FALSE",
-                input: "FALSE",
-                expect: Yields(MlxValueType::Boolean(false)),
-            },
-        ],
-        |raw| {
+    scenarios!(
+        run = |raw| {
             let json = json!({
                 "Device #1": {
                     "description": "Test Device",
@@ -268,7 +246,22 @@ fn test_boolean_parsing_variations() {
                         .clone()
                 })
                 .map_err(drop)
-        },
+        };
+        "True(1)" {
+            "True(1)" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "False(0)" {
+            "False(0)" => Yields(MlxValueType::Boolean(false)),
+        }
+
+        "TRUE" {
+            "TRUE" => Yields(MlxValueType::Boolean(true)),
+        }
+
+        "FALSE" {
+            "FALSE" => Yields(MlxValueType::Boolean(false)),
+        }
     );
 }
 

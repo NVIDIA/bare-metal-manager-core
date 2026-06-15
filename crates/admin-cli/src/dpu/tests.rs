@@ -25,7 +25,7 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -62,27 +62,22 @@ fn parse_status() {
 // whether the switch was supplied.
 #[test]
 fn parse_versions() {
-    check_cases(
-        [
-            Case {
-                scenario: "versions with no flags leaves updates_only off",
-                input: &["dpu", "versions"][..],
-                expect: Yields(false),
-            },
-            Case {
-                scenario: "versions --updates-only sets the flag",
-                input: &["dpu", "versions", "--updates-only"][..],
-                expect: Yields(true),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Versions(args) => args.updates_only,
                     _ => panic!("expected Versions variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "versions with no flags leaves updates_only off" {
+            &["dpu", "versions"][..] => Yields(false),
+        }
+
+        "versions --updates-only sets the flag" {
+            &["dpu", "versions", "--updates-only"][..] => Yields(true),
+        }
     );
 }
 
@@ -92,25 +87,8 @@ fn parse_versions() {
 // update_firmware flag.
 #[test]
 fn parse_reprovision() {
-    check_cases(
-        [
-            Case {
-                scenario: "reprovision list routes to List",
-                input: &["dpu", "reprovision", "list"][..],
-                expect: Yields(("list", String::new(), false)),
-            },
-            Case {
-                scenario: "reprovision set carries the machine id, firmware off",
-                input: &["dpu", "reprovision", "set", "--id", TEST_MACHINE_ID][..],
-                expect: Yields(("set", TEST_MACHINE_ID.to_string(), false)),
-            },
-            Case {
-                scenario: "reprovision clear carries the machine id",
-                input: &["dpu", "reprovision", "clear", "--id", TEST_MACHINE_ID][..],
-                expect: Yields(("clear", TEST_MACHINE_ID.to_string(), false)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Reprovision(reprovision::Args::List) => ("list", String::new(), false),
@@ -123,7 +101,18 @@ fn parse_reprovision() {
                     _ => panic!("expected Reprovision variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "reprovision list routes to List" {
+            &["dpu", "reprovision", "list"][..] => Yields(("list", String::new(), false)),
+        }
+
+        "reprovision set carries the machine id, firmware off" {
+            &["dpu", "reprovision", "set", "--id", TEST_MACHINE_ID][..] => Yields(("set", TEST_MACHINE_ID.to_string(), false)),
+        }
+
+        "reprovision clear carries the machine id" {
+            &["dpu", "reprovision", "clear", "--id", TEST_MACHINE_ID][..] => Yields(("clear", TEST_MACHINE_ID.to_string(), false)),
+        }
     );
 }
 
@@ -132,20 +121,8 @@ fn parse_reprovision() {
 // name the parsed --set resolves to ("<get>" when unset).
 #[test]
 fn parse_agent_upgrade_policy() {
-    check_cases(
-        [
-            Case {
-                scenario: "no --set is a get and leaves the policy unset",
-                input: &["dpu", "agent-upgrade-policy"][..],
-                expect: Yields("<get>"),
-            },
-            Case {
-                scenario: "--set up-only selects the UpOnly policy",
-                input: &["dpu", "agent-upgrade-policy", "--set", "up-only"][..],
-                expect: Yields("up-only"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             use agent_upgrade_policy::args::AgentUpgradePolicyChoice;
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
@@ -158,7 +135,14 @@ fn parse_agent_upgrade_policy() {
                     _ => panic!("expected AgentUpgradePolicy variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no --set is a get and leaves the policy unset" {
+            &["dpu", "agent-upgrade-policy"][..] => Yields("<get>"),
+        }
+
+        "--set up-only selects the UpOnly policy" {
+            &["dpu", "agent-upgrade-policy", "--set", "up-only"][..] => Yields("up-only"),
+        }
     );
 }
 
@@ -179,30 +163,8 @@ fn agent_upgrade_policy_choice_value_enum() {
     use agent_upgrade_policy::args::AgentUpgradePolicyChoice;
     use clap::ValueEnum;
 
-    check_cases(
-        [
-            Case {
-                scenario: "\"off\" parses to Off",
-                input: "off",
-                expect: Yields("off"),
-            },
-            Case {
-                scenario: "\"up-only\" parses to UpOnly",
-                input: "up-only",
-                expect: Yields("up-only"),
-            },
-            Case {
-                scenario: "\"up-down\" parses to UpDown",
-                input: "up-down",
-                expect: Yields("up-down"),
-            },
-            Case {
-                scenario: "an unknown value is rejected",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |s| {
+    scenarios!(
+        run = |s| {
             AgentUpgradePolicyChoice::from_str(s, false)
                 .map(|choice| match choice {
                     AgentUpgradePolicyChoice::Off => "off",
@@ -210,6 +172,21 @@ fn agent_upgrade_policy_choice_value_enum() {
                     AgentUpgradePolicyChoice::UpDown => "up-down",
                 })
                 .map_err(drop)
-        },
+        };
+        "\"off\" parses to Off" {
+            "off" => Yields("off"),
+        }
+
+        "\"up-only\" parses to UpOnly" {
+            "up-only" => Yields("up-only"),
+        }
+
+        "\"up-down\" parses to UpDown" {
+            "up-down" => Yields("up-down"),
+        }
+
+        "an unknown value is rejected" {
+            "invalid" => Fails,
+        }
     );
 }

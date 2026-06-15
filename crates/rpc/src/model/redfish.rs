@@ -79,7 +79,7 @@ impl From<ActionRequest> for rpc::forge::RedfishAction {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, value_scenarios};
 
     use super::*;
 
@@ -110,25 +110,23 @@ mod tests {
     // `From<rpc::forge::RedfishCreateActionRequest>` maps action/target/parameters across.
     #[test]
     fn redfish_create_action_from_rpc() {
-        check_values(
-            [Check {
-                scenario: "action, target, and parameters map across",
-                input: rpc::forge::RedfishCreateActionRequest {
+        value_scenarios!(
+            run = |req| {
+                let action = RedfishCreateAction::from(req);
+                (action.action, action.target, action.parameters)
+            };
+            "action, target, and parameters map across" {
+                rpc::forge::RedfishCreateActionRequest {
                     ips: vec!["10.0.0.1".to_string()],
                     action: "Reset".to_string(),
                     target: "/redfish/v1/Systems/1/Actions".to_string(),
                     parameters: r#"{"ResetType":"ForceRestart"}"#.to_string(),
-                },
-                expect: (
+                } => (
                     "Reset".to_string(),
                     "/redfish/v1/Systems/1/Actions".to_string(),
                     r#"{"ResetType":"ForceRestart"}"#.to_string(),
                 ),
-            }],
-            |req| {
-                let action = RedfishCreateAction::from(req);
-                (action.action, action.target, action.parameters)
-            },
+            }
         );
     }
 }

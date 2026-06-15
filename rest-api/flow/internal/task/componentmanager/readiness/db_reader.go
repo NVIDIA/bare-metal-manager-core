@@ -28,15 +28,15 @@ func NewDBReader(idb bun.IDB) *DBReader {
 // GetStatusesByExternalIDs implements StatusReader. The map key is the
 // external_id string as supplied by the caller — components without a
 // matching row (or with a NULL status) are simply absent.
-func (r *DBReader) GetStatusesByExternalIDs(ctx context.Context, externalIDs []string) (map[string]*types.ComponentStatus, error) {
+func (r *DBReader) GetStatusesByExternalIDs(ctx context.Context, externalIDs []string) (map[string]*types.ComponentOperationStatus, error) {
 	if len(externalIDs) == 0 {
-		return map[string]*types.ComponentStatus{}, nil
+		return map[string]*types.ComponentOperationStatus{}, nil
 	}
 
 	type row struct {
 		bun.BaseModel `bun:"table:component,alias:c"`
-		ExternalID    string                 `bun:"external_id"`
-		Status        *types.ComponentStatus `bun:"status"`
+		ExternalID    string                          `bun:"external_id"`
+		Status        *types.ComponentOperationStatus `bun:"status"`
 	}
 
 	var rows []row
@@ -49,7 +49,7 @@ func (r *DBReader) GetStatusesByExternalIDs(ctx context.Context, externalIDs []s
 		return nil, fmt.Errorf("select component statuses: %w", err)
 	}
 
-	out := make(map[string]*types.ComponentStatus, len(rows))
+	out := make(map[string]*types.ComponentOperationStatus, len(rows))
 	for _, r := range rows {
 		out[r.ExternalID] = r.Status
 	}

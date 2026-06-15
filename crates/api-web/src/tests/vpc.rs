@@ -23,7 +23,7 @@ use rpc::forge;
 use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
-use crate::tests::common::api_fixtures::{create_test_env, get_vpc_fixture_id};
+use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
 
 /// Collects a web response body into a UTF-8 string.
@@ -41,14 +41,17 @@ async fn response_body(response: Response) -> String {
 
 #[crate::sqlx_test]
 async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
 
     // Create a VPC with an auto-allocated VNI stored in status.
-    env.create_vpc_and_tenant_segment().await;
-    let vpc_id = get_vpc_fixture_id(&env).await;
+    let network_controller = env.test_harness.network_controller();
+    let vpc_id = network_controller.create_vpc("test vpc 1").await;
+    network_controller
+        .create_tenant_segment(env.domain(), vpc_id)
+        .await;
     let mut vpcs = env
-        .api
+        .api()
         .find_vpcs_by_ids(tonic::Request::new(forge::VpcsByIdsRequest {
             vpc_ids: vec![vpc_id],
         }))
@@ -69,7 +72,7 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
 
     // Add a VPC prefix so the IPAM prefix detail page can render parent VPC data.
     let vpc_prefix = env
-        .api
+        .api()
         .create_vpc_prefix(tonic::Request::new(forge::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),

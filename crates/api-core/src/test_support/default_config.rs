@@ -53,6 +53,7 @@ pub fn get() -> CarbideConfig {
         enable_admin_ui: true,
         web_ui_sidebar_tools: vec![],
         log_history: Default::default(),
+        observability: Default::default(),
         bgp_leaf_session_password: None,
         rack_validation_config: RackValidationConfig {
             enabled: true,

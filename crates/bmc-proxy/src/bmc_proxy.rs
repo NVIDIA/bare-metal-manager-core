@@ -737,6 +737,8 @@ fn copy_request_headers(source: &HeaderMap, dest: &mut HeaderMap) {
 }
 
 fn method_supports_body(method: &Method) -> bool {
+    // Redfish services can accept DELETE payloads, so only the methods this
+    // proxy treats as bodyless are excluded.
     !matches!(*method, Method::GET | Method::HEAD)
 }
 
@@ -1001,16 +1003,21 @@ async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache
 mod tests {
     use std::collections::HashMap;
     use std::convert::Infallible;
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::sync::Arc;
 
     use axum::body::Body;
-    use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+    use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
     use bytes::Bytes;
+    use carbide_authn::middleware::{AuthContext, ExternalUserInfo, Principal};
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::{Case, check_cases_async, scenarios, value_scenarios};
+    use carbide_utils::HostPortPair;
     use http_body_util::BodyExt;
     use mac_address::MacAddress;
     use opentelemetry::global;
+    use rpc::forge;
     use rpc::forge::find_bmc_ips_request::LookupBy;
     use rpc::forge_api_client::ForgeApiClient;
     use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -1019,9 +1026,65 @@ mod tests {
 
     use super::{
         BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, build_response,
-        evict_cached_credentials, forwarded_header_value, ip_for_forwarded_target,
-        parse_forwarded_host_value,
+        copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
+        get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
+        parse_forwarded_host_value, request_principal_ids,
     };
+
+    #[derive(Clone, Copy)]
+    enum ForwardedHeaderCase {
+        Missing,
+        InvalidUtf8ThenHost,
+        HostAmongParameters,
+        HostInLaterElement,
+        QuotedIpv4Host,
+        Mac,
+        Serial,
+        InvalidHost,
+        InvalidMac,
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum ForwardedTargetSummary {
+        None,
+        Ip(String),
+        Mac(String),
+        Serial(String),
+        Error(&'static str),
+    }
+
+    #[derive(Clone, Copy)]
+    enum HeaderCopyCase {
+        ContentType,
+        Custom,
+        Host,
+        Authorization,
+        Forwarded,
+        ContentLength,
+        Connection,
+        Upgrade,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ProxyOverrideCase {
+        Direct,
+        HostOnly,
+        PortOnly,
+        HostAndPort,
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum CredentialSummary {
+        UsernamePassword { username: String, password: String },
+        SessionToken { token: String },
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ClientSummary {
+        base_upstream_uri: String,
+        forwarded_header: Option<String>,
+        credentials: CredentialSummary,
+    }
 
     fn test_state_with_ip_cache(ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
         let client_config = ForgeClientConfig::default();
@@ -1050,19 +1113,257 @@ mod tests {
         }
     }
 
+    fn forwarded_headers(case: ForwardedHeaderCase) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        match case {
+            ForwardedHeaderCase::Missing => {}
+            ForwardedHeaderCase::InvalidUtf8ThenHost => {
+                headers.append(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_bytes(&[0xff]).expect("non-UTF8 header value"),
+                );
+                headers.append(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("proto=https;host=10.1.2.3"),
+                );
+            }
+            ForwardedHeaderCase::HostAmongParameters => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("proto=https;host=10.1.2.3;for=10.0.0.1"),
+                );
+            }
+            ForwardedHeaderCase::HostInLaterElement => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("for=10.0.0.1, proto=https; host=10.2.3.4"),
+                );
+            }
+            ForwardedHeaderCase::QuotedIpv4Host => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static(r#"host="10.3.4.5""#),
+                );
+            }
+            ForwardedHeaderCase::Mac => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("proto=https;mac=00:11:22:33:44:55;for=10.0.0.1"),
+                );
+            }
+            ForwardedHeaderCase::Serial => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("proto=https; serial = DGX-A100-0001 ; for=10.0.0.1"),
+                );
+            }
+            ForwardedHeaderCase::InvalidHost => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("host=not-an-ip"),
+                );
+            }
+            ForwardedHeaderCase::InvalidMac => {
+                headers.insert(
+                    HeaderName::from_static("forwarded"),
+                    HeaderValue::from_static("mac=not-a-mac-address"),
+                );
+            }
+        }
+        headers
+    }
+
+    fn summarize_forwarded_header(case: ForwardedHeaderCase) -> ForwardedTargetSummary {
+        match forwarded_header_value(&forwarded_headers(case)) {
+            Ok(Some(ForwardedTarget::Ip(ip))) => ForwardedTargetSummary::Ip(ip.to_string()),
+            Ok(Some(ForwardedTarget::Mac(mac))) => ForwardedTargetSummary::Mac(mac.to_string()),
+            Ok(Some(ForwardedTarget::Serial(serial))) => {
+                ForwardedTargetSummary::Serial(serial.to_string())
+            }
+            Ok(None) => ForwardedTargetSummary::None,
+            Err(super::ForwardedHeaderParseError::Ip(_)) => ForwardedTargetSummary::Error("ip"),
+            Err(super::ForwardedHeaderParseError::Mac(_)) => ForwardedTargetSummary::Error("mac"),
+        }
+    }
+
+    fn header_for_copy_case(case: HeaderCopyCase) -> (HeaderName, HeaderValue) {
+        match case {
+            HeaderCopyCase::ContentType => (
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            HeaderCopyCase::Custom => (
+                HeaderName::from_static("x-request-id"),
+                HeaderValue::from_static("request-1"),
+            ),
+            HeaderCopyCase::Host => (
+                axum::http::header::HOST,
+                HeaderValue::from_static("bmc.example.com"),
+            ),
+            HeaderCopyCase::Authorization => (
+                axum::http::header::AUTHORIZATION,
+                HeaderValue::from_static("Bearer secret"),
+            ),
+            HeaderCopyCase::Forwarded => (
+                HeaderName::from_static("forwarded"),
+                HeaderValue::from_static("host=10.0.0.1"),
+            ),
+            HeaderCopyCase::ContentLength => (
+                axum::http::header::CONTENT_LENGTH,
+                HeaderValue::from_static("42"),
+            ),
+            HeaderCopyCase::Connection => (
+                axum::http::header::CONNECTION,
+                HeaderValue::from_static("keep-alive"),
+            ),
+            HeaderCopyCase::Upgrade => (
+                axum::http::header::UPGRADE,
+                HeaderValue::from_static("websocket"),
+            ),
+        }
+    }
+
+    fn copied_header_names(case: HeaderCopyCase) -> Vec<String> {
+        let (name, value) = header_for_copy_case(case);
+        let mut source = HeaderMap::new();
+        source.insert(name, value);
+        let mut dest = HeaderMap::new();
+
+        copy_request_headers(&source, &mut dest);
+
+        dest.keys().map(|name| name.to_string()).collect()
+    }
+
+    fn summarize_credentials(credentials: BmcCredentials) -> CredentialSummary {
+        match credentials {
+            BmcCredentials::UsernamePassword { username, password } => {
+                CredentialSummary::UsernamePassword { username, password }
+            }
+            BmcCredentials::SessionToken { token } => CredentialSummary::SessionToken { token },
+        }
+    }
+
+    fn proxy_override(case: ProxyOverrideCase) -> Option<HostPortPair> {
+        match case {
+            ProxyOverrideCase::Direct => None,
+            ProxyOverrideCase::HostOnly => Some(HostPortPair::HostOnly("proxy.local".to_string())),
+            ProxyOverrideCase::PortOnly => Some(HostPortPair::PortOnly(8443)),
+            ProxyOverrideCase::HostAndPort => {
+                Some(HostPortPair::HostAndPort("proxy.local".to_string(), 8443))
+            }
+        }
+    }
+
+    async fn summarize_created_client(case: ProxyOverrideCase) -> Result<ClientSummary, String> {
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
+        // Prepopulate the cache so this test never falls through to the real
+        // ForgeApiClient path.
+        let credential_cache: CredentialCache = Arc::new(Mutex::new(HashMap::from([(
+            ip,
+            BmcCredentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "secret".to_string(),
+            },
+        )])));
+        let client_cache = Default::default();
+        let client_config = ForgeClientConfig::default();
+        let api_config = ApiConfig::new("https://example.com", &client_config);
+        let api_client = ForgeApiClient::new(&api_config);
+
+        create_client(
+            ip,
+            &api_client,
+            &credential_cache,
+            &client_cache,
+            &proxy_override(case),
+        )
+        .await
+        .map(|client| ClientSummary {
+            base_upstream_uri: client.base_upstream_uri.to_string(),
+            forwarded_header: client.header_map.get("forwarded").map(|value| {
+                value
+                    .to_str()
+                    .expect("forwarded header is UTF-8")
+                    .to_string()
+            }),
+            credentials: summarize_credentials(client.credentials),
+        })
+        .map_err(|error| error.to_string())
+    }
+
     #[test]
-    fn parses_forwarded_ipv4() {
-        assert_eq!(
-            parse_forwarded_host_value("10.0.0.5").unwrap(),
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5))
+    fn forwarded_host_value_parsing() {
+        value_scenarios!(
+            run = |value| {
+                parse_forwarded_host_value(value)
+                    .ok()
+                    .map(|ip| ip.to_string())
+            };
+            "IPv4" {
+                "10.0.0.5" => Some("10.0.0.5".to_string()),
+            }
+
+            "raw IPv6" {
+                "2001:db8::1" => Some("2001:db8::1".to_string()),
+            }
+
+            "quoted bracketed IPv6 with port" {
+                "\"[2001:db8::1]:443\"" => Some("2001:db8::1".to_string()),
+            }
+
+            "bracketed IPv6 without port" {
+                "[2001:db8::2]" => Some("2001:db8::2".to_string()),
+            }
+
+            "hostname rejected" {
+                "bmc.example.com" => None,
+            }
+
+            "IPv4 with port rejected" {
+                "10.0.0.5:443" => None,
+            }
         );
     }
 
     #[test]
-    fn parses_forwarded_ipv6_with_port() {
-        assert_eq!(
-            parse_forwarded_host_value("\"[2001:db8::1]:443\"").unwrap(),
-            IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap())
+    fn forwarded_header_targets() {
+        value_scenarios!(
+            run = summarize_forwarded_header;
+            "missing forwarded header" {
+                ForwardedHeaderCase::Missing => ForwardedTargetSummary::None,
+            }
+
+            "invalid UTF-8 value skipped" {
+                ForwardedHeaderCase::InvalidUtf8ThenHost => ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
+            }
+
+            "host among parameters" {
+                ForwardedHeaderCase::HostAmongParameters => ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
+            }
+
+            "host in later element" {
+                ForwardedHeaderCase::HostInLaterElement => ForwardedTargetSummary::Ip("10.2.3.4".to_string()),
+            }
+
+            "quoted IPv4 host" {
+                ForwardedHeaderCase::QuotedIpv4Host => ForwardedTargetSummary::Ip("10.3.4.5".to_string()),
+            }
+
+            "MAC target" {
+                ForwardedHeaderCase::Mac => ForwardedTargetSummary::Mac("00:11:22:33:44:55".to_string()),
+            }
+
+            "serial target" {
+                ForwardedHeaderCase::Serial => ForwardedTargetSummary::Serial("DGX-A100-0001".to_string()),
+            }
+
+            "invalid host" {
+                ForwardedHeaderCase::InvalidHost => ForwardedTargetSummary::Error("ip"),
+            }
+
+            "invalid MAC" {
+                ForwardedHeaderCase::InvalidMac => ForwardedTargetSummary::Error("mac"),
+            }
         );
     }
 
@@ -1121,6 +1422,157 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn body_method_support() {
+        value_scenarios!(
+            run = |method| method_supports_body(&method);
+            "GET has no upstream body" {
+                Method::GET => false,
+            }
+
+            "HEAD has no upstream body" {
+                Method::HEAD => false,
+            }
+
+            "POST supports body" {
+                Method::POST => true,
+            }
+
+            "PUT supports body" {
+                Method::PUT => true,
+            }
+
+            "PATCH supports body" {
+                Method::PATCH => true,
+            }
+
+            "DELETE supports body for Redfish compatibility" {
+                Method::DELETE => true,
+            }
+        );
+    }
+
+    #[test]
+    fn hop_by_hop_header_detection() {
+        value_scenarios!(
+            run = is_hop_by_hop_header;
+            "connection" {
+                "connection" => true,
+            }
+
+            "case-insensitive keep-alive" {
+                "Keep-Alive" => true,
+            }
+
+            "proxy authenticate" {
+                "proxy-authenticate" => true,
+            }
+
+            "proxy authorization" {
+                "proxy-authorization" => true,
+            }
+
+            "te" {
+                "te" => true,
+            }
+
+            "trailer" {
+                "trailer" => true,
+            }
+
+            "transfer encoding" {
+                "transfer-encoding" => true,
+            }
+
+            "upgrade" {
+                "upgrade" => true,
+            }
+
+            "content type is safe" {
+                "content-type" => false,
+            }
+        );
+    }
+
+    #[test]
+    fn request_header_copying_filters_proxy_owned_headers() {
+        value_scenarios!(
+            run = copied_header_names;
+            "content type copied" {
+                HeaderCopyCase::ContentType => vec!["content-type".to_string()],
+            }
+
+            "custom header copied" {
+                HeaderCopyCase::Custom => vec!["x-request-id".to_string()],
+            }
+
+            "host filtered" {
+                HeaderCopyCase::Host => vec![],
+            }
+
+            "authorization filtered" {
+                HeaderCopyCase::Authorization => vec![],
+            }
+
+            "forwarded filtered" {
+                HeaderCopyCase::Forwarded => vec![],
+            }
+
+            "content length filtered" {
+                HeaderCopyCase::ContentLength => vec![],
+            }
+
+            "connection filtered" {
+                HeaderCopyCase::Connection => vec![],
+            }
+
+            "upgrade filtered" {
+                HeaderCopyCase::Upgrade => vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn request_principal_identifiers_include_anonymous_fallback() {
+        value_scenarios!(
+            run = |principals| {
+                request_principal_ids(&AuthContext {
+                    principals,
+                    authorization: None,
+                })
+            };
+            "no authenticated principals" {
+                vec![] => vec!["anonymous".to_string()],
+            }
+
+            "service principal" {
+                vec![Principal::SpiffeServiceIdentifier(
+                    "forge-system/carbide-api".to_string(),
+                )] => vec![
+                    "spiffe-service-id/forge-system/carbide-api".to_string(),
+                    "anonymous".to_string(),
+                ],
+            }
+
+            "machine and external user principals" {
+                vec![
+                    // Machine identities currently authorize by type token;
+                    // the concrete machine id is intentionally not included.
+                    Principal::SpiffeMachineIdentifier("machine-1".to_string()),
+                    Principal::ExternalUser(ExternalUserInfo::new(
+                        Some("nvidia".to_string()),
+                        "admin".to_string(),
+                        Some("chet".to_string()),
+                    )),
+                ] => vec![
+                    "spiffe-machine-id".to_string(),
+                    "external-role/admin".to_string(),
+                    "anonymous".to_string(),
+                ],
+            }
+        );
+    }
+
     #[tokio::test]
     async fn forwarded_ip_target_resolves_without_lookup() {
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
@@ -1165,6 +1617,46 @@ mod tests {
     }
 
     #[test]
+    fn bmc_credentials_convert_from_api_response() {
+        scenarios!(
+            run = |credentials| {
+                BmcCredentials::try_from(credentials)
+                    .map(summarize_credentials)
+                    .map_err(|error| error.to_string())
+            };
+            "username and password" {
+                forge::BmcCredentials {
+                    r#type: Some(forge::bmc_credentials::Type::UsernamePassword(
+                        forge::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    )),
+                } => Yields(CredentialSummary::UsernamePassword {
+                    username: "admin".to_string(),
+                    password: "secret".to_string(),
+                }),
+            }
+
+            "session token" {
+                forge::BmcCredentials {
+                    r#type: Some(forge::bmc_credentials::Type::SessionToken(
+                        forge::SessionToken {
+                            token: "token-123".to_string(),
+                        },
+                    )),
+                } => Yields(CredentialSummary::SessionToken {
+                    token: "token-123".to_string(),
+                }),
+            }
+
+            "missing credential type" {
+                forge::BmcCredentials { r#type: None } => Fails,
+            }
+        );
+    }
+
+    #[test]
     fn bmc_username_password_credentials_use_basic_auth() {
         let request = reqwest::Client::new().get("https://example.com/redfish/v1");
         let request = BmcCredentials::UsernamePassword {
@@ -1195,6 +1687,84 @@ mod tests {
         .expect("request should build");
 
         assert_eq!(request.headers().get("X-Auth-Token").unwrap(), "token-123");
+    }
+
+    #[tokio::test]
+    async fn http_clients_are_cached_per_ip() {
+        let cache = Default::default();
+        let first_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
+        let second_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6));
+
+        get_http_client(first_ip, &cache)
+            .await
+            .expect("first client");
+        get_http_client(first_ip, &cache)
+            .await
+            .expect("cached client");
+        assert_eq!(cache.lock().await.len(), 1);
+
+        get_http_client(second_ip, &cache)
+            .await
+            .expect("second client");
+        assert_eq!(cache.lock().await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn client_creation_applies_proxy_overrides() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "direct BMC IP",
+                    input: ProxyOverrideCase::Direct,
+                    expect: Yields(ClientSummary {
+                        base_upstream_uri: "https://10.0.0.5/".to_string(),
+                        forwarded_header: None,
+                        credentials: CredentialSummary::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    }),
+                },
+                Case {
+                    scenario: "proxy host only",
+                    input: ProxyOverrideCase::HostOnly,
+                    expect: Yields(ClientSummary {
+                        base_upstream_uri: "https://proxy.local/".to_string(),
+                        forwarded_header: Some("host=10.0.0.5".to_string()),
+                        credentials: CredentialSummary::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    }),
+                },
+                Case {
+                    scenario: "proxy port only",
+                    input: ProxyOverrideCase::PortOnly,
+                    expect: Yields(ClientSummary {
+                        base_upstream_uri: "https://10.0.0.5:8443/".to_string(),
+                        forwarded_header: None,
+                        credentials: CredentialSummary::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    }),
+                },
+                Case {
+                    scenario: "proxy host and port",
+                    input: ProxyOverrideCase::HostAndPort,
+                    expect: Yields(ClientSummary {
+                        base_upstream_uri: "https://proxy.local:8443/".to_string(),
+                        forwarded_header: Some("host=10.0.0.5".to_string()),
+                        credentials: CredentialSummary::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    }),
+                },
+            ],
+            summarize_created_client,
+        )
+        .await;
     }
 
     #[tokio::test]

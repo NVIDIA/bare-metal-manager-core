@@ -175,7 +175,7 @@ mod tests {
     use std::io;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
     use rcgen::{CertifiedKey, generate_simple_self_signed};
 
     use super::*;
@@ -298,101 +298,92 @@ mod tests {
 
         // Input is a (runner, expected-bytes-if-any) pair; the closure runs the
         // runner and returns the cert vec, dropping the non-PartialEq error.
-        check_cases(
-            [
-                Case {
-                    scenario: "primary tool returns the certificate; no NV probing",
-                    input: FakeRunner::new(vec![FakeCall {
-                        program: TPM2_GET_EK_CERTIFICATE,
-                        args: vec![],
-                        result: Ok(successful_output(&primary_cert)),
-                    }]),
-                    expect: Yields(primary_cert.clone()),
-                },
-                Case {
-                    scenario: "primary fails, falls back to first NV index",
-                    input: {
-                        let nv_stdout = cert_with_trailing_nv_bytes(&fallback_cert);
-                        let mut calls = vec![
-                            primary_tool_failed_call(),
-                            nv_read_call(
-                                TPM_EK_CERT_NV_INDICES[0],
-                                Ok(successful_output(&nv_stdout)),
-                            ),
-                        ];
-                        calls.extend(failing_nv_tail(1));
-                        FakeRunner::new(calls)
-                    },
-                    expect: Yields(fallback_cert),
-                },
-                Case {
-                    scenario: "skips NV index whose stdout is not a certificate",
-                    input: {
-                        let mut calls = vec![
-                            primary_tool_failed_call(),
-                            nv_read_call(
-                                TPM_EK_CERT_NV_INDICES[0],
-                                Ok(successful_output(b"not a certificate")),
-                            ),
-                            nv_read_call(
-                                TPM_EK_CERT_NV_INDICES[1],
-                                Ok(successful_output(&valid_cert)),
-                            ),
-                        ];
-                        calls.extend(failing_nv_tail(2));
-                        FakeRunner::new(calls)
-                    },
-                    expect: Yields(valid_cert),
-                },
-                Case {
-                    scenario: "concatenates multiple NV certs in tool order",
-                    input: {
-                        let first_nv = cert_with_trailing_nv_bytes(&first_cert);
-                        let second_nv = cert_with_trailing_nv_bytes(&second_cert);
-                        let mut calls = vec![
-                            primary_tool_failed_call(),
-                            nv_read_call(
-                                TPM_EK_CERT_NV_INDICES[0],
-                                Ok(successful_output(&first_nv)),
-                            ),
-                            nv_read_call(
-                                TPM_EK_CERT_NV_INDICES[1],
-                                Ok(successful_output(&second_nv)),
-                            ),
-                        ];
-                        calls.extend(failing_nv_tail(2));
-                        FakeRunner::new(calls)
-                    },
-                    expect: Yields(concatenated.clone()),
-                },
-                Case {
-                    scenario: "primary fails and every NV index fails: no cert found",
-                    input: {
-                        let mut calls = vec![primary_tool_failed_call()];
-                        calls.extend(failing_nv_tail(0));
-                        FakeRunner::new(calls)
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "primary subprocess spawn errors, every NV index fails",
-                    input: {
-                        let mut calls = vec![FakeCall {
-                            program: TPM2_GET_EK_CERTIFICATE,
-                            args: vec![],
-                            result: Err(io::Error::new(io::ErrorKind::NotFound, "missing")),
-                        }];
-                        calls.extend(failing_nv_tail(0));
-                        FakeRunner::new(calls)
-                    },
-                    expect: Fails,
-                },
-            ],
-            |runner| {
+        scenarios!(
+            run = |runner| {
                 let cert = get_ek_certificate_with_runner(&runner).map_err(drop)?;
                 assert!(runner.calls.borrow().is_empty(), "runner not drained");
                 Ok::<_, ()>(cert)
-            },
+            };
+            "primary tool returns the certificate; no NV probing" {
+                FakeRunner::new(vec![FakeCall {
+                    program: TPM2_GET_EK_CERTIFICATE,
+                    args: vec![],
+                    result: Ok(successful_output(&primary_cert)),
+                }]) => Yields(primary_cert.clone()),
+            }
+
+            "primary fails, falls back to first NV index" {
+                {
+                    let nv_stdout = cert_with_trailing_nv_bytes(&fallback_cert);
+                    let mut calls = vec![
+                        primary_tool_failed_call(),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[0],
+                            Ok(successful_output(&nv_stdout)),
+                        ),
+                    ];
+                    calls.extend(failing_nv_tail(1));
+                    FakeRunner::new(calls)
+                } => Yields(fallback_cert),
+            }
+
+            "skips NV index whose stdout is not a certificate" {
+                {
+                    let mut calls = vec![
+                        primary_tool_failed_call(),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[0],
+                            Ok(successful_output(b"not a certificate")),
+                        ),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[1],
+                            Ok(successful_output(&valid_cert)),
+                        ),
+                    ];
+                    calls.extend(failing_nv_tail(2));
+                    FakeRunner::new(calls)
+                } => Yields(valid_cert),
+            }
+
+            "concatenates multiple NV certs in tool order" {
+                {
+                    let first_nv = cert_with_trailing_nv_bytes(&first_cert);
+                    let second_nv = cert_with_trailing_nv_bytes(&second_cert);
+                    let mut calls = vec![
+                        primary_tool_failed_call(),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[0],
+                            Ok(successful_output(&first_nv)),
+                        ),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[1],
+                            Ok(successful_output(&second_nv)),
+                        ),
+                    ];
+                    calls.extend(failing_nv_tail(2));
+                    FakeRunner::new(calls)
+                } => Yields(concatenated.clone()),
+            }
+
+            "primary fails and every NV index fails: no cert found" {
+                {
+                    let mut calls = vec![primary_tool_failed_call()];
+                    calls.extend(failing_nv_tail(0));
+                    FakeRunner::new(calls)
+                } => Fails,
+            }
+
+            "primary subprocess spawn errors, every NV index fails" {
+                {
+                    let mut calls = vec![FakeCall {
+                        program: TPM2_GET_EK_CERTIFICATE,
+                        args: vec![],
+                        result: Err(io::Error::new(io::ErrorKind::NotFound, "missing")),
+                    }];
+                    calls.extend(failing_nv_tail(0));
+                    FakeRunner::new(calls)
+                } => Fails,
+            }
         );
     }
 
@@ -401,55 +392,47 @@ mod tests {
     /// `CommandOutput`. Error type is not `PartialEq`, so failures use `Fails`.
     #[test]
     fn checked_stdout_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "success returns stdout verbatim",
-                    input: CommandOutput {
-                        status_success: true,
-                        status_code: Some(0),
-                        stdout: b"payload".to_vec(),
-                        stderr: vec![],
-                    },
-                    expect: Yields(b"payload".to_vec()),
-                },
-                Case {
-                    scenario: "success with empty stdout returns empty",
-                    input: CommandOutput {
-                        status_success: true,
-                        status_code: Some(0),
-                        stdout: vec![],
-                        stderr: b"warning".to_vec(),
-                    },
-                    expect: Yields(vec![]),
-                },
-                Case {
-                    scenario: "non-success with utf8 stderr fails",
-                    input: failed_output("boom"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-success with no status code fails",
-                    input: CommandOutput {
-                        status_success: false,
-                        status_code: None,
-                        stdout: vec![],
-                        stderr: vec![],
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-success with invalid utf8 stderr still fails (no panic)",
-                    input: CommandOutput {
-                        status_success: false,
-                        status_code: Some(1),
-                        stdout: vec![],
-                        stderr: vec![0xff, 0xfe],
-                    },
-                    expect: Fails,
-                },
-            ],
-            |output| checked_stdout(output).map_err(drop),
+        scenarios!(
+            run = |output| checked_stdout(output).map_err(drop);
+            "success returns stdout verbatim" {
+                CommandOutput {
+                    status_success: true,
+                    status_code: Some(0),
+                    stdout: b"payload".to_vec(),
+                    stderr: vec![],
+                } => Yields(b"payload".to_vec()),
+            }
+
+            "success with empty stdout returns empty" {
+                CommandOutput {
+                    status_success: true,
+                    status_code: Some(0),
+                    stdout: vec![],
+                    stderr: b"warning".to_vec(),
+                } => Yields(vec![]),
+            }
+
+            "non-success with utf8 stderr fails" {
+                failed_output("boom") => Fails,
+            }
+
+            "non-success with no status code fails" {
+                CommandOutput {
+                    status_success: false,
+                    status_code: None,
+                    stdout: vec![],
+                    stderr: vec![],
+                } => Fails,
+            }
+
+            "non-success with invalid utf8 stderr still fails (no panic)" {
+                CommandOutput {
+                    status_success: false,
+                    status_code: Some(1),
+                    stdout: vec![],
+                    stderr: vec![0xff, 0xfe],
+                } => Fails,
+            }
         );
     }
 
@@ -460,35 +443,27 @@ mod tests {
         let cert = test_ek_cert_der("tool");
         let cert_with_trailing = cert_with_trailing_nv_bytes(&cert);
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid DER returns the full stdout",
-                    input: successful_output(&cert),
-                    expect: Yields(cert.clone()),
-                },
-                Case {
-                    scenario: "trailing bytes are NOT trimmed (full stdout returned)",
-                    input: successful_output(&cert_with_trailing),
-                    expect: Yields(cert_with_trailing.clone()),
-                },
-                Case {
-                    scenario: "non-certificate stdout fails to parse",
-                    input: successful_output(b"not a certificate"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty stdout fails to parse",
-                    input: successful_output(b""),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "subprocess non-success fails before parsing",
-                    input: failed_output("tool error"),
-                    expect: Fails,
-                },
-            ],
-            |output| cert_from_output(TPM2_GET_EK_CERTIFICATE, output).map_err(drop),
+        scenarios!(
+            run = |output| cert_from_output(TPM2_GET_EK_CERTIFICATE, output).map_err(drop);
+            "valid DER returns the full stdout" {
+                successful_output(&cert) => Yields(cert.clone()),
+            }
+
+            "trailing bytes are NOT trimmed (full stdout returned)" {
+                successful_output(&cert_with_trailing) => Yields(cert_with_trailing.clone()),
+            }
+
+            "non-certificate stdout fails to parse" {
+                successful_output(b"not a certificate") => Fails,
+            }
+
+            "empty stdout fails to parse" {
+                successful_output(b"") => Fails,
+            }
+
+            "subprocess non-success fails before parsing" {
+                failed_output("tool error") => Fails,
+            }
         );
     }
 
@@ -499,35 +474,27 @@ mod tests {
         let cert = test_ek_cert_der("nv");
         let cert_with_trailing = cert_with_trailing_nv_bytes(&cert);
 
-        check_cases(
-            [
-                Case {
-                    scenario: "exact-length DER returns it unchanged",
-                    input: successful_output(&cert),
-                    expect: Yields(cert.clone()),
-                },
-                Case {
-                    scenario: "trailing NV padding is trimmed to the cert bytes",
-                    input: successful_output(&cert_with_trailing),
-                    expect: Yields(cert.clone()),
-                },
-                Case {
-                    scenario: "non-certificate stdout fails to parse",
-                    input: successful_output(b"not a certificate"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty stdout fails to parse",
-                    input: successful_output(b""),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "subprocess non-success fails before parsing",
-                    input: failed_output("nv error"),
-                    expect: Fails,
-                },
-            ],
-            |output| cert_from_nv_output(TPM2_NV_READ, output).map_err(drop),
+        scenarios!(
+            run = |output| cert_from_nv_output(TPM2_NV_READ, output).map_err(drop);
+            "exact-length DER returns it unchanged" {
+                successful_output(&cert) => Yields(cert.clone()),
+            }
+
+            "trailing NV padding is trimmed to the cert bytes" {
+                successful_output(&cert_with_trailing) => Yields(cert.clone()),
+            }
+
+            "non-certificate stdout fails to parse" {
+                successful_output(b"not a certificate") => Fails,
+            }
+
+            "empty stdout fails to parse" {
+                successful_output(b"") => Fails,
+            }
+
+            "subprocess non-success fails before parsing" {
+                failed_output("nv error") => Fails,
+            }
         );
     }
 
@@ -536,53 +503,46 @@ mod tests {
     /// token-contains predicate.
     #[test]
     fn tpm_error_display_contains_tokens() {
-        check_values(
-            [
-                Check {
-                    scenario: "Subprocess names the program",
-                    input: (
-                        TpmError::Subprocess(
-                            TPM2_NV_READ,
-                            io::Error::new(io::ErrorKind::NotFound, "x"),
-                        ),
-                        &[TPM2_NV_READ, "Unable to invoke"][..],
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "SubprocessStatusNotOk names the stderr",
-                    input: (
-                        TpmError::SubprocessStatusNotOk(Some(2), "boom".to_string()),
-                        &["boom", "exit code"][..],
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "InvalidEkCertificate names the source",
-                    input: (
-                        TpmError::InvalidEkCertificate(TPM2_GET_EK_CERTIFICATE),
-                        &[TPM2_GET_EK_CERTIFICATE, "DER X.509"][..],
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "EkCertificateNotFound names primary and nv errors",
-                    input: (
-                        TpmError::EkCertificateNotFound {
-                            primary_error: Box::new(TpmError::InvalidEkCertificate(
-                                TPM2_GET_EK_CERTIFICATE,
-                            )),
-                            nv_errors: "0x01c00002: nope".to_string(),
-                        },
-                        &["NV fallback errors", "0x01c00002: nope"][..],
-                    ),
-                    expect: true,
-                },
-            ],
-            |(error, tokens)| {
+        value_scenarios!(
+            run = |(error, tokens)| {
                 let rendered = error.to_string();
                 tokens.iter().all(|t| rendered.contains(t))
-            },
+            };
+            "Subprocess names the program" {
+                (
+                    TpmError::Subprocess(
+                        TPM2_NV_READ,
+                        io::Error::new(io::ErrorKind::NotFound, "x"),
+                    ),
+                    &[TPM2_NV_READ, "Unable to invoke"][..],
+                ) => true,
+            }
+
+            "SubprocessStatusNotOk names the stderr" {
+                (
+                    TpmError::SubprocessStatusNotOk(Some(2), "boom".to_string()),
+                    &["boom", "exit code"][..],
+                ) => true,
+            }
+
+            "InvalidEkCertificate names the source" {
+                (
+                    TpmError::InvalidEkCertificate(TPM2_GET_EK_CERTIFICATE),
+                    &[TPM2_GET_EK_CERTIFICATE, "DER X.509"][..],
+                ) => true,
+            }
+
+            "EkCertificateNotFound names primary and nv errors" {
+                (
+                    TpmError::EkCertificateNotFound {
+                        primary_error: Box::new(TpmError::InvalidEkCertificate(
+                            TPM2_GET_EK_CERTIFICATE,
+                        )),
+                        nv_errors: "0x01c00002: nope".to_string(),
+                    },
+                    &["NV fallback errors", "0x01c00002: nope"][..],
+                ) => true,
+            }
         );
     }
 }

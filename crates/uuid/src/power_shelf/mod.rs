@@ -479,64 +479,112 @@ mod legacy_rpc {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
 
-    #[test]
-    fn test_power_shelf_id_round_trip() {
-        let power_shelf_id_str = "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-        let power_shelf_id = PowerShelfId::from_str(power_shelf_id_str)
-            .expect("Should have successfully converted from a valid string");
-        let round_tripped = power_shelf_id.to_string();
-        assert_eq!(power_shelf_id_str, round_tripped);
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Length,
+        Prefix,
+        Encoding,
+    }
+
+    fn parse_power_shelf_id(input: &str) -> Result<String, ParseFailure> {
+        PowerShelfId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                PowerShelfIdParseError::Length(_) => ParseFailure::Length,
+                PowerShelfIdParseError::Prefix(_) => ParseFailure::Prefix,
+                PowerShelfIdParseError::Encoding(_) => ParseFailure::Encoding,
+            })
     }
 
     #[test]
-    fn test_invalid_power_shelf_ids() {
-        match PowerShelfId::from_str("ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc") {
-            // one character short
-            Err(PowerShelfIdParseError::Length(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a too-short power shelf ID should have failed"),
-            Err(e) => panic!(
-                "Converting from a too-short string should have failed with a length error, got {e}"
-            ),
-        }
+    fn test_power_shelf_id_parse_cases() {
+        const VALID_POWER_SHELF_ID: &str =
+            "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        match PowerShelfId::from_str("PS100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
-        {
-            Err(PowerShelfIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => {
-                panic!("Converting from a power shelf ID with an invalid prefix should have failed")
+        scenarios!(
+            run = parse_power_shelf_id;
+            "valid host TPM power shelf ID" {
+                VALID_POWER_SHELF_ID => Yields(VALID_POWER_SHELF_ID.to_string()),
             }
-            Err(e) => panic!(
-                "Converting from a power shelf ID with an invalid prefix should have failed with a Prefix error, got {e}"
-            ),
-        }
 
-        match PowerShelfId::from_str("ps100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
-        {
-            Err(PowerShelfIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a power shelf ID with type `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a power shelf ID with type `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+            "one character short" {
+                "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc" => FailsWith(ParseFailure::Length),
+            }
 
-        match PowerShelfId::from_str("ps100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
-        {
-            Err(PowerShelfIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a power shelf ID with source `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a power shelf ID with source `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+            "empty string" {
+                "" => FailsWith(ParseFailure::Length),
+            }
 
-        match PowerShelfId::from_str("ps100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg")
-        {
-            Err(PowerShelfIdParseError::Encoding(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a power shelf ID with a `!` should have failed"),
-            Err(e) => panic!(
-                "Converting from a power shelf ID with a `!` should have failed with an Encoding error, got {e}"
-            ),
-        }
+            "invalid prefix casing" {
+                "PS100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid power shelf type" {
+                "ps100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid source" {
+                "ps100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid base32 payload" {
+                "ps100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Encoding),
+            }
+        );
+    }
+
+    #[test]
+    fn test_power_shelf_type_mappings() {
+        value_scenarios!(
+            run = |ty| (ty.id_char(), ty.to_string(), ty.is_rack(), ty.is_host());
+            "rack" {
+                PowerShelfType::Rack => ('r', "Rack".to_string(), true, false),
+            }
+
+            "host" {
+                PowerShelfType::Host => ('h', "Host".to_string(), false, true),
+            }
+        );
+    }
+
+    #[test]
+    fn test_power_shelf_type_from_id_char() {
+        value_scenarios!(
+            run = PowerShelfType::from_id_char;
+            "rack" {
+                'r' => Some(PowerShelfType::Rack),
+            }
+
+            "host" {
+                'h' => Some(PowerShelfType::Host),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_power_shelf_id_source_from_id_char() {
+        value_scenarios!(
+            run = PowerShelfIdSource::from_id_char;
+            "TPM" {
+                't' => Some(PowerShelfIdSource::Tpm),
+            }
+
+            "product board chassis serial" {
+                's' => Some(PowerShelfIdSource::ProductBoardChassisSerial),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
+        );
     }
 }

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, Check, check_cases, check_values};
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::device::discovery::{convert_pci_name_to_address, parse_mlxfwmanager_xml};
 
 // Test XML to use for a single DPU with failed access due to lockdown.
@@ -189,40 +189,31 @@ fn test_parse_mixed_devices() {
 // strings) through untouched.
 #[test]
 fn test_convert_pci_name_to_address() {
-    check_cases(
-        [
-            Case {
-                scenario: "removes domain prefix",
-                input: "0000:01:00.0",
-                expect: Yields("01:00.0".to_string()),
-            },
-            Case {
-                scenario: "passes through a clean address",
-                input: "01:00.0",
-                expect: Yields("01:00.0".to_string()),
-            },
-            Case {
-                scenario: "passes through an mst path",
-                input: "/dev/mst/mt41692_pciconf0",
-                expect: Yields("/dev/mst/mt41692_pciconf0".to_string()),
-            },
-            Case {
-                scenario: "passes through an unrelated format",
-                input: "custom_device_path",
-                expect: Yields("custom_device_path".to_string()),
-            },
-            Case {
-                scenario: "removes only the first of multiple domain prefixes",
-                input: "0000:0000:01:00.0",
-                expect: Yields("0000:01:00.0".to_string()),
-            },
-            Case {
-                scenario: "passes through an empty string",
-                input: "",
-                expect: Yields("".to_string()),
-            },
-        ],
-        convert_pci_name_to_address,
+    scenarios!(
+        run = convert_pci_name_to_address;
+        "removes domain prefix" {
+            "0000:01:00.0" => Yields("01:00.0".to_string()),
+        }
+
+        "passes through a clean address" {
+            "01:00.0" => Yields("01:00.0".to_string()),
+        }
+
+        "passes through an mst path" {
+            "/dev/mst/mt41692_pciconf0" => Yields("/dev/mst/mt41692_pciconf0".to_string()),
+        }
+
+        "passes through an unrelated format" {
+            "custom_device_path" => Yields("custom_device_path".to_string()),
+        }
+
+        "removes only the first of multiple domain prefixes" {
+            "0000:0000:01:00.0" => Yields("0000:01:00.0".to_string()),
+        }
+
+        "passes through an empty string" {
+            "" => Yields("".to_string()),
+        }
     );
 }
 
@@ -248,44 +239,34 @@ fn test_optional_field_handling() {
     let devices = parse_mlxfwmanager_xml(DPU_FAILED_XML).unwrap();
     let device = &devices[0];
 
-    check_values(
-        [
-            Check {
-                scenario: "None psid renders as --",
-                input: "psid",
-                expect: "--".to_string(),
-            },
-            Check {
-                scenario: "None part_number renders as --",
-                input: "part_number",
-                expect: "--".to_string(),
-            },
-            Check {
-                scenario: "None base_mac renders as --",
-                input: "base_mac",
-                expect: "--".to_string(),
-            },
-            Check {
-                scenario: "None fw_version_current renders as --",
-                input: "fw_version_current",
-                expect: "--".to_string(),
-            },
-            Check {
-                scenario: "present pci_name",
-                input: "pci_name",
-                expect: "b4:00.0".to_string(),
-            },
-            Check {
-                scenario: "present device_type",
-                input: "device_type",
-                expect: "BlueField3".to_string(),
-            },
-            Check {
-                scenario: "present status",
-                input: "status",
-                expect: "Failed to open device".to_string(),
-            },
-        ],
-        |field| device.get_field_value(field),
+    value_scenarios!(
+        run = |field| device.get_field_value(field);
+        "None psid renders as --" {
+            "psid" => "--".to_string(),
+        }
+
+        "None part_number renders as --" {
+            "part_number" => "--".to_string(),
+        }
+
+        "None base_mac renders as --" {
+            "base_mac" => "--".to_string(),
+        }
+
+        "None fw_version_current renders as --" {
+            "fw_version_current" => "--".to_string(),
+        }
+
+        "present pci_name" {
+            "pci_name" => "b4:00.0".to_string(),
+        }
+
+        "present device_type" {
+            "device_type" => "BlueField3".to_string(),
+        }
+
+        "present status" {
+            "status" => "Failed to open device".to_string(),
+        }
     );
 }

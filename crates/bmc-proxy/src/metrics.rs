@@ -52,3 +52,40 @@ pub async fn start(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::time::timeout;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn start_binds_listener_and_spawns_endpoint_task() {
+        let address = "127.0.0.1:0".parse().expect("valid listen address");
+        let metrics_setup =
+            metrics_endpoint::new_metrics_setup("carbide-bmc-proxy-test", "test", false)
+                .expect("metrics setup succeeds");
+        let cancellation_token = CancellationToken::new();
+        let mut join_set = JoinSet::new();
+
+        start(
+            address,
+            metrics_setup,
+            cancellation_token.clone(),
+            &mut join_set,
+        )
+        .await
+        .expect("metrics endpoint starts");
+
+        assert_eq!(join_set.len(), 1);
+
+        cancellation_token.cancel();
+        timeout(Duration::from_secs(5), join_set.join_next())
+            .await
+            .expect("metrics endpoint exits after cancellation")
+            .expect("metrics endpoint task is joined")
+            .expect("metrics endpoint task succeeds");
+    }
+}

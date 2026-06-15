@@ -73,6 +73,71 @@ func TestParseNICoComputeTray(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestParseNICoComputeTrayRejectsDpu pins the contract that ParseNICoComputeTray
+// does NOT silently accept "dpu". Callers must route that target through
+// SplitNICoComputeTraySubTargets first; otherwise a misrouted "dpu" must
+// surface as an explicit error rather than as an empty / wrong enum value.
+func TestParseNICoComputeTrayRejectsDpu(t *testing.T) {
+	_, err := ParseNICoComputeTray([]string{"dpu"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"dpu"`)
+}
+
+func TestSplitNICoComputeTraySubTargets(t *testing.T) {
+	tests := []struct {
+		name              string
+		in                []string
+		wantComputeSubs   []string
+		wantHasDpu        bool
+		describesBehavior string
+	}{
+		{
+			name:              "nil/empty input does not opt-in to DPU",
+			in:                nil,
+			wantComputeSubs:   nil,
+			wantHasDpu:        false,
+			describesBehavior: "empty targets means no DPU reprov; matches REST handler default",
+		},
+		{
+			name:            "compute-tray-only sub-targets pass through verbatim",
+			in:              []string{"bmc", "bios"},
+			wantComputeSubs: []string{"bmc", "bios"},
+			wantHasDpu:      false,
+		},
+		{
+			name:            "lone dpu opts in and produces empty compute-tray sub list",
+			in:              []string{"dpu"},
+			wantComputeSubs: nil,
+			wantHasDpu:      true,
+		},
+		{
+			name:            "mixed input is split into compute sub-targets and dpu opt-in",
+			in:              []string{"bmc", "dpu", "bios"},
+			wantComputeSubs: []string{"bmc", "bios"},
+			wantHasDpu:      true,
+		},
+		{
+			name:            "dpu casing and surrounding whitespace are tolerated",
+			in:              []string{" DPU ", "Dpu"},
+			wantComputeSubs: nil,
+			wantHasDpu:      true,
+		},
+		{
+			name:            "non-dpu names are passed through with their casing intact",
+			in:              []string{" BMC ", "Bios"},
+			wantComputeSubs: []string{" BMC ", "Bios"},
+			wantHasDpu:      false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotSubs, gotHasDpu := SplitNICoComputeTraySubTargets(tc.in)
+			assert.Equal(t, tc.wantComputeSubs, gotSubs)
+			assert.Equal(t, tc.wantHasDpu, gotHasDpu)
+		})
+	}
+}
+
 func TestSupportedNamesAreSortedAndImmutable(t *testing.T) {
 	names := SupportedNICoNVSwitchNames()
 	require.Equal(t, []string{"bios", "bmc", "cpld", "nvos"}, names)

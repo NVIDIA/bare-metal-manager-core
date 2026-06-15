@@ -19,21 +19,21 @@ import (
 // MemReader is goroutine-safe so tests can mutate state mid-poll.
 type MemReader struct {
 	mu       sync.Mutex
-	statuses map[string]*types.ComponentStatus
+	statuses map[string]*types.ComponentOperationStatus
 	hosts    map[string][]string
 }
 
 // NewMemReader returns an empty in-memory StatusReader.
 func NewMemReader() *MemReader {
 	return &MemReader{
-		statuses: map[string]*types.ComponentStatus{},
+		statuses: map[string]*types.ComponentOperationStatus{},
 		hosts:    map[string][]string{},
 	}
 }
 
-// SetStatus records the persisted ComponentStatus for an external (Core)
+// SetStatus records the persisted ComponentOperationStatus for an external (Core)
 // component ID. Pass nil to clear.
-func (r *MemReader) SetStatus(externalID string, s *types.ComponentStatus) {
+func (r *MemReader) SetStatus(externalID string, s *types.ComponentOperationStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if s == nil {
@@ -54,10 +54,10 @@ func (r *MemReader) SetRackHosts(rackID string, hostIDs []string) {
 }
 
 // GetStatusesByExternalIDs implements StatusReader.
-func (r *MemReader) GetStatusesByExternalIDs(_ context.Context, externalIDs []string) (map[string]*types.ComponentStatus, error) {
+func (r *MemReader) GetStatusesByExternalIDs(_ context.Context, externalIDs []string) (map[string]*types.ComponentOperationStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make(map[string]*types.ComponentStatus, len(externalIDs))
+	out := make(map[string]*types.ComponentOperationStatus, len(externalIDs))
 	for _, id := range externalIDs {
 		if s, ok := r.statuses[id]; ok {
 			out[id] = s

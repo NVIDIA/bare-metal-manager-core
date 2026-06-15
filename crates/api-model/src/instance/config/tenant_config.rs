@@ -86,7 +86,7 @@ mod tests {
     use std::mem::discriminant;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -115,41 +115,36 @@ mod tests {
         // pass. The error type (ConfigValidationError) is not PartialEq, so failing
         // rows assert the rejected *variant* via its discriminant rather than the
         // exact error value.
-        check_cases(
-            [
-                Case {
-                    scenario: "duplicate keyset ids are rejected",
-                    input: TenantConfig {
-                        tenant_organization_id: TenantOrganizationId::try_from(
-                            "TenantA".to_string(),
-                        )
-                        .unwrap(),
-                        tenant_keyset_ids: vec![
-                            "a".to_string(),
-                            "b".to_string(),
-                            "c".to_string(),
-                            "a".to_string(),
-                        ],
-                        hostname: Some("test-instance".to_string()),
-                    },
-                    expect: FailsWith(discriminant(
-                        &ConfigValidationError::DuplicateTenantKeysetId(String::new()),
-                    )),
-                },
-                Case {
-                    scenario: "unique keyset ids validate",
-                    input: TenantConfig {
-                        tenant_organization_id: TenantOrganizationId::try_from(
-                            "TenantA".to_string(),
-                        )
-                        .unwrap(),
-                        tenant_keyset_ids: vec!["a".to_string(), "b".to_string(), "c".to_string()],
-                        hostname: Some("test-instance".to_string()),
-                    },
-                    expect: Yields(()),
-                },
-            ],
-            |config: TenantConfig| config.validate().map_err(|e| discriminant(&e)),
+        scenarios!(
+            run = |config: TenantConfig| config.validate().map_err(|e| discriminant(&e));
+            "duplicate keyset ids are rejected" {
+                TenantConfig {
+                    tenant_organization_id: TenantOrganizationId::try_from(
+                        "TenantA".to_string(),
+                    )
+                    .unwrap(),
+                    tenant_keyset_ids: vec![
+                        "a".to_string(),
+                        "b".to_string(),
+                        "c".to_string(),
+                        "a".to_string(),
+                    ],
+                    hostname: Some("test-instance".to_string()),
+                } => FailsWith(discriminant(
+                    &ConfigValidationError::DuplicateTenantKeysetId(String::new()),
+                )),
+            }
+
+            "unique keyset ids validate" {
+                TenantConfig {
+                    tenant_organization_id: TenantOrganizationId::try_from(
+                        "TenantA".to_string(),
+                    )
+                    .unwrap(),
+                    tenant_keyset_ids: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                    hostname: Some("test-instance".to_string()),
+                } => Yields(()),
+            }
         );
     }
 }

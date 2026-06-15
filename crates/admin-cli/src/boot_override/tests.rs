@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,24 +50,22 @@ fn verify_cmd_structure() {
 // parses its interface_id.
 #[test]
 fn parse_get() {
-    check_cases(
-        [Case {
-            scenario: "get parses interface_id",
-            input: &[
-                "boot-override",
-                "get",
-                "550e8400-e29b-41d4-a716-446655440000",
-            ][..],
-            expect: Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Get(args) => args.inner.interface_id.to_string(),
                     _ => panic!("expected Get variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "get parses interface_id" {
+            &[
+                "boot-override",
+                "get",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+        }
     );
 }
 
@@ -75,24 +73,22 @@ fn parse_get() {
 // parses its interface_id.
 #[test]
 fn parse_clear() {
-    check_cases(
-        [Case {
-            scenario: "clear parses interface_id",
-            input: &[
-                "boot-override",
-                "clear",
-                "550e8400-e29b-41d4-a716-446655440000",
-            ][..],
-            expect: Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Clear(args) => args.inner.interface_id.to_string(),
                     _ => panic!("expected Clear variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "clear parses interface_id" {
+            &[
+                "boot-override",
+                "clear",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+        }
     );
 }
 
@@ -102,59 +98,8 @@ fn parse_clear() {
 // (interface_id, custom_pxe, custom_user_data).
 #[test]
 fn parse_set() {
-    type SetFields = (String, Option<String>, Option<String>);
-
-    check_cases(
-        [
-            Case {
-                scenario: "set with just interface_id leaves the custom flags unset",
-                input: &[
-                    "boot-override",
-                    "set",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    None,
-                    None,
-                )),
-            },
-            Case {
-                scenario: "set with the long --custom-pxe/--custom-user-data flags",
-                input: &[
-                    "boot-override",
-                    "set",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "--custom-pxe",
-                    "http://pxe.example.com/boot",
-                    "--custom-user-data",
-                    "some-user-data",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    Some("http://pxe.example.com/boot".to_string()),
-                    Some("some-user-data".to_string()),
-                )),
-            },
-            Case {
-                scenario: "set with the short -p/-u aliases",
-                input: &[
-                    "boot-override",
-                    "set",
-                    "550e8400-e29b-41d4-a716-446655440000",
-                    "-p",
-                    "http://pxe.example.com/boot",
-                    "-u",
-                    "some-user-data",
-                ][..],
-                expect: Yields((
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                    Some("http://pxe.example.com/boot".to_string()),
-                    Some("some-user-data".to_string()),
-                )),
-            },
-        ],
-        |argv| -> Result<SetFields, ()> {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Set(args) => (
@@ -165,7 +110,50 @@ fn parse_set() {
                     _ => panic!("expected Set variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "set with just interface_id leaves the custom flags unset" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                None,
+                None,
+            )),
+        }
+
+        "set with the long --custom-pxe/--custom-user-data flags" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--custom-pxe",
+                "http://pxe.example.com/boot",
+                "--custom-user-data",
+                "some-user-data",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                Some("http://pxe.example.com/boot".to_string()),
+                Some("some-user-data".to_string()),
+            )),
+        }
+
+        "set with the short -p/-u aliases" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "-p",
+                "http://pxe.example.com/boot",
+                "-u",
+                "some-user-data",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                Some("http://pxe.example.com/boot".to_string()),
+                Some("some-user-data".to_string()),
+            )),
+        }
     );
 }
 
@@ -173,16 +161,14 @@ fn parse_set() {
 // invoked without its required interface_id.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "get without interface_id",
-            input: &["boot-override", "get"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "get without interface_id" {
+            &["boot-override", "get"][..] => Fails,
+        }
     );
 }

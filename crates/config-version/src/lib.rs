@@ -378,10 +378,12 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ConfigVersion {
     }
 }
 
+const STATE_VERSION_PARSE_ERROR: &str = "state version parse error";
+
 /// Human readable amount of time since we entered the given state version
 pub fn since_state_change_humanized(ver: &str) -> String {
     let Ok(state_version_t) = ver.parse::<ConfigVersion>() else {
-        return "state version parse error".to_string();
+        return STATE_VERSION_PARSE_ERROR.to_string();
     };
     state_version_t.since_state_change_humanized()
 }
@@ -431,11 +433,121 @@ fn plural(val: i64, period: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
     use chrono::TimeDelta;
 
     use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        VersionFormat,
+        DateTime,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct VersionSummary {
+        version_nr: u64,
+        timestamp_micros: i64,
+        version_string: String,
+        display: String,
+    }
+
+    #[derive(Clone, Copy)]
+    enum VersionOperation {
+        Initial,
+        New,
+        Invalid,
+        Increment,
+        OverflowIncrement,
+        IncrementalChange,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct OperationSummary {
+        version_nr: u64,
+        timestamp_micros: Option<i64>,
+        current_version_nr: Option<u64>,
+        new_version_nr: Option<u64>,
+    }
+
+    fn summarize(version: ConfigVersion) -> VersionSummary {
+        VersionSummary {
+            version_nr: version.version_nr(),
+            timestamp_micros: version.timestamp().timestamp_micros(),
+            version_string: version.version_string(),
+            display: version.to_string(),
+        }
+    }
+
+    fn parse_version(input: &str) -> Result<VersionSummary, ParseFailure> {
+        ConfigVersion::from_str(input)
+            .map(summarize)
+            .map_err(|err| match err {
+                ConfigVersionParseError::VersionFormat(_) => ParseFailure::VersionFormat,
+                ConfigVersionParseError::DateTime(_, _) => ParseFailure::DateTime,
+            })
+    }
+
+    fn deserialize_config_version(input: &str) -> Result<VersionSummary, ()> {
+        serde_json::from_str::<ConfigVersion>(input)
+            .map(summarize)
+            .map_err(|_| ())
+    }
+
+    fn summarize_operation_version(version: ConfigVersion) -> OperationSummary {
+        OperationSummary {
+            version_nr: version.version_nr(),
+            // These operations stamp wall-clock timestamps, so table rows compare
+            // the deterministic version fields instead.
+            timestamp_micros: None,
+            current_version_nr: None,
+            new_version_nr: None,
+        }
+    }
+
+    fn apply_operation(operation: VersionOperation) -> OperationSummary {
+        match operation {
+            VersionOperation::Initial => summarize_operation_version(ConfigVersion::initial()),
+            VersionOperation::New => summarize_operation_version(ConfigVersion::new(7)),
+            VersionOperation::Invalid => {
+                let version = ConfigVersion::invalid();
+                OperationSummary {
+                    version_nr: version.version_nr(),
+                    timestamp_micros: Some(version.timestamp().timestamp_micros()),
+                    current_version_nr: None,
+                    new_version_nr: None,
+                }
+            }
+            VersionOperation::Increment => summarize_operation_version(
+                ConfigVersion {
+                    version_nr: 41,
+                    timestamp: tzero(),
+                }
+                .increment(),
+            ),
+            VersionOperation::OverflowIncrement => summarize_operation_version(
+                ConfigVersion {
+                    version_nr: u64::MAX,
+                    timestamp: tzero(),
+                }
+                .increment(),
+            ),
+            VersionOperation::IncrementalChange => {
+                let version = ConfigVersion {
+                    version_nr: 41,
+                    timestamp: tzero(),
+                };
+                let change = version.incremental_change();
+                OperationSummary {
+                    version_nr: version.version_nr(),
+                    timestamp_micros: None,
+                    current_version_nr: Some(change.current.version_nr()),
+                    new_version_nr: Some(change.new.version_nr()),
+                }
+            }
+        }
+    }
 
     #[test]
     fn serialize_and_deserialize_config_version_as_string() {
@@ -466,42 +578,158 @@ mod tests {
     }
 
     #[test]
-    fn it_formats_seconds() {
-        let td = TimeDelta::from_std(Duration::from_secs(44)).unwrap();
-        assert_eq!(format_duration(td), "44 seconds");
+    fn it_formats_durations() {
+        value_scenarios!(
+            run = |seconds| format_duration(TimeDelta::seconds(seconds));
+            "seconds" {
+                0 => "0 seconds".to_string(),
+                1 => "1 second".to_string(),
+                44 => "44 seconds".to_string(),
+                -44 => "-44 seconds".to_string(),
+            }
+
+            "minutes" {
+                60 => "1 minute".to_string(),
+                61 => "1 minute".to_string(),
+            }
+
+            "larger units" {
+                3600 * 2 => "2 hours".to_string(),
+                86400 => "1 day".to_string(),
+                3600 + 60 => "1 hour and 1 minute".to_string(),
+                86400 + 3600 + 60 + 1 => "1 day, 1 hour and 1 minute".to_string(),
+            }
+        );
     }
 
     #[test]
-    fn it_formats_minutes() {
-        // 60 seconds make a minute
-        let td = TimeDelta::from_std(Duration::from_secs(60)).unwrap();
-        assert_eq!(format_duration(td), "1 minute");
+    fn parse_config_version_cases() {
+        scenarios!(parse_version:
+            "valid versions" {
+                "V5-T0" => Yields(VersionSummary {
+                    version_nr: 5,
+                    timestamp_micros: 0,
+                    version_string: "V5-T0".to_string(),
+                    display: "V5-T0".to_string(),
+                }),
+                " V7-T1000000 " => Yields(VersionSummary {
+                    version_nr: 7,
+                    timestamp_micros: 1_000_000,
+                    version_string: "V7-T1000000".to_string(),
+                    display: "V7-T1000000".to_string(),
+                }),
+            }
+
+            "format errors" {
+                "" => FailsWith(ParseFailure::VersionFormat),
+                "V1" => FailsWith(ParseFailure::VersionFormat),
+                "1-T0" => FailsWith(ParseFailure::VersionFormat),
+                "Vx-T0" => FailsWith(ParseFailure::VersionFormat),
+                "V1-Tx" => FailsWith(ParseFailure::VersionFormat),
+                "V1-T0-extra" => FailsWith(ParseFailure::VersionFormat),
+            }
+
+            "datetime errors" {
+                "V1-T18446744073709551615" => FailsWith(ParseFailure::DateTime),
+            }
+        );
     }
 
     #[test]
-    fn it_formats_hours() {
-        // 3600 seconds make an hour
-        let td = TimeDelta::from_std(Duration::from_secs(3600 * 2)).unwrap();
-        assert_eq!(format_duration(td), "2 hours");
+    fn serde_config_version_cases() {
+        scenarios!(deserialize_config_version:
+            "valid version strings" {
+                "\"V5-T0\"" => Yields(VersionSummary {
+                    version_nr: 5,
+                    timestamp_micros: 0,
+                    version_string: "V5-T0".to_string(),
+                    display: "V5-T0".to_string(),
+                }),
+            }
+
+            "invalid json values" {
+                "\"bad\"" => Fails,
+                "42" => Fails,
+            }
+        );
     }
 
     #[test]
-    fn it_formats_days() {
-        // 86400 seconds make a day
-        let td = TimeDelta::from_std(Duration::from_secs(86400)).unwrap();
-        assert_eq!(format_duration(td), "1 day");
+    fn config_version_operation_cases() {
+        value_scenarios!(apply_operation:
+            "constructors" {
+                VersionOperation::Initial => OperationSummary {
+                    version_nr: 1,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
+                },
+                VersionOperation::New => OperationSummary {
+                    version_nr: 7,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
+                },
+                VersionOperation::Invalid => OperationSummary {
+                    version_nr: 0,
+                    timestamp_micros: Some(0),
+                    current_version_nr: None,
+                    new_version_nr: None,
+                },
+            }
+
+            "increments" {
+                VersionOperation::Increment => OperationSummary {
+                    version_nr: 42,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
+                },
+                VersionOperation::OverflowIncrement => OperationSummary {
+                    version_nr: 1,
+                    timestamp_micros: None,
+                    current_version_nr: None,
+                    new_version_nr: None,
+                },
+                VersionOperation::IncrementalChange => OperationSummary {
+                    version_nr: 41,
+                    timestamp_micros: None,
+                    current_version_nr: Some(41),
+                    new_version_nr: Some(42),
+                },
+            }
+        );
     }
 
     #[test]
-    fn it_formats_combinations_no_seconds() {
-        let td = TimeDelta::from_std(Duration::from_secs(86400 + 3600 + 60 + 1)).unwrap();
-        assert_eq!(format_duration(td), "1 day, 1 hour and 1 minute");
+    fn versioned_wrapper_methods() {
+        let version = ConfigVersion {
+            version_nr: 3,
+            timestamp: tzero(),
+        };
+        let mut versioned = Versioned::new("payload".to_string(), version);
+
+        assert_eq!(&*versioned, "payload");
+        versioned.push_str("-updated");
+
+        let borrowed = versioned.as_ref();
+        assert_eq!(borrowed.value.as_str(), "payload-updated");
+        assert_eq!(borrowed.version, version);
+
+        let (value, taken_version) = versioned.take();
+        assert_eq!(value, "payload-updated");
+        assert_eq!(taken_version, version);
     }
 
     #[test]
-    fn it_formats_zero_seconds() {
-        let td = TimeDelta::from_std(Duration::from_secs(0)).unwrap();
-        assert_eq!(format_duration(td), "0 seconds");
+    fn since_state_change_humanized_parse_cases() {
+        value_scenarios!(
+            run = |input| since_state_change_humanized(input) == STATE_VERSION_PARSE_ERROR;
+            "parse status" {
+                "bad" => true,
+                "V1-T0" => false,
+            }
+        );
     }
 
     #[test]

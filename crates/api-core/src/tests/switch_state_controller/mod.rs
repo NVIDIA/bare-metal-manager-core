@@ -141,6 +141,10 @@ async fn test_switch_deletion_with_state_controller(
         db_pool: pool.clone(),
         component_manager: None,
         credential_manager: Arc::new(TestCredentialManager::default()),
+        per_object_metrics_registry: carbide_health_metrics::PerObjectMetricsRegistry::new(
+            Vec::new(),
+            std::time::Duration::from_secs(60),
+        ),
     });
 
     let cancel_token = CancellationToken::new();
@@ -246,6 +250,7 @@ async fn test_switch_entire_state_transition_flow(
                 component_manager: build_test_component_manager(&env, env.rms_sim.as_rms_client())
                     .await,
                 credential_manager: env.test_credential_manager.clone(),
+                per_object_metrics_registry: env.per_object_metrics_registry(),
             }
             .into(),
         )

@@ -15,29 +15,23 @@
  * limitations under the License.
  */
 use axum::body::Body;
-use carbide_api_core::test_support::fixture_config::{
-    FixtureDefault as _, ManagedHostConfigExt as _,
-};
 use carbide_rpc_utils::ManagedHostOutput;
 use db::{machine, managed_host};
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use model::hardware_info::HardwareInfo;
 use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
-use model::test_support::{DpuConfig, ManagedHostConfig};
 use tower::ServiceExt;
 
 use crate::managed_host::ManagedHostRowDisplay;
-use crate::tests::common::api_fixtures::{
-    create_managed_host_multi_dpu, create_test_env, site_explorer,
-};
+use crate::tests::env::TestEnv;
 use crate::tests::{make_test_app, web_request_builder};
 
 #[crate::sqlx_test]
 async fn test_ok(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    _ = env.create_ready_managed_host(1).await;
 
     let response = app
         .oneshot(
@@ -81,9 +75,9 @@ async fn test_ok(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_multi_dpu(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let app = make_test_app(&env);
-    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await.host().id;
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let host_machine_id = env.create_ready_managed_host(2).await.host_machine_id;
 
     let response = app
         .oneshot(
@@ -136,33 +130,22 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
 // managed_host::show_html (parsing the HTML string is prohibitive)
 #[crate::sqlx_test]
 async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
-    let env = create_test_env(pool).await;
-    let config = ManagedHostConfig::with_dpus((0..2).map(|_| DpuConfig::default()).collect());
-    let hardware_info = HardwareInfo::from(&config);
-    let mock_host = site_explorer::new_mock_host(&env, config).await?;
+    let env = TestEnv::new(pool).await;
+    let host = env.create_ready_managed_host(2).await;
+    let hardware_info = HardwareInfo::from(&host.managed_host);
 
-    // Get info from what we mocked for site explorer so we know what to assert on in the ManagedHostRowDisplay
-    let machine_id = mock_host
-        .discovered_machine_id()
-        .expect("mock host should have gotten a machine ID");
-    let host_bmc_ip = mock_host
-        .host_bmc_ip
-        .expect("mock host should have gotten a BMC IP");
-    let dpu_1_bmc_ip = *mock_host
-        .dpu_bmc_ips
-        .get(&0)
-        .expect("mock DPU should have gotten a BMC IP");
-    let dpu_2_bmc_ip = *mock_host
-        .dpu_bmc_ips
-        .get(&1)
-        .expect("mock DPU should have gotten a BMC IP");
+    // Get info from the test managed host so we know what to assert on in the ManagedHostRowDisplay.
+    let machine_id = host.host_machine_id;
+    let host_bmc_ip = host.host_bmc_ip;
+    let dpu_1_bmc_ip = host.dpu_bmc_ip(0);
+    let dpu_2_bmc_ip = host.dpu_bmc_ip(1);
 
     let snapshots = managed_host::load_all(
-        &env.pool,
+        &env.api().database_connection,
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: env.config.host_health,
+            host_health_config: env.api().runtime_config.host_health,
         },
     )
     .await?;
@@ -177,7 +160,10 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(snapshot.host_snapshot.id, machine_id);
 
     let sla_config = model::machine::slas::MachineSlaConfig::new(
-        env.config.machine_state_controller.failure_retry_time,
+        env.api()
+            .runtime_config
+            .machine_state_controller
+            .failure_retry_time,
     );
     let row = ManagedHostRowDisplay::from_snapshot(snapshot.clone(), &sla_config);
 
@@ -191,7 +177,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(row.host_bmc_ip, host_bmc_ip.to_string());
     assert_eq!(
         row.host_bmc_mac,
-        mock_host.managed_host.bmc_mac_address.to_string()
+        host.managed_host.bmc_mac_address.to_string()
     );
     assert_eq!(
         row.vendor,
@@ -225,11 +211,11 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(row.dpus[0].bmc_ip, dpu_1_bmc_ip.to_string());
     assert_eq!(
         row.dpus[0].bmc_mac,
-        mock_host.managed_host.dpus[0].bmc_mac_address.to_string()
+        host.managed_host.dpus[0].bmc_mac_address.to_string()
     );
     assert_eq!(
         row.dpus[0].oob_mac,
-        mock_host.managed_host.dpus[0].oob_mac_address.to_string()
+        host.managed_host.dpus[0].oob_mac_address.to_string()
     );
     assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
 
@@ -240,11 +226,11 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(row.dpus[1].bmc_ip, dpu_2_bmc_ip.to_string());
     assert_eq!(
         row.dpus[1].bmc_mac,
-        mock_host.managed_host.dpus[1].bmc_mac_address.to_string()
+        host.managed_host.dpus[1].bmc_mac_address.to_string()
     );
     assert_eq!(
         row.dpus[1].oob_mac,
-        mock_host.managed_host.dpus[1].oob_mac_address.to_string()
+        host.managed_host.dpus[1].oob_mac_address.to_string()
     );
     assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
 
@@ -253,8 +239,8 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
 
 #[crate::sqlx_test]
 async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let host = create_managed_host_multi_dpu(&env, 1).await;
+    let env = TestEnv::new(pool).await;
+    let host = env.create_ready_managed_host(1).await;
 
     let assigned_booting_state = ManagedHostState::Assigned {
         instance_state: InstanceState::BootingWithDiscoveryImage {
@@ -267,8 +253,8 @@ async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
             .parse()
             .unwrap();
 
-    let mut txn = env.db_txn().await;
-    let host_machine = host.host().db_machine(&mut txn).await;
+    let mut txn = env.test_harness.db_txn().await;
+    let host_machine = host.host_db_machine(&mut txn).await;
     machine::advance(
         &host_machine,
         &mut txn,
@@ -279,7 +265,7 @@ async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let app = make_test_app(&env);
+    let app = make_test_app(&env.test_harness);
     let response = app
         .oneshot(
             web_request_builder()

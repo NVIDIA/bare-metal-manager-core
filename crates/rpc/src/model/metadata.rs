@@ -79,7 +79,7 @@ impl From<rpc::forge::Label> for LabelFilter {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -87,37 +87,31 @@ mod tests {
     // fields the originals asserted.
     #[test]
     fn label_filter_from_rpc() {
-        check_values(
-            [
-                Check {
-                    scenario: "with value",
-                    input: rpc::forge::Label {
-                        key: "env".to_string(),
-                        value: Some("prod".to_string()),
-                    },
-                    expect: ("env".to_string(), Some("prod".to_string())),
-                },
-                Check {
-                    scenario: "without value",
-                    input: rpc::forge::Label {
-                        key: "env".to_string(),
-                        value: None,
-                    },
-                    expect: ("env".to_string(), None),
-                },
-                Check {
-                    scenario: "empty key",
-                    input: rpc::forge::Label {
-                        key: String::new(),
-                        value: Some("prod".to_string()),
-                    },
-                    expect: (String::new(), Some("prod".to_string())),
-                },
-            ],
-            |label| {
+        value_scenarios!(
+            run = |label| {
                 let filter = LabelFilter::from(label);
                 (filter.key, filter.value)
-            },
+            };
+            "with value" {
+                rpc::forge::Label {
+                    key: "env".to_string(),
+                    value: Some("prod".to_string()),
+                } => ("env".to_string(), Some("prod".to_string())),
+            }
+
+            "without value" {
+                rpc::forge::Label {
+                    key: "env".to_string(),
+                    value: None,
+                } => ("env".to_string(), None),
+            }
+
+            "empty key" {
+                rpc::forge::Label {
+                    key: String::new(),
+                    value: Some("prod".to_string()),
+                } => (String::new(), Some("prod".to_string())),
+            }
         );
     }
 }

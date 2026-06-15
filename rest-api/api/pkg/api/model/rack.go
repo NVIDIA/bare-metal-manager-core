@@ -359,6 +359,8 @@ type APIRackComponent struct {
 	HostID          int32     `json:"hostId"`
 	BMCs            []*APIBMC `json:"bmcs"`
 	PowerState      string    `json:"powerState"`
+	OperationStatus string    `json:"operationStatus"`
+	LeakStatus      string    `json:"leakStatus"`
 }
 
 // FromProto converts a proto Component to an APIRackComponent
@@ -370,6 +372,8 @@ func (arc *APIRackComponent) FromProto(protoComponent *flowv1.Component) {
 	arc.FirmwareVersion = protoComponent.GetFirmwareVersion()
 	arc.ComponentID = protoComponent.GetComponentId()
 	arc.PowerState = protoComponent.GetPowerState()
+	arc.OperationStatus = enumOr(ProtoToAPIPhaseName, protoComponent.GetStatus().GetPhase(), "Unknown")
+	arc.LeakStatus = enumOr(ProtoToAPILeakStatusName, protoComponent.GetLeakStatus(), "Unknown")
 
 	// Get rack ID
 	if protoComponent.GetRackId() != nil {
@@ -517,6 +521,11 @@ type APIBringUpRackRequest struct {
 	// RuleID, when set, overrides the default rule resolution and pins the
 	// bring-up operation to the named Operation Rule.
 	RuleID *string `json:"ruleId"`
+	// OverrideReadinessCheck, when true, proceeds with the bring-up even if
+	// one or more target components (or hosts on the owning rack) are reported
+	// as not ready by their persisted status. Intended for operator-supervised
+	// maintenance.
+	OverrideReadinessCheck bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 // Validate validates the bring up request
@@ -563,6 +572,9 @@ type APIBatchBringUpRackRequest struct {
 	// RuleID, when set, pins every bring-up task spawned by this batch to the
 	// named Operation Rule.
 	RuleID *string `json:"ruleId"`
+	// OverrideReadinessCheck applies the readiness-gate bypass to every task
+	// spawned by this batch. See APIBringUpRackRequest for semantics.
+	OverrideReadinessCheck bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 // Validate checks required fields.

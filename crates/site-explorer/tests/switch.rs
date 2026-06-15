@@ -22,7 +22,6 @@ use std::sync::Arc;
 use carbide_site_explorer::SwitchCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_test_harness::prelude::*;
-use carbide_test_harness::test_support::endpoint_explorer::MockEndpointExplorer;
 use db::{self, explored_endpoints as db_explored_endpoints};
 use mac_address::MacAddress;
 use model::metadata::Metadata;
@@ -136,9 +135,18 @@ async fn test_site_explorer_switch_discovery(
     db::expected_switch::create(&mut txn, expected_switch).await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    endpoint_explorer.insert_endpoint_result(
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_result(
         switch_ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -174,18 +182,6 @@ async fn test_site_explorer_switch_discovery(
             remediation_error: None,
         }),
     );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -197,7 +193,7 @@ async fn test_site_explorer_switch_discovery(
 
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap();
         assert!(res.is_ok());
         assert_eq!(

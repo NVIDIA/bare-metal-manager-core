@@ -103,10 +103,10 @@ impl FromStr for PartitionKey {
         let pkey = pkey.to_lowercase();
         let base = if pkey.starts_with("0x") { 16 } else { 10 };
         let p = pkey.trim_start_matches("0x");
-        let k = u16::from_str_radix(p, base);
-
-        match k {
-            Ok(v) => Ok(PartitionKey(v)),
+        // Apply the same 0x7fff range check as `TryFrom<u16>` so every
+        // construction path agrees on what a valid pkey is.
+        match u16::from_str_radix(p, base) {
+            Ok(v) => PartitionKey::try_from(v),
             Err(_e) => Err(InvalidPartitionKeyError(pkey.to_string())),
         }
     }
@@ -313,53 +313,365 @@ pub fn state_sla(state: &IBPartitionControllerState, state_version: &ConfigVersi
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+
     use super::*;
 
+    // ---- PartitionKey::from_str --------------------------------------------
+
     #[test]
-    fn serialize_and_format_pkey() {
-        let pkey = PartitionKey::from_str("0xf").unwrap();
-        let serialized = serde_json::to_string(&pkey).unwrap();
-        assert_eq!(serialized, "\"0xf\"");
-        assert_eq!(pkey.to_string(), "0xf");
-        let deserialized = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(pkey, deserialized);
-        let deserialized = serde_json::from_str("\"15\"").unwrap();
-        assert_eq!(pkey, deserialized);
-        let deserialized = serde_json::from_str("\"0xf\"").unwrap();
-        assert_eq!(pkey, deserialized);
+    fn from_str_parses_each_input() {
+        check_cases(
+            [
+                Case {
+                    scenario: "hex with 0x prefix",
+                    input: "0xf",
+                    expect: Yields(0x000f),
+                },
+                Case {
+                    scenario: "decimal of the same value",
+                    input: "15",
+                    expect: Yields(0x000f),
+                },
+                Case {
+                    scenario: "zero hex",
+                    input: "0x0",
+                    expect: Yields(0),
+                },
+                Case {
+                    scenario: "zero decimal",
+                    input: "0",
+                    expect: Yields(0),
+                },
+                Case {
+                    scenario: "max default-partition hex",
+                    input: "0x7fff",
+                    expect: Yields(0x7fff),
+                },
+                Case {
+                    scenario: "uppercase hex digits",
+                    input: "0x7ABC",
+                    expect: Yields(0x7abc),
+                },
+                Case {
+                    scenario: "uppercase 0X prefix is lowercased first",
+                    input: "0XF",
+                    expect: Yields(0x000f),
+                },
+                Case {
+                    // from_str enforces the same 0x7fff mask as TryFrom<u16>.
+                    scenario: "hex above the valid pkey mask is rejected",
+                    input: "0xffff",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "decimal above the mask is rejected",
+                    input: "65535",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-numeric text",
+                    input: "nope",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "decimal overflowing u16",
+                    input: "65536",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "hex overflowing u16",
+                    input: "0x10000",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "bare 0x prefix with no digits",
+                    input: "0x",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "decimal value carrying hex letters",
+                    input: "1f",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "negative sign rejected",
+                    input: "-1",
+                    expect: Fails,
+                },
+            ],
+            |s| PartitionKey::from_str(s).map(u16::from).map_err(drop),
+        );
+    }
+
+    // ---- PartitionKey: TryFrom<&str> / String / &String --------------------
+
+    #[test]
+    fn try_from_str_like_inputs_match_from_str() {
+        scenarios!(
+            run = |s| PartitionKey::try_from(s).map(u16::from).map_err(drop);
+            "&str hex" {
+                "0x20" => Yields(0x20),
+            }
+
+            "&str decimal" {
+                "32" => Yields(0x20),
+            }
+
+            "&str malformed" {
+                "zz" => Fails,
+            }
+        );
     }
 
     #[test]
-    fn serialize_controller_state() {
-        let state = IBPartitionControllerState::Provisioning {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"provisioning\"}");
-        assert_eq!(
-            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
-            state
+    fn try_from_owned_and_borrowed_string() {
+        // TryFrom<String>
+        scenarios!(
+            run = |s| PartitionKey::try_from(s).map(u16::from).map_err(drop);
+            "owned String hex" {
+                "0xab".to_string() => Yields(0xab),
+            }
+
+            "owned String malformed" {
+                "bad".to_string() => Fails,
+            }
         );
-        let state = IBPartitionControllerState::Ready {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"ready\"}");
-        assert_eq!(
-            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
-            state
+        // TryFrom<&String>
+        scenarios!(
+            run = |s| PartitionKey::try_from(&s).map(u16::from).map_err(drop);
+            "&String decimal" {
+                "171".to_string() => Yields(0xab),
+            }
+
+            "&String malformed" {
+                "bad".to_string() => Fails,
+            }
         );
-        let state = IBPartitionControllerState::Error {
-            cause: "cause goes here".to_string(),
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, r#"{"state":"error","cause":"cause goes here"}"#);
-        assert_eq!(
-            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    // ---- PartitionKey: TryFrom<u16> (the 0x7fff mask) ----------------------
+
+    #[test]
+    fn try_from_u16_enforces_the_mask() {
+        scenarios!(
+            run = |n| PartitionKey::try_from(n).map(u16::from).map_err(drop);
+            "zero" {
+                0u16 => Yields(0),
+            }
+
+            "small in-range value" {
+                0x000f => Yields(0x000f),
+            }
+
+            "max valid (default partition)" {
+                0x7fff => Yields(0x7fff),
+            }
+
+            "first value past the mask" {
+                0x8000 => Fails,
+            }
+
+            "u16 max has the high bit set" {
+                0xffff => Fails,
+            }
         );
-        let state = IBPartitionControllerState::Deleting {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"deleting\"}");
-        assert_eq!(
-            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    // ---- PartitionKey: Display ---------------------------------------------
+
+    #[test]
+    fn display_renders_lowercase_hex_with_prefix() {
+        value_scenarios!(
+            run = |n| PartitionKey::try_from(n).unwrap().to_string();
+            "zero" {
+                0u16 => "0x0".to_string(),
+            }
+
+            "single hex digit" {
+                0x000f => "0xf".to_string(),
+            }
+
+            "multi-digit lowercased" {
+                0x00ab => "0xab".to_string(),
+            }
+
+            "default partition key" {
+                0x7fff => "0x7fff".to_string(),
+            }
         );
+    }
+
+    // ---- PartitionKey: default-partition helpers ---------------------------
+
+    #[test]
+    fn for_default_partition_is_0x7fff() {
+        assert_eq!(u16::from(PartitionKey::for_default_partition()), 0x7fff);
+    }
+
+    #[test]
+    fn is_default_partition_predicate() {
+        value_scenarios!(
+            run = |n| PartitionKey::try_from(n).unwrap().is_default_partition();
+            "the default key" {
+                0x7fff => true,
+            }
+
+            "zero is not default" {
+                0 => false,
+            }
+
+            "an ordinary key is not default" {
+                0x000f => false,
+            }
+
+            "one below default" {
+                0x7ffe => false,
+            }
+        );
+    }
+
+    // ---- PartitionKey: round-trip parse -> render --------------------------
+
+    #[test]
+    fn parse_then_display_round_trips_to_canonical_hex() {
+        scenarios!(
+            run = |s| {
+                PartitionKey::from_str(s)
+                    .map(|p| p.to_string())
+                    .map_err(drop)
+            };
+            "decimal normalizes to hex" {
+                "15" => Yields("0xf".to_string()),
+            }
+
+            "hex stays hex" {
+                "0xf" => Yields("0xf".to_string()),
+            }
+
+            "uppercase folds to lowercase" {
+                "0x7ABC" => Yields("0x7abc".to_string()),
+            }
+        );
+    }
+
+    // ---- PartitionKey: serde (string is the canonical form) ----------------
+
+    #[test]
+    fn serializes_as_canonical_hex_string() {
+        scenarios!(
+            run = |n| {
+                let pkey = PartitionKey::try_from(n).unwrap();
+                serde_json::to_string(&pkey).map_err(drop)
+            };
+            "single digit" {
+                0x000f => Yields("\"0xf\"".to_string()),
+            }
+
+            "zero" {
+                0 => Yields("\"0x0\"".to_string()),
+            }
+
+            "default partition" {
+                0x7fff => Yields("\"0x7fff\"".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn deserializes_from_hex_or_decimal_strings() {
+        scenarios!(
+            run = |s| {
+                serde_json::from_str::<PartitionKey>(s)
+                    .map(u16::from)
+                    .map_err(drop)
+            };
+            "hex string" {
+                "\"0xf\"" => Yields(0x000f),
+            }
+
+            "decimal string of the same value" {
+                "\"15\"" => Yields(0x000f),
+            }
+
+            "malformed string" {
+                "\"nope\"" => Fails,
+            }
+
+            "non-string JSON is rejected" {
+                "15" => Fails,
+            }
+        );
+    }
+
+    // ---- IBPartitionControllerState: serde (tagged, lowercase) -------------
+
+    #[test]
+    fn controller_state_serializes_with_lowercase_tag() {
+        scenarios!(
+            run = |state| serde_json::to_string(&state).map_err(drop);
+            "provisioning" {
+                IBPartitionControllerState::Provisioning => Yields(r#"{"state":"provisioning"}"#.to_string()),
+            }
+
+            "ready" {
+                IBPartitionControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
+            }
+
+            "deleting" {
+                IBPartitionControllerState::Deleting => Yields(r#"{"state":"deleting"}"#.to_string()),
+            }
+
+            "error carries its cause" {
+                IBPartitionControllerState::Error {
+                    cause: "cause goes here".to_string(),
+                } => Yields(r#"{"state":"error","cause":"cause goes here"}"#.to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn controller_state_round_trips_through_json() {
+        scenarios!(
+            run = |state| {
+                let json = serde_json::to_string(&state).map_err(drop)?;
+                serde_json::from_str::<IBPartitionControllerState>(&json).map_err(drop)
+            };
+            "provisioning" {
+                IBPartitionControllerState::Provisioning => Yields(IBPartitionControllerState::Provisioning),
+            }
+
+            "ready" {
+                IBPartitionControllerState::Ready => Yields(IBPartitionControllerState::Ready),
+            }
+
+            "deleting" {
+                IBPartitionControllerState::Deleting => Yields(IBPartitionControllerState::Deleting),
+            }
+
+            "error preserves its cause" {
+                IBPartitionControllerState::Error {
+                    cause: "boom".to_string(),
+                } => Yields(IBPartitionControllerState::Error {
+                    cause: "boom".to_string(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn controller_state_deserialize_rejects_unknown_tag() {
+        Case {
+            scenario: "unknown state tag",
+            input: r#"{"state":"bogus"}"#,
+            expect: Fails,
+        }
+        .check(|s| serde_json::from_str::<IBPartitionControllerState>(s).map_err(drop));
     }
 }

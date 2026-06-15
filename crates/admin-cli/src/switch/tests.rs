@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use carbide_uuid::switch::SwitchId;
 use clap::{CommandFactory, Parser};
 
@@ -55,27 +55,22 @@ fn parse_show_routes_to_show() {
 
     let switch_id = "sw100nsmnq69j4ntqlj162fnnbvg747gfqbicaa6tqgq6spocirfle7rom0";
 
-    check_cases(
-        [
-            Case {
-                scenario: "no args parses with no switch id",
-                input: &["switch", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "an identifier parses to that switch id",
-                input: &["switch", "show", switch_id][..],
-                expect: Yields(Some(SwitchId::from_str(switch_id).unwrap())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.switch_id,
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no args parses with no switch id" {
+            &["switch", "show"][..] => Yields(None),
+        }
+
+        "an identifier parses to that switch id" {
+            &["switch", "show", switch_id][..] => Yields(Some(SwitchId::from_str(switch_id).unwrap())),
+        }
     );
 }
 
@@ -85,29 +80,8 @@ fn parse_show_routes_to_show() {
 // (deleted == Only, controller_state, bmc_mac.is_some()).
 #[test]
 fn parse_list_routes_to_list() {
-    check_cases(
-        [
-            Case {
-                scenario: "no args parses with default filters",
-                input: &["switch", "list"][..],
-                expect: Yields((false, None, false)),
-            },
-            Case {
-                scenario: "filter flags parse onto the args",
-                input: &[
-                    "switch",
-                    "list",
-                    "--deleted",
-                    "only",
-                    "--controller-state",
-                    "ready",
-                    "--bmc-mac",
-                    "AA:BB:CC:DD:EE:FF",
-                ][..],
-                expect: Yields((true, Some("ready".to_string()), true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::List(args) => (
@@ -118,7 +92,23 @@ fn parse_list_routes_to_list() {
                     _ => panic!("expected List variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no args parses with default filters" {
+            &["switch", "list"][..] => Yields((false, None, false)),
+        }
+
+        "filter flags parse onto the args" {
+            &[
+                "switch",
+                "list",
+                "--deleted",
+                "only",
+                "--controller-state",
+                "ready",
+                "--bmc-mac",
+                "AA:BB:CC:DD:EE:FF",
+            ][..] => Yields((true, Some("ready".to_string()), true)),
+        }
     );
 }
 
@@ -126,23 +116,18 @@ fn parse_list_routes_to_list() {
 // `--deleted` value, or a `--bmc-mac` that isn't a MAC address.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "list with an invalid --deleted value",
-                input: &["switch", "list", "--deleted", "bogus"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "list with an invalid --bmc-mac",
-                input: &["switch", "list", "--bmc-mac", "not-a-mac"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "list with an invalid --deleted value" {
+            &["switch", "list", "--deleted", "bogus"][..] => Fails,
+        }
+
+        "list with an invalid --bmc-mac" {
+            &["switch", "list", "--bmc-mac", "not-a-mac"][..] => Fails,
+        }
     );
 }

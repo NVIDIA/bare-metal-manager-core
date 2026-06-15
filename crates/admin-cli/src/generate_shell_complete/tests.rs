@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -57,52 +57,41 @@ fn shell_names_parse_to_their_variant() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "bash subcommand",
-                input: &["generate-shell-complete", "bash"][..],
-                expect: Yields("bash"),
-            },
-            Case {
-                scenario: "fish subcommand",
-                input: &["generate-shell-complete", "fish"][..],
-                expect: Yields("fish"),
-            },
-            Case {
-                scenario: "zsh subcommand",
-                input: &["generate-shell-complete", "zsh"][..],
-                expect: Yields("zsh"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| shell(&cmd.shell))
                 .map_err(drop)
-        },
+        };
+        "bash subcommand" {
+            &["generate-shell-complete", "bash"][..] => Yields("bash"),
+        }
+
+        "fish subcommand" {
+            &["generate-shell-complete", "fish"][..] => Yields("fish"),
+        }
+
+        "zsh subcommand" {
+            &["generate-shell-complete", "zsh"][..] => Yields("zsh"),
+        }
     );
 }
 
 // A shell subcommand is required, and an unknown shell is rejected.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "missing shell subcommand",
-                input: &["generate-shell-complete"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "unknown shell",
-                input: &["generate-shell-complete", "powershell"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "missing shell subcommand" {
+            &["generate-shell-complete"][..] => Fails,
+        }
+
+        "unknown shell" {
+            &["generate-shell-complete", "powershell"][..] => Fails,
+        }
     );
 }

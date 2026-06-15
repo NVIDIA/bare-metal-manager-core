@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::runner::result_types::{
     ComparisonResult, PlannedChange, QueriedDeviceInfo, QueriedVariable, QueryResult, SyncResult,
     VariableChange,
@@ -69,26 +69,8 @@ fn test_queried_variable_pending_change_detection() {
     let registry = common::create_test_registry();
     let sriov_var = registry.get_variable("SRIOV_EN").unwrap().clone();
 
-    check_values(
-        [
-            Check {
-                scenario: "current != next is a pending change",
-                input: Values {
-                    current: false,
-                    next: true,
-                },
-                expect: true,
-            },
-            Check {
-                scenario: "current == next is not a pending change",
-                input: Values {
-                    current: true,
-                    next: true,
-                },
-                expect: false,
-            },
-        ],
-        |Values { current, next }| {
+    value_scenarios!(
+        run = |Values { current, next }| {
             QueriedVariable {
                 variable: sriov_var.clone(),
                 current_value: sriov_var.with(current).unwrap(),
@@ -98,7 +80,20 @@ fn test_queried_variable_pending_change_detection() {
                 read_only: false,
             }
             .is_pending_change()
-        },
+        };
+        "current != next is a pending change" {
+            Values {
+                current: false,
+                next: true,
+            } => true,
+        }
+
+        "current == next is not a pending change" {
+            Values {
+                current: true,
+                next: true,
+            } => false,
+        }
     );
 }
 

@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,27 +50,22 @@ fn verify_cmd_structure() {
 // racks (no rack), while a trailing identifier scopes it to that one rack.
 #[test]
 fn parse_show_routes_to_show_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "no args targets all racks",
-                input: &["rack", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "trailing identifier scopes to one rack",
-                input: &["rack", "show", "rack-123"][..],
-                expect: Yields(Some("rack-123".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.rack.map(|r| r.to_string()),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no args targets all racks" {
+            &["rack", "show"][..] => Yields(None),
+        }
+
+        "trailing identifier scopes to one rack" {
+            &["rack", "show", "rack-123"][..] => Yields(Some("rack-123".to_string())),
+        }
     );
 }
 
@@ -113,23 +108,18 @@ fn parse_profile_show() {
 // profile-show left without its required rack identifier.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "delete without an identifier",
-                input: &["rack", "delete"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "profile show without a rack_id",
-                input: &["rack", "profile", "show"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "delete without an identifier" {
+            &["rack", "delete"][..] => Fails,
+        }
+
+        "profile show without a rack_id" {
+            &["rack", "profile", "show"][..] => Fails,
+        }
     );
 }

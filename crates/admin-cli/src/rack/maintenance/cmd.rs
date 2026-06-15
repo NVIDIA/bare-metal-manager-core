@@ -147,7 +147,7 @@ pub async fn on_demand_rack_maintenance(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
     use carbide_uuid::rack::RackId;
 
     use super::*;
@@ -176,64 +176,55 @@ mod tests {
     // access_token) tuple the originals asserted on.
     #[test]
     fn resolve_firmware_upgrade_source_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "firmware-upgrade without a SOT JSON source is rejected",
-                    input: MaintenanceOptions {
-                        activities: Some(vec!["firmware-upgrade".to_string()]),
-                        access_token: Some("token".to_string()),
-                        ..options()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "firmware-upgrade with inline JSON allows a missing access token",
-                    input: MaintenanceOptions {
-                        activities: Some(vec!["firmware-upgrade".to_string()]),
-                        firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-                        ..options()
-                    },
-                    expect: Yields((r#"{"Id":"fw"}"#.to_string(), None)),
-                },
-                Case {
-                    scenario: "firmware-upgrade treats an empty access token as missing",
-                    input: MaintenanceOptions {
-                        activities: Some(vec!["firmware-upgrade".to_string()]),
-                        firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-                        access_token: Some(String::new()),
-                        ..options()
-                    },
-                    expect: Yields((r#"{"Id":"fw"}"#.to_string(), None)),
-                },
-                Case {
-                    scenario: "firmware-upgrade rejects invalid inline JSON",
-                    input: MaintenanceOptions {
-                        activities: Some(vec!["firmware-upgrade".to_string()]),
-                        firmware_version: Some("not-json".to_string()),
-                        access_token: Some("token".to_string()),
-                        ..options()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "--firmware-version without a firmware-upgrade activity is rejected",
-                    input: MaintenanceOptions {
-                        firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-                        ..options()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "--access-token without a firmware-upgrade activity is rejected",
-                    input: MaintenanceOptions {
-                        access_token: Some("token".to_string()),
-                        ..options()
-                    },
-                    expect: Fails,
-                },
-            ],
-            |args| resolve_firmware_upgrade_source(&args).map_err(drop),
+        scenarios!(
+            run = |args| resolve_firmware_upgrade_source(&args).map_err(drop);
+            "firmware-upgrade without a SOT JSON source is rejected" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
+
+            "firmware-upgrade with inline JSON allows a missing access token" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    ..options()
+                } => Yields((r#"{"Id":"fw"}"#.to_string(), None)),
+            }
+
+            "firmware-upgrade treats an empty access token as missing" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    access_token: Some(String::new()),
+                    ..options()
+                } => Yields((r#"{"Id":"fw"}"#.to_string(), None)),
+            }
+
+            "firmware-upgrade rejects invalid inline JSON" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some("not-json".to_string()),
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
+
+            "--firmware-version without a firmware-upgrade activity is rejected" {
+                MaintenanceOptions {
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    ..options()
+                } => Fails,
+            }
+
+            "--access-token without a firmware-upgrade activity is rejected" {
+                MaintenanceOptions {
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
         );
     }
 }

@@ -996,7 +996,9 @@ fn parse_memtotal_kb(meminfo: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_values, scenarios, value_scenarios,
+    };
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -1120,26 +1122,20 @@ mod tests {
     // daemonset contract; pin each constant exactly.
     #[test]
     fn init_container_path_constants() {
-        check_values(
-            [
-                Check {
-                    scenario: "init cpu info path",
-                    input: INIT_CPU_INFO_PATH,
-                    expect: "/host-cpu-info",
-                },
-                Check {
-                    scenario: "init mem info path",
-                    input: INIT_MEM_INFO_PATH,
-                    expect: "/host-mem-info",
-                },
-                Check {
-                    scenario: "hw cache path",
-                    input: HW_CACHE_PATH,
-                    expect: "/data/hw_output.json",
-                },
-            ],
+        value_scenarios!(
             // identity: the constant under test is handed in as the input
-            |c| c,
+            run = |c| c;
+            "init cpu info path" {
+                INIT_CPU_INFO_PATH => "/host-cpu-info",
+            }
+
+            "init mem info path" {
+                INIT_MEM_INFO_PATH => "/host-mem-info",
+            }
+
+            "hw cache path" {
+                HW_CACHE_PATH => "/data/hw_output.json",
+            }
         );
     }
 
@@ -1197,50 +1193,39 @@ mod tests {
     // or overflow.
     #[test]
     fn can_parse_int_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "plain decimal",
-                    input: "42",
-                    expect: true,
-                },
-                Check {
-                    scenario: "negative decimal",
-                    input: "-7",
-                    expect: true,
-                },
-                Check {
-                    scenario: "hex value",
-                    input: "0x10de",
-                    expect: true,
-                },
-                Check {
-                    scenario: "hex with no digits after prefix",
-                    input: "0x",
-                    expect: false,
-                },
-                Check {
-                    scenario: "non-numeric text",
-                    input: "GenuineIntel",
-                    expect: false,
-                },
-                Check {
-                    scenario: "empty string",
-                    input: "",
-                    expect: false,
-                },
-                Check {
-                    scenario: "decimal overflows i32",
-                    input: "9999999999",
-                    expect: false,
-                },
-                Check {
-                    scenario: "bad hex digit",
-                    input: "0xZZ",
-                    expect: false,
-                },
-            ],
-            can_parse_int,
+        value_scenarios!(
+            run = can_parse_int;
+            "plain decimal" {
+                "42" => true,
+            }
+
+            "negative decimal" {
+                "-7" => true,
+            }
+
+            "hex value" {
+                "0x10de" => true,
+            }
+
+            "hex with no digits after prefix" {
+                "0x" => false,
+            }
+
+            "non-numeric text" {
+                "GenuineIntel" => false,
+            }
+
+            "empty string" {
+                "" => false,
+            }
+
+            "decimal overflows i32" {
+                "9999999999" => false,
+            }
+
+            "bad hex digit" {
+                "0xZZ" => false,
+            }
         );
     }
 
@@ -1248,35 +1233,8 @@ mod tests {
     // start 0xa2xx or 0xc2xx; everything else is not a DPU.
     #[test]
     fn is_dpu_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "0xa2 prefix is dpu",
-                    input: "0xa2d6",
-                    expect: true,
-                },
-                Check {
-                    scenario: "0xc2 prefix is dpu",
-                    input: "0xc2d2",
-                    expect: true,
-                },
-                Check {
-                    scenario: "other mellanox id not dpu",
-                    input: "0x1021",
-                    expect: false,
-                },
-                Check {
-                    scenario: "empty id not dpu",
-                    input: "",
-                    expect: false,
-                },
-                Check {
-                    scenario: "0xa not enough to match",
-                    input: "0xa1ff",
-                    expect: false,
-                },
-            ],
-            |id| {
+        value_scenarios!(
+            run = |id| {
                 props_ext(
                     id,
                     "Mellanox Technologies",
@@ -1284,7 +1242,26 @@ mod tests {
                     "Ethernet controller",
                 )
                 .is_dpu()
-            },
+            };
+            "0xa2 prefix is dpu" {
+                "0xa2d6" => true,
+            }
+
+            "0xc2 prefix is dpu" {
+                "0xc2d2" => true,
+            }
+
+            "other mellanox id not dpu" {
+                "0x1021" => false,
+            }
+
+            "empty id not dpu" {
+                "" => false,
+            }
+
+            "0xa not enough to match" {
+                "0xa1ff" => false,
+            }
         );
     }
 
@@ -1293,80 +1270,70 @@ mod tests {
     // "Infiniband controller" (case-insensitive). Any other combination false.
     #[test]
     fn mlnx_ib_capable_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "mellanox + slot + infiniband subclass",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Mellanox Technologies",
-                        Some("0000:08:00.0"),
-                        "Infiniband controller",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "vendor case-insensitive match",
-                    input: props_ext(
-                        "0xa2d6",
-                        "mellanox technologies",
-                        Some("0000:08:00.0"),
-                        "Infiniband controller",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "subclass case-insensitive match",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Mellanox Technologies",
-                        Some("0000:08:00.0"),
-                        "infiniband controller",
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "ethernet subclass -> false",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Mellanox Technologies",
-                        Some("0000:08:00.0"),
-                        "Ethernet controller",
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "non-mellanox vendor -> false",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Intel Corporation",
-                        Some("0000:08:00.0"),
-                        "Infiniband controller",
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "slot None -> false",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Mellanox Technologies",
-                        None,
-                        "Infiniband controller",
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "empty slot -> false",
-                    input: props_ext(
-                        "0xa2d6",
-                        "Mellanox Technologies",
-                        Some(""),
-                        "Infiniband controller",
-                    ),
-                    expect: false,
-                },
-            ],
-            |p| p.mlnx_ib_capable(),
+        value_scenarios!(
+            run = |p| p.mlnx_ib_capable();
+            "mellanox + slot + infiniband subclass" {
+                props_ext(
+                    "0xa2d6",
+                    "Mellanox Technologies",
+                    Some("0000:08:00.0"),
+                    "Infiniband controller",
+                ) => true,
+            }
+
+            "vendor case-insensitive match" {
+                props_ext(
+                    "0xa2d6",
+                    "mellanox technologies",
+                    Some("0000:08:00.0"),
+                    "Infiniband controller",
+                ) => true,
+            }
+
+            "subclass case-insensitive match" {
+                props_ext(
+                    "0xa2d6",
+                    "Mellanox Technologies",
+                    Some("0000:08:00.0"),
+                    "infiniband controller",
+                ) => true,
+            }
+
+            "ethernet subclass -> false" {
+                props_ext(
+                    "0xa2d6",
+                    "Mellanox Technologies",
+                    Some("0000:08:00.0"),
+                    "Ethernet controller",
+                ) => false,
+            }
+
+            "non-mellanox vendor -> false" {
+                props_ext(
+                    "0xa2d6",
+                    "Intel Corporation",
+                    Some("0000:08:00.0"),
+                    "Infiniband controller",
+                ) => false,
+            }
+
+            "slot None -> false" {
+                props_ext(
+                    "0xa2d6",
+                    "Mellanox Technologies",
+                    None,
+                    "Infiniband controller",
+                ) => false,
+            }
+
+            "empty slot -> false" {
+                props_ext(
+                    "0xa2d6",
+                    "Mellanox Technologies",
+                    Some(""),
+                    "Infiniband controller",
+                ) => false,
+            }
         );
     }
 
@@ -1473,26 +1440,21 @@ mod tests {
     // Err, Some -> Ok(()). Error is not PartialEq so use Fails + Yields(()).
     #[test]
     fn validate_enumerated_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "missing dpu_info fails",
-                    input: rpc_discovery::DiscoveryInfo {
-                        dpu_info: None,
-                        ..Default::default()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "present dpu_info passes",
-                    input: rpc_discovery::DiscoveryInfo {
-                        dpu_info: Some(Default::default()),
-                        ..Default::default()
-                    },
-                    expect: Yields(()),
-                },
-            ],
-            |info| validate_enumerated(&info).map_err(drop),
+        scenarios!(
+            run = |info| validate_enumerated(&info).map_err(drop);
+            "missing dpu_info fails" {
+                rpc_discovery::DiscoveryInfo {
+                    dpu_info: None,
+                    ..Default::default()
+                } => Fails,
+            }
+
+            "present dpu_info passes" {
+                rpc_discovery::DiscoveryInfo {
+                    dpu_info: Some(Default::default()),
+                    ..Default::default()
+                } => Yields(()),
+            }
         );
     }
 }

@@ -168,3 +168,289 @@ impl std::fmt::Display for TopicPatterns {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum PatternSource {
+        BorrowedStr,
+        OwnedString,
+        VecBorrowed,
+        VecOwned,
+        ArrayBorrowed,
+        ArrayOwned,
+        SliceBorrowed,
+        SliceOwned,
+        FromSingle,
+        FromMultiple,
+        EmptySingle,
+        EmptyMultiple,
+        AllEmptyMultiple,
+        MixedEmptyMultiple,
+        SingleLevelWildcard,
+        MultiLevelWildcard,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct PatternSummary {
+        patterns: Vec<String>,
+        len: usize,
+        is_empty: bool,
+        contains_alpha: bool,
+        contains_beta: bool,
+        contains_single_level_wildcard: bool,
+        contains_multi_level_wildcard: bool,
+        as_slice: Vec<String>,
+        display: String,
+    }
+
+    fn patterns_from(source: PatternSource) -> TopicPatterns {
+        match source {
+            PatternSource::BorrowedStr => TopicPatterns::from("alpha"),
+            PatternSource::OwnedString => TopicPatterns::from(String::from("alpha")),
+            PatternSource::VecBorrowed => TopicPatterns::from(vec!["alpha", "beta"]),
+            PatternSource::VecOwned => {
+                TopicPatterns::from(vec![String::from("alpha"), String::from("beta")])
+            }
+            PatternSource::ArrayBorrowed => TopicPatterns::from(["alpha", "beta"]),
+            PatternSource::ArrayOwned => {
+                TopicPatterns::from([String::from("alpha"), String::from("beta")])
+            }
+            PatternSource::SliceBorrowed => TopicPatterns::from(["alpha", "beta"].as_slice()),
+            PatternSource::SliceOwned => {
+                let patterns = [String::from("alpha"), String::from("beta")];
+                TopicPatterns::from(patterns.as_slice())
+            }
+            PatternSource::FromSingle => TopicPatterns::from_single("alpha"),
+            PatternSource::FromMultiple => TopicPatterns::from_multiple(["alpha", "beta"]),
+            PatternSource::EmptySingle => TopicPatterns::from(""),
+            PatternSource::EmptyMultiple => TopicPatterns::from(Vec::<String>::new()),
+            PatternSource::AllEmptyMultiple => TopicPatterns::from(["", ""]),
+            PatternSource::MixedEmptyMultiple => TopicPatterns::from(["", "alpha"]),
+            PatternSource::SingleLevelWildcard => TopicPatterns::from("sensors/+/temp"),
+            PatternSource::MultiLevelWildcard => TopicPatterns::from("sensors/#"),
+        }
+    }
+
+    fn summarize(patterns: TopicPatterns) -> PatternSummary {
+        let len = patterns.len();
+        let is_empty = patterns.is_empty();
+        let contains_alpha = patterns.contains("alpha");
+        let contains_beta = patterns.contains("beta");
+        let contains_single_level_wildcard = patterns.contains("sensors/+/temp");
+        let contains_multi_level_wildcard = patterns.contains("sensors/#");
+        let as_slice = patterns
+            .as_slice()
+            .iter()
+            .copied()
+            .map(str::to_string)
+            .collect();
+        let display = patterns.to_string();
+        let patterns = patterns.into_vec();
+
+        PatternSummary {
+            patterns,
+            len,
+            is_empty,
+            contains_alpha,
+            contains_beta,
+            contains_single_level_wildcard,
+            contains_multi_level_wildcard,
+            as_slice,
+            display,
+        }
+    }
+
+    fn single_alpha() -> PatternSummary {
+        PatternSummary {
+            patterns: vec!["alpha".to_string()],
+            len: 1,
+            is_empty: false,
+            contains_alpha: true,
+            contains_beta: false,
+            contains_single_level_wildcard: false,
+            contains_multi_level_wildcard: false,
+            as_slice: vec!["alpha".to_string()],
+            display: "'alpha'".to_string(),
+        }
+    }
+
+    fn alpha_beta() -> PatternSummary {
+        PatternSummary {
+            patterns: vec!["alpha".to_string(), "beta".to_string()],
+            len: 2,
+            is_empty: false,
+            contains_alpha: true,
+            contains_beta: true,
+            contains_single_level_wildcard: false,
+            contains_multi_level_wildcard: false,
+            as_slice: vec!["alpha".to_string(), "beta".to_string()],
+            display: "['alpha', 'beta']".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_topic_patterns_sources() {
+        check_values(
+            [
+                Check {
+                    scenario: "borrowed str",
+                    input: PatternSource::BorrowedStr,
+                    expect: single_alpha(),
+                },
+                Check {
+                    scenario: "owned string",
+                    input: PatternSource::OwnedString,
+                    expect: single_alpha(),
+                },
+                Check {
+                    scenario: "vec borrowed",
+                    input: PatternSource::VecBorrowed,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "vec owned",
+                    input: PatternSource::VecOwned,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "array borrowed",
+                    input: PatternSource::ArrayBorrowed,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "array owned",
+                    input: PatternSource::ArrayOwned,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "slice borrowed",
+                    input: PatternSource::SliceBorrowed,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "slice owned",
+                    input: PatternSource::SliceOwned,
+                    expect: alpha_beta(),
+                },
+                Check {
+                    scenario: "from_single",
+                    input: PatternSource::FromSingle,
+                    expect: single_alpha(),
+                },
+                Check {
+                    scenario: "from_multiple",
+                    input: PatternSource::FromMultiple,
+                    expect: alpha_beta(),
+                },
+                // TopicPatterns stores MQTT wildcards as literal patterns; it
+                // does not evaluate topic-match semantics.
+                Check {
+                    scenario: "single-level wildcard",
+                    input: PatternSource::SingleLevelWildcard,
+                    expect: PatternSummary {
+                        patterns: vec!["sensors/+/temp".to_string()],
+                        len: 1,
+                        is_empty: false,
+                        contains_alpha: false,
+                        contains_beta: false,
+                        contains_single_level_wildcard: true,
+                        contains_multi_level_wildcard: false,
+                        as_slice: vec!["sensors/+/temp".to_string()],
+                        display: "'sensors/+/temp'".to_string(),
+                    },
+                },
+                Check {
+                    scenario: "multi-level wildcard",
+                    input: PatternSource::MultiLevelWildcard,
+                    expect: PatternSummary {
+                        patterns: vec!["sensors/#".to_string()],
+                        len: 1,
+                        is_empty: false,
+                        contains_alpha: false,
+                        contains_beta: false,
+                        contains_single_level_wildcard: false,
+                        contains_multi_level_wildcard: true,
+                        as_slice: vec!["sensors/#".to_string()],
+                        display: "'sensors/#'".to_string(),
+                    },
+                },
+            ],
+            |source| summarize(patterns_from(source)),
+        );
+    }
+
+    #[test]
+    fn test_topic_patterns_empty_cases() {
+        check_values(
+            [
+                Check {
+                    // `Single("")` still has one stored pattern, but is empty by content.
+                    scenario: "empty single reports empty by content",
+                    input: PatternSource::EmptySingle,
+                    expect: PatternSummary {
+                        patterns: vec![String::new()],
+                        len: 1,
+                        is_empty: true,
+                        contains_alpha: false,
+                        contains_beta: false,
+                        contains_single_level_wildcard: false,
+                        contains_multi_level_wildcard: false,
+                        as_slice: vec![String::new()],
+                        display: "''".to_string(),
+                    },
+                },
+                Check {
+                    scenario: "empty multiple",
+                    input: PatternSource::EmptyMultiple,
+                    expect: PatternSummary {
+                        patterns: vec![],
+                        len: 0,
+                        is_empty: true,
+                        contains_alpha: false,
+                        contains_beta: false,
+                        contains_single_level_wildcard: false,
+                        contains_multi_level_wildcard: false,
+                        as_slice: vec![],
+                        display: "[]".to_string(),
+                    },
+                },
+                Check {
+                    scenario: "all empty multiple",
+                    input: PatternSource::AllEmptyMultiple,
+                    expect: PatternSummary {
+                        patterns: vec![String::new(), String::new()],
+                        len: 2,
+                        is_empty: true,
+                        contains_alpha: false,
+                        contains_beta: false,
+                        contains_single_level_wildcard: false,
+                        contains_multi_level_wildcard: false,
+                        as_slice: vec![String::new(), String::new()],
+                        display: "['', '']".to_string(),
+                    },
+                },
+                Check {
+                    scenario: "mixed empty multiple",
+                    input: PatternSource::MixedEmptyMultiple,
+                    expect: PatternSummary {
+                        patterns: vec![String::new(), "alpha".to_string()],
+                        len: 2,
+                        is_empty: false,
+                        contains_alpha: true,
+                        contains_beta: false,
+                        contains_single_level_wildcard: false,
+                        contains_multi_level_wildcard: false,
+                        as_slice: vec![String::new(), "alpha".to_string()],
+                        display: "['', 'alpha']".to_string(),
+                    },
+                },
+            ],
+            |source| summarize(patterns_from(source)),
+        );
+    }
+}

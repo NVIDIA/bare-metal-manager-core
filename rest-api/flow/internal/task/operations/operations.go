@@ -75,7 +75,7 @@ type PowerControlTaskInfo struct {
 	RuleID    string         `json:"rule_id,omitempty"`
 	// OverrideReadinessCheck, when true, instructs the component manager
 	// to skip the readiness gate that normally blocks power operations
-	// against components whose persisted ComponentStatus reports them as
+	// against components whose persisted ComponentOperationStatus reports them as
 	// not ready for the operation. The bypass is intended for operator-
 	// supervised maintenance windows and is recorded as a warning log on
 	// the worker that executes the task; authorisation lives upstream.
@@ -229,7 +229,7 @@ type FirmwareControlTaskInfo struct {
 	SubTargets []string `json:"sub_targets,omitempty"`
 	// OverrideReadinessCheck, when true, instructs the component manager
 	// to skip the readiness gate that normally blocks firmware updates
-	// against components whose persisted ComponentStatus reports them as
+	// against components whose persisted ComponentOperationStatus reports them as
 	// not ready for the operation. Intended for operator-supervised
 	// maintenance windows and recorded as a warning log on the worker
 	// that executes the task; authorisation lives upstream.

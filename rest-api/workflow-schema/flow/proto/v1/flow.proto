@@ -205,6 +205,39 @@ enum TaskExecutorType {
     TASK_EXECUTOR_TYPE_TEMPORAL = 1;
 }
 
+// Phase is the coarse lifecycle bucket a component is in, derived from
+// core's per-component state machine. Shared across compute, nvswitch,
+// and power shelf.
+enum Phase {
+    PHASE_UNKNOWN = 0;
+    PHASE_INITIALIZING = 1;
+    PHASE_READY = 2;
+    PHASE_IN_USE = 3;
+    PHASE_ERROR = 4;
+    PHASE_DELETING = 5;
+}
+
+// LeakStatus is Flow's view of whether coolant leak detection has fired for
+// a component. The leak-detection loop sets it from core's tray-leak-detection
+// health alert; LEAK_STATUS_UNKNOWN is the resting value for components the
+// loop has not yet evaluated.
+enum LeakStatus {
+    LEAK_STATUS_UNKNOWN = 0;
+    LEAK_STATUS_DETECTED = 1;
+    LEAK_STATUS_NOT_DETECTED = 2;
+}
+
+// ComponentOperationStatus is Flow's view of a component's operability. The
+// inventory loop computes it on every sync from core's controller_state.
+message ComponentOperationStatus {
+    Phase phase = 1;
+    // Human-readable detail (typically the raw core state string).
+    string reason = 2;
+    // Operations Flow will reject while the component is in this status.
+    // Empty when phase is READY.
+    repeated OperationType blocked_operations = 3;
+}
+
 message Component {
     ComponentType type = 1;
     DeviceInfo info = 2;
@@ -214,6 +247,8 @@ message Component {
     string component_id = 6;  // Component's own ID from its source system (e.g., NICo machine_id for Compute)
     UUID rack_id = 7;
     string power_state = 8;  // Current power state (synced from external system by inventory loop)
+    ComponentOperationStatus status = 9;
+    LeakStatus leak_status = 10;  // Coolant leak detection status (set by the leak-detection loop)
 }
 
 message Rack {
@@ -448,7 +483,7 @@ message UpgradeFirmwareRequest {
     // When true, proceed with the firmware update even if one or more
     // target components (or, for rack-scoped components, any host on the
     // owning rack) are reported as not ready for the operation by their
-    // persisted ComponentStatus. The flag is intended for operator-
+    // persisted ComponentOperationStatus. The flag is intended for operator-
     // supervised maintenance windows where the tenant impact has been
     // acknowledged out-of-band; setting it bypasses the readiness gate
     // that would otherwise block disruptive operations against tenanted
@@ -598,7 +633,7 @@ message PowerOnRackRequest {
     // When true, proceed with the power-on even if one or more target
     // components (or, for rack-scoped components, any host on the owning
     // rack) are reported as not ready for the operation by their
-    // persisted ComponentStatus. Intended for operator-supervised
+    // persisted ComponentOperationStatus. Intended for operator-supervised
     // maintenance where tenant impact has been acknowledged out-of-band;
     // the bypass is recorded in the server log.
     bool override_readiness_check = 5;
@@ -613,7 +648,7 @@ message PowerOffRackRequest {
     // When true, proceed with the power-off even if one or more target
     // components (or, for rack-scoped components, any host on the owning
     // rack) are reported as not ready for the operation by their
-    // persisted ComponentStatus. Intended for operator-supervised
+    // persisted ComponentOperationStatus. Intended for operator-supervised
     // maintenance where tenant impact has been acknowledged out-of-band;
     // the bypass is recorded in the server log.
     bool override_readiness_check = 6;
@@ -628,7 +663,7 @@ message PowerResetRackRequest {
     // When true, proceed with the reset even if one or more target
     // components (or, for rack-scoped components, any host on the owning
     // rack) are reported as not ready for the operation by their
-    // persisted ComponentStatus. Intended for operator-supervised
+    // persisted ComponentOperationStatus. Intended for operator-supervised
     // maintenance where tenant impact has been acknowledged out-of-band;
     // the bypass is recorded in the server log.
     bool override_readiness_check = 6;
@@ -641,7 +676,7 @@ message BringUpRackRequest {
     // When true, allow the bring-up sequence (which may power-cycle hosts
     // and reset rack-scoped components) to proceed even if any host in
     // scope is reported as not ready for the operation by its persisted
-    // ComponentStatus. Intended for operator-supervised maintenance where
+    // ComponentOperationStatus. Intended for operator-supervised maintenance where
     // tenant impact has been acknowledged out-of-band; the bypass is
     // recorded in the server log.
     bool override_readiness_check = 4;

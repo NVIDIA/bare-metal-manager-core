@@ -1162,6 +1162,7 @@ dependencies = [
  "carbide-dpa-manager",
  "carbide-dpf",
  "carbide-firmware",
+ "carbide-health-metrics",
  "carbide-health-report",
  "carbide-host-support",
  "carbide-ib-fabric",
@@ -1367,6 +1368,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-ipxe-renderer",
  "carbide-libmlx-model",
+ "carbide-macros",
  "carbide-network",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -1465,6 +1467,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
+ "carbide-test-harness",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -1517,6 +1520,7 @@ dependencies = [
  "bytes",
  "carbide-authn",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-version",
@@ -1726,6 +1730,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "carbide-test-support",
  "carbide-uuid",
  "clap",
  "dashmap",
@@ -1867,6 +1872,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-macros",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "futures-util",
  "hex",
@@ -1931,6 +1937,7 @@ dependencies = [
  "base64",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2001,6 +2008,7 @@ dependencies = [
  "carbide-libmlx",
  "carbide-rpc",
  "carbide-rpc-utils",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2384,6 +2392,9 @@ dependencies = [
 name = "carbide-network"
 version = "0.0.0"
 dependencies = [
+ "carbide-macros",
+ "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "ipnet",
  "ipnetwork",
@@ -2682,6 +2693,7 @@ dependencies = [
  "byte-unit",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "config-version",
@@ -2804,7 +2816,6 @@ dependencies = [
  "async-trait",
  "bmc-explorer",
  "bmc-vendor",
- "carbide-api-core",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
@@ -2814,6 +2825,7 @@ dependencies = [
  "carbide-redfish",
  "carbide-rpc",
  "carbide-secrets",
+ "carbide-site-explorer",
  "carbide-test-harness",
  "carbide-test-support",
  "carbide-utils",
@@ -3009,12 +3021,14 @@ dependencies = [
  "carbide-api-model",
  "carbide-macros",
  "carbide-network-segment-controller",
+ "carbide-site-explorer",
  "carbide-sqlx-testing",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
  "ctor",
  "ipnetwork",
+ "mac_address",
  "sqlx",
  "state-controller",
  "tokio",
@@ -3031,6 +3045,7 @@ version = "0.0.0"
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "rustls",
  "serde",
  "serde_json",
@@ -3064,6 +3079,7 @@ dependencies = [
 name = "carbide-uuid"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "data-encoding",
  "eyre",
  "prost",
@@ -3496,6 +3512,7 @@ dependencies = [
 name = "config-version"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",
@@ -4316,6 +4333,7 @@ name = "dns-record"
 version = "0.1.0"
 dependencies = [
  "assert-json-diff",
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",
@@ -7015,6 +7033,7 @@ name = "mqttea"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-test-support",
  "chrono",
  "clap",
  "oauth2",
@@ -8544,6 +8563,7 @@ dependencies = [
 name = "prometheus-text-parser"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "thiserror 2.0.18",
 ]
 

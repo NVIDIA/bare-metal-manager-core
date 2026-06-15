@@ -42,6 +42,10 @@ type Tray struct {
 	FirmwareVersion *string `json:"firmwareVersion,omitempty"`
 	// Current power state of the tray
 	PowerState *string `json:"powerState,omitempty"`
+	// Flow-derived operability phase of the tray
+	OperationStatus *string `json:"operationStatus,omitempty"`
+	// Whether the tray is considered leaking coolant
+	LeakStatus *string `json:"leakStatus,omitempty"`
 	// Position of the Tray within the Rack
 	Position *TrayPosition `json:"position,omitempty"`
 	// BMC (Baseboard Management Controller) entries for the tray
@@ -387,6 +391,70 @@ func (o *Tray) SetPowerState(v string) {
 	o.PowerState = &v
 }
 
+// GetOperationStatus returns the OperationStatus field value if set, zero value otherwise.
+func (o *Tray) GetOperationStatus() string {
+	if o == nil || IsNil(o.OperationStatus) {
+		var ret string
+		return ret
+	}
+	return *o.OperationStatus
+}
+
+// GetOperationStatusOk returns a tuple with the OperationStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Tray) GetOperationStatusOk() (*string, bool) {
+	if o == nil || IsNil(o.OperationStatus) {
+		return nil, false
+	}
+	return o.OperationStatus, true
+}
+
+// HasOperationStatus returns a boolean if a field has been set.
+func (o *Tray) HasOperationStatus() bool {
+	if o != nil && !IsNil(o.OperationStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetOperationStatus gets a reference to the given string and assigns it to the OperationStatus field.
+func (o *Tray) SetOperationStatus(v string) {
+	o.OperationStatus = &v
+}
+
+// GetLeakStatus returns the LeakStatus field value if set, zero value otherwise.
+func (o *Tray) GetLeakStatus() string {
+	if o == nil || IsNil(o.LeakStatus) {
+		var ret string
+		return ret
+	}
+	return *o.LeakStatus
+}
+
+// GetLeakStatusOk returns a tuple with the LeakStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Tray) GetLeakStatusOk() (*string, bool) {
+	if o == nil || IsNil(o.LeakStatus) {
+		return nil, false
+	}
+	return o.LeakStatus, true
+}
+
+// HasLeakStatus returns a boolean if a field has been set.
+func (o *Tray) HasLeakStatus() bool {
+	if o != nil && !IsNil(o.LeakStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetLeakStatus gets a reference to the given string and assigns it to the LeakStatus field.
+func (o *Tray) SetLeakStatus(v string) {
+	o.LeakStatus = &v
+}
+
 // GetPosition returns the Position field value if set, zero value otherwise.
 func (o *Tray) GetPosition() TrayPosition {
 	if o == nil || IsNil(o.Position) {
@@ -522,6 +590,12 @@ func (o Tray) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.PowerState) {
 		toSerialize["powerState"] = o.PowerState
+	}
+	if !IsNil(o.OperationStatus) {
+		toSerialize["operationStatus"] = o.OperationStatus
+	}
+	if !IsNil(o.LeakStatus) {
+		toSerialize["leakStatus"] = o.LeakStatus
 	}
 	if !IsNil(o.Position) {
 		toSerialize["position"] = o.Position

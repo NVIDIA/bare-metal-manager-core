@@ -44,6 +44,7 @@ use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
+use health_report::HealthAlertClassification;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use libmlx::firmware::config::FirmwareFlasherProfile;
@@ -384,6 +385,11 @@ pub struct CarbideConfig {
     /// and DPU agent version compliance.
     #[serde(default)]
     pub host_health: HostHealthConfig,
+
+    /// Observability settings shared across all state controllers, e.g.
+    /// opt-in per-object metrics.
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 
     /// Network infrastructure-provided L3 VNI for FNN VPC Internet
     /// connectivity. Combined with `datacenter_asn` to form
@@ -762,6 +768,17 @@ impl CarbideConfig {
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
         }
     }
+}
+
+/// Observability settings shared across all state controllers.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ObservabilityConfig {
+    /// Health alert classifications for which an additional per-object metric
+    /// (`carbide_object_unhealthy_by_classification_count`) is emitted,
+    /// labeled with the object's type and id (e.g. `object_type="machine"`,
+    /// `object_id="<machine_id>"`).
+    #[serde(default)]
+    pub per_object_metrics_for_classifications: Vec<HealthAlertClassification>,
 }
 
 /// One external tool link rendered in the admin web UI's "Tools"
@@ -2369,6 +2386,7 @@ mod tests {
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
+    use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
     use model::expected_machine::DpuMode;
@@ -2960,6 +2978,15 @@ mod tests {
             }
         );
         assert_eq!(
+            config.observability,
+            ObservabilityConfig {
+                per_object_metrics_for_classifications: vec![
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
+                ],
+            }
+        );
+        assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
                 controller: StateControllerConfig {
@@ -3284,6 +3311,15 @@ mod tests {
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
+            config.observability,
+            ObservabilityConfig {
+                per_object_metrics_for_classifications: vec![
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
+                ],
             }
         );
         assert_eq!(

@@ -235,7 +235,7 @@ impl From<StatusReportPb> for StatusReport {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
 
@@ -244,28 +244,22 @@ mod coverage_tests {
     // arms of the `rename_all = "lowercase"` encoding via a stable equality.
     #[test]
     fn lock_status_round_trips_through_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: Yields(LockStatus::Locked),
-                },
-                Case {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: Yields(LockStatus::Unlocked),
-                },
-                Case {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: Yields(LockStatus::Unknown),
-                },
-            ],
-            |status: LockStatus| {
+        scenarios!(
+            run = |status: LockStatus| {
                 let json = serde_json::to_string(&status).map_err(drop)?;
                 serde_json::from_str(&json).map_err(drop)
-            },
+            };
+            "locked" {
+                LockStatus::Locked => Yields(LockStatus::Locked),
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => Yields(LockStatus::Unlocked),
+            }
+
+            "unknown" {
+                LockStatus::Unknown => Yields(LockStatus::Unknown),
+            }
         );
     }
 
@@ -274,25 +268,19 @@ mod coverage_tests {
     // the right assertion.
     #[test]
     fn lock_status_serializes_to_lowercase_token() {
-        check_cases(
-            [
-                Case {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: Yields("\"locked\"".to_string()),
-                },
-                Case {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: Yields("\"unlocked\"".to_string()),
-                },
-                Case {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: Yields("\"unknown\"".to_string()),
-                },
-            ],
-            |status: LockStatus| serde_json::to_string(&status).map_err(drop),
+        scenarios!(
+            run = |status: LockStatus| serde_json::to_string(&status).map_err(drop);
+            "locked" {
+                LockStatus::Locked => Yields("\"locked\"".to_string()),
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => Yields("\"unlocked\"".to_string()),
+            }
+
+            "unknown" {
+                LockStatus::Unknown => Yields("\"unknown\"".to_string()),
+            }
         );
     }
 
@@ -301,30 +289,23 @@ mod coverage_tests {
     // rejection path.
     #[test]
     fn lock_status_deserializes_each_token() {
-        check_cases(
-            [
-                Case {
-                    scenario: "locked",
-                    input: "\"locked\"",
-                    expect: Yields(LockStatus::Locked),
-                },
-                Case {
-                    scenario: "unlocked",
-                    input: "\"unlocked\"",
-                    expect: Yields(LockStatus::Unlocked),
-                },
-                Case {
-                    scenario: "unknown",
-                    input: "\"unknown\"",
-                    expect: Yields(LockStatus::Unknown),
-                },
-                Case {
-                    scenario: "an unrecognized token is rejected",
-                    input: "\"bogus\"",
-                    expect: Fails,
-                },
-            ],
-            |raw: &str| serde_json::from_str::<LockStatus>(raw).map_err(drop),
+        scenarios!(
+            run = |raw: &str| serde_json::from_str::<LockStatus>(raw).map_err(drop);
+            "locked" {
+                "\"locked\"" => Yields(LockStatus::Locked),
+            }
+
+            "unlocked" {
+                "\"unlocked\"" => Yields(LockStatus::Unlocked),
+            }
+
+            "unknown" {
+                "\"unknown\"" => Yields(LockStatus::Unknown),
+            }
+
+            "an unrecognized token is rejected" {
+                "\"bogus\"" => Fails,
+            }
         );
     }
 
@@ -333,50 +314,38 @@ mod coverage_tests {
     // numbers (UNKNOWN=0, LOCKED=1, UNLOCKED=2) without relying on Pb being PartialEq.
     #[test]
     fn lock_status_into_pb_discriminant() {
-        check_values(
-            [
-                Check {
-                    scenario: "locked -> 1",
-                    input: LockStatus::Locked,
-                    expect: 1,
-                },
-                Check {
-                    scenario: "unlocked -> 2",
-                    input: LockStatus::Unlocked,
-                    expect: 2,
-                },
-                Check {
-                    scenario: "unknown -> 0",
-                    input: LockStatus::Unknown,
-                    expect: 0,
-                },
-            ],
-            |status: LockStatus| LockStatusPb::from(status) as i32,
+        value_scenarios!(
+            run = |status: LockStatus| LockStatusPb::from(status) as i32;
+            "locked -> 1" {
+                LockStatus::Locked => 1,
+            }
+
+            "unlocked -> 2" {
+                LockStatus::Unlocked => 2,
+            }
+
+            "unknown -> 0" {
+                LockStatus::Unknown => 0,
+            }
         );
     }
 
     // LockStatusPb -> LockStatus covers every match arm of the reverse conversion.
     #[test]
     fn lock_status_from_pb() {
-        check_values(
-            [
-                Check {
-                    scenario: "Locked",
-                    input: LockStatusPb::Locked,
-                    expect: LockStatus::Locked,
-                },
-                Check {
-                    scenario: "Unlocked",
-                    input: LockStatusPb::Unlocked,
-                    expect: LockStatus::Unlocked,
-                },
-                Check {
-                    scenario: "Unknown",
-                    input: LockStatusPb::Unknown,
-                    expect: LockStatus::Unknown,
-                },
-            ],
-            LockStatus::from,
+        value_scenarios!(
+            run = LockStatus::from;
+            "Locked" {
+                LockStatusPb::Locked => LockStatus::Locked,
+            }
+
+            "Unlocked" {
+                LockStatusPb::Unlocked => LockStatus::Unlocked,
+            }
+
+            "Unknown" {
+                LockStatusPb::Unknown => LockStatus::Unknown,
+            }
         );
     }
 
@@ -385,25 +354,19 @@ mod coverage_tests {
     // inverses without depending on the pb type being PartialEq.
     #[test]
     fn lock_status_round_trips_through_pb() {
-        check_values(
-            [
-                Check {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: LockStatus::Locked,
-                },
-                Check {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: LockStatus::Unlocked,
-                },
-                Check {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: LockStatus::Unknown,
-                },
-            ],
-            |status: LockStatus| LockStatus::from(LockStatusPb::from(status)),
+        value_scenarios!(
+            run = |status: LockStatus| LockStatus::from(LockStatusPb::from(status));
+            "locked" {
+                LockStatus::Locked => LockStatus::Locked,
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => LockStatus::Unlocked,
+            }
+
+            "unknown" {
+                LockStatus::Unknown => LockStatus::Unknown,
+            }
         );
     }
 
@@ -412,37 +375,8 @@ mod coverage_tests {
     // of the fields we are sure about, keyed by status variant.
     #[test]
     fn status_report_into_pb_preserves_fields() {
-        check_values(
-            [
-                Check {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: (
-                        "dev-a".to_string(),
-                        1,
-                        "2026-01-01T00:00:00+00:00".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: (
-                        "dev-a".to_string(),
-                        2,
-                        "2026-01-01T00:00:00+00:00".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: (
-                        "dev-a".to_string(),
-                        0,
-                        "2026-01-01T00:00:00+00:00".to_string(),
-                    ),
-                },
-            ],
-            |status: LockStatus| {
+        value_scenarios!(
+            run = |status: LockStatus| {
                 let report = StatusReport {
                     device_id: "dev-a".to_string(),
                     status,
@@ -450,7 +384,30 @@ mod coverage_tests {
                 };
                 let pb = StatusReportPb::from(report);
                 (pb.device_id, pb.status, pb.timestamp)
-            },
+            };
+            "locked" {
+                LockStatus::Locked => (
+                    "dev-a".to_string(),
+                    1,
+                    "2026-01-01T00:00:00+00:00".to_string(),
+                ),
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => (
+                    "dev-a".to_string(),
+                    2,
+                    "2026-01-01T00:00:00+00:00".to_string(),
+                ),
+            }
+
+            "unknown" {
+                LockStatus::Unknown => (
+                    "dev-a".to_string(),
+                    0,
+                    "2026-01-01T00:00:00+00:00".to_string(),
+                ),
+            }
         );
     }
 
@@ -460,35 +417,8 @@ mod coverage_tests {
     // timestamp pass through unchanged; we project (device_id, status, timestamp).
     #[test]
     fn status_report_from_pb_maps_status_and_coerces_invalid() {
-        check_values(
-            [
-                Check {
-                    scenario: "0 -> Unknown",
-                    input: 0,
-                    expect: ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
-                },
-                Check {
-                    scenario: "1 -> Locked",
-                    input: 1,
-                    expect: ("dev-b".to_string(), LockStatus::Locked, "ts".to_string()),
-                },
-                Check {
-                    scenario: "2 -> Unlocked",
-                    input: 2,
-                    expect: ("dev-b".to_string(), LockStatus::Unlocked, "ts".to_string()),
-                },
-                Check {
-                    scenario: "out-of-range discriminant coerces to Unknown",
-                    input: 99,
-                    expect: ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
-                },
-                Check {
-                    scenario: "negative discriminant coerces to Unknown",
-                    input: -1,
-                    expect: ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
-                },
-            ],
-            |status_i32: i32| {
+        value_scenarios!(
+            run = |status_i32: i32| {
                 let pb = StatusReportPb {
                     device_id: "dev-b".to_string(),
                     status: status_i32,
@@ -496,7 +426,26 @@ mod coverage_tests {
                 };
                 let report = StatusReport::from(pb);
                 (report.device_id, report.status, report.timestamp)
-            },
+            };
+            "0 -> Unknown" {
+                0 => ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
+            }
+
+            "1 -> Locked" {
+                1 => ("dev-b".to_string(), LockStatus::Locked, "ts".to_string()),
+            }
+
+            "2 -> Unlocked" {
+                2 => ("dev-b".to_string(), LockStatus::Unlocked, "ts".to_string()),
+            }
+
+            "out-of-range discriminant coerces to Unknown" {
+                99 => ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
+            }
+
+            "negative discriminant coerces to Unknown" {
+                -1 => ("dev-b".to_string(), LockStatus::Unknown, "ts".to_string()),
+            }
         );
     }
 
@@ -505,25 +454,8 @@ mod coverage_tests {
     // From impls as inverses.
     #[test]
     fn status_report_round_trips_through_pb() {
-        check_values(
-            [
-                Check {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: ("d".to_string(), LockStatus::Locked, "t".to_string()),
-                },
-                Check {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: ("d".to_string(), LockStatus::Unlocked, "t".to_string()),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: ("d".to_string(), LockStatus::Unknown, "t".to_string()),
-                },
-            ],
-            |status: LockStatus| {
+        value_scenarios!(
+            run = |status: LockStatus| {
                 let report = StatusReport {
                     device_id: "d".to_string(),
                     status,
@@ -531,7 +463,18 @@ mod coverage_tests {
                 };
                 let back = StatusReport::from(StatusReportPb::from(report));
                 (back.device_id, back.status, back.timestamp)
-            },
+            };
+            "locked" {
+                LockStatus::Locked => ("d".to_string(), LockStatus::Locked, "t".to_string()),
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => ("d".to_string(), LockStatus::Unlocked, "t".to_string()),
+            }
+
+            "unknown" {
+                LockStatus::Unknown => ("d".to_string(), LockStatus::Unknown, "t".to_string()),
+            }
         );
     }
 
@@ -552,30 +495,24 @@ mod coverage_tests {
     // project) and proves the JSON is well-formed for every status variant.
     #[test]
     fn status_report_to_json_round_trips() {
-        check_cases(
-            [
-                Case {
-                    scenario: "locked",
-                    input: LockStatus::Locked,
-                    expect: Yields(("dev-j".to_string(), LockStatus::Locked)),
-                },
-                Case {
-                    scenario: "unlocked",
-                    input: LockStatus::Unlocked,
-                    expect: Yields(("dev-j".to_string(), LockStatus::Unlocked)),
-                },
-                Case {
-                    scenario: "unknown",
-                    input: LockStatus::Unknown,
-                    expect: Yields(("dev-j".to_string(), LockStatus::Unknown)),
-                },
-            ],
-            |status: LockStatus| {
+        scenarios!(
+            run = |status: LockStatus| {
                 let report = StatusReport::new("dev-j".to_string(), status);
                 let json = report.to_json().map_err(drop)?;
                 let back: StatusReport = serde_json::from_str(&json).map_err(drop)?;
                 Ok::<_, ()>((back.device_id, back.status))
-            },
+            };
+            "locked" {
+                LockStatus::Locked => Yields(("dev-j".to_string(), LockStatus::Locked)),
+            }
+
+            "unlocked" {
+                LockStatus::Unlocked => Yields(("dev-j".to_string(), LockStatus::Unlocked)),
+            }
+
+            "unknown" {
+                LockStatus::Unknown => Yields(("dev-j".to_string(), LockStatus::Unknown)),
+            }
         );
     }
 
@@ -632,25 +569,19 @@ mod coverage_tests {
         let manager = LockdownManager::with_runner(runner);
 
         // lock_device validates first, then would dry-run.
-        check_values(
-            [
-                Check {
-                    scenario: "empty id is rejected before the runner",
-                    input: "",
-                    expect: "InvalidDeviceId",
-                },
-                Check {
-                    scenario: "id with a space is rejected before the runner",
-                    input: "dev 0",
-                    expect: "InvalidDeviceId",
-                },
-                Check {
-                    scenario: "a valid id passes validation and reaches the dry-run",
-                    input: "0000:01:00.0",
-                    expect: "DryRun",
-                },
-            ],
-            |device_id: &str| kind(manager.lock_device(device_id, "12345678")),
+        value_scenarios!(
+            run = |device_id: &str| kind(manager.lock_device(device_id, "12345678"));
+            "empty id is rejected before the runner" {
+                "" => "InvalidDeviceId",
+            }
+
+            "id with a space is rejected before the runner" {
+                "dev 0" => "InvalidDeviceId",
+            }
+
+            "a valid id passes validation and reaches the dry-run" {
+                "0000:01:00.0" => "DryRun",
+            }
         );
     }
 
@@ -671,25 +602,19 @@ mod coverage_tests {
         let runner = FlintRunner::with_path("flint").with_dry_run(true);
         let manager = LockdownManager::with_runner(runner);
 
-        check_values(
-            [
-                Check {
-                    scenario: "empty id",
-                    input: "",
-                    expect: "InvalidDeviceId",
-                },
-                Check {
-                    scenario: "id with a space",
-                    input: "bad id",
-                    expect: "InvalidDeviceId",
-                },
-                Check {
-                    scenario: "valid id reaches the dry-run query",
-                    input: "mlx5_0",
-                    expect: "DryRun",
-                },
-            ],
-            |device_id: &str| kind(manager.get_status(device_id)),
+        value_scenarios!(
+            run = |device_id: &str| kind(manager.get_status(device_id));
+            "empty id" {
+                "" => "InvalidDeviceId",
+            }
+
+            "id with a space" {
+                "bad id" => "InvalidDeviceId",
+            }
+
+            "valid id reaches the dry-run query" {
+                "mlx5_0" => "DryRun",
+            }
         );
     }
 }
