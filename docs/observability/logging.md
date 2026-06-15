@@ -60,12 +60,12 @@ Most NICo components use [logfmt](https://brandur.org/logfmt) - a line-oriented 
 space-separated `key=value` pairs, easy for both humans and machines to parse.
 
 **Event lines** — one per log call:
-```
+```logfmt
 level=INFO component=nico-api span_id=0x4f… msg="Starting reconciliation" location="handlers/machine.rs:142"
 ```
 
 **Span lines** — emitted when a unit of work closes (`level=SPAN`), carrying timing data:
-```
+```logfmt
 level=SPAN component=site-explorer span_id=0xf7… span_name=explore_site timing_elapsed_us=1523 timing_busy_ns=1200000 timing_idle_ns=323000
 ```
 
@@ -88,7 +88,7 @@ without enabling full distributed tracing.
 
 On logfmt lines, NICo sets the `component` field to identify the emitting service or subsystem:
 
-```
+```text
 nico-api                       — API handlers, DB, startup: anything not in a subsystem below
 ├── site-explorer
 ├── machine_state_controller
@@ -144,7 +144,7 @@ nico-dns uses `tracing-subscriber`'s JSON formatter. Each line is a self-contain
 nico-ssh-console uses `tracing-subscriber`'s compact formatter - a human-readable single-line
 format similar to traditional log output:
 
-```
+```text
 2026-01-15T10:23:45.123Z  INFO carbide_ssh_console: Session started session_id=abc-123
 ```
 
@@ -162,7 +162,7 @@ tracing output.
 When a BMC console session is established, nico-ssh-console streams the serial output to a
 per-machine log file:
 
-```
+```text
 /var/log/consoles/<machine-id>_<bmc-ip>.log
 ```
 
@@ -226,7 +226,7 @@ carbide-bmc-proxy --debug --config-path /etc/carbide/bmc-proxy.toml
 NICo components automatically suppress verbose output from common dependencies. For example,
 nico-api applies these directives by default:
 
-```
+```text
 sqlxmq::runner=warn,sqlx::query=warn,rustify=off,hyper=error,rustls=warn,h2=warn,vaultrs=error
 ```
 
@@ -295,7 +295,7 @@ reads pod log files and exports them to your backend. This is the standard Kuber
 and works with any OTLP-compatible backend: Grafana Loki, Elasticsearch, VictoriaLogs, Datadog,
 Splunk, etc.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Node                                                                   │
 │  ┌──────────────┐    stdout    ┌──────────────┐                         │
@@ -693,7 +693,7 @@ components at once.
 
 The current log filter is visible in nico-api's startup log and via the admin API. Look for:
 
-```
+```logfmt
 level=INFO msg="current log level: info,carbide=debug" location="setup.rs:142"
 ```
 
