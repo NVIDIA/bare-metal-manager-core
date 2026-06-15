@@ -645,7 +645,7 @@ Use the Datadog exporter or OTLP endpoint. Datadog automatically parses common l
 |---------|-------|-----|
 | No logs from a component | Container not running, or stdout not captured | `kubectl logs <pod>` to verify. Check container status. |
 | Logs not reaching backend | Collector not running, or exporter misconfigured | Check collector logs: `kubectl logs -l app=opentelemetry-collector`. Verify exporter endpoint. |
-| Missing fields in backend | logfmt not parsed | Add a transform processor to parse logfmt, or query with `| logfmt` in Loki. |
+| Missing fields in backend | logfmt not parsed | Add a transform processor to parse logfmt, or use Loki's `logfmt` parser in queries. |
 | Too many DEBUG logs | `RUST_LOG` set too verbose, or runtime filter left on | Check `RUST_LOG` env var. For nico-api, runtime filter auto-expires; wait or set a less verbose filter. |
 | Log level change didn't take effect | Changed wrong component, or typo in filter | Runtime changes only work for nico-api. Verify filter syntax matches `EnvFilter` rules. |
 | Logs are truncated | Log line too long for collector buffer | Increase `max_log_size` in filelog receiver config. |
