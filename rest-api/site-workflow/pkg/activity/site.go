@@ -51,7 +51,7 @@ func (msi *ManageSiteIPBlockInventory) DiscoverSiteIPBlockInventory(ctx context.
 	}
 
 	if _, err = msi.config.TemporalPublishClient.ExecuteWorkflow(
-		context.Background(),
+		ctx,
 		workflowOptions,
 		updateSiteIPBlockInventoryWorkflowName,
 		msi.config.SiteID.String(),

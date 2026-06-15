@@ -17,8 +17,14 @@ func (api *API) RegisterPublisher() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DiscoverSiteIPBlockInventory)
 	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteIPBlockInventory workflow")
 
+	siteID, err := uuid.Parse(ManagerAccess.Conf.EB.Temporal.ClusterID)
+	if err != nil {
+		ManagerAccess.Data.EB.Log.Error().Err(err).Msg("Site: invalid Temporal ClusterID")
+		return err
+	}
+
 	inventoryManager := swa.NewManageSiteIPBlockInventory(swa.ManageInventoryConfig{
-		SiteID:                uuid.MustParse(ManagerAccess.Conf.EB.Temporal.ClusterID),
+		SiteID:                siteID,
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
@@ -27,6 +33,5 @@ func (api *API) RegisterPublisher() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(inventoryManager.DiscoverSiteIPBlockInventory)
 	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteIPBlockInventory activity")
 
-	api.RegisterCron()
-	return nil
+	return api.RegisterCron()
 }

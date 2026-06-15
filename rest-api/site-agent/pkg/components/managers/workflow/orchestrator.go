@@ -215,7 +215,10 @@ func workflowOrchestrator() error {
 
 	// Register all manager flows here
 	// TODO: all RegisterSubscriber calls return an error and we ignore them. Should we?
-	ManagerAccess.API.Site.RegisterPublisher()
+	if err := ManagerAccess.API.Site.RegisterPublisher(); err != nil {
+		log.Error().Err(err).Msg("Site: failed to register publisher")
+		return err
+	}
 
 	ManagerAccess.API.VPC.RegisterSubscriber()
 	ManagerAccess.API.VPC.RegisterPublisher()

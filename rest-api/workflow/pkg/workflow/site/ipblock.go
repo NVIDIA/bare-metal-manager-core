@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
+	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -17,12 +17,12 @@ import (
 // UpdateSiteIPBlockInventory creates Site-level IP Blocks from Site fabric
 // prefixes reported by the Site Agent.
 func UpdateSiteIPBlockInventory(ctx workflow.Context, siteIDStr string, siteFabricPrefixes []string) error {
-	logger := log.With().Str("Workflow", "UpdateSiteIPBlockInventory").Str("SiteID", siteIDStr).Logger()
-	logger.Info().Msg("starting workflow")
+	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "UpdateSiteIPBlockInventory", "SiteID", siteIDStr)
+	logger.Info("starting workflow")
 
 	siteID, err := uuid.Parse(siteIDStr)
 	if err != nil {
-		logger.Error().Err(err).Msg("invalid Site ID")
+		logger.Error("invalid Site ID", "Error", err)
 		return err
 	}
 
@@ -41,10 +41,10 @@ func UpdateSiteIPBlockInventory(ctx workflow.Context, siteIDStr string, siteFabr
 
 	err = workflow.ExecuteActivity(ctx, manageSite.UpdateSiteIPBlocksInDB, siteID, siteFabricPrefixes).Get(ctx, nil)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute UpdateSiteIPBlocksInDB activity")
+		logger.Error("failed to execute UpdateSiteIPBlocksInDB activity", "Error", err)
 		return err
 	}
 
-	logger.Info().Msg("completing workflow")
+	logger.Info("completing workflow")
 	return nil
 }

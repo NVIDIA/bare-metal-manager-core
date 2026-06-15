@@ -66,6 +66,11 @@ func (mst ManageSite) UpdateSiteIPBlocksInDB(ctx context.Context, siteID uuid.UU
 	createdBy := dbSite.CreatedBy
 
 	err = cdb.WithTx(ctx, mst.dbSession, func(tx *cdb.Tx) error {
+		if derr := tx.AcquireAdvisoryLock(ctx, siteFabricIPBlocksLockID(dbSite), false); derr != nil {
+			logger.Error().Err(derr).Msg("failed to acquire advisory lock for Site fabric IP Blocks")
+			return derr
+		}
+
 		ipamStorage := ipam.NewIpamStorage(mst.dbSession.DB, tx.GetBunTx())
 
 		for _, ipBlock := range ipBlocks {
@@ -176,6 +181,15 @@ func parseSiteFabricIPBlocks(siteFabricPrefixes []string) ([]siteFabricIPBlock, 
 	return ipBlocks, nil
 }
 
+func siteFabricIPBlocksLockID(dbSite *cdbm.Site) uint64 {
+	return cdb.GetAdvisoryLockIDFromString(fmt.Sprintf(
+		"site-fabric-ip-blocks:%s:%s:%s",
+		dbSite.InfrastructureProviderID.String(),
+		dbSite.ID.String(),
+		cdbm.IPBlockRoutingTypeDatacenterOnly,
+	))
+}
+
 func siteFabricIPBlockExists(ctx context.Context, tx *cdb.Tx, ipBlockDAO cdbm.IPBlockDAO, dbSite *cdbm.Site, ipBlock siteFabricIPBlock) (bool, error) {
 	_, total, err := ipBlockDAO.GetAll(
 		ctx,
@@ -185,6 +199,7 @@ func siteFabricIPBlockExists(ctx context.Context, tx *cdb.Tx, ipBlockDAO cdbm.IP
 			InfrastructureProviderIDs: []uuid.UUID{dbSite.InfrastructureProviderID},
 			Prefixes:                  []string{ipBlock.prefix},
 			PrefixLengths:             []int{ipBlock.prefixLength},
+			RoutingTypes:              []string{cdbm.IPBlockRoutingTypeDatacenterOnly},
 			ExcludeDerived:            true,
 		},
 		cdbp.PageInput{Limit: cloudutils.GetPtr(1)},

@@ -143,6 +143,67 @@ func TestManageSite_UpdateSiteIPBlocksInDB_LeavesExistingManualBlock(t *testing.
 	assert.Equal(t, "manual-site-block", ipBlocks[0].Name)
 }
 
+func TestManageSite_UpdateSiteIPBlocksInDB_CreatesDatacenterOnlyBlockWhenOtherRoutingTypeExists(t *testing.T) {
+	ctx := context.Background()
+	resources := setupSiteFabricIPBlockTest(t)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+
+	existing := util.TestBuildBuildIPBlock(
+		t,
+		resources.dbSession,
+		"public-site-block",
+		resources.site,
+		resources.provider,
+		nil,
+		cdbm.IPBlockRoutingTypePublic,
+		"172.16.0.0",
+		12,
+		cdbm.IPBlockProtocolVersionV4,
+		false,
+		cdbm.IPBlockStatusReady,
+		resources.user,
+	)
+
+	require.NoError(t, mst.UpdateSiteIPBlocksInDB(ctx, resources.site.ID, []string{"172.16.0.0/12"}))
+
+	ipBlocks := getSiteFabricIPBlocks(t, ctx, resources)
+	require.Len(t, ipBlocks, 2)
+
+	ipBlocksByRoutingType := map[string]cdbm.IPBlock{}
+	for _, ipBlock := range ipBlocks {
+		ipBlocksByRoutingType[ipBlock.RoutingType] = ipBlock
+	}
+
+	require.Contains(t, ipBlocksByRoutingType, cdbm.IPBlockRoutingTypePublic)
+	require.Contains(t, ipBlocksByRoutingType, cdbm.IPBlockRoutingTypeDatacenterOnly)
+	assert.Equal(t, existing.ID, ipBlocksByRoutingType[cdbm.IPBlockRoutingTypePublic].ID)
+	assertSiteFabricIPBlock(
+		t,
+		ipBlocksByRoutingType[cdbm.IPBlockRoutingTypeDatacenterOnly],
+		"site-fabric-ipv4-172-16-0-0-12",
+		cdbm.IPBlockProtocolVersionV4,
+	)
+}
+
+func TestManageSite_UpdateSiteIPBlocksInDB_ReturnsErrorWhenFabricBlockLockHeld(t *testing.T) {
+	ctx := context.Background()
+	resources := setupSiteFabricIPBlockTest(t)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+
+	err := cdb.WithTx(ctx, resources.dbSession, func(tx *cdb.Tx) error {
+		require.NoError(t, tx.AcquireAdvisoryLock(ctx, siteFabricIPBlocksLockID(resources.site), false))
+
+		derr := mst.UpdateSiteIPBlocksInDB(ctx, resources.site.ID, []string{"10.0.0.0/16"})
+		assert.ErrorIs(t, derr, cdb.ErrXactAdvisoryLockFailed)
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	ipBlocks := getSiteFabricIPBlocks(t, ctx, resources)
+	assert.Empty(t, ipBlocks)
+}
+
 func TestManageSite_UpdateSiteIPBlocksInDB_InvalidPrefixDoesNotCreateBlocks(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)

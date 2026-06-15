@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	"github.com/rs/zerolog/log"
+	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -15,9 +15,9 @@ import (
 // DiscoverSiteIPBlockInventory collects Site fabric prefixes and publishes
 // them to Cloud workflow for Site-level IP Block creation.
 func DiscoverSiteIPBlockInventory(ctx workflow.Context) error {
-	logger := log.With().Str("Workflow", "DiscoverSiteIPBlockInventory").Logger()
+	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "DiscoverSiteIPBlockInventory")
 
-	logger.Info().Msg("Starting workflow")
+	logger.Info("Starting workflow")
 
 	retrypolicy := &temporal.RetryPolicy{
 		InitialInterval:    2 * time.Second,
@@ -36,11 +36,11 @@ func DiscoverSiteIPBlockInventory(ctx workflow.Context) error {
 
 	err := workflow.ExecuteActivity(ctx, inventoryManager.DiscoverSiteIPBlockInventory).Get(ctx, nil)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "DiscoverSiteIPBlockInventory").Msg("Failed to execute activity from workflow")
+		logger.Error("Failed to execute activity from workflow", "Activity", "DiscoverSiteIPBlockInventory", "Error", err)
 		return err
 	}
 
-	logger.Info().Msg("Completing workflow")
+	logger.Info("Completing workflow")
 
 	return nil
 }

@@ -49,6 +49,10 @@ func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory(t *testing.T) {
 	require.NoError(t, err)
 
 	tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 1)
+	executeCtx, ok := tc.Calls[0].Arguments[0].(context.Context)
+	require.True(t, ok)
+	assert.Same(t, ctx, executeCtx)
+
 	workflowOptions, ok := tc.Calls[0].Arguments[1].(tClient.StartWorkflowOptions)
 	require.True(t, ok)
 	assert.Equal(t, "update-site-ip-block-inventory-"+siteID.String(), workflowOptions.ID)
