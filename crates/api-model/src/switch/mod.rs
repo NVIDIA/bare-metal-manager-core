@@ -84,12 +84,29 @@ pub use crate::rack::{
     SwitchNvosUpdateStatus,
 };
 
+/// Controller state value for a switch in [`SwitchControllerState::Ready`].
+pub const SWITCH_CONTROLLER_STATE_READY: &str = "ready";
+
+/// `addition_info` value reported by Fabric Manager when the NMX-C control plane is configured.
+pub const CONTROL_PLANE_STATE_CONFIGURED: &str = "CONTROL_PLANE_STATE_CONFIGURED";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FabricManagerState {
     Ok,
     NotOk,
     Unknown,
+}
+
+impl FabricManagerState {
+    /// JSON representation stored in the `fabric_manager_status` column.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::NotOk => "not_ok",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,10 +118,13 @@ pub struct FabricManagerStatus {
 }
 
 impl FabricManagerStatus {
+    pub fn is_control_plane_configured(&self) -> bool {
+        self.fabric_manager_state == FabricManagerState::Ok
+            && self.addition_info.as_deref() == Some(CONTROL_PLANE_STATE_CONFIGURED)
+    }
+
     pub fn display_status(&self) -> &'static str {
-        if self.fabric_manager_state == FabricManagerState::Ok
-            && self.addition_info.as_deref() == Some("CONTROL_PLANE_STATE_CONFIGURED")
-        {
+        if self.is_control_plane_configured() {
             "running"
         } else {
             "not_running"

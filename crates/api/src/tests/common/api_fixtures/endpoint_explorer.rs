@@ -101,7 +101,13 @@ impl EndpointExplorer for MockEndpointExplorer {
             .unwrap()
             .push(bmc_ip_address.ip());
         let guard = self.reports.lock().unwrap();
-        let res = guard.get(&bmc_ip_address.ip()).unwrap();
+        let res = guard.get(&bmc_ip_address.ip()).unwrap_or_else(|| {
+            panic!(
+                "MockEndpointExplorer has no report for {}; registered: {:?}",
+                bmc_ip_address.ip(),
+                guard.keys().collect::<Vec<_>>()
+            )
+        });
         res.clone()
     }
 

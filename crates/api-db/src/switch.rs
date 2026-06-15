@@ -22,11 +22,13 @@ use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
+use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
 use model::switch::{
-    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
+    CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
+    SWITCH_CONTROLLER_STATE_READY, Switch, SwitchControllerState, SwitchReprovisionRequest,
 };
 use sqlx::PgConnection;
 
@@ -241,6 +243,41 @@ pub async fn find_ids(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("switch::find_ids", e))
+}
+
+/// Returns non-deleted switches in `rack_id` whose controller state is Ready and whose
+/// Fabric Manager status reports `fabric_manager_state = ok` with
+/// `addition_info = CONTROL_PLANE_STATE_CONFIGURED`.
+pub async fn find_ready_control_plane_configured_switch_ids_in_rack<DB>(
+    txn: &mut DB,
+    rack_id: &RackId,
+) -> DatabaseResult<Vec<SwitchId>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let query = r#"
+        SELECT s.id
+        FROM switches s
+        WHERE s.rack_id = $1
+          AND s.deleted IS NULL
+          AND s.controller_state->>'state' = $2
+          AND s.fabric_manager_status->>'fabric_manager_state' = $3
+          AND s.fabric_manager_status->>'addition_info' = $4
+    "#;
+
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(rack_id)
+        .bind(SWITCH_CONTROLLER_STATE_READY)
+        .bind(FabricManagerState::Ok.as_str())
+        .bind(CONTROL_PLANE_STATE_CONFIGURED)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                "switch::find_ready_control_plane_configured_switch_ids_in_rack",
+                e,
+            )
+        })
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Switch>>(
@@ -458,8 +495,6 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
 
     Ok(switch.clone())
 }
-
-use mac_address::MacAddress;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct SwitchBmcInfoRow {
