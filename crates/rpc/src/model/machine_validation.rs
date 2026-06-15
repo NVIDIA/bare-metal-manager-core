@@ -19,10 +19,10 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use model::machine_validation::{
-    MachineValidation, MachineValidationExternalConfig, MachineValidationResult,
-    MachineValidationState, MachineValidationTest, MachineValidationTestAddRequest,
-    MachineValidationTestUpdatePayload, MachineValidationTestUpdateRequest,
-    MachineValidationTestsGetRequest,
+    MachineValidation, MachineValidationAttempt, MachineValidationExternalConfig,
+    MachineValidationResult, MachineValidationRunItem, MachineValidationState,
+    MachineValidationTest, MachineValidationTestAddRequest, MachineValidationTestUpdatePayload,
+    MachineValidationTestUpdateRequest, MachineValidationTestsGetRequest,
 };
 
 use crate as rpc;
@@ -161,6 +161,63 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(
                 value.duration_to_complete.try_into().unwrap_or(0),
             ))),
+        }
+    }
+}
+
+impl From<MachineValidationRunItem> for rpc::forge::MachineValidationRunItem {
+    fn from(value: MachineValidationRunItem) -> Self {
+        rpc::forge::MachineValidationRunItem {
+            run_item_id: Some(rpc::common::Uuid {
+                value: value.id.to_string(),
+            }),
+            current_attempt_id: value.current_attempt_id.map(|id| rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            validation_id: Some(value.run_id),
+            test_id: value.test_id,
+            test_version: value.test_version,
+            display_name: value.display_name,
+            context: value.context,
+            component: value.component,
+            state: value.state.to_string(),
+            order_index: value.order_index.try_into().unwrap_or(0),
+            attempt: value.attempt.try_into().unwrap_or(0),
+            max_attempts: value.max_attempts.try_into().unwrap_or(0),
+            timeout: Some(rpc::Duration::from(std::time::Duration::from_secs(
+                value.timeout_seconds.try_into().unwrap_or(0),
+            ))),
+            started_at: value.started_at.map(Into::into),
+            ended_at: value.ended_at.map(Into::into),
+            last_heartbeat_at: value.last_heartbeat_at.map(Into::into),
+            skip_reason: value.skip_reason,
+            failure_reason: value.failure_reason,
+        }
+    }
+}
+
+impl From<MachineValidationAttempt> for rpc::forge::MachineValidationAttempt {
+    fn from(value: MachineValidationAttempt) -> Self {
+        rpc::forge::MachineValidationAttempt {
+            attempt_id: Some(rpc::common::Uuid {
+                value: value.id.to_string(),
+            }),
+            run_item_id: Some(rpc::common::Uuid {
+                value: value.run_item_id.to_string(),
+            }),
+            attempt_number: value.attempt_number.try_into().unwrap_or(0),
+            state: value.state.to_string(),
+            command: value.command,
+            args: value.args,
+            container_image: value.container_image,
+            execute_in_host: value.execute_in_host,
+            exit_code: value.exit_code,
+            failure_classification: value.failure_classification,
+            started_at: value.started_at.map(Into::into),
+            ended_at: value.ended_at.map(Into::into),
+            last_heartbeat_at: value.last_heartbeat_at.map(Into::into),
+            stdout_summary: value.stdout_summary,
+            stderr_summary: value.stderr_summary,
         }
     }
 }

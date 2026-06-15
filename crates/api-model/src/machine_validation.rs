@@ -18,7 +18,9 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use carbide_uuid::machine_validation::{
+    MachineValidationAttemptId, MachineValidationId, MachineValidationRunItemId,
+};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -114,6 +116,38 @@ pub struct MachineValidationStatus {
     pub completed: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
+pub enum MachineValidationRunItemState {
+    #[default]
+    Pending,
+    Running,
+    Success,
+    Skipped,
+    Failed,
+}
+
+impl Display for MachineValidationRunItemState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
+pub enum MachineValidationAttemptState {
+    #[default]
+    Pending,
+    Running,
+    Success,
+    Skipped,
+    Failed,
+}
+
+impl Display for MachineValidationAttemptState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MachineValidation {
     pub id: MachineValidationId,
@@ -152,6 +186,96 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             status: Some(status),
             duration_to_complete: row.try_get("duration_to_complete")?,
             // description: row.try_get("description")?, // unused
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MachineValidationRunItem {
+    pub id: MachineValidationRunItemId,
+    pub run_id: MachineValidationId,
+    pub current_attempt_id: Option<MachineValidationAttemptId>,
+    pub test_id: String,
+    pub test_version: Option<String>,
+    pub display_name: String,
+    pub context: String,
+    pub component: Option<String>,
+    pub state: MachineValidationRunItemState,
+    pub order_index: i32,
+    pub attempt: i32,
+    pub max_attempts: i32,
+    pub timeout_seconds: i64,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+    pub skip_reason: Option<String>,
+    pub failure_reason: Option<String>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineValidationRunItem {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(MachineValidationRunItem {
+            id: row.try_get("id")?,
+            run_id: row.try_get("run_id")?,
+            current_attempt_id: row.try_get("current_attempt_id").ok().flatten(),
+            test_id: row.try_get("test_id")?,
+            test_version: row.try_get("test_version")?,
+            display_name: row.try_get("display_name")?,
+            context: row.try_get("context")?,
+            component: row.try_get("component")?,
+            state: MachineValidationRunItemState::from_str(row.try_get("state")?)
+                .unwrap_or_default(),
+            order_index: row.try_get("order_index")?,
+            attempt: row.try_get("attempt")?,
+            max_attempts: row.try_get("max_attempts")?,
+            timeout_seconds: row.try_get("timeout_seconds")?,
+            started_at: row.try_get("started_at")?,
+            ended_at: row.try_get("ended_at")?,
+            last_heartbeat_at: row.try_get("last_heartbeat_at")?,
+            skip_reason: row.try_get("skip_reason")?,
+            failure_reason: row.try_get("failure_reason")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MachineValidationAttempt {
+    pub id: MachineValidationAttemptId,
+    pub run_item_id: MachineValidationRunItemId,
+    pub attempt_number: i32,
+    pub state: MachineValidationAttemptState,
+    pub command: Option<String>,
+    pub args: Option<String>,
+    pub container_image: Option<String>,
+    pub execute_in_host: Option<bool>,
+    pub exit_code: Option<i32>,
+    pub failure_classification: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+    pub stdout_summary: Option<String>,
+    pub stderr_summary: Option<String>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineValidationAttempt {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(MachineValidationAttempt {
+            id: row.try_get("id")?,
+            run_item_id: row.try_get("run_item_id")?,
+            attempt_number: row.try_get("attempt_number")?,
+            state: MachineValidationAttemptState::from_str(row.try_get("state")?)
+                .unwrap_or_default(),
+            command: row.try_get("command")?,
+            args: row.try_get("args")?,
+            container_image: row.try_get("container_image")?,
+            execute_in_host: row.try_get("execute_in_host")?,
+            exit_code: row.try_get("exit_code")?,
+            failure_classification: row.try_get("failure_classification")?,
+            started_at: row.try_get("started_at")?,
+            ended_at: row.try_get("ended_at")?,
+            last_heartbeat_at: row.try_get("last_heartbeat_at")?,
+            stdout_summary: row.try_get("stdout_summary")?,
+            stderr_summary: row.try_get("stderr_summary")?,
         })
     }
 }

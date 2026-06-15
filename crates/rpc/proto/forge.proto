@@ -604,6 +604,12 @@ service Forge {
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
 
+  // Machine-Validation run item list
+  rpc ListMachineValidationRunItems(MachineValidationRunItemListGetRequest) returns (MachineValidationRunItemList);
+
+  // Machine-Validation attempt detail
+  rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
+
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation test list
@@ -6127,6 +6133,57 @@ message MachineValidationRunListGetRequest {
   bool include_history = 2;
 }
 
+message MachineValidationRunItemListGetRequest {
+  common.MachineValidationId validation_id = 1;
+}
+
+message MachineValidationRunItemList {
+  repeated MachineValidationRunItem run_items = 1;
+}
+
+message MachineValidationRunItem {
+  common.UUID run_item_id = 1;
+  common.MachineValidationId validation_id = 2;
+  string test_id = 3;
+  optional string test_version = 4;
+  string display_name = 5;
+  string context = 6;
+  optional string component = 7;
+  string state = 8;
+  uint32 order_index = 9;
+  uint32 attempt = 10;
+  uint32 max_attempts = 11;
+  google.protobuf.Duration timeout = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp ended_at = 14;
+  google.protobuf.Timestamp last_heartbeat_at = 15;
+  optional string skip_reason = 16;
+  optional string failure_reason = 17;
+  common.UUID current_attempt_id = 18;
+}
+
+message MachineValidationAttemptGetRequest {
+  common.UUID attempt_id = 1;
+}
+
+message MachineValidationAttempt {
+  common.UUID attempt_id = 1;
+  common.UUID run_item_id = 2;
+  uint32 attempt_number = 3;
+  string state = 4;
+  optional string command = 5;
+  optional string args = 6;
+  optional string container_image = 7;
+  optional bool execute_in_host = 8;
+  optional int32 exit_code = 9;
+  optional string failure_classification = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  google.protobuf.Timestamp last_heartbeat_at = 13;
+  optional string stdout_summary = 14;
+  optional string stderr_summary = 15;
+}
+
 message IsBmcInManagedHostResponse {
   bool in_managed_host = 1;
 }
@@ -6253,6 +6310,7 @@ message MachineValidationRunRequest {
   common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
+  repeated MachineValidationTest selected_tests = 4;
 }
 message MachineValidationRunResponse {
   string message = 1;
