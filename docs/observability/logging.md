@@ -340,7 +340,8 @@ config:
   receivers:
     filelog:
       include:
-        - /var/log/pods/*/*/*.log
+        # Adjust this pattern if your NICo namespace uses a different prefix
+        - /var/log/pods/nico-*/*/*.log
       exclude:
         # Exclude collector's own logs to avoid feedback loops
         - /var/log/pods/*/opentelemetry-collector*/*.log
@@ -356,13 +357,12 @@ config:
       send_batch_size: 1024
       timeout: 5s
 
-    # Add component label for NICo pods
+    # Add labels for collected NICo logs
     resource:
       attributes:
         - action: insert
           key: component
           value: "nico"
-          # Only apply to NICo namespaces (adjust pattern as needed)
         - action: insert
           key: service.name
           from_attribute: k8s.container.name
