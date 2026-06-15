@@ -257,6 +257,8 @@ navigation:
           path: hcl.md
         - page: Release Notes
           path: release-notes.md
+        - page: Release and QA Process
+          path: development/release_and_qa_process.md
         - page: FAQs
           path: faq.md
         - section: Development
