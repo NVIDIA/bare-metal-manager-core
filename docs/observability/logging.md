@@ -323,6 +323,9 @@ Below is a reference Helm values file for deploying the
 [OpenTelemetry Collector Helm chart](https://opentelemetry.io/docs/platforms/kubernetes/helm/collector/) to collect NICo logs.
 Adapt the exporter section for your backend.
 
+The `logsCollection` preset parses the Kubernetes container log format; the explicit
+`filelog` receiver below controls which pod log files are collected.
+
 ```yaml
 # values.yaml for opentelemetry-collector Helm chart
 # Install: helm install otel-collector open-telemetry/opentelemetry-collector -f values.yaml
@@ -345,7 +348,6 @@ config:
       exclude:
         # Exclude collector's own logs to avoid feedback loops
         - /var/log/pods/*/opentelemetry-collector*/*.log
-      # The logsCollection preset configures parsing of container log format
 
   processors:
     memory_limiter:
