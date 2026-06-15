@@ -481,10 +481,10 @@ easier maintenance. There are two approaches:
 
 **Option A: Patterns in chart files**
 
-Place patterns in a file within your chart package at `files/logs-drop-patterns.txt`:
+Place patterns in a file within your chart package at `files/drop-patterns.txt`:
 
 ```text
-# files/logs-drop-patterns.txt
+# files/drop-patterns.txt
 # Noisy DHCP messages from cross-network relay
 No network segment defined for relay address
 # DPU mlx5_core noise
