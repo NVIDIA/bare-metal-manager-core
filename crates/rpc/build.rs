@@ -553,6 +553,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
+            "DpfMachineState",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
             "TpmCaCertDetailCollection",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )

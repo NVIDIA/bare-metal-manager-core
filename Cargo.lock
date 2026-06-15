@@ -1368,6 +1368,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-ipxe-renderer",
  "carbide-libmlx-model",
+ "carbide-macros",
  "carbide-network",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -1729,6 +1730,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "carbide-test-support",
  "carbide-uuid",
  "clap",
  "dashmap",

@@ -3542,6 +3542,13 @@ message Machine {
 
   // Build version of forge-scout last observed during machine discovery registration.
   optional string last_scout_observed_version = 48;
+
+  optional DpfMachineState dpf = 49;
+}
+
+message DpfMachineState {
+  bool enabled = 1;
+  bool used_for_ingestion = 2;
 }
 
 message InstanceNetworkRestrictions {

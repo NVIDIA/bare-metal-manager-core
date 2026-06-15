@@ -2251,6 +2251,11 @@ impl StateHandler for MachineStateHandler {
 
         let was_ready = matches!(mh_snapshot.managed_state, ManagedHostState::Ready);
 
+        if !mh_snapshot.host_snapshot.dpf.used_for_ingestion {
+            tracing::debug!("{} is using a provisioning strategy (internaly) which is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.", host_machine_id);
+        }
+
         let mut result = if continue_state_machine {
             self.attempt_state_transition(host_machine_id, mh_snapshot, ctx)
                 .await

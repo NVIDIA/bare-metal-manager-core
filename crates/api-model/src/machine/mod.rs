@@ -2807,6 +2807,9 @@ pub fn dpf_based_dpu_provisioning_possible(
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
             state.host_snapshot.id
         );
+        tracing::warn!("{} is using a provisioning strategy (internaly) which is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.", state.host_snapshot.id);
+
         return false;
     }
 
@@ -2825,6 +2828,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             and not all DPUs are being reprovisioned.",
             state.host_snapshot.id
         );
+        tracing::warn!("{} is using a provisioning strategy (internaly) which is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.", state.host_snapshot.id);
         return false;
     }
 
@@ -2840,6 +2845,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
             state.host_snapshot.id
         );
+        tracing::warn!("{} is using a provisioning strategy (internaly) which is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.", state.host_snapshot.id);
         return false;
     }
 
@@ -2852,6 +2859,8 @@ pub fn dpf_based_dpu_provisioning_possible(
         tracing::info!(
             "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
         );
+        tracing::warn!("{} is using a provisioning strategy (internaly) which is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.", state.host_snapshot.id);
         return false;
     }
 

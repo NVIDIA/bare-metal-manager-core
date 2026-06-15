@@ -148,6 +148,7 @@ pub struct ManagedHostOutput {
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
     pub rack_id: Option<String>,
+    pub dpf: Option<rpc::forge::DpfMachineState>,
 }
 
 impl From<Machine> for ManagedHostOutput {
@@ -273,6 +274,7 @@ impl From<Machine> for ManagedHostOutput {
             rack_id,
             health,
             health_sources,
+            dpf: machine.dpf,
             // dpus and exploration_report are filled in later
             dpus: Default::default(),
             exploration_report: Default::default(),

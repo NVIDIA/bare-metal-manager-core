@@ -520,6 +520,8 @@ pub async fn start_api(
             join_set,
         )?))
     } else {
+        tracing::warn!("iPXE provisioning strategy (internaly) is deprecated and will be removed in v2.1, 
+see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs.");
         None
     };
 
