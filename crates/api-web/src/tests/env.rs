@@ -15,10 +15,14 @@
  * limitations under the License.
  */
 
+use carbide_api_core::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_test_harness::dns::TestDomain;
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use model::machine::ManagedHostState;
+use model::test_support::ManagedHostConfig;
 
 pub struct TestEnv {
     pub test_harness: TestHarness,
@@ -66,7 +70,7 @@ impl TestEnv {
         let mut host = self
             .test_harness
             .managed_host_builder(&self.site_explorer, self.underlay_segment)
-            .with_dpu_count(dpu_count)
+            .with_config(ManagedHostConfig::default().with_dpu_count(dpu_count))
             .build()
             .await;
 

@@ -48,7 +48,7 @@ use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::Request;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches, new_host};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
@@ -190,7 +190,7 @@ async fn create_single_compute_rack(
 
     let host = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),
@@ -225,7 +225,7 @@ async fn create_two_compute_rack(
 
     let host_a = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),
@@ -233,7 +233,7 @@ async fn create_two_compute_rack(
     .await?;
     let host_b = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),

@@ -1428,7 +1428,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     // Make a mock host for machines[4] to generate the report
     // This serial is from the create_expected_machine.sql seed.
-    let machine_4_host = ManagedHostConfig::with_serial("VVG121GJ".to_string());
+    let machine_4_host = ManagedHostConfig::default().with_serial("VVG121GJ".to_string());
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
@@ -2214,8 +2214,9 @@ async fn test_fetch_host_primary_interface_mac(
             .unwrap(),
     );
 
-    let host_report: EndpointExplorationReport =
-        ManagedHostConfig::with_dpus(mock_dpus.clone()).into();
+    let host_report: EndpointExplorationReport = ManagedHostConfig::default()
+        .with_dpus(mock_dpus.clone())
+        .into();
 
     const NUM_DPUS: usize = 2;
 
@@ -2431,7 +2432,8 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
         nic_mode: Some(NicMode::Dpu),
         ..DpuConfig::default()
     };
-    let mock_host = model::test_support::ManagedHostConfig::with_dpus(vec![dpu_config.clone()]);
+    let mock_host =
+        model::test_support::ManagedHostConfig::default().with_dpus(vec![dpu_config.clone()]);
     let host_bmc_mac = mock_host.bmc_mac_address;
 
     // Seed an ExpectedMachine with `dpu_mode: NicMode` that matches the
@@ -2632,7 +2634,7 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
 
     let dpu = DpuConfig::default();
     let host_pf_mac = dpu.host_mac_address;
-    let managed_host = ManagedHostConfig::with_dpus(vec![dpu]);
+    let managed_host = ManagedHostConfig::default().with_dpus(vec![dpu]);
     let created_host = test_harness
         .managed_host_builder(&explorer, underlay_segment)
         .with_config(managed_host)

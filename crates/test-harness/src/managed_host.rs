@@ -19,9 +19,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_api_core::test_support::Api;
-use carbide_api_core::test_support::fixture_config::{
-    FixtureDefault as _, ManagedHostConfigExt as _,
-};
+use carbide_api_core::test_support::fixture_config::FixtureDefault as _;
 use carbide_site_explorer::test_support::TestSiteExplorer;
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
@@ -29,7 +27,7 @@ use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{Machine, ManagedHostState};
-use model::test_support::{DpuConfig, ManagedHostConfig};
+use model::test_support::ManagedHostConfig;
 
 use crate::TestHarness;
 use crate::network::segment::TestNetworkSegment;
@@ -181,7 +179,7 @@ pub struct TestManagedHostBuilder<'a> {
     test_harness: &'a TestHarness,
     site_explorer: &'a TestSiteExplorer,
     segment: TestNetworkSegment,
-    managed_host: ManagedHostConfig,
+    config: Option<ManagedHostConfig>,
     report_dpu_network_status: bool,
 }
 
@@ -195,41 +193,38 @@ impl<'a> TestManagedHostBuilder<'a> {
             test_harness,
             site_explorer,
             segment,
-            managed_host: ManagedHostConfig::default(),
+            config: None,
             report_dpu_network_status: false,
         }
     }
 
-    pub fn with_config(mut self, managed_host: ManagedHostConfig) -> Self {
-        self.managed_host = managed_host;
-        self
+    pub fn with_dpu_network_status_reported(self) -> Self {
+        Self {
+            report_dpu_network_status: true,
+            ..self
+        }
     }
 
-    pub fn with_dpu_count(self, dpu_count: usize) -> Self {
-        assert!(dpu_count >= 1, "need to specify at least 1 DPU");
-        self.with_config(ManagedHostConfig::with_dpus(
-            (0..dpu_count).map(|_| DpuConfig::default()).collect(),
-        ))
-    }
-
-    /// Report DPU network status as part of `build`.
-    pub fn with_dpu_network_status_reported(mut self) -> Self {
-        self.report_dpu_network_status = true;
-        self
+    pub fn with_config(self, config: ManagedHostConfig) -> Self {
+        Self {
+            config: Some(config),
+            ..self
+        }
     }
 
     pub async fn build(self) -> TestManagedHost {
-        register_expected_machine(self.test_harness, &self.managed_host).await;
+        let config = self.config.unwrap_or_else(ManagedHostConfig::default);
+        register_expected_machine(self.test_harness, &config).await;
 
         let host_bmc_ip = discover_bmc(
             self.test_harness.api(),
-            self.managed_host.bmc_mac_address,
+            config.bmc_mac_address,
             self.segment,
             "SomeVendor",
         )
         .await;
         let mut dpu_bmc_ips = Vec::new();
-        for (dpu_index, dpu) in self.managed_host.dpus.iter().enumerate() {
+        for (dpu_index, dpu) in config.dpus.iter().enumerate() {
             let dpu_index = dpu_index.try_into().expect("DPU index should fit into u8");
             let bmc_ip = discover_bmc(
                 self.test_harness.api(),
@@ -241,8 +236,7 @@ impl<'a> TestManagedHostBuilder<'a> {
             dpu_bmc_ips.push((dpu_index, bmc_ip));
         }
 
-        let results = self
-            .managed_host
+        let results = config
             .exploration_results(Some(host_bmc_ip), &dpu_bmc_ips)
             .expect("managed host exploration results should be generated");
         let dpu_machine_ids = results.dpu_machine_ids();
@@ -284,7 +278,7 @@ impl<'a> TestManagedHostBuilder<'a> {
             .expect("database transaction should commit");
 
         let managed_host = TestManagedHost {
-            managed_host: self.managed_host,
+            managed_host: config,
             host_bmc_ip,
             dpu_bmc_ips,
             host_machine_id,
