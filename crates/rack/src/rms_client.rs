@@ -960,18 +960,6 @@ pub mod test_support {
         ) -> Result<rms::GetScaleUpFabricStateResponse, RackManagerError> {
             Ok(rms::GetScaleUpFabricStateResponse::default())
         }
-        async fn fetch_switch_system_image(
-            &self,
-            _cmd: rms::FetchSwitchSystemImageRequest,
-        ) -> Result<rms::FetchSwitchSystemImageResponse, RackManagerError> {
-            Ok(rms::FetchSwitchSystemImageResponse::default())
-        }
-        async fn install_switch_system_image(
-            &self,
-            _cmd: rms::InstallSwitchSystemImageRequest,
-        ) -> Result<rms::InstallSwitchSystemImageResponse, RackManagerError> {
-            Ok(rms::InstallSwitchSystemImageResponse::default())
-        }
         async fn list_switch_system_images(
             &self,
             _cmd: rms::ListSwitchSystemImagesRequest,
