@@ -3857,6 +3857,9 @@ message DhcpRecord {
 
   // The last time any underlay or admin DHCP record managed by Forge got invalidated
   optional google.protobuf.Timestamp last_invalidation_time = 12;
+
+  // Per site NTP server IPs
+  repeated string ntp_servers = 13;
 }
 
 message NetworkSegmentList {
@@ -4057,6 +4060,10 @@ message ManagedHostNetworkConfigResponse {
   // should perform any extra config to prepare
   // for them.
   bool stateful_acls_enabled = 21;
+
+  // site-level configured NTP server IPs 
+  // If empty, the agent may fall back to resolving carbide-ntp.forge for compatibility.
+  repeated string ntp_servers = 22;
 
   // Enable forge DHCP on HBN.
   // Deprecated: It is always enabled now.
