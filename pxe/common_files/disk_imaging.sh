@@ -155,6 +155,28 @@ function add_cloud_init() {
 	if [ "${PIPESTATUS[0]}" -ne 0 ]; then
 		rm -f "$seed_dir/meta-data"
 	fi
+	write_cloud_init_network_config "$seed_dir"
+}
+
+function write_cloud_init_network_config() {
+	seed_dir=$1
+	cloud_init_host=${cloud_init_url#*://}
+	cloud_init_host=${cloud_init_host%%[:/]*}
+	network_dev=$(ip -o route get "$cloud_init_host" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+	if [ -z "$network_dev" -o ! -f "/sys/class/net/$network_dev/address" ]; then
+		echo "Could not resolve cloud-init network device for $cloud_init_host" | tee $log_output
+		return 0
+	fi
+	network_mac=$(cat "/sys/class/net/$network_dev/address")
+	cat > "$seed_dir/network-config" << EOF
+version: 2
+ethernets:
+  provisioning:
+    match:
+      macaddress: "$network_mac"
+    dhcp4: true
+    optional: true
+EOF
 }
 
 function expand_root_fs() {
