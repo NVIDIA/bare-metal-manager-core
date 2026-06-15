@@ -101,7 +101,19 @@ pub trait NextState {
                     &state.dpu_snapshots,
                     dpu_ids_for_reprov,
                 ),
-            ReprovisionState::WaitingForNetworkConfig => ReprovisionState::RebootHostBmc
+            ReprovisionState::WaitingForNetworkConfig => ReprovisionState::PrepareHostBootRepair
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    dpu_ids_for_reprov,
+                ),
+            ReprovisionState::SetHostBootOrder { .. } => ReprovisionState::LockHostAfterBootRepair
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_machine_ids,
+                ),
+            ReprovisionState::LockHostAfterBootRepair => ReprovisionState::RebootHostBmc
                 .next_state_with_all_dpus_updated(
                     &state.managed_state,
                     &state.dpu_snapshots,
