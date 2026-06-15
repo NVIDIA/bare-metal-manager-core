@@ -422,7 +422,9 @@ processors:
             where IsMatch(body, "^level=")
 ```
 
-Or use the `logfmt` parser in the filelog receiver for nico components specifically:
+If you cannot use the transform processor, a minimal `filelog` receiver regex can extract
+`level` and `msg` while keeping the remaining key-value pairs in `rest`. Use the
+`ParseKeyValue` approach above for full field extraction.
 
 ```yaml
 receivers:
