@@ -195,29 +195,27 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 
 	// Options below should all have been set by the
 	// earlier call to ValidateAndSetOperatingSystemData
-
-	if os.Type == cdbm.OperatingSystemTypeIPXE {
-		return &cwssaws.InstanceOperatingSystemConfig{
-			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
-			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-				Ipxe: &cwssaws.InlineIpxe{
-					IpxeScript: *apiRequest.IpxeScript,
-				},
-			},
-			UserData: apiRequest.UserData,
-		}, osID, nil
-	} else {
-		return &cwssaws.InstanceOperatingSystemConfig{
-			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
-				OsImageId: &cwssaws.UUID{
-					Value: os.ID.String(),
-				},
-			},
-			UserData: apiRequest.UserData,
-		}, osID, nil
+	result := cwssaws.InstanceOperatingSystemConfig{
+		PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
+		UserData:         apiRequest.UserData,
 	}
+	switch os.Type {
+	case cdbm.OperatingSystemTypeIPXE:
+		result.RunProvisioningInstructionsOnEveryBoot = *apiRequest.AlwaysBootWithCustomIpxe
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_Ipxe{
+			Ipxe: &cwssaws.InlineIpxe{IpxeScript: *apiRequest.IpxeScript},
+		}
+	case cdbm.OperatingSystemTypeTemplatedIPXE:
+		result.RunProvisioningInstructionsOnEveryBoot = *apiRequest.AlwaysBootWithCustomIpxe
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_OperatingSystemId{
+			OperatingSystemId: &cwssaws.OperatingSystemId{Value: os.ID.String()},
+		}
+	case cdbm.OperatingSystemTypeImage:
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_OsImageId{
+			OsImageId: &cwssaws.UUID{Value: os.ID.String()},
+		}
+	}
+	return &result, osID, nil
 }
 
 // Handle godoc
@@ -2065,41 +2063,35 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 		phoneHomeEnabled = *apiRequest.PhoneHomeEnabled
 	}
 
+	result := cwssaws.InstanceOperatingSystemConfig{
+		PhoneHomeEnabled: phoneHomeEnabled,
+		UserData:         userData,
+	}
 	if os != nil {
-		if os.Type == cdbm.OperatingSystemTypeIPXE {
-			return &cwssaws.InstanceOperatingSystemConfig{
-				RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
-				PhoneHomeEnabled:                       phoneHomeEnabled,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-					Ipxe: &cwssaws.InlineIpxe{
-						IpxeScript: *ipxeScript,
-					},
-				},
-				UserData: userData,
-			}, osID, nil
-		} else if os.Type == cdbm.OperatingSystemTypeImage {
-			return &cwssaws.InstanceOperatingSystemConfig{
-				PhoneHomeEnabled: phoneHomeEnabled,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
-					OsImageId: &cwssaws.UUID{
-						Value: os.ID.String(),
-					},
-				},
-				UserData: userData,
-			}, osID, nil
+		switch os.Type {
+		case cdbm.OperatingSystemTypeIPXE:
+			result.RunProvisioningInstructionsOnEveryBoot = alwaysBootWithCustomIpxe
+			result.Variant = &cwssaws.InstanceOperatingSystemConfig_Ipxe{
+				Ipxe: &cwssaws.InlineIpxe{IpxeScript: *ipxeScript},
+			}
+		case cdbm.OperatingSystemTypeTemplatedIPXE:
+			result.RunProvisioningInstructionsOnEveryBoot = alwaysBootWithCustomIpxe
+			result.Variant = &cwssaws.InstanceOperatingSystemConfig_OperatingSystemId{
+				OperatingSystemId: &cwssaws.OperatingSystemId{Value: os.ID.String()},
+			}
+		case cdbm.OperatingSystemTypeImage:
+			result.Variant = &cwssaws.InstanceOperatingSystemConfig_OsImageId{
+				OsImageId: &cwssaws.UUID{Value: os.ID.String()},
+			}
+		}
+	} else {
+		result.RunProvisioningInstructionsOnEveryBoot = alwaysBootWithCustomIpxe
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_Ipxe{
+			Ipxe: &cwssaws.InlineIpxe{IpxeScript: *ipxeScript},
 		}
 	}
 
-	return &cwssaws.InstanceOperatingSystemConfig{
-		RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
-		PhoneHomeEnabled:                       phoneHomeEnabled,
-		Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-			Ipxe: &cwssaws.InlineIpxe{
-				IpxeScript: *ipxeScript,
-			},
-		},
-		UserData: userData,
-	}, osID, nil
+	return &result, osID, nil
 }
 
 // Handle godoc

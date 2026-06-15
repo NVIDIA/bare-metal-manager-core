@@ -4,21 +4,20 @@
 package model
 
 import (
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
@@ -182,6 +181,277 @@ func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString()}, ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false, ImageDisk: cutil.GetPtr(""), ImageAuthType: cutil.GetPtr(""), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: false,
 		},
+		// ─── Templated iPXE OS validation ─────────────────────────────────
+		{
+			desc: "ok when valid templated iPXE with global scope",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-global",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
+					{Name: "kernel_params", Value: "ip=dhcp"},
+				},
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://files.example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED"},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok when valid templated iPXE with limited scope and siteIds",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-limited",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeLimited),
+				SiteIDs:        []string{uuid.NewString()},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when templated iPXE missing scope",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-no-scope",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when templated iPXE with scope Local",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-local",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when templated iPXE with invalid scope",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-bad-scope",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr("InvalidScope"),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when templated iPXE with limited scope but no siteIds",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-limited-no-sites",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeLimited),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when templated iPXE with global scope and siteIds",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-global-with-sites",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				SiteIDs:        []string{uuid.NewString()},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when both ipxeScript and ipxeTemplateId specified",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-conflict",
+				IpxeScript:     cutil.GetPtr("ipxe"),
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when ipxeTemplateId is empty string",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-empty-id",
+				IpxeTemplateId: cutil.GetPtr(""),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when ipxeTemplateId is whitespace only",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-ws-id",
+				IpxeTemplateId: cutil.GetPtr("   "),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when templated iPXE has image fields",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-image-fields",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				ImageSHA:       cutil.GetPtr("abc123"),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template parameter has empty name",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-bad-param",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
+					{Name: "", Value: "val"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has empty name",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-bad-art-name",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has empty URL",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-bad-art-url",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "", CacheStrategy: "CACHE_AS_NEEDED"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has invalid cacheStrategy",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-bad-art-cache",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "INVALID_STRATEGY"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has authType without authToken",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-art-auth-notoken",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED", AuthType: cutil.GetPtr("Bearer")},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has authToken without authType",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-art-token-notype",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED", AuthToken: cutil.GetPtr("secret")},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when template artifact has invalid authType",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-art-bad-authtype",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED", AuthType: cutil.GetPtr("VAPID"), AuthToken: cutil.GetPtr("secret")},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "ok when template artifact has valid auth pair",
+			obj: APIOperatingSystemCreateRequest{
+				Name:           "tmpl-os-art-valid-auth",
+				IpxeTemplateId: cutil.GetPtr("my-template"),
+				Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED", AuthType: cutil.GetPtr("Bearer"), AuthToken: cutil.GetPtr("secret")},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "raw iPXE with explicit Global scope is allowed",
+			obj: APIOperatingSystemCreateRequest{
+				Name:       "raw-ipxe-with-global-scope",
+				IpxeScript: cutil.GetPtr("ipxe-script"),
+				Scope:      cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when raw iPXE has non-Global scope specified",
+			obj: APIOperatingSystemCreateRequest{
+				Name:       "raw-ipxe-with-limited-scope",
+				IpxeScript: cutil.GetPtr("ipxe-script"),
+				Scope:      cutil.GetPtr(cdbm.OperatingSystemScopeLimited),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when raw iPXE has template parameters",
+			obj: APIOperatingSystemCreateRequest{
+				Name:       "raw-ipxe-with-params",
+				IpxeScript: cutil.GetPtr("ipxe-script"),
+				IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
+					{Name: "k", Value: "v"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when raw iPXE has template artifacts",
+			obj: APIOperatingSystemCreateRequest{
+				Name:       "raw-ipxe-with-arts",
+				IpxeScript: cutil.GetPtr("ipxe-script"),
+				IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
+					{Name: "k", URL: "http://example.com", CacheStrategy: "CACHE_AS_NEEDED"},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when image OS has scope specified",
+			obj: APIOperatingSystemCreateRequest{
+				Name:     "image-os-with-scope",
+				ImageURL: cutil.GetPtr("http://iso.net/iso"),
+				SiteIDs:  []string{uuid.NewString()},
+				ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
+				RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
+				Scope:    cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when image OS has template parameters",
+			obj: APIOperatingSystemCreateRequest{
+				Name:     "image-os-with-params",
+				ImageURL: cutil.GetPtr("http://iso.net/iso"),
+				SiteIDs:  []string{uuid.NewString()},
+				ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
+				RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
+				IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
+					{Name: "k", Value: "v"},
+				},
+			},
+			expectErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -213,6 +483,15 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 		Status:     cdbm.OperatingSystemStatusPending,
 		Type:       cdbm.OperatingSystemTypeIPXE,
 		CreatedBy:  uuid.New(),
+	}
+
+	existingTemplatedIpxeOS := &cdbm.OperatingSystem{
+		ID:        uuid.New(),
+		Name:      "tmpl-os",
+		Status:    cdbm.OperatingSystemStatusReady,
+		Type:      cdbm.OperatingSystemTypeTemplatedIPXE,
+		IsActive:  true,
+		CreatedBy: uuid.New(),
 	}
 
 	existingImageBasedOSWithFSLabel := &cdbm.OperatingSystem{
@@ -339,6 +618,89 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 			desc:      "ok when optional image fields are empty",
 			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cutil.GetPtr(""), ImageAuthType: cutil.GetPtr(""), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: false,
+		},
+		// ─── Templated iPXE update validation ─────────────────────────────
+		{
+			desc:       "error when scope is specified on update",
+			obj:        APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("updated-tmpl"), Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal)},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeTemplateParameters specified for raw iPXE OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "k", Value: "v"}}},
+			existingOS: existingIpxeBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeTemplateArtifacts specified for raw iPXE OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateArtifacts: &[]cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED"}}},
+			existingOS: existingIpxeBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeTemplateParameters specified for image OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "k", Value: "v"}}},
+			existingOS: existingImageBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeTemplateArtifacts specified for image OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateArtifacts: &[]cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED"}}},
+			existingOS: existingImageBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "ok when ipxeTemplateParameters updated for templated iPXE OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "kernel_params", Value: "ip=dhcp"}}},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  false,
+		},
+		{
+			desc:       "ok when ipxeTemplateArtifacts updated for templated iPXE OS",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateArtifacts: &[]cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://example.com/vmlinuz", CacheStrategy: "CACHE_AS_NEEDED"}}},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  false,
+		},
+		{
+			desc:       "error when ipxeTemplateId set on image OS update",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateId: cutil.GetPtr("my-template")},
+			existingOS: existingImageBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeTemplateId set on raw iPXE OS update",
+			obj:        APIOperatingSystemUpdateRequest{IpxeTemplateId: cutil.GetPtr("my-template")},
+			existingOS: existingIpxeBasedOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeScript set on templated iPXE OS update",
+			obj:        APIOperatingSystemUpdateRequest{IpxeScript: cutil.GetPtr("chain --autofree https://boot.example.com")},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  true,
+		},
+		{
+			desc:       "error when ipxeScript and ipxeTemplateId both on update",
+			obj:        APIOperatingSystemUpdateRequest{IpxeScript: cutil.GetPtr("script"), IpxeTemplateId: cutil.GetPtr("tmpl")},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  true,
+		},
+		{
+			desc: "error when template parameter has blank name on update",
+			obj: APIOperatingSystemUpdateRequest{
+				IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "  ", Value: "v"}},
+			},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  true,
+		},
+		{
+			desc: "error when template artifact has invalid cacheStrategy on update",
+			obj: APIOperatingSystemUpdateRequest{
+				IpxeTemplateArtifacts: &[]cdbm.OperatingSystemIpxeArtifact{{Name: "k", URL: "http://example.com/k", CacheStrategy: "BAD"}},
+			},
+			existingOS: existingTemplatedIpxeOS,
+			expectErr:  true,
 		},
 	}
 
@@ -889,79 +1251,4 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 			assert.Equal(t, *tc.dbObj.Description, *got.Description)
 		})
 	}
-}
-
-func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
-	id := uuid.New()
-	url := "https://image"
-	sha := "deadbeef"
-	rootFsID := "fs-1"
-	os := &cdbm.OperatingSystem{
-		ID:                 id,
-		Name:               "ubuntu",
-		ImageURL:           &url,
-		ImageSHA:           &sha,
-		RootFsID:           &rootFsID,
-		EnableBlockStorage: false,
-	}
-	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
-		req := APIOperatingSystemCreateRequest{}
-		got := req.ToProto(os, "org-1")
-		require.NotNil(t, got)
-		require.NotNil(t, got.Id)
-		assert.Equal(t, id.String(), got.Id.Value)
-		require.NotNil(t, got.Name)
-		assert.Equal(t, "ubuntu", *got.Name)
-		assert.Equal(t, "org-1", got.TenantOrganizationId)
-		assert.Equal(t, "https://image", got.SourceUrl)
-		assert.Equal(t, "deadbeef", got.Digest)
-		require.NotNil(t, got.RootfsId)
-		assert.Equal(t, "fs-1", *got.RootfsId)
-	})
-	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
-		ctrlID := uuid.New()
-		osWithCtrl := &cdbm.OperatingSystem{
-			ID:                          id,
-			ControllerOperatingSystemID: &ctrlID,
-			Name:                        "ubuntu",
-			ImageURL:                    &url,
-			ImageSHA:                    &sha,
-			RootFsID:                    &rootFsID,
-		}
-		req := APIOperatingSystemCreateRequest{}
-		got := req.ToProto(osWithCtrl, "org-1")
-		require.NotNil(t, got)
-		require.NotNil(t, got.Id)
-		assert.Equal(t, ctrlID.String(), got.Id.Value)
-	})
-}
-
-func TestAPIOperatingSystemUpdateRequest_ToProto(t *testing.T) {
-	id := uuid.New()
-	url := "https://image-new"
-	sha := "cafebabe"
-	rootFsLabel := "lbl"
-	uos := &cdbm.OperatingSystem{
-		ID:                 id,
-		Name:               "ubuntu-22",
-		ImageURL:           &url,
-		ImageSHA:           &sha,
-		RootFsLabel:        &rootFsLabel,
-		EnableBlockStorage: true,
-	}
-	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
-		req := APIOperatingSystemUpdateRequest{}
-		got := req.ToProto(uos, "org-2")
-		require.NotNil(t, got)
-		require.NotNil(t, got.Id)
-		assert.Equal(t, id.String(), got.Id.Value)
-		require.NotNil(t, got.Name)
-		assert.Equal(t, "ubuntu-22", *got.Name)
-		assert.Equal(t, "org-2", got.TenantOrganizationId)
-		assert.Equal(t, "https://image-new", got.SourceUrl)
-		assert.Equal(t, "cafebabe", got.Digest)
-		assert.True(t, got.CreateVolume)
-		require.NotNil(t, got.RootfsLabel)
-		assert.Equal(t, "lbl", *got.RootfsLabel)
-	})
 }

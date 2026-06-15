@@ -5,8 +5,10 @@ package operatingsystem
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -21,14 +23,12 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"os"
-
 	tmocks "go.temporal.io/sdk/mocks"
 
 	"go.temporal.io/sdk/testsuite"
 )
 
-func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
+func TestManageOperatingSystem_UpdateOsImageInDB(t *testing.T) {
 	dbSession := util.TestInitDB(t)
 	defer dbSession.Close()
 
@@ -259,7 +259,7 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mv := ManageOsImage{
+			mv := ManageOperatingSystem{
 				dbSession:      tt.fields.dbSession,
 				siteClientPool: tSiteClientPool,
 			}
@@ -323,7 +323,294 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 	}
 }
 
-func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
+func TestManageOperatingSystemSync_UpdateOperatingSystemsInDB(t *testing.T) {
+	dbSession := util.TestInitDB(t)
+	defer dbSession.Close()
+
+	util.TestSetupSchema(t, dbSession)
+
+	ipOrg := "test-provider-org"
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
+	ipu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, ipRoles)
+	ip := util.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
+
+	tnOrg := "test-tenant-org"
+	tnRoles := []string{"FORGE_TENANT_ADMIN"}
+	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
+	tn := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, nil, tnu)
+
+	st := util.TestBuildSite(t, dbSession, ip, "sync-site", cdbm.SiteStatusRegistered, nil, ipu)
+	assert.NotNil(t, st)
+
+	util.TestBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st.ID, ipu.ID)
+
+	tSiteClientPool := util.TestTemporalSiteClientPool(t)
+	operatingSystemManager := NewManageOperatingSystem(dbSession, tSiteClientPool)
+
+	t.Run("nil inventory returns error", func(t *testing.T) {
+		err := operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("failed inventory status is skipped", func(t *testing.T) {
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+		}
+		err := operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+	})
+
+	t.Run("creates new OS from core inventory", func(t *testing.T) {
+		newID := uuid.New()
+		now := timestamppb.Now()
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:       now,
+			OperatingSystems: []*cwssaws.OperatingSystem{
+				{
+					Id:                   &cwssaws.OperatingSystemId{Value: newID.String()},
+					Name:                 "core-os-create-test",
+					TenantOrganizationId: tnOrg,
+					Type:                 cwssaws.OperatingSystemType_OS_TYPE_IPXE,
+					Status:               cwssaws.TenantState_READY,
+					IsActive:             true,
+					AllowOverride:        true,
+					PhoneHomeEnabled:     false,
+					Created:              now.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+					Updated:              now.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+				},
+			},
+		}
+		err := operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		created, getErr := osDAO.GetByID(context.Background(), nil, newID, nil)
+		assert.NoError(t, getErr)
+		assert.Equal(t, "core-os-create-test", created.Name)
+		assert.Equal(t, cdbm.OperatingSystemStatusReady, created.Status)
+		assert.NotNil(t, created.InfrastructureProviderID)
+		assert.Equal(t, ip.ID, *created.InfrastructureProviderID)
+		assert.Nil(t, created.TenantID)
+		assert.NotNil(t, created.IpxeOsScope)
+		assert.Equal(t, cdbm.OperatingSystemScopeLocal, *created.IpxeOsScope)
+
+		// Verify site association was created for the reporting site.
+		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+		createdOssa, ossaGetErr := ossaDAO.GetByOperatingSystemIDAndSiteID(context.Background(), nil, newID, st.ID, nil)
+		assert.NoError(t, ossaGetErr)
+		assert.NotNil(t, createdOssa)
+		assert.Equal(t, cdbm.OperatingSystemSiteAssociationStatusSynced, createdOssa.Status)
+	})
+
+	t.Run("updates existing OS when core is newer", func(t *testing.T) {
+		existingID := uuid.New()
+		existingOS := &cdbm.OperatingSystem{
+			ID:                       existingID,
+			Name:                     "existing-os-old",
+			Org:                      tnOrg,
+			InfrastructureProviderID: &ip.ID,
+			Type:                     cdbm.OperatingSystemTypeIPXE,
+			Status:                   cdbm.OperatingSystemStatusProvisioning,
+			IsActive:                 true,
+			CreatedBy:                ipu.ID,
+		}
+		_, err := dbSession.DB.NewInsert().Model(existingOS).Exec(context.Background())
+		assert.NoError(t, err)
+
+		futureTime := timestamppb.Now()
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:       futureTime,
+			OperatingSystems: []*cwssaws.OperatingSystem{
+				{
+					Id:                   &cwssaws.OperatingSystemId{Value: existingID.String()},
+					Name:                 "existing-os-updated",
+					TenantOrganizationId: tnOrg,
+					Type:                 cwssaws.OperatingSystemType_OS_TYPE_IPXE,
+					Status:               cwssaws.TenantState_READY,
+					IsActive:             true,
+					AllowOverride:        true,
+					PhoneHomeEnabled:     true,
+					Created:              futureTime.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+					Updated:              futureTime.AsTime().Add(1 * time.Second).Format("2006-01-02T15:04:05Z07:00"),
+				},
+			},
+		}
+		err = operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		updated, getErr := osDAO.GetByID(context.Background(), nil, existingID, nil)
+		assert.NoError(t, getErr)
+		assert.Equal(t, "existing-os-updated", updated.Name)
+		assert.Equal(t, cdbm.OperatingSystemStatusReady, updated.Status)
+		assert.True(t, updated.PhoneHomeEnabled)
+
+		// Verify OSSA was backfilled for the existing OS.
+		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+		backfilledOssa, ossaGetErr := ossaDAO.GetByOperatingSystemIDAndSiteID(context.Background(), nil, existingID, st.ID, nil)
+		assert.NoError(t, ossaGetErr)
+		assert.NotNil(t, backfilledOssa)
+		assert.Equal(t, cdbm.OperatingSystemSiteAssociationStatusSynced, backfilledOssa.Status)
+	})
+
+	t.Run("skips global-scoped OS definition update but records core status", func(t *testing.T) {
+		globalID := uuid.New()
+		scopeGlobal := cdbm.OperatingSystemScopeGlobal
+		globalOS := &cdbm.OperatingSystem{
+			ID:                       globalID,
+			Name:                     "global-os-original",
+			Org:                      tnOrg,
+			InfrastructureProviderID: &ip.ID,
+			Type:                     cdbm.OperatingSystemTypeIPXE,
+			Status:                   cdbm.OperatingSystemStatusProvisioning,
+			IsActive:                 true,
+			IpxeOsScope:              &scopeGlobal,
+			CreatedBy:                ipu.ID,
+		}
+		_, err := dbSession.DB.NewInsert().Model(globalOS).Exec(context.Background())
+		assert.NoError(t, err)
+
+		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+		_, ossaErr := ossaDAO.Create(context.Background(), nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: globalID,
+			SiteID:            st.ID,
+			Status:            cdbm.OperatingSystemStatusProvisioning,
+			CreatedBy:         ipu.ID,
+		})
+		assert.NoError(t, ossaErr)
+
+		futureTime := timestamppb.Now()
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:       futureTime,
+			OperatingSystems: []*cwssaws.OperatingSystem{
+				{
+					Id:                   &cwssaws.OperatingSystemId{Value: globalID.String()},
+					Name:                 "global-os-changed-in-core",
+					TenantOrganizationId: tnOrg,
+					Type:                 cwssaws.OperatingSystemType_OS_TYPE_IPXE,
+					Status:               cwssaws.TenantState_READY,
+					IsActive:             true,
+					Created:              futureTime.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+					Updated:              futureTime.AsTime().Add(1 * time.Second).Format("2006-01-02T15:04:05Z07:00"),
+				},
+			},
+		}
+		err = operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		unchanged, getErr := osDAO.GetByID(context.Background(), nil, globalID, nil)
+		assert.NoError(t, getErr)
+		assert.Equal(t, "global-os-original", unchanged.Name, "global OS name should not be overwritten by core")
+		assert.Equal(t, cdbm.OperatingSystemStatusReady, unchanged.Status, "aggregate status should be updated to READY")
+	})
+
+	t.Run("soft-deletes local OS absent from core inventory", func(t *testing.T) {
+		absentID := uuid.New()
+		absentOS := &cdbm.OperatingSystem{
+			ID:                       absentID,
+			Name:                     "absent-os",
+			Org:                      tnOrg,
+			InfrastructureProviderID: &ip.ID,
+			Type:                     cdbm.OperatingSystemTypeIPXE,
+			Status:                   cdbm.OperatingSystemStatusReady,
+			IsActive:                 true,
+			CreatedBy:                ipu.ID,
+		}
+		_, err := dbSession.DB.NewInsert().Model(absentOS).Exec(context.Background())
+		assert.NoError(t, err)
+
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:        timestamppb.Now(),
+			OperatingSystems: []*cwssaws.OperatingSystem{},
+		}
+		err = operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		_, getErr := osDAO.GetByID(context.Background(), nil, absentID, nil)
+		assert.Error(t, getErr, "absent OS should be soft-deleted and not found")
+	})
+
+	t.Run("does NOT soft-delete global-scoped OS absent from core inventory", func(t *testing.T) {
+		globalAbsentID := uuid.New()
+		scopeGlobal := cdbm.OperatingSystemScopeGlobal
+		globalAbsentOS := &cdbm.OperatingSystem{
+			ID:                       globalAbsentID,
+			Name:                     "global-absent-os",
+			Org:                      tnOrg,
+			InfrastructureProviderID: &ip.ID,
+			Type:                     cdbm.OperatingSystemTypeIPXE,
+			Status:                   cdbm.OperatingSystemStatusReady,
+			IsActive:                 true,
+			IpxeOsScope:              &scopeGlobal,
+			CreatedBy:                ipu.ID,
+		}
+		_, err := dbSession.DB.NewInsert().Model(globalAbsentOS).Exec(context.Background())
+		assert.NoError(t, err)
+
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:        timestamppb.Now(),
+			OperatingSystems: []*cwssaws.OperatingSystem{},
+		}
+		err = operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		stillExists, getErr := osDAO.GetByID(context.Background(), nil, globalAbsentID, nil)
+		assert.NoError(t, getErr, "global-scoped OS must NOT be deleted by reconciliation-by-absence")
+		assert.Equal(t, "global-absent-os", stillExists.Name)
+	})
+
+	t.Run("does not restore soft-deleted OS even if core reports it", func(t *testing.T) {
+		deletedID := uuid.New()
+		deletedTime := time.Now().Add(-1 * time.Hour)
+		deletedOS := &cdbm.OperatingSystem{
+			ID:                       deletedID,
+			Name:                     "already-deleted-os",
+			Org:                      tnOrg,
+			InfrastructureProviderID: &ip.ID,
+			Type:                     cdbm.OperatingSystemTypeIPXE,
+			Status:                   cdbm.OperatingSystemStatusReady,
+			IsActive:                 true,
+			Deleted:                  &deletedTime,
+			CreatedBy:                ipu.ID,
+		}
+		_, err := dbSession.DB.NewInsert().Model(deletedOS).Exec(context.Background())
+		assert.NoError(t, err)
+
+		futureTime := timestamppb.Now()
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			Timestamp:       futureTime,
+			OperatingSystems: []*cwssaws.OperatingSystem{
+				{
+					Id:                   &cwssaws.OperatingSystemId{Value: deletedID.String()},
+					Name:                 "already-deleted-os",
+					TenantOrganizationId: tnOrg,
+					Type:                 cwssaws.OperatingSystemType_OS_TYPE_IPXE,
+					Status:               cwssaws.TenantState_READY,
+					IsActive:             true,
+					Created:              futureTime.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+					Updated:              futureTime.AsTime().Format("2006-01-02T15:04:05Z07:00"),
+				},
+			},
+		}
+		err = operatingSystemManager.UpdateOperatingSystemsInDB(context.Background(), st.ID, inv)
+		assert.NoError(t, err)
+
+		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+		_, getErr := osDAO.GetByID(context.Background(), nil, deletedID, nil)
+		assert.Error(t, getErr, "soft-deleted OS should remain deleted even when core reports it active")
+	})
+}
+
+func TestManageOperatingSystem_UpdateOperatingSystemStatusInDB(t *testing.T) {
 	dbSession := util.TestInitDB(t)
 	defer dbSession.Close()
 
@@ -420,7 +707,7 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mv := ManageOsImage{
+			mv := ManageOperatingSystem{
 				dbSession:      tt.fields.dbSession,
 				siteClientPool: tSiteClientPool,
 			}
@@ -450,7 +737,7 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 		})
 	}
 }
-func TestNewManageOsImage(t *testing.T) {
+func TestNewManageOperatingSystem(t *testing.T) {
 	type args struct {
 		dbSession      *cdb.Session
 		siteClientPool *sc.ClientPool
@@ -472,15 +759,15 @@ func TestNewManageOsImage(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want ManageOsImage
+		want ManageOperatingSystem
 	}{
 		{
-			name: "test new ManageOsImage instantiation",
+			name: "test new ManageOperatingSystem instantiation",
 			args: args{
 				dbSession:      dbSession,
 				siteClientPool: scp,
 			},
-			want: ManageOsImage{
+			want: ManageOperatingSystem{
 				dbSession:      dbSession,
 				siteClientPool: scp,
 			},
@@ -488,8 +775,8 @@ func TestNewManageOsImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewManageOsImage(tt.args.dbSession, tt.args.siteClientPool); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewManageOsImage() = %v, want %v", got, tt.want)
+			if got := NewManageOperatingSystem(tt.args.dbSession, tt.args.siteClientPool); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewManageOperatingSystem() = %v, want %v", got, tt.want)
 			}
 		})
 	}

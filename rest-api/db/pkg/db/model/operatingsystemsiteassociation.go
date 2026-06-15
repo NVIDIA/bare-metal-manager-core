@@ -16,6 +16,8 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+
+	ws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
@@ -56,6 +58,14 @@ var (
 		OperatingSystemSiteAssociationStatusError:    true,
 		OperatingSystemSiteAssociationStatusDeleting: true,
 	}
+
+	OperatingSystemSiteAssociationStatusFromProtoMap = map[ws.TenantState]string{
+		ws.TenantState_PROVISIONING: OperatingSystemSiteAssociationStatusSyncing,
+		ws.TenantState_READY:        OperatingSystemSiteAssociationStatusSynced,
+		ws.TenantState_CONFIGURING:  OperatingSystemSiteAssociationStatusSyncing,
+		ws.TenantState_TERMINATING:  OperatingSystemSiteAssociationStatusDeleting,
+		ws.TenantState_FAILED:       OperatingSystemSiteAssociationStatusError,
+	}
 )
 
 // OperatingSystemSiteAssociation associates an OperatingSystem with different Sites
@@ -69,6 +79,7 @@ type OperatingSystemSiteAssociation struct {
 	Site              *Site            `bun:"rel:belongs-to,join:site_id=id"`
 	Version           *string          `bun:"version"`
 	Status            string           `bun:"status,notnull"`
+	ControllerState   *string          `bun:"controller_state"`
 	IsMissingOnSite   bool             `bun:"is_missing_on_site,notnull"`
 	Created           time.Time        `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated           time.Time        `bun:"updated,nullzero,notnull,default:current_timestamp"`
@@ -82,6 +93,7 @@ type OperatingSystemSiteAssociationCreateInput struct {
 	SiteID            uuid.UUID
 	Version           *string
 	Status            string
+	ControllerState   *string
 	CreatedBy         uuid.UUID
 }
 
@@ -92,6 +104,7 @@ type OperatingSystemSiteAssociationUpdateInput struct {
 	SiteID                           *uuid.UUID
 	Version                          *string
 	Status                           *string
+	ControllerState                  *string
 	IsMissingOnSite                  *bool
 }
 
@@ -132,7 +145,7 @@ type OperatingSystemSiteAssociationDAO interface {
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*OperatingSystemSiteAssociation, error)
 	//
-	GetByOperatingSystemIDAndSiteID(ctx context.Context, tx *db.Tx, OperatingSystemID uuid.UUID, siteID uuid.UUID, includeRelations []string) (*OperatingSystemSiteAssociation, error)
+	GetByOperatingSystemIDAndSiteID(ctx context.Context, tx *db.Tx, operatingSystemID uuid.UUID, siteID uuid.UUID, includeRelations []string) (*OperatingSystemSiteAssociation, error)
 	//
 	GetAll(ctx context.Context, tx *db.Tx, filter OperatingSystemSiteAssociationFilterInput, page paginator.PageInput, includeRelations []string) ([]OperatingSystemSiteAssociation, int, error)
 	//
@@ -167,6 +180,7 @@ func (ossasd OperatingSystemSiteAssociationSQLDAO) Create(
 		SiteID:            input.SiteID,
 		Version:           input.Version,
 		Status:            input.Status,
+		ControllerState:   input.ControllerState,
 		CreatedBy:         input.CreatedBy,
 	}
 
@@ -215,19 +229,19 @@ func (ossasd OperatingSystemSiteAssociationSQLDAO) GetByID(ctx context.Context, 
 
 // GetByOperatingSystemIDAndSiteID returns an OperatingSystemSiteAssociation by OperatingSystemID and SiteID
 // returns db.ErrDoesNotExist error if the record is not found
-func (ossasd OperatingSystemSiteAssociationSQLDAO) GetByOperatingSystemIDAndSiteID(ctx context.Context, tx *db.Tx, OperatingSystemID uuid.UUID, siteID uuid.UUID, includeRelations []string) (*OperatingSystemSiteAssociation, error) {
+func (ossasd OperatingSystemSiteAssociationSQLDAO) GetByOperatingSystemIDAndSiteID(ctx context.Context, tx *db.Tx, operatingSystemID uuid.UUID, siteID uuid.UUID, includeRelations []string) (*OperatingSystemSiteAssociation, error) {
 	// Create a child span and set the attributes for current request
 	ctx, OperatingSystemSiteAssociationDAOSpan := ossasd.tracerSpan.CreateChildInCurrentContext(ctx, "OperatingSystemSiteAssociationDAO.GetByOperatingSystemIDAndSiteID")
 	if OperatingSystemSiteAssociationDAOSpan != nil {
 		defer OperatingSystemSiteAssociationDAOSpan.End()
 
-		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "operating_system_id", OperatingSystemID.String())
+		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "operating_system_id", operatingSystemID.String())
 		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "site_id", siteID.String())
 	}
 
 	ossa := &OperatingSystemSiteAssociation{}
 
-	query := db.GetIDB(tx, ossasd.dbSession).NewSelect().Model(ossa).Where("ossa.operating_system_id = ?", OperatingSystemID.String()).Where("ossa.site_id = ?", siteID.String())
+	query := db.GetIDB(tx, ossasd.dbSession).NewSelect().Model(ossa).Where("ossa.operating_system_id = ?", operatingSystemID.String()).Where("ossa.site_id = ?", siteID.String())
 
 	for _, relation := range includeRelations {
 		query = query.Relation(relation)
@@ -398,6 +412,11 @@ func (ossasd OperatingSystemSiteAssociationSQLDAO) Update(
 		ossa.IsMissingOnSite = *input.IsMissingOnSite
 		updatedFields = append(updatedFields, "is_missing_on_site")
 		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "is_missing_on_site", *input.IsMissingOnSite)
+	}
+	if input.ControllerState != nil {
+		ossa.ControllerState = input.ControllerState
+		updatedFields = append(updatedFields, "controller_state")
+		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "controller_state", *input.ControllerState)
 	}
 
 	if len(updatedFields) > 0 {

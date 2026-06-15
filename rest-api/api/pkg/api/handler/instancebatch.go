@@ -175,28 +175,27 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 	// Options below should all have been set by the
 	// earlier call to ValidateAndSetOperatingSystemData
 
-	if os.Type == cdbm.OperatingSystemTypeIPXE {
-		return &cwssaws.InstanceOperatingSystemConfig{
-			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
-			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-				Ipxe: &cwssaws.InlineIpxe{
-					IpxeScript: *apiRequest.IpxeScript,
-				},
-			},
-			UserData: apiRequest.UserData,
-		}, osID, nil
-	} else {
-		return &cwssaws.InstanceOperatingSystemConfig{
-			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
-				OsImageId: &cwssaws.UUID{
-					Value: os.ID.String(),
-				},
-			},
-			UserData: apiRequest.UserData,
-		}, osID, nil
+	result := cwssaws.InstanceOperatingSystemConfig{
+		PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
+		UserData:         apiRequest.UserData,
 	}
+	switch os.Type {
+	case cdbm.OperatingSystemTypeIPXE:
+		result.RunProvisioningInstructionsOnEveryBoot = *apiRequest.AlwaysBootWithCustomIpxe
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_Ipxe{
+			Ipxe: &cwssaws.InlineIpxe{IpxeScript: *apiRequest.IpxeScript},
+		}
+	case cdbm.OperatingSystemTypeTemplatedIPXE:
+		result.RunProvisioningInstructionsOnEveryBoot = *apiRequest.AlwaysBootWithCustomIpxe
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_OperatingSystemId{
+			OperatingSystemId: &cwssaws.OperatingSystemId{Value: os.ID.String()},
+		}
+	case cdbm.OperatingSystemTypeImage:
+		result.Variant = &cwssaws.InstanceOperatingSystemConfig_OsImageId{
+			OsImageId: &cwssaws.UUID{Value: os.ID.String()},
+		}
+	}
+	return &result, osID, nil
 }
 
 // Handle godoc

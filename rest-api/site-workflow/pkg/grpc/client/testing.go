@@ -488,6 +488,100 @@ func (mcgsc *MockCoreGrpcServiceClient) ListOsImage(ctx context.Context, in *wfl
 	return out, nil
 }
 
+/* iPXE Template mock methods */
+func (mcgsc *MockCoreGrpcServiceClient) ListIpxeTemplates(ctx context.Context, in *wflows.ListIpxeTemplatesRequest, opts ...grpc.CallOption) (*wflows.IpxeTemplateList, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+
+	out := &wflows.IpxeTemplateList{}
+
+	count, ok := ctx.Value("wantCount").(int)
+	if ok {
+		for i := 0; i < count; i++ {
+			out.Templates = append(out.Templates, &wflows.IpxeTemplate{
+				Name:  fmt.Sprintf("template-%d", i),
+				Scope: wflows.IpxeTemplateScope_PUBLIC,
+			})
+		}
+	}
+
+	return out, nil
+}
+
+/* OS Definition mock methods */
+func (mcgsc *MockCoreGrpcServiceClient) FindOperatingSystemIds(ctx context.Context, in *wflows.OperatingSystemSearchFilter, opts ...grpc.CallOption) (*wflows.OperatingSystemIdList, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+
+	out := &wflows.OperatingSystemIdList{}
+	count, ok := ctx.Value("wantCount").(int)
+	if ok {
+		for i := 0; i < count; i++ {
+			out.Ids = append(out.Ids, &wflows.OperatingSystemId{Value: uuid.New().String()})
+		}
+	}
+	return out, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) FindOperatingSystemsByIds(ctx context.Context, in *wflows.OperatingSystemsByIdsRequest, opts ...grpc.CallOption) (*wflows.OperatingSystemList, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+
+	out := &wflows.OperatingSystemList{}
+	for i, id := range in.GetIds() {
+		out.OperatingSystems = append(out.OperatingSystems, &wflows.OperatingSystem{
+			Id:                   id,
+			Name:                 fmt.Sprintf("os-definition-%d", i),
+			TenantOrganizationId: "TestOrg",
+			Type:                 wflows.OperatingSystemType_OS_TYPE_IPXE,
+		})
+	}
+	return out, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) GetOperatingSystem(ctx context.Context, in *wflows.OperatingSystemId, opts ...grpc.CallOption) (*wflows.OperatingSystem, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+	return &wflows.OperatingSystem{
+		Id:   &wflows.OperatingSystemId{Value: in.GetValue()},
+		Name: "mock-os",
+		Type: wflows.OperatingSystemType_OS_TYPE_IPXE,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) CreateOperatingSystem(ctx context.Context, in *wflows.CreateOperatingSystemRequest, opts ...grpc.CallOption) (*wflows.OperatingSystem, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+	return &wflows.OperatingSystem{
+		Id:   in.GetId(),
+		Name: in.GetName(),
+		Type: wflows.OperatingSystemType_OS_TYPE_IPXE,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) UpdateOperatingSystem(ctx context.Context, in *wflows.UpdateOperatingSystemRequest, opts ...grpc.CallOption) (*wflows.OperatingSystem, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+	return &wflows.OperatingSystem{
+		Id:   in.GetId(),
+		Name: in.GetName(),
+		Type: wflows.OperatingSystemType_OS_TYPE_IPXE,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) DeleteOperatingSystem(ctx context.Context, in *wflows.DeleteOperatingSystemRequest, opts ...grpc.CallOption) (*wflows.DeleteOperatingSystemResponse, error) {
+	if err, ok := ctx.Value("wantError").(error); ok {
+		return nil, err
+	}
+	return &wflows.DeleteOperatingSystemResponse{}, nil
+}
+
 /* Tenant mock methods */
 func (mcgsc *MockCoreGrpcServiceClient) CreateTenant(ctx context.Context, in *wflows.CreateTenantRequest, opts ...grpc.CallOption) (*wflows.CreateTenantResponse, error) {
 	out := new(wflows.CreateTenantResponse)

@@ -270,6 +270,9 @@ func workflowOrchestrator() error {
 	ManagerAccess.API.SKU.RegisterSubscriber()
 	ManagerAccess.API.SKU.RegisterPublisher()
 
+	ManagerAccess.API.IpxeTemplate.RegisterSubscriber()
+	ManagerAccess.API.IpxeTemplate.RegisterPublisher()
+
 	ManagerAccess.API.DpuExtensionService.RegisterSubscriber()
 	ManagerAccess.API.DpuExtensionService.RegisterPublisher()
 

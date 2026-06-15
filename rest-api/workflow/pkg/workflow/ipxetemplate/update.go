@@ -1,0 +1,82 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package ipxetemplate
+
+import (
+	"fmt"
+	"time"
+
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	ipxeTemplateActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/ipxetemplate"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/workflow"
+)
+
+// UpdateIpxeTemplateInventory is a workflow called by the Site Agent to update iPXE template
+// inventory for a Site
+func UpdateIpxeTemplateInventory(ctx workflow.Context, siteID string, inventory *cwssaws.IpxeTemplateInventory) (err error) {
+	logger := log.With().Str("Workflow", "UpdateIpxeTemplateInventory").Str("Site ID", siteID).Logger()
+
+	startTime := workflow.Now(ctx)
+
+	logger.Info().Msg("Starting workflow")
+
+	parsedSiteID, err := uuid.Parse(siteID)
+	if err != nil {
+		logger.Warn().Err(err).Msg(fmt.Sprintf("workflow triggered with invalid site ID: %s", siteID))
+		return err
+	}
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    5 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    30 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy:         retrypolicy,
+	}
+
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var templateManager ipxeTemplateActivity.ManageIpxeTemplate
+
+	err = workflow.ExecuteActivity(ctx, templateManager.UpdateIpxeTemplatesInDB, parsedSiteID, inventory).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to execute activity: UpdateIpxeTemplatesInDB")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
+
+	// Record latency for this inventory call
+	var inventoryMetricsManager cwm.ManageInventoryMetrics
+
+	err = workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateIpxeTemplateInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to execute activity: RecordLatency")
+	}
+
+	return nil
+}

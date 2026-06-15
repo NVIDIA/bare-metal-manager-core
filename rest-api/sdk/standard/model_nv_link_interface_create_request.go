@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
-NVIDIA Infra Controller REST API
+NCX Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NCX Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NCX Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.4.0
 */

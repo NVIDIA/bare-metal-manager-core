@@ -8,38 +8,50 @@ import (
 	sww "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/workflow"
 )
 
-// RegisterSubscriber registers OperatingSystem CRUD workflows and activities with Temporal
+// RegisterSubscriber registers the OsImage and OperatingSystem CRUD
+// workflows/activities with the Temporal client.
 func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Registering CRUD workflows and activities")
 
-	// Register workflows
+	osManager := swa.NewManageOperatingSystem(ManagerAccess.Data.EB.Managers.CoreGrpc.Client)
 
-	// Register CreateOsImage workflow
+	// ── OsImage workflows (cloud-managed image catalog pushed to site) ─────────────────
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateOsImage)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered CreateOsImage workflow")
 
-	// Register UpdateOsImage workflow
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.UpdateOsImage)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered UpdateOsImage workflow")
 
-	// Register DeleteOsImage workflow
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DeleteOsImage)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered DeleteOsImage workflow")
 
-	// Register activities
-	osImageManager := swa.NewManageOperatingSystem(ManagerAccess.Data.EB.Managers.CoreGrpc.Client)
-
-	// Register CreateOsImageOnSite
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osImageManager.CreateOsImageOnSite)
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.CreateOsImageOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered CreateOsImageOnSite activity")
 
-	// Register UpdateOsImageOnSite
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osImageManager.UpdateOsImageOnSite)
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.UpdateOsImageOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered UpdateOsImageOnSite activity")
 
-	// Register DeleteOsImageOnSite
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osImageManager.DeleteOsImageOnSite)
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.DeleteOsImageOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered DeleteOsImageOnSite activity")
+
+	// ── OperatingSystem workflows (bi-directional: carbide-rest ↔ nico-core) ────────
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateOperatingSystem)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered the CreateOperatingSystem workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.UpdateOperatingSystem)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered the UpdateOperatingSystem workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DeleteOperatingSystem)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered the DeleteOperatingSystem workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.CreateOperatingSystemOnSite)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered CreateOperatingSystemOnSite activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.UpdateOperatingSystemOnSite)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered UpdateOperatingSystemOnSite activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(osManager.DeleteOperatingSystemOnSite)
+	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: successfully registered DeleteOperatingSystemOnSite activity")
 
 	return nil
 }

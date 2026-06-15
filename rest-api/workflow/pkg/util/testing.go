@@ -159,6 +159,22 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create User table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.User)(nil))
 	assert.Nil(t, err)
+	// create IpxeTemplate table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplate)(nil))
+	assert.Nil(t, err)
+	// add UNIQUE(name) on ipxe_template (applied by migration in production)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template DROP CONSTRAINT IF EXISTS ipxe_template_name_key")
+	assert.Nil(t, err)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template ADD CONSTRAINT ipxe_template_name_key UNIQUE (name)")
+	assert.Nil(t, err)
+	// create IpxeTemplateSiteAssociation table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplateSiteAssociation)(nil))
+	assert.Nil(t, err)
+	// add UNIQUE(ipxe_template_id, site_id) on ITSA (applied by migration in production)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template_site_association DROP CONSTRAINT IF EXISTS ipxe_template_site_association_template_id_site_id_key")
+	assert.Nil(t, err)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template_site_association ADD CONSTRAINT ipxe_template_site_association_template_id_site_id_key UNIQUE (ipxe_template_id, site_id)")
+	assert.Nil(t, err)
 }
 
 // TestBuildUser build user
@@ -371,9 +387,8 @@ func TestBuildImageOperatingSystem(t *testing.T, dbSession *cdb.Session, ipID *u
 		Name:                        name,
 		Org:                         org,
 		InfrastructureProviderID:    ipID,
-		TenantID:                    tenantID,
-		ControllerOperatingSystemID: nil,
-		Version:                     version,
+		TenantID:                 tenantID,
+		Version:                  version,
 		Type:                        cdbm.OperatingSystemTypeImage,
 		ImageURL:                    cutil.GetPtr("http://testos.net"),
 		ImageSHA:                    cutil.GetPtr("123213ddddsa1231asd"),

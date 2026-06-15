@@ -4,6 +4,7 @@
 package handler
 
 import (
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,9 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
@@ -47,14 +46,14 @@ func TestOperatingSystemHandler_Create(t *testing.T) {
 	ipOrg1 := "test-ip-org-1"
 	ipOrg2 := "test-ip-org-2"
 	ipOrg3 := "test-ip-org-3"
-	ipRoles := []string{authz.ProviderAdminRole}
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
 
 	testMachineBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg1, ipOrg2, ipOrg3}, ipRoles)
 
 	tnOrg1 := "test-tn-org-1"
 	tnOrg2 := "test-tn-org-2"
 	tnOrg3 := "test-tn-org-3"
-	tnRoles := []string{authz.TenantAdminRole}
+	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg1, "infra-provider-1")
 	assert.NotNil(t, ip)
@@ -85,7 +84,7 @@ func TestOperatingSystemHandler_Create(t *testing.T) {
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
 
-	osObj := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-1", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), IpxeScript: cutil.GetPtr("ipxe"), ImageDisk: cutil.GetPtr("/dev/sda"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: true, AllowOverride: false}
+	osObj := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-1", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: true, AllowOverride: false}
 	okBody, err := json.Marshal(osObj)
 	assert.Nil(t, err)
 
@@ -142,7 +141,7 @@ func TestOperatingSystemHandler_Create(t *testing.T) {
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 
 	tempClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		mock.AnythingOfType("func(internal.Context, uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("uuid.UUID"),
+		mock.AnythingOfType("func(internal.Context, []uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("[]uuid.UUID"),
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
@@ -284,7 +283,7 @@ func TestOperatingSystemHandler_Create(t *testing.T) {
 			user:                          tnu,
 			expectedErr:                   false,
 			expectedStatus:                http.StatusCreated,
-			expectedOperatingSystemStatus: cdbm.OperatingSystemStatusReady,
+			expectedOperatingSystemStatus: cdbm.OperatingSystemStatusSyncing,
 			expectedStatusHistoryCount:    1,
 			verifyChildSpanner:            true,
 		},
@@ -387,7 +386,7 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 	ipOrg1 := "test-ip-org-1"
 	ipOrg2 := "test-ip-org-2"
 	ipOrg3 := "test-ip-org-3"
-	ipRoles := []string{authz.ProviderAdminRole}
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
 
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg1, "infra-provider-1")
 	assert.NotNil(t, ip)
@@ -401,7 +400,7 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 	tnOrg2 := "test-tn-org-2"
 	tnOrg3 := "test-tn-org-3"
 	tnOrg4 := "test-tn-org-4"
-	tnRoles := []string{authz.TenantAdminRole}
+	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	tnu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg1, tnOrg2, tnOrg3, tnOrg4}, tnRoles)
 
@@ -861,7 +860,7 @@ func TestOperatingSystemHandler_GetByID(t *testing.T) {
 
 	tnOrg1 := "test-tn-org-1"
 	tnOrg2 := "test-tn-org-2"
-	orgRoles := []string{authz.TenantAdminRole}
+	orgRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	user := testMachineBuildUser(t, dbSession, uuid.New().String(), []string{ipOrg1, ipOrg2, ipOrg3, tnOrg1, tnOrg2}, orgRoles)
 
@@ -1139,7 +1138,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 	ipOrg3 := "test-ip-org-3"
 	tnOrg1 := "test-tn-org-1"
 	tnOrg2 := "test-tn-org-2"
-	orgRoles := []string{authz.TenantAdminRole}
+	orgRoles := []string{"FORGE_TENANT_ADMIN"}
 	user := testMachineBuildUser(t, dbSession, uuid.New().String(), []string{ipOrg1, ipOrg2, ipOrg3, tnOrg1, tnOrg2}, orgRoles)
 
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg1, "infra-provider-1")
@@ -1538,7 +1537,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 
 	tempClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		mock.AnythingOfType("func(internal.Context, uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("uuid.UUID"),
+		mock.AnythingOfType("func(internal.Context, []uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("[]uuid.UUID"),
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
@@ -1615,7 +1614,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			user:           user,
 			osID:           os2.ID.String(),
 			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "error when req body doesnt bind",
@@ -1683,32 +1682,22 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			verifyChildSpanner:       true,
 		},
 		{
-			name:           "should succeed to deactivate active OS",
+			name:           "should reject deactivate on Image OS",
 			reqOrgName:     ipOrg1,
 			user:           user,
 			reqBody:        string(okBodyDeactivate),
 			osID:           os10.ID.String(),
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-
-			expectedName:             updReqDeactivate.Name,
-			expectedDesc:             updReqDeactivate.Description,
-			expectedIsActive:         cutil.GetPtr(false),
-			expectedDeactivationNote: updReqDeactivate.DeactivationNote,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "should succeed to deactivate active OS without Deactivation Note",
+			name:           "should reject deactivate on Image OS without Deactivation Note",
 			reqOrgName:     ipOrg1,
 			user:           user,
 			reqBody:        string(okBodyDeactivateNoNote),
 			osID:           os11.ID.String(),
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-
-			expectedName:             updReqDeactivateNoNote.Name,
-			expectedDesc:             updReqDeactivateNoNote.Description,
-			expectedIsActive:         cutil.GetPtr(false),
-			expectedDeactivationNote: updReqDeactivateNoNote.DeactivationNote,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "should fail to change Deactivation Note for an active OS",
@@ -1720,53 +1709,42 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "should succeed to change Deactivation Note on deactivated OS",
+			name:           "should reject change of Deactivation Note on deactivated Image OS",
 			reqOrgName:     ipOrg1,
 			user:           user,
 			reqBody:        string(okBodyChangeNote),
 			osID:           os12.ID.String(),
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-
-			expectedName:             updReqChangeNote.Name,
-			expectedDesc:             updReqChangeNote.Description,
-			expectedIsActive:         cutil.GetPtr(false),
-			expectedDeactivationNote: updReqChangeNote.DeactivationNote,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "should succeed to activate deactivated OS (3/4)",
+			name:           "should reject activate on deactivated Image OS",
 			reqOrgName:     ipOrg1,
 			user:           user,
 			reqBody:        string(okBodyActivate),
 			osID:           os13.ID.String(),
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-
-			expectedName:             updReqActivate.Name,
-			expectedDesc:             updReqActivate.Description,
-			expectedIsActive:         cutil.GetPtr(false),
-			expectedDeactivationNote: nil,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "success when updated with required valid imageURL attribute",
-			reqOrgName:       ipOrg1,
-			user:             user,
-			reqBody:          string(okBodyImageUrl),
-			reqUpdateModel:   &updReqImageUrl,
-			osID:             os5.ID.String(),
-			expectedErr:      false,
-			expectedStatus:   http.StatusOK,
-			expectedImageURL: cutil.GetPtr("http://newimagepath.iso"),
+			name:           "should reject imageURL update on Image OS",
+			reqOrgName:     ipOrg1,
+			user:           user,
+			reqBody:        string(okBodyImageUrl),
+			reqUpdateModel: &updReqImageUrl,
+			osID:           os5.ID.String(),
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "error when updated with required valid imageURL attribute failed with context deadline error",
+			name:           "should reject imageURL update on Image OS in second org",
 			reqOrgName:     ipOrg2,
 			user:           user,
 			reqBody:        string(okBodyImageUrl),
 			reqUpdateModel: &updReqImageUrl,
 			osID:           os9.ID.String(),
 			expectedErr:    true,
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 	for _, tc := range tests {
@@ -1880,7 +1858,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	ipOrg1 := "test-ip-org-1"
 	ipOrg2 := "test-ip-org-2"
 	ipOrg3 := "test-ip-org-3"
-	ipRoles := []string{authz.ProviderAdminRole}
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
 
 	ipu := testMachineBuildUser(t, dbSession, uuid.New().String(), []string{ipOrg1, ipOrg2, ipOrg3}, ipRoles)
 
@@ -1888,7 +1866,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	tnOrg2 := "test-tn-org-2"
 	tnOrg3 := "test-tn-org-3"
 	tnOrg4 := "test-tn-org-4"
-	tnRoles := []string{authz.TenantAdminRole}
+	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	tnu := testMachineBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg1, tnOrg2, tnOrg3, tnOrg4}, tnRoles)
 
@@ -2071,7 +2049,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 
 	tempClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		mock.AnythingOfType("func(internal.Context, uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("uuid.UUID"),
+		mock.AnythingOfType("func(internal.Context, []uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("[]uuid.UUID"),
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
@@ -2097,23 +2075,23 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	tscWithTimeout.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	//
-	// NICo not-found mocking
+	// Carbide not-found mocking
 	//
-	scpWithNICoNotFound := sc.NewClientPool(tcfg)
-	tscWithNICoNotFound := &tmocks.Client{}
+	scpWithCarbideNotFound := sc.NewClientPool(tcfg)
+	tscWithCarbideNotFound := &tmocks.Client{}
 
-	scpWithNICoNotFound.IDClientMap[site.ID.String()] = tscWithNICoNotFound
-	scpWithNICoNotFound.IDClientMap[site2.ID.String()] = tscWithNICoNotFound
+	scpWithCarbideNotFound.IDClientMap[site.ID.String()] = tscWithCarbideNotFound
+	scpWithCarbideNotFound.IDClientMap[site2.ID.String()] = tscWithCarbideNotFound
 
-	wrunWithNICoNotFound := &tmocks.WorkflowRun{}
-	wrunWithNICoNotFound.On("GetID").Return("workflow-WithNICoNotFound")
+	wrunWithCarbideNotFound := &tmocks.WorkflowRun{}
+	wrunWithCarbideNotFound.On("GetID").Return("workflow-WithCarbideNotFound")
 
-	wrunWithNICoNotFound.Mock.On("Get", mock.Anything, mock.Anything).Return(tp.NewNonRetryableApplicationError("NICo went bananas", swe.ErrTypeNICoObjectNotFound, errors.New("NICo went bananas")))
+	wrunWithCarbideNotFound.Mock.On("Get", mock.Anything, mock.Anything).Return(tp.NewNonRetryableApplicationError("Carbide went bananas", swe.ErrTypeCarbideObjectNotFound, errors.New("Carbide went bananas")))
 
-	tscWithNICoNotFound.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		"DeleteOsImage", mock.Anything).Return(wrunWithNICoNotFound, nil)
+	tscWithCarbideNotFound.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
+		"DeleteOsImage", mock.Anything).Return(wrunWithCarbideNotFound, nil)
 
-	tscWithNICoNotFound.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	tscWithCarbideNotFound.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	tests := []struct {
 		name               string
@@ -2161,7 +2139,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 			user:           tnu,
 			osID:           os3.ID.String(),
 			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "error when instance present for os",
@@ -2203,15 +2181,15 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 			tClient:            tscWithTimeout,
 		},
 		{
-			name:               "nico not-found success",
+			name:               "carbide not-found success",
 			reqOrgName:         tnOrg1,
 			user:               tnu,
 			osID:               os5.ID.String(),
 			expectedErr:        false,
 			expectedStatus:     http.StatusAccepted,
 			verifyChildSpanner: true,
-			clientPool:         scpWithNICoNotFound,
-			tClient:            tscWithNICoNotFound,
+			clientPool:         scpWithCarbideNotFound,
+			tClient:            tscWithCarbideNotFound,
 		},
 	}
 	for _, tc := range tests {

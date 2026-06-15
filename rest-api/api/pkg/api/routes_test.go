@@ -69,6 +69,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-validation":        11,
 		"dpu-extension-service":     7,
 		"sku":                       2,
+		"ipxe-template":             2,
 		"task":                      2,
 		"rule":                      5,
 		"rack":                      13,

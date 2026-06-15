@@ -8,15 +8,16 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+
+	ws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -37,8 +38,17 @@ const (
 
 	// OperatingSystemRelationName is the relation name for the OperatingSystem model
 	OperatingSystemRelationName = "OperatingSystem"
-	// OperatingSystemTypeIPXE is the ipxe based OperatingSystem type
+
+	// OperatingSystemScopeLocal means single site, bidirectional sync (provider-owned OS from nico-core).
+	OperatingSystemScopeLocal = "Local"
+	// OperatingSystemScopeLimited means carbide-rest is the source of truth for a fixed list of sites.
+	OperatingSystemScopeLimited = "Limited"
+	// OperatingSystemScopeGlobal means carbide-rest is the source of truth for all owner sites.
+	OperatingSystemScopeGlobal = "Global"
+	// OperatingSystemTypeIPXE is the raw iPXE script based OperatingSystem type
 	OperatingSystemTypeIPXE = "iPXE"
+	// OperatingSystemTypeTemplatedIPXE is the iPXE template based OperatingSystem type
+	OperatingSystemTypeTemplatedIPXE = "Templated iPXE"
 	// OperatingSystemTypeImage is the image based OperatingSystem type
 	OperatingSystemTypeImage = "Image"
 
@@ -49,6 +59,15 @@ const (
 	OperatingSystemAuthTypeBasic = "Basic"
 	// OperatingSystemAuthTypeBearer is the bearer image auth type
 	OperatingSystemAuthTypeBearer = "Bearer"
+
+	// OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded is the cache as needed strategy
+	OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded = "CacheAsNeeded"
+	// OperatingSystemIpxeArtifactCacheStrategyLocalOnly is the local only strategy
+	OperatingSystemIpxeArtifactCacheStrategyLocalOnly = "LocalOnly"
+	// OperatingSystemIpxeArtifactCacheStrategyCachedOnly is the cached only strategy
+	OperatingSystemIpxeArtifactCacheStrategyCachedOnly = "CachedOnly"
+	// OperatingSystemIpxeArtifactCacheStrategyRemoteOnly is the remote only strategy
+	OperatingSystemIpxeArtifactCacheStrategyRemoteOnly = "RemoteOnly"
 )
 
 var (
@@ -71,173 +90,253 @@ var (
 	}
 	//OperatingSystemsTypeMap is a list of valid type for the OperatingSystem model
 	OperatingSystemsTypeMap = map[string]bool{
-		OperatingSystemTypeIPXE:  true,
-		OperatingSystemTypeImage: true,
+		OperatingSystemTypeIPXE:          true,
+		OperatingSystemTypeTemplatedIPXE: true,
+		OperatingSystemTypeImage:         true,
+	}
+
+	OperatingSystemTypeFromProtoMap = map[ws.OperatingSystemType]string{
+		ws.OperatingSystemType_OS_TYPE_IPXE:           OperatingSystemTypeIPXE,
+		ws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE: OperatingSystemTypeTemplatedIPXE,
+	}
+
+	OperatingSystemStatusFromProtoMap = map[ws.TenantState]string{
+		ws.TenantState_PROVISIONING: OperatingSystemStatusProvisioning,
+		ws.TenantState_READY:        OperatingSystemStatusReady,
+		ws.TenantState_CONFIGURING:  OperatingSystemStatusSyncing,
+		ws.TenantState_TERMINATING:  OperatingSystemStatusDeleting,
+		ws.TenantState_FAILED:       OperatingSystemStatusError,
+	}
+
+	OperatingSystemIpxeArtifactCacheStrategyFromProtoMap = map[ws.IpxeTemplateArtifactCacheStrategy]string{
+		ws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED: OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded,
+		ws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY:      OperatingSystemIpxeArtifactCacheStrategyLocalOnly,
+		ws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY:     OperatingSystemIpxeArtifactCacheStrategyCachedOnly,
+		ws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY:     OperatingSystemIpxeArtifactCacheStrategyRemoteOnly,
+	}
+
+	OperatingSystemIpxeArtifactCacheStrategyToProtoMap = map[string]ws.IpxeTemplateArtifactCacheStrategy{
+		OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded: ws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED,
+		OperatingSystemIpxeArtifactCacheStrategyLocalOnly:     ws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyCachedOnly:    ws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyRemoteOnly:    ws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY,
 	}
 )
+
+// IsIPXEType returns true if the given OS type is any iPXE variant (raw script or templated).
+func IsIPXEType(osType string) bool {
+	return osType == OperatingSystemTypeIPXE || osType == OperatingSystemTypeTemplatedIPXE
+}
+
+// OperatingSystemIpxeParameter holds a single iPXE parameter name/value pair (stored as JSONB).
+// These are only populated for iPXE-based OS definitions synced from nico-core.
+type OperatingSystemIpxeParameter struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// FromProto converts a proto IpxeTemplateParameter to an OperatingSystemIpxeParameter
+func (osip *OperatingSystemIpxeParameter) FromProto(protoParam *ws.IpxeTemplateParameter) {
+	osip.Name = protoParam.Name
+	osip.Value = protoParam.Value
+}
+
+// ToProto converts an OperatingSystemIpxeParameter to a proto IpxeTemplateParameter
+func (osip *OperatingSystemIpxeParameter) ToProto() *ws.IpxeTemplateParameter {
+	return &ws.IpxeTemplateParameter{
+		Name:  osip.Name,
+		Value: osip.Value,
+	}
+}
+
+// OperatingSystemIpxeArtifact holds a single iPXE artifact descriptor (stored as JSONB).
+// These are only populated for iPXE-based OS definitions synced from nico-core.
+//
+// Note: the proto IpxeTemplateArtifact has a `cached_url` field that is
+// intentionally NOT represented here. cached_url is a per-site value populated
+// by nico-core after a successful download; there is no meaningful global
+// value for it on the rest side. The push activity must therefore never
+// emit cached_url to core (so existing per-site values are preserved), and
+// the inbound (pull) activity must never store cached_url on the global
+// OperatingSystem row.
+type OperatingSystemIpxeArtifact struct {
+	Name          string  `json:"name"`
+	URL           string  `json:"url"`
+	SHA           *string `json:"sha"`
+	AuthType      *string `json:"authType"`
+	AuthToken     *string `json:"authToken"`
+	CacheStrategy string  `json:"cacheStrategy"`
+}
+
+// FromProto converts a proto IpxeTemplateArtifact to an OperatingSystemIpxeArtifact.
+// The proto's cached_url field is intentionally ignored — see the type doc.
+func (osia *OperatingSystemIpxeArtifact) FromProto(protoArtifact *ws.IpxeTemplateArtifact) {
+	osia.Name = protoArtifact.Name
+	osia.URL = protoArtifact.Url
+	osia.SHA = protoArtifact.Sha
+	osia.AuthType = protoArtifact.AuthType
+	osia.AuthToken = protoArtifact.AuthToken
+
+	cacheStrategy := OperatingSystemIpxeArtifactCacheStrategyFromProtoMap[protoArtifact.CacheStrategy]
+	if cacheStrategy == "" {
+		cacheStrategy = OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded
+	}
+	osia.CacheStrategy = cacheStrategy
+}
+
+// ToProto converts an OperatingSystemIpxeArtifact to a proto IpxeTemplateArtifact
+func (osia *OperatingSystemIpxeArtifact) ToProto() *ws.IpxeTemplateArtifact {
+	return &ws.IpxeTemplateArtifact{
+		Name:          osia.Name,
+		Url:           osia.URL,
+		Sha:           osia.SHA,
+		AuthType:      osia.AuthType,
+		AuthToken:     osia.AuthToken,
+		CacheStrategy: OperatingSystemIpxeArtifactCacheStrategyToProtoMap[osia.CacheStrategy],
+		CachedUrl:     nil, // rest side never update core local value for CachedUrl: it is managed on the core side.
+	}
+}
 
 // OperatingSystem describes the attributes of the operating system
 // that can be used on instances
 type OperatingSystem struct {
 	bun.BaseModel `bun:"table:operating_system,alias:os"`
 
-	ID                          uuid.UUID               `bun:"type:uuid,pk"`
-	Name                        string                  `bun:"name,notnull"`
-	Description                 *string                 `bun:"description"`
-	Org                         string                  `bun:"org,notnull"`
-	InfrastructureProviderID    *uuid.UUID              `bun:"infrastructure_provider_id,type:uuid"`
-	InfrastructureProvider      *InfrastructureProvider `bun:"rel:belongs-to,join:infrastructure_provider_id=id"`
-	TenantID                    *uuid.UUID              `bun:"tenant_id,type:uuid"`
-	Tenant                      *Tenant                 `bun:"rel:belongs-to,join:tenant_id=id"`
-	ControllerOperatingSystemID *uuid.UUID              `bun:"controller_operating_system_id,type:uuid"`
-	Version                     *string                 `bun:"version"`
-	Type                        string                  `bun:"type,notnull"`
-	ImageURL                    *string                 `bun:"image_url"`
-	ImageSHA                    *string                 `bun:"image_sha"`
-	ImageAuthType               *string                 `bun:"image_auth_type"`
-	ImageAuthToken              *string                 `bun:"image_auth_token"`
-	ImageDisk                   *string                 `bun:"image_disk"`
-	RootFsID                    *string                 `bun:"root_fs_id"`
-	RootFsLabel                 *string                 `bun:"root_fs_label"`
-	IpxeScript                  *string                 `bun:"ipxe_script"`
-	UserData                    *string                 `bun:"user_data"`
-	IsCloudInit                 bool                    `bun:"is_cloud_init,notnull"`
-	AllowOverride               bool                    `bun:"allow_override,notnull"`
-	EnableBlockStorage          bool                    `bun:"enable_block_storage,notnull"`
-	PhoneHomeEnabled            bool                    `bun:"phone_home_enabled,notnull"`
-	IsActive                    bool                    `bun:"is_active,notnull"`
-	DeactivationNote            *string                 `bun:"deactivation_note"` // Note for deactivation, if any
-	Status                      string                  `bun:"status,notnull"`
-	Created                     time.Time               `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                     time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted                     *time.Time              `bun:"deleted,soft_delete"`
-	CreatedBy                   uuid.UUID               `bun:"type:uuid,notnull"`
-}
-
-// GetSiteID returns the OperatingSystem ID to use when communicating
-// with the Site: ControllerOperatingSystemID when present, otherwise
-// the OS's own ID. The Site treats both as opaque identifiers.
-func (os *OperatingSystem) GetSiteID() *uuid.UUID {
-	if os.ControllerOperatingSystemID != nil {
-		return os.ControllerOperatingSystemID
-	}
-	return &os.ID
-}
-
-// ToImageAttributesProto builds the OsImageAttributes proto used by
-// both the create and update workflows. tenantOrg is the owning
-// tenant's organization id (not stored on the entity directly).
-//
-// The same proto shape is sent for both create and update flows, so
-// this entity-level method is the canonical entity-to-proto for OS
-// image data; the request-shape ToProto methods on
-// APIOperatingSystemCreateRequest and APIOperatingSystemUpdateRequest
-// layer on top of it without altering the wire fields.
-//
-// Per the proto-conversion convention, the method trusts the caller:
-// the request must have been Validated and the handler must have
-// performed the cross-context check that the OS is image-typed (the
-// dereferences below assume ImageURL and ImageSHA are non-nil, which
-// holds for image-typed records after validation).
-func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *cwssaws.OsImageAttributes {
-	return &cwssaws.OsImageAttributes{
-		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
-		Name:                 &os.Name,
-		TenantOrganizationId: tenantOrg,
-		Description:          os.Description,
-		SourceUrl:            *os.ImageURL,
-		Digest:               *os.ImageSHA,
-		CreateVolume:         os.EnableBlockStorage,
-		AuthType:             os.ImageAuthType,
-		AuthToken:            os.ImageAuthToken,
-		RootfsId:             os.RootFsID,
-		RootfsLabel:          os.RootFsLabel,
-	}
-}
-
-// ToDeletionRequestProto builds the workflow request that asks a Site
-// to delete this OS image.
-func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *cwssaws.DeleteOsImageRequest {
-	return &cwssaws.DeleteOsImageRequest{
-		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
-		TenantOrganizationId: tenantOrg,
-	}
+	ID                       uuid.UUID               `bun:"type:uuid,pk"`
+	Name                     string                  `bun:"name,notnull"`
+	Description              *string                 `bun:"description"`
+	Org                      string                  `bun:"org,notnull"`
+	InfrastructureProviderID *uuid.UUID              `bun:"infrastructure_provider_id,type:uuid"`
+	InfrastructureProvider   *InfrastructureProvider `bun:"rel:belongs-to,join:infrastructure_provider_id=id"`
+	TenantID                 *uuid.UUID              `bun:"tenant_id,type:uuid"`
+	Tenant                   *Tenant                 `bun:"rel:belongs-to,join:tenant_id=id"`
+	Version                  *string                 `bun:"version"`
+	Type                     string                  `bun:"type,notnull"`
+	ImageURL                 *string                 `bun:"image_url"`
+	ImageSHA                 *string                 `bun:"image_sha"`
+	ImageAuthType            *string                 `bun:"image_auth_type"`
+	ImageAuthToken           *string                 `bun:"image_auth_token"`
+	ImageDisk                *string                 `bun:"image_disk"`
+	RootFsID                 *string                 `bun:"root_fs_id"`
+	RootFsLabel              *string                 `bun:"root_fs_label"`
+	IpxeScript               *string                 `bun:"ipxe_script"`
+	// iPXE fields populated for OS definitions synced from nico-core (type = iPXE)
+	IpxeTemplateId             *string                        `bun:"ipxe_template_id"`
+	IpxeTemplateParameters     []OperatingSystemIpxeParameter `bun:"ipxe_template_parameters,type:jsonb"`
+	IpxeTemplateArtifacts      []OperatingSystemIpxeArtifact  `bun:"ipxe_template_artifacts,type:jsonb"`
+	IpxeTemplateDefinitionHash *string                        `bun:"ipxe_template_definition_hash"`
+	// IpxeOsScope controls synchronization direction between carbide-rest and nico-core.
+	// "Local" means bidirectional, provider-owned from nico-core.
+	// "Global" and "Limited" mean carbide-rest is the source of truth.
+	// Set for all iPXE types (raw and templated); nil for Image-type OS.
+	// Tenant raw iPXE is auto-set to "Global"; provider iPXE from core is "Local".
+	// Legacy records with nil scope are treated as "Local" and backfilled by migration.
+	IpxeOsScope        *string    `bun:"ipxe_os_scope"`
+	UserData           *string    `bun:"user_data"`
+	IsCloudInit        bool       `bun:"is_cloud_init,notnull"`
+	AllowOverride      bool       `bun:"allow_override,notnull"`
+	EnableBlockStorage bool       `bun:"enable_block_storage,notnull"`
+	PhoneHomeEnabled   bool       `bun:"phone_home_enabled,notnull"`
+	IsActive           bool       `bun:"is_active,notnull"`
+	DeactivationNote   *string    `bun:"deactivation_note"` // Note for deactivation, if any
+	Status             string     `bun:"status,notnull"`
+	Created            time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated            time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted            *time.Time `bun:"deleted,soft_delete"`
+	CreatedBy          uuid.UUID  `bun:"type:uuid,notnull"`
 }
 
 // OperatingSystemCreateInput input parameters for Create method
 type OperatingSystemCreateInput struct {
-	Name                        string
-	Description                 *string
-	Org                         string
-	InfrastructureProviderID    *uuid.UUID
-	TenantID                    *uuid.UUID
-	ControllerOperatingSystemID *uuid.UUID
-	Version                     *string
-	OsType                      string
-	ImageURL                    *string
-	ImageSHA                    *string
-	ImageAuthType               *string
-	ImageAuthToken              *string
-	ImageDisk                   *string
-	RootFsId                    *string
-	RootFsLabel                 *string
-	IpxeScript                  *string
-	UserData                    *string
-	IsCloudInit                 bool
-	AllowOverride               bool
-	EnableBlockStorage          bool
-	PhoneHomeEnabled            bool
-	Status                      string
-	CreatedBy                   uuid.UUID
+	// ID optionally pre-specifies the primary key. When set (e.g. during inventory sync from
+	// nico-core), the same UUID is used on both sides. When zero, a new UUID is generated.
+	ID                       uuid.UUID
+	Name                     string
+	Description              *string
+	Org                      string
+	InfrastructureProviderID *uuid.UUID
+	TenantID                 *uuid.UUID
+	Version                  *string
+	OsType                   string
+	ImageURL                 *string
+	ImageSHA                 *string
+	ImageAuthType            *string
+	ImageAuthToken           *string
+	ImageDisk                *string
+	RootFsId                 *string
+	RootFsLabel              *string
+	IpxeScript               *string
+	UserData                 *string
+	IsCloudInit              bool
+	AllowOverride            bool
+	EnableBlockStorage       bool
+	PhoneHomeEnabled         bool
+	// iPXE definition fields (for nico-core synced iPXE OS definitions)
+	IpxeTemplateId         *string
+	IpxeTemplateParameters []OperatingSystemIpxeParameter
+	IpxeTemplateArtifacts  []OperatingSystemIpxeArtifact
+	IpxeOSHash             *string
+	IpxeOsScope            *string
+	Status                 string
+	CreatedBy              uuid.UUID
 }
 
 // OperatingSystemUpdateInput input parameters for Update method
 type OperatingSystemUpdateInput struct {
-	OperatingSystemId           uuid.UUID
-	Name                        *string
-	Description                 *string
-	Org                         *string
-	InfrastructureProviderID    *uuid.UUID
-	TenantID                    *uuid.UUID
-	ControllerOperatingSystemID *uuid.UUID
-	Version                     *string
-	OsType                      *string
-	ImageURL                    *string
-	ImageSHA                    *string
-	ImageAuthType               *string
-	ImageAuthToken              *string
-	ImageDisk                   *string
-	RootFsId                    *string
-	RootFsLabel                 *string
-	IpxeScript                  *string
-	UserData                    *string
-	IsCloudInit                 *bool
-	AllowOverride               *bool
-	EnableBlockStorage          *bool
-	PhoneHomeEnabled            *bool
-	IsActive                    *bool
-	DeactivationNote            *string
-	Status                      *string
+	OperatingSystemId        uuid.UUID
+	Name                     *string
+	Description              *string
+	Org                      *string
+	InfrastructureProviderID *uuid.UUID
+	TenantID                 *uuid.UUID
+	Version                  *string
+	OsType                   *string
+	ImageURL                 *string
+	ImageSHA                 *string
+	ImageAuthType            *string
+	ImageAuthToken           *string
+	ImageDisk                *string
+	RootFsId                 *string
+	RootFsLabel              *string
+	IpxeScript               *string
+	UserData                 *string
+	IsCloudInit              *bool
+	AllowOverride            *bool
+	EnableBlockStorage       *bool
+	PhoneHomeEnabled         *bool
+	IsActive                 *bool
+	DeactivationNote         *string
+	// iPXE definition fields (for nico-core synced iPXE OS definitions)
+	IpxeTemplateId         *string
+	IpxeTemplateParameters *[]OperatingSystemIpxeParameter
+	IpxeTemplateArtifacts  *[]OperatingSystemIpxeArtifact
+	IpxeOSHash             *string
+	Scope                  *string
+	Status                 *string
 }
 
 // OperatingSystemClearInput input parameters for Clear method
 type OperatingSystemClearInput struct {
-	OperatingSystemId           uuid.UUID
-	Description                 bool
-	InfrastructureProviderID    bool
-	TenantID                    bool
-	ControllerOperatingSystemID bool
-	Version                     bool
-	ImageURL                    bool
-	ImageSHA                    bool
-	ImageAuthType               bool
-	ImageAuthToken              bool
-	ImageDisk                   bool
-	RootFsId                    bool
-	RootFsLabel                 bool
-	IpxeScript                  bool
-	UserData                    bool
-	DeactivationNote            bool
+	OperatingSystemId        uuid.UUID
+	Description              bool
+	InfrastructureProviderID bool
+	TenantID                 bool
+	Version                  bool
+	ImageURL                 bool
+	ImageSHA                 bool
+	ImageAuthType            bool
+	ImageAuthToken           bool
+	ImageDisk                bool
+	RootFsId                 bool
+	RootFsLabel              bool
+	IpxeScript               bool
+	UserData                 bool
+	DeactivationNote         bool
+	IpxeTemplateId           bool
+	IpxeTemplateParameters   bool
+	IpxeTemplateArtifacts    bool
+	IpxeOSHash               bool
+	Scope                    bool
 }
 
 type OperatingSystemFilterInput struct {
@@ -251,6 +350,20 @@ type OperatingSystemFilterInput struct {
 	SearchQuery              *string
 	OperatingSystemIds       []uuid.UUID
 	IsActive                 *bool
+	// Scopes filters by the scope field (e.g. "Global", "Limited", "Local").
+	Scopes []string
+	// IncludeDeleted includes soft-deleted records in the result.
+	// Used by the inventory sync to detect and propagate deletions from nico-core.
+	IncludeDeleted bool
+
+	// ProviderOSVisibleAtSiteIDs restricts provider-owned OS visibility when
+	// InfrastructureProviderID is set together with TenantIDs (tenant admin view).
+	// Only provider-owned OSes with at least one site association at one of these
+	// sites are included. If nil, no cross-ownership provider entries are shown
+	// alongside tenant entries (default). If set to an empty slice, no provider
+	// entries match. This field is ignored when InfrastructureProviderID is used
+	// without TenantIDs (provider-only view).
+	ProviderOSVisibleAtSiteIDs *[]uuid.UUID
 }
 
 var _ bun.BeforeAppendModelHook = (*OperatingSystem)(nil)
@@ -312,34 +425,42 @@ func (ossd OperatingSystemSQLDAO) Create(ctx context.Context, tx *db.Tx, input O
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "name", input.Name)
 	}
 
+	id := input.ID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
 	os := &OperatingSystem{
-		ID:                          uuid.New(),
-		Name:                        input.Name,
-		Description:                 input.Description,
-		Org:                         input.Org,
-		InfrastructureProviderID:    input.InfrastructureProviderID,
-		TenantID:                    input.TenantID,
-		ControllerOperatingSystemID: input.ControllerOperatingSystemID,
-		Version:                     input.Version,
-		Type:                        input.OsType,
-		ImageURL:                    input.ImageURL,
-		ImageSHA:                    input.ImageSHA,
-		ImageAuthType:               input.ImageAuthType,
-		ImageAuthToken:              input.ImageAuthToken,
-		ImageDisk:                   input.ImageDisk,
-		RootFsID:                    input.RootFsId,
-		RootFsLabel:                 input.RootFsLabel,
-		IpxeScript:                  input.IpxeScript,
-		UserData:                    input.UserData,
-		IsCloudInit:                 input.IsCloudInit,
-		AllowOverride:               input.AllowOverride,
-		EnableBlockStorage:          input.EnableBlockStorage,
-		PhoneHomeEnabled:            input.PhoneHomeEnabled,
+		ID:                       id,
+		Name:                     input.Name,
+		Description:              input.Description,
+		Org:                      input.Org,
+		InfrastructureProviderID: input.InfrastructureProviderID,
+		TenantID:                 input.TenantID,
+		Version:                  input.Version,
+		Type:                     input.OsType,
+		ImageURL:                 input.ImageURL,
+		ImageSHA:                 input.ImageSHA,
+		ImageAuthType:            input.ImageAuthType,
+		ImageAuthToken:           input.ImageAuthToken,
+		ImageDisk:                input.ImageDisk,
+		RootFsID:                 input.RootFsId,
+		RootFsLabel:              input.RootFsLabel,
+		IpxeScript:               input.IpxeScript,
+		UserData:                 input.UserData,
+		IsCloudInit:              input.IsCloudInit,
+		AllowOverride:            input.AllowOverride,
+		EnableBlockStorage:       input.EnableBlockStorage,
+		PhoneHomeEnabled:         input.PhoneHomeEnabled,
 		// WARNING: there is a bug in 'bun' and we cannot use non-nullable AND default=true at this time:
-		IsActive:         true, // input.IsActive,
-		DeactivationNote: nil,  //input.DeactivationNote,
-		Status:           input.Status,
-		CreatedBy:        input.CreatedBy,
+		IsActive:                   true, // input.IsActive,
+		DeactivationNote:           nil,  //input.DeactivationNote,
+		Status:                     input.Status,
+		CreatedBy:                  input.CreatedBy,
+		IpxeTemplateId:             input.IpxeTemplateId,
+		IpxeTemplateParameters:     input.IpxeTemplateParameters,
+		IpxeTemplateArtifacts:      input.IpxeTemplateArtifacts,
+		IpxeTemplateDefinitionHash: input.IpxeOSHash,
+		IpxeOsScope:                input.IpxeOsScope,
 	}
 
 	_, err := db.GetIDB(tx, ossd.dbSession).NewInsert().Model(os).Exec(ctx)
@@ -413,13 +534,39 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 		query = query.Where("os.org IN (?)", bun.In(filter.Orgs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "filter.org", filter.Orgs)
 	}
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
-	}
-	if filter.TenantIDs != nil {
+	hasTenants := len(filter.TenantIDs) > 0
+	hasProvider := filter.InfrastructureProviderID != nil
+	hasSiteScope := filter.ProviderOSVisibleAtSiteIDs != nil
+
+	switch {
+	case hasTenants && hasProvider && hasSiteScope:
+		// Tenant admin view: own tenant entries + provider entries at accessible sites.
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			q = q.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
+			if len(*filter.ProviderOSVisibleAtSiteIDs) > 0 {
+				q = q.WhereOr(
+					"(os.infrastructure_provider_id = ? AND EXISTS (SELECT 1 FROM operating_system_site_association WHERE operating_system_id = os.id AND deleted IS NULL AND site_id IN (?)))",
+					*filter.InfrastructureProviderID, bun.In(*filter.ProviderOSVisibleAtSiteIDs),
+				)
+			}
+			return q
+		})
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_with_provider_at_sites", filter.TenantIDs)
+	case hasTenants && hasProvider:
+		// Dual-role view: own tenant entries + own provider entries, no site restriction.
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs)).
+				WhereOr("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		})
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_or_provider", filter.TenantIDs)
+	case hasTenants:
 		query = query.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_id", filter.TenantIDs)
+	case hasProvider:
+		// Provider-only view: only provider-owned entries.
+		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
 	}
 	if filter.OsTypes != nil {
 		query = query.Where("os.type IN (?)", bun.In(filter.OsTypes))
@@ -436,16 +583,16 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 		query = query.Where("os.id IN (?)", bun.In(filter.OperatingSystemIds))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "ids", filter.OperatingSystemIds)
 	}
-	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)
-	if ok {
+	if filter.SearchQuery != nil {
+		normalizedTokens := cutil.GetPtr(db.GetStringToTsQuery(*filter.SearchQuery))
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
 			return q.
-				Where("to_tsvector('english', (coalesce(os.name, ' ') || ' ' || coalesce(os.description, ' ') || ' ' || coalesce(os.status, ' '))) @@ to_tsquery('english', ?)", *searchTokens).
-				WhereOr("os.name ILIKE ?", "%"+searchQuery+"%").
-				WhereOr("os.description ILIKE ?", "%"+searchQuery+"%").
-				WhereOr("os.status ILIKE ?", "%"+searchQuery+"%")
+				Where("to_tsvector('english', (coalesce(os.name, ' ') || ' ' || coalesce(os.description, ' ') || ' ' || coalesce(os.status, ' '))) @@ to_tsquery('english', ?)", *normalizedTokens).
+				WhereOr("os.name ILIKE ?", "%"+*filter.SearchQuery+"%").
+				WhereOr("os.description ILIKE ?", "%"+*filter.SearchQuery+"%").
+				WhereOr("os.status ILIKE ?", "%"+*filter.SearchQuery+"%")
 		})
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "search_query", searchQuery)
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "search_query", *filter.SearchQuery)
 	}
 	if filter.Statuses != nil {
 		query = query.Where("os.status IN (?)", bun.In(filter.Statuses))
@@ -454,6 +601,13 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	if filter.IsActive != nil {
 		query = query.Where("os.is_active = ?", *filter.IsActive)
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "is_active", *filter.IsActive)
+	}
+	if filter.Scopes != nil {
+		query = query.Where("COALESCE(os.ipxe_os_scope, 'Local') IN (?)", bun.In(filter.Scopes))
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "scopes", filter.Scopes)
+	}
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
 	}
 
 	for _, relation := range includeRelations {
@@ -520,11 +674,6 @@ func (ossd OperatingSystemSQLDAO) Update(ctx context.Context, tx *db.Tx, input O
 		it.TenantID = input.TenantID
 		updatedFields = append(updatedFields, "tenant_id")
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_id", input.TenantID.String())
-	}
-	if input.ControllerOperatingSystemID != nil {
-		it.ControllerOperatingSystemID = input.ControllerOperatingSystemID
-		updatedFields = append(updatedFields, "controller_operating_system_id")
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "controller_operating_system_id", input.ControllerOperatingSystemID.String())
 	}
 	if input.Version != nil {
 		it.Version = input.Version
@@ -616,6 +765,26 @@ func (ossd OperatingSystemSQLDAO) Update(ctx context.Context, tx *db.Tx, input O
 		updatedFields = append(updatedFields, "status")
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "status", *input.Status)
 	}
+	if input.IpxeTemplateId != nil {
+		it.IpxeTemplateId = input.IpxeTemplateId
+		updatedFields = append(updatedFields, "ipxe_template_id")
+	}
+	if input.IpxeTemplateParameters != nil {
+		it.IpxeTemplateParameters = *input.IpxeTemplateParameters
+		updatedFields = append(updatedFields, "ipxe_template_parameters")
+	}
+	if input.IpxeTemplateArtifacts != nil {
+		it.IpxeTemplateArtifacts = *input.IpxeTemplateArtifacts
+		updatedFields = append(updatedFields, "ipxe_template_artifacts")
+	}
+	if input.IpxeOSHash != nil {
+		it.IpxeTemplateDefinitionHash = input.IpxeOSHash
+		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
+	}
+	if input.Scope != nil {
+		it.IpxeOsScope = input.Scope
+		updatedFields = append(updatedFields, "ipxe_os_scope")
+	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
@@ -664,10 +833,6 @@ func (ossd OperatingSystemSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Op
 		it.TenantID = nil
 		updatedFields = append(updatedFields, "tenant_id")
 	}
-	if input.ControllerOperatingSystemID {
-		it.ControllerOperatingSystemID = nil
-		updatedFields = append(updatedFields, "controller_operating_system_id")
-	}
 	if input.Version {
 		it.Version = nil
 		updatedFields = append(updatedFields, "version")
@@ -711,6 +876,26 @@ func (ossd OperatingSystemSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Op
 	if input.DeactivationNote {
 		it.DeactivationNote = nil
 		updatedFields = append(updatedFields, "deactivation_note")
+	}
+	if input.IpxeTemplateId {
+		it.IpxeTemplateId = nil
+		updatedFields = append(updatedFields, "ipxe_template_id")
+	}
+	if input.IpxeTemplateParameters {
+		it.IpxeTemplateParameters = nil
+		updatedFields = append(updatedFields, "ipxe_template_parameters")
+	}
+	if input.IpxeTemplateArtifacts {
+		it.IpxeTemplateArtifacts = nil
+		updatedFields = append(updatedFields, "ipxe_template_artifacts")
+	}
+	if input.IpxeOSHash {
+		it.IpxeTemplateDefinitionHash = nil
+		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
+	}
+	if input.Scope {
+		it.IpxeOsScope = nil
+		updatedFields = append(updatedFields, "ipxe_os_scope")
 	}
 
 	if len(updatedFields) > 0 {

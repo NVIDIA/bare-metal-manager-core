@@ -69,9 +69,6 @@ import (
 	expectedPowerShelfActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedpowershelf"
 	expectedPowerShelfWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedpowershelf"
 
-	expectedRackActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedrack"
-	expectedRackWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedrack"
-
 	expectedSwitchActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedswitch"
 	expectedSwitchWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedswitch"
 
@@ -84,11 +81,14 @@ import (
 	networkSecurityGroupActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/networksecuritygroup"
 	networkSecurityGroupWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/networksecuritygroup"
 
-	osImageActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/operatingsystem"
-	osImageWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/operatingsystem"
+	operatingSystemActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/operatingsystem"
+	operatingSystemWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/operatingsystem"
 
 	skuActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sku"
 	skuWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/sku"
+
+	ipxeTemplateActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/ipxetemplate"
+	ipxeTemplateWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/ipxetemplate"
 
 	vpcPrefixActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcprefix"
 	vpcPrefixWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/vpcprefix"
@@ -257,6 +257,10 @@ func main() {
 
 		// InfiniBandPartition workflows
 		w.RegisterWorkflow(ibpWorkflow.DeleteInfiniBandPartitionByID)
+
+		// Operating System sync workflow (REST → core push for non-image OS)
+		w.RegisterWorkflow(operatingSystemWorkflow.CreateOrUpdateOperatingSystemByID)
+		w.RegisterWorkflow(operatingSystemWorkflow.DeleteOperatingSystemByID)
 	} else if tcfg.Namespace == cwfn.SiteNamespace {
 		// Workflows triggered by Site Agent
 		// Machine Workflows
@@ -289,8 +293,9 @@ func main() {
 		// NetworkSecurityGroup workflow
 		w.RegisterWorkflow(networkSecurityGroupWorkflow.UpdateNetworkSecurityGroupInventory)
 
-		// OS Image workflow
-		w.RegisterWorkflow(osImageWorkflow.UpdateOsImageInventory)
+		// OperatingSystem workflows
+		w.RegisterWorkflow(operatingSystemWorkflow.UpdateOsImageInventory)
+		w.RegisterWorkflow(operatingSystemWorkflow.UpdateOperatingSystemInventory)
 
 		// VPC Prefix workflow
 		w.RegisterWorkflow(vpcPrefixWorkflow.UpdateVpcPrefixInventory)
@@ -304,14 +309,14 @@ func main() {
 		// ExpectedPowerShelf workflow
 		w.RegisterWorkflow(expectedPowerShelfWorkflow.UpdateExpectedPowerShelfInventory)
 
-		// ExpectedRack workflow
-		w.RegisterWorkflow(expectedRackWorkflow.UpdateExpectedRackInventory)
-
 		// ExpectedSwitch workflow
 		w.RegisterWorkflow(expectedSwitchWorkflow.UpdateExpectedSwitchInventory)
 
 		// SKU workflow
 		w.RegisterWorkflow(skuWorkflow.UpdateSkuInventory)
+
+		// iPXE Template workflow
+		w.RegisterWorkflow(ipxeTemplateWorkflow.UpdateIpxeTemplateInventory)
 
 		// DPU Extension Service workflow
 		w.RegisterWorkflow(dpuExtensionServiceWorkflow.UpdateDpuExtensionServiceInventory)
@@ -352,8 +357,12 @@ func main() {
 	networkSecurityGroupManager := networkSecurityGroupActivity.NewManageNetworkSecurityGroup(dbSession, siteClientPool)
 	w.RegisterActivity(&networkSecurityGroupManager)
 
-	osImageManager := osImageActivity.NewManageOsImage(dbSession, siteClientPool)
-	w.RegisterActivity(&osImageManager)
+	operatingSystemManager := operatingSystemActivity.NewManageOperatingSystem(dbSession, siteClientPool)
+	w.RegisterActivity(&operatingSystemManager)
+
+	// TODO: Combine with operatingSystemManager
+	operatingSystemPushManager := operatingSystemActivity.NewManageOperatingSystemPush(dbSession, siteClientPool)
+	w.RegisterActivity(&operatingSystemPushManager)
 
 	vpcPrefixManager := vpcPrefixActivity.NewManageVpcPrefix(dbSession, siteClientPool)
 	w.RegisterActivity(&vpcPrefixManager)
@@ -369,10 +378,6 @@ func main() {
 	expectedPowerShelfManager := expectedPowerShelfActivity.NewManageExpectedPowerShelf(dbSession, siteClientPool)
 	w.RegisterActivity(&expectedPowerShelfManager)
 
-	// ExpectedRack activities
-	expectedRackManager := expectedRackActivity.NewManageExpectedRack(dbSession, siteClientPool)
-	w.RegisterActivity(&expectedRackManager)
-
 	// ExpectedSwitch activities
 	expectedSwitchManager := expectedSwitchActivity.NewManageExpectedSwitch(dbSession, siteClientPool)
 	w.RegisterActivity(&expectedSwitchManager)
@@ -380,6 +385,10 @@ func main() {
 	// SKU activities
 	skuManager := skuActivity.NewManageSku(dbSession, siteClientPool)
 	w.RegisterActivity(&skuManager)
+
+	// iPXE Template activities
+	ipxeTemplateManager := ipxeTemplateActivity.NewManageIpxeTemplate(dbSession, siteClientPool)
+	w.RegisterActivity(&ipxeTemplateManager)
 
 	// DPU Extension Service activities
 	dpuExtensionServiceManager := dpuExtensionServiceActivity.NewManageDpuExtensionService(dbSession, siteClientPool)

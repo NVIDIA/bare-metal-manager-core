@@ -875,6 +875,17 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetSkuHandler(dbSession, tc, cfg),
 		},
+		// iPXE Template endpoints
+		{
+			Path:    apiPathPrefix + "/ipxe-template",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIpxeTemplateHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/ipxe-template/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIpxeTemplateHandler(dbSession, tc, cfg),
+		},
 		// Task endpoints (Flow). /rack/task/* and /task/* share get/cancel
 		// handlers; list operations are exposed under /rack/{id}/task and
 		// /tray/{id}/task.

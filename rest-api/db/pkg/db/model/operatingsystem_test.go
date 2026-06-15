@@ -4,88 +4,21 @@
 package model
 
 import (
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"context"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
-
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
 )
-
-func TestOperatingSystem_GetSiteID(t *testing.T) {
-	id := uuid.New()
-	ctrlID := uuid.New()
-	t.Run("falls back to ID when ControllerOperatingSystemID is nil", func(t *testing.T) {
-		os := &OperatingSystem{ID: id}
-		got := os.GetSiteID()
-		require.NotNil(t, got)
-		assert.Equal(t, id, *got)
-	})
-	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
-		os := &OperatingSystem{ID: id, ControllerOperatingSystemID: &ctrlID}
-		got := os.GetSiteID()
-		require.NotNil(t, got)
-		assert.Equal(t, ctrlID, *got)
-	})
-}
-
-func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
-	id := uuid.New()
-	desc := "primary"
-	url := "https://image"
-	sha := "deadbeef"
-	authType := "Basic"
-	authToken := "token"
-	rootFsID := "fs-1"
-	rootFsLabel := "label"
-	os := &OperatingSystem{
-		ID:                 id,
-		Name:               "ubuntu",
-		Description:        &desc,
-		ImageURL:           &url,
-		ImageSHA:           &sha,
-		ImageAuthType:      &authType,
-		ImageAuthToken:     &authToken,
-		RootFsID:           &rootFsID,
-		RootFsLabel:        &rootFsLabel,
-		EnableBlockStorage: true,
-	}
-	got := os.ToImageAttributesProto("org-1")
-	require.NotNil(t, got)
-	require.NotNil(t, got.Id)
-	assert.Equal(t, id.String(), got.Id.Value)
-	require.NotNil(t, got.Name)
-	assert.Equal(t, "ubuntu", *got.Name)
-	assert.Equal(t, "org-1", got.TenantOrganizationId)
-	assert.Equal(t, &desc, got.Description)
-	assert.Equal(t, "https://image", got.SourceUrl)
-	assert.Equal(t, "deadbeef", got.Digest)
-	assert.True(t, got.CreateVolume)
-	assert.Equal(t, &authType, got.AuthType)
-	assert.Equal(t, &authToken, got.AuthToken)
-	assert.Equal(t, &rootFsID, got.RootfsId)
-	assert.Equal(t, &rootFsLabel, got.RootfsLabel)
-}
-
-func TestOperatingSystem_ToDeletionRequestProto(t *testing.T) {
-	id := uuid.New()
-	os := &OperatingSystem{ID: id}
-	got := os.ToDeletionRequestProto("org-1")
-	require.NotNil(t, got)
-	require.NotNil(t, got.Id)
-	assert.Equal(t, id.String(), got.Id.Value)
-	assert.Equal(t, "org-1", got.TenantOrganizationId)
-}
 
 func testOperatingSystemInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
@@ -223,29 +156,28 @@ func TestOperatingSystemSQLDAO_Create(t *testing.T) {
 			for _, i := range tc.its {
 				os, err := ossd.Create(
 					ctx, nil, OperatingSystemCreateInput{
-						Name:                        i.Name,
-						Description:                 cutil.GetPtr("description"),
-						Org:                         "testOrg",
-						InfrastructureProviderID:    i.InfrastructureProviderID,
-						TenantID:                    i.TenantID,
-						ControllerOperatingSystemID: &dummyUUID,
-						Version:                     cutil.GetPtr("version"),
-						OsType:                      "ipxe",
-						ImageURL:                    cutil.GetPtr("imageURL"),
-						ImageSHA:                    cutil.GetPtr("imageSHA"),
-						ImageAuthType:               cutil.GetPtr("imageAuthType"),
-						ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
-						ImageDisk:                   cutil.GetPtr("imageDisk"),
-						RootFsId:                    cutil.GetPtr("rootFsId"),
-						RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
-						IpxeScript:                  cutil.GetPtr("ipxeScript"),
-						UserData:                    cutil.GetPtr("userData"),
-						IsCloudInit:                 true,
-						AllowOverride:               true,
-						EnableBlockStorage:          true,
-						PhoneHomeEnabled:            i.PhoneHomeEnabled,
-						Status:                      OperatingSystemStatusPending,
-						CreatedBy:                   i.CreatedBy,
+						Name:                     i.Name,
+						Description:              cutil.GetPtr("description"),
+						Org:                      "testOrg",
+						InfrastructureProviderID: i.InfrastructureProviderID,
+						TenantID:                 i.TenantID,
+						Version:                  cutil.GetPtr("version"),
+						OsType:                   "ipxe",
+						ImageURL:                 cutil.GetPtr("imageURL"),
+						ImageSHA:                 cutil.GetPtr("imageSHA"),
+						ImageAuthType:            cutil.GetPtr("imageAuthType"),
+						ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+						ImageDisk:                cutil.GetPtr("imageDisk"),
+						RootFsId:                 cutil.GetPtr("rootFsId"),
+						RootFsLabel:              cutil.GetPtr("rootFsLabel"),
+						IpxeScript:               cutil.GetPtr("ipxeScript"),
+						UserData:                 cutil.GetPtr("userData"),
+						IsCloudInit:              true,
+						AllowOverride:            true,
+						EnableBlockStorage:       true,
+						PhoneHomeEnabled:         i.PhoneHomeEnabled,
+						Status:                   OperatingSystemStatusPending,
+						CreatedBy:                i.CreatedBy,
 					},
 				)
 				assert.Equal(t, tc.expectError, err != nil)
@@ -272,53 +204,50 @@ func TestOperatingSystemSQLDAO_GetByID(t *testing.T) {
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 	ossd := NewOperatingSystemDAO(dbSession)
-	dummyUUID := uuid.New()
 	os1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "test1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          false,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "test1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       false,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1)
 	os2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "test2",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    nil,
-			TenantID:                    nil,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "image",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			ImageSHA:                    cutil.GetPtr("imageSHA"),
-			ImageAuthType:               cutil.GetPtr("imageAuthType"),
-			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
-			ImageDisk:                   cutil.GetPtr("imageDisk"),
-			RootFsId:                    cutil.GetPtr("rootFsId"),
-			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          false,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "test2",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: nil,
+			TenantID:                 nil,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "image",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			ImageSHA:                 cutil.GetPtr("imageSHA"),
+			ImageAuthType:            cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                cutil.GetPtr("imageDisk"),
+			RootFsId:                 cutil.GetPtr("rootFsId"),
+			RootFsLabel:              cutil.GetPtr("rootFsLabel"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       false,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os2)
@@ -442,22 +371,21 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 		if i%2 == 0 {
 			os, err := ossd.Create(
 				ctx, nil, OperatingSystemCreateInput{
-					Name:                        fmt.Sprintf("os-%v", i),
-					Description:                 cutil.GetPtr("Test Description"),
-					Org:                         tenant1.Org,
-					InfrastructureProviderID:    nil,
-					TenantID:                    &tenant1.ID,
-					ControllerOperatingSystemID: &dummyUUID,
-					Version:                     cutil.GetPtr("version"),
-					OsType:                      OperatingSystemTypeImage,
-					ImageURL:                    cutil.GetPtr("imageURL"),
-					UserData:                    cutil.GetPtr("userData"),
-					IsCloudInit:                 true,
-					AllowOverride:               true,
-					EnableBlockStorage:          true,
-					PhoneHomeEnabled:            true,
-					Status:                      OperatingSystemStatusPending,
-					CreatedBy:                   user.ID,
+					Name:                     fmt.Sprintf("os-%v", i),
+					Description:              cutil.GetPtr("Test Description"),
+					Org:                      tenant1.Org,
+					InfrastructureProviderID: nil,
+					TenantID:                 &tenant1.ID,
+					Version:                  cutil.GetPtr("version"),
+					OsType:                   OperatingSystemTypeImage,
+					ImageURL:                 cutil.GetPtr("imageURL"),
+					UserData:                 cutil.GetPtr("userData"),
+					IsCloudInit:              true,
+					AllowOverride:            true,
+					EnableBlockStorage:       true,
+					PhoneHomeEnabled:         true,
+					Status:                   OperatingSystemStatusPending,
+					CreatedBy:                user.ID,
 				})
 			assert.Nil(t, err)
 			ossTenant1 = append(ossTenant1, *os)
@@ -474,23 +402,22 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 		} else {
 			_, err := ossd.Create(
 				ctx, nil, OperatingSystemCreateInput{
-					Name:                        fmt.Sprintf("os-%v", i),
-					Description:                 cutil.GetPtr("description"),
-					Org:                         tenant2.Org,
-					InfrastructureProviderID:    nil,
-					TenantID:                    &tenant2.ID,
-					ControllerOperatingSystemID: &dummyUUID,
-					Version:                     cutil.GetPtr("version"),
-					OsType:                      OperatingSystemTypeIPXE,
-					ImageURL:                    cutil.GetPtr("iPXE"),
-					IpxeScript:                  cutil.GetPtr("ipxeScript"),
-					UserData:                    cutil.GetPtr("userData"),
-					IsCloudInit:                 true,
-					AllowOverride:               true,
-					EnableBlockStorage:          true,
-					PhoneHomeEnabled:            false,
-					Status:                      OperatingSystemStatusPending,
-					CreatedBy:                   user.ID,
+					Name:                     fmt.Sprintf("os-%v", i),
+					Description:              cutil.GetPtr("description"),
+					Org:                      tenant2.Org,
+					InfrastructureProviderID: nil,
+					TenantID:                 &tenant2.ID,
+					Version:                  cutil.GetPtr("version"),
+					OsType:                   OperatingSystemTypeIPXE,
+					ImageURL:                 cutil.GetPtr("iPXE"),
+					IpxeScript:               cutil.GetPtr("ipxeScript"),
+					UserData:                 cutil.GetPtr("userData"),
+					IsCloudInit:              true,
+					AllowOverride:            true,
+					EnableBlockStorage:       true,
+					PhoneHomeEnabled:         false,
+					Status:                   OperatingSystemStatusPending,
+					CreatedBy:                user.ID,
 				})
 			assert.Nil(t, err)
 		}
@@ -503,72 +430,69 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 
 	ossasSite2 := []OperatingSystemSiteAssociation{}
 	ossasSite3 := []OperatingSystemSiteAssociation{}
-	joinIpxeOss := []OperatingSystem{}
+	joinIpxeScripts := []OperatingSystem{}
 
 	// iPXE image 1
 	os, _ := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "ipxe-os-1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         tenant4.Org,
-			InfrastructureProviderID:    nil,
-			TenantID:                    &tenant4.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      OperatingSystemTypeIPXE,
-			ImageURL:                    cutil.GetPtr("iPXE"),
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            false,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "ipxe-os-1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      tenant4.Org,
+			InfrastructureProviderID: nil,
+			TenantID:                 &tenant4.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   OperatingSystemTypeIPXE,
+			ImageURL:                 cutil.GetPtr("iPXE"),
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         false,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
-	joinIpxeOss = append(joinIpxeOss, *os)
+	joinIpxeScripts = append(joinIpxeScripts, *os)
 
 	// iPXE image 2
 	os, _ = ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "ipxe-os-2",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         tenant4.Org,
-			InfrastructureProviderID:    nil,
-			TenantID:                    &tenant4.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      OperatingSystemTypeIPXE,
-			ImageURL:                    cutil.GetPtr("iPXE"),
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            false,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "ipxe-os-2",
+			Description:              cutil.GetPtr("description"),
+			Org:                      tenant4.Org,
+			InfrastructureProviderID: nil,
+			TenantID:                 &tenant4.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   OperatingSystemTypeIPXE,
+			ImageURL:                 cutil.GetPtr("iPXE"),
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         false,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
-	joinIpxeOss = append(joinIpxeOss, *os)
+	joinIpxeScripts = append(joinIpxeScripts, *os)
 
 	// OS Image 1 for site2
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
-		Name:                        "image-os-1",
-		Description:                 cutil.GetPtr("Test Description"),
-		Org:                         tenant4.Org,
-		InfrastructureProviderID:    nil,
-		TenantID:                    &tenant4.ID,
-		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     cutil.GetPtr("version"),
-		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    cutil.GetPtr("imageURL"),
-		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
-		AllowOverride:               true,
-		EnableBlockStorage:          true,
-		PhoneHomeEnabled:            true,
-		Status:                      OperatingSystemStatusPending,
-		CreatedBy:                   user.ID,
+		Name:                     "image-os-1",
+		Description:              cutil.GetPtr("Test Description"),
+		Org:                      tenant4.Org,
+		InfrastructureProviderID: nil,
+		TenantID:                 &tenant4.ID,
+		Version:                  cutil.GetPtr("version"),
+		OsType:                   OperatingSystemTypeImage,
+		ImageURL:                 cutil.GetPtr("imageURL"),
+		UserData:                 cutil.GetPtr("userData"),
+		IsCloudInit:              true,
+		AllowOverride:            true,
+		EnableBlockStorage:       true,
+		PhoneHomeEnabled:         true,
+		Status:                   OperatingSystemStatusPending,
+		CreatedBy:                user.ID,
 	})
 	ossa, _ := ossaDAO.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: os.ID,
@@ -580,22 +504,21 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 
 	// OS Image 2 for site2
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
-		Name:                        "image-os-2",
-		Description:                 cutil.GetPtr("Test Description"),
-		Org:                         tenant4.Org,
-		InfrastructureProviderID:    nil,
-		TenantID:                    &tenant4.ID,
-		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     cutil.GetPtr("version"),
-		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    cutil.GetPtr("imageURL"),
-		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
-		AllowOverride:               true,
-		EnableBlockStorage:          true,
-		PhoneHomeEnabled:            true,
-		Status:                      OperatingSystemStatusPending,
-		CreatedBy:                   user.ID,
+		Name:                     "image-os-2",
+		Description:              cutil.GetPtr("Test Description"),
+		Org:                      tenant4.Org,
+		InfrastructureProviderID: nil,
+		TenantID:                 &tenant4.ID,
+		Version:                  cutil.GetPtr("version"),
+		OsType:                   OperatingSystemTypeImage,
+		ImageURL:                 cutil.GetPtr("imageURL"),
+		UserData:                 cutil.GetPtr("userData"),
+		IsCloudInit:              true,
+		AllowOverride:            true,
+		EnableBlockStorage:       true,
+		PhoneHomeEnabled:         true,
+		Status:                   OperatingSystemStatusPending,
+		CreatedBy:                user.ID,
 	})
 	ossa, _ = ossaDAO.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: os.ID,
@@ -607,22 +530,21 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 
 	// OS Image 3 for site3
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
-		Name:                        "image-os-3",
-		Description:                 cutil.GetPtr("Test Description"),
-		Org:                         tenant4.Org,
-		InfrastructureProviderID:    nil,
-		TenantID:                    &tenant4.ID,
-		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     cutil.GetPtr("version"),
-		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    cutil.GetPtr("imageURL"),
-		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
-		AllowOverride:               true,
-		EnableBlockStorage:          true,
-		PhoneHomeEnabled:            true,
-		Status:                      OperatingSystemStatusPending,
-		CreatedBy:                   user.ID,
+		Name:                     "image-os-3",
+		Description:              cutil.GetPtr("Test Description"),
+		Org:                      tenant4.Org,
+		InfrastructureProviderID: nil,
+		TenantID:                 &tenant4.ID,
+		Version:                  cutil.GetPtr("version"),
+		OsType:                   OperatingSystemTypeImage,
+		ImageURL:                 cutil.GetPtr("imageURL"),
+		UserData:                 cutil.GetPtr("userData"),
+		IsCloudInit:              true,
+		AllowOverride:            true,
+		EnableBlockStorage:       true,
+		PhoneHomeEnabled:         true,
+		Status:                   OperatingSystemStatusPending,
+		CreatedBy:                user.ID,
 	})
 	ossa, _ = ossaDAO.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: os.ID,
@@ -835,7 +757,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			siteIDs:       []uuid.UUID{site.ID},
 			searchQuery:   nil,
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: cutil.GetPtr(totalCount + len(joinIpxeOss)),
+			expectedTotal: cutil.GetPtr(totalCount + len(joinIpxeScripts)),
 			expectedError: false,
 		},
 		{
@@ -890,8 +812,8 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:     nil,
 			osNames:       nil,
 			osTypes:       []string{OperatingSystemTypeIPXE},
-			expectedCount: totalCount/2 + len(joinIpxeOss),
-			expectedTotal: cutil.GetPtr(totalCount/2 + len(joinIpxeOss)),
+			expectedCount: totalCount/2 + len(joinIpxeScripts),
+			expectedTotal: cutil.GetPtr(totalCount/2 + len(joinIpxeScripts)),
 			expectedError: false,
 		},
 		{
@@ -909,7 +831,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			tenantIDs:     nil,
 			osNames:       nil,
-			osTypes:       []string{OperatingSystemTypeImage, OperatingSystemTypeIPXE},
+			osTypes:       []string{OperatingSystemTypeIPXE, OperatingSystemTypeImage},
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
@@ -972,8 +894,8 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			siteIDs:       []uuid.UUID{site3.ID},
 			osTypes:       nil,
 			searchQuery:   nil,
-			expectedCount: len(joinIpxeOss) + len(ossasSite3),
-			expectedTotal: cutil.GetPtr(len(joinIpxeOss) + len(ossasSite3)),
+			expectedCount: len(joinIpxeScripts) + len(ossasSite3),
+			expectedTotal: cutil.GetPtr(len(joinIpxeScripts) + len(ossasSite3)),
 			expectedError: false,
 		},
 		{
@@ -1048,74 +970,69 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 	tenant2 := testOperatingSystemBuildTenant(t, dbSession, "testTenant2")
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 	ossd := NewOperatingSystemDAO(dbSession)
-	dummyUUID := uuid.New()
-	updatedUUID := uuid.New()
 	os1tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant1.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			ImageSHA:                    cutil.GetPtr("imageSHA"),
-			ImageAuthType:               cutil.GetPtr("imageAuthType"),
-			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
-			ImageDisk:                   cutil.GetPtr("imageDisk"),
-			RootFsId:                    cutil.GetPtr("rootFsId"),
-			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant1.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			ImageSHA:                 cutil.GetPtr("imageSHA"),
+			ImageAuthType:            cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                cutil.GetPtr("imageDisk"),
+			RootFsId:                 cutil.GetPtr("rootFsId"),
+			RootFsLabel:              cutil.GetPtr("rootFsLabel"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1tenant1)
 	os2tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os2tenant1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant1.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          false,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os2tenant1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant1.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       false,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os2tenant1)
 	os1tenant2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant2.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          false,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant2.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       false,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1tenant2)
@@ -1133,234 +1050,225 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 		desc string
 		os   *OperatingSystem
 
-		paramName                        *string
-		paramDescription                 *string
-		paramOrg                         *string
-		paramInfrastructureProviderID    *uuid.UUID
-		paramTenantID                    *uuid.UUID
-		paramControllerOperatingSystemID *uuid.UUID
-		paramVersion                     *string
-		paramType                        *string
-		paramImageURL                    *string
-		paramImageSHA                    *string
-		paramImageAuthType               *string
-		paramImageAuthToken              *string
-		paramImageDisk                   *string
-		paramRootFsID                    *string
-		paramRootFsLabel                 *string
-		paramIpxeScript                  *string
-		paramUserData                    *string
-		paramIsCloudInit                 *bool
-		paramAllowOverride               *bool
-		paramEnableBlockStorage          *bool
-		paramPhoneHomeEnabled            *bool
-		paramIsActive                    *bool
-		paramDeactivationNote            *string
-		paramStatus                      *string
+		paramName                     *string
+		paramDescription              *string
+		paramOrg                      *string
+		paramInfrastructureProviderID *uuid.UUID
+		paramTenantID                 *uuid.UUID
+		paramVersion                  *string
+		paramType                     *string
+		paramImageURL                 *string
+		paramImageSHA                 *string
+		paramImageAuthType            *string
+		paramImageAuthToken           *string
+		paramImageDisk                *string
+		paramRootFsID                 *string
+		paramRootFsLabel              *string
+		paramIpxeScript               *string
+		paramUserData                 *string
+		paramIsCloudInit              *bool
+		paramAllowOverride            *bool
+		paramEnableBlockStorage       *bool
+		paramPhoneHomeEnabled         *bool
+		paramIsActive                 *bool
+		paramDeactivationNote         *string
+		paramStatus                   *string
 
-		expectedName                        *string
-		expectedDescription                 *string
-		expectedOrg                         *string
-		expectedInfrastructureProviderID    *uuid.UUID
-		expectedTenantID                    *uuid.UUID
-		expectedControllerOperatingSystemID *uuid.UUID
-		expectedVersion                     *string
-		expectedType                        *string
-		expectedImageURL                    *string
-		expectedImageSHA                    *string
-		expectedImageAuthType               *string
-		expectedImageAuthToken              *string
-		expectedImageDisk                   *string
-		expectedRootFsID                    *string
-		expectedRootFsLabel                 *string
-		expectedIpxeScript                  *string
-		expectedUserData                    *string
-		expectedIsCloudInit                 *bool
-		expectedAllowOverride               *bool
-		expectedEnableBlockStorage          *bool
-		expectPhoneHomeEnabled              *bool
-		expectedIsActive                    *bool
-		expectedDeactivationNote            *string
-		expectedStatus                      *string
-		verifyChildSpanner                  bool
+		expectedName                     *string
+		expectedDescription              *string
+		expectedOrg                      *string
+		expectedInfrastructureProviderID *uuid.UUID
+		expectedTenantID                 *uuid.UUID
+		expectedVersion                  *string
+		expectedType                     *string
+		expectedImageURL                 *string
+		expectedImageSHA                 *string
+		expectedImageAuthType            *string
+		expectedImageAuthToken           *string
+		expectedImageDisk                *string
+		expectedRootFsID                 *string
+		expectedRootFsLabel              *string
+		expectedIpxeScript               *string
+		expectedUserData                 *string
+		expectedIsCloudInit              *bool
+		expectedAllowOverride            *bool
+		expectedEnableBlockStorage       *bool
+		expectPhoneHomeEnabled           *bool
+		expectedIsActive                 *bool
+		expectedDeactivationNote         *string
+		expectedStatus                   *string
+		verifyChildSpanner               bool
 	}{
 		{
 			desc: "can update string fields: name, description, org, version, imageurl, imageSHA, imageAuthType, imageAuthToken, imageDisk, rootFsID, rootFsLabel, ipxescript, userdata, status",
 			os:   os1tenant1,
 
-			paramName:                        cutil.GetPtr("updatedName"),
-			paramDescription:                 cutil.GetPtr("updatedDescription"),
-			paramOrg:                         cutil.GetPtr("updatedOrg"),
-			paramInfrastructureProviderID:    nil,
-			paramTenantID:                    nil,
-			paramControllerOperatingSystemID: nil,
-			paramVersion:                     cutil.GetPtr("updatedVersion"),
-			paramType:                        cutil.GetPtr("updatedType"),
-			paramImageURL:                    cutil.GetPtr("updatedImageURL"),
-			paramImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			paramImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			paramImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			paramImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			paramRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			paramRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			paramIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			paramUserData:                    cutil.GetPtr("updatedUserData"),
-			paramIsCloudInit:                 nil,
-			paramAllowOverride:               nil,
-			paramEnableBlockStorage:          nil,
-			paramPhoneHomeEnabled:            nil,
-			paramStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
+			paramName:                     cutil.GetPtr("updatedName"),
+			paramDescription:              cutil.GetPtr("updatedDescription"),
+			paramOrg:                      cutil.GetPtr("updatedOrg"),
+			paramInfrastructureProviderID: nil,
+			paramTenantID:                 nil,
+			paramVersion:                  cutil.GetPtr("updatedVersion"),
+			paramType:                     cutil.GetPtr("updatedType"),
+			paramImageURL:                 cutil.GetPtr("updatedImageURL"),
+			paramImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			paramImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			paramImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			paramImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			paramRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			paramRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			paramIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			paramUserData:                 cutil.GetPtr("updatedUserData"),
+			paramIsCloudInit:              nil,
+			paramAllowOverride:            nil,
+			paramEnableBlockStorage:       nil,
+			paramPhoneHomeEnabled:         nil,
+			paramStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
 
-			expectedName:                        cutil.GetPtr("updatedName"),
-			expectedDescription:                 cutil.GetPtr("updatedDescription"),
-			expectedOrg:                         cutil.GetPtr("updatedOrg"),
-			expectedInfrastructureProviderID:    os1tenant1.InfrastructureProviderID,
-			expectedTenantID:                    os1tenant1.TenantID,
-			expectedControllerOperatingSystemID: os1tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     cutil.GetPtr("updatedVersion"),
-			expectedType:                        cutil.GetPtr("updatedType"),
-			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
-			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
-			expectedAllowOverride:               &os1tenant1.AllowOverride,
-			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
-			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
-			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
-			verifyChildSpanner:                  true,
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
+			expectedOrg:                      cutil.GetPtr("updatedOrg"),
+			expectedInfrastructureProviderID: os1tenant1.InfrastructureProviderID,
+			expectedTenantID:                 os1tenant1.TenantID,
+			expectedVersion:                  cutil.GetPtr("updatedVersion"),
+			expectedType:                     cutil.GetPtr("updatedType"),
+			expectedImageURL:                 cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                 cutil.GetPtr("updatedUserData"),
+			expectedIsCloudInit:              &os1tenant1.IsCloudInit,
+			expectedAllowOverride:            &os1tenant1.AllowOverride,
+			expectedEnableBlockStorage:       &os1tenant1.EnableBlockStorage,
+			expectPhoneHomeEnabled:           &os1tenant1.PhoneHomeEnabled,
+			expectedStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
+			verifyChildSpanner:               true,
 		},
 		{
 			desc: "can update uuid fields: infrastructureproviderid, tenantid, controlleroperatingsystemid",
 			os:   os1tenant1,
 
-			paramName:                        nil,
-			paramDescription:                 nil,
-			paramOrg:                         nil,
-			paramInfrastructureProviderID:    &updatedIP.ID,
-			paramTenantID:                    &updatedTenant.ID,
-			paramControllerOperatingSystemID: &updatedUUID,
-			paramVersion:                     nil,
-			paramType:                        nil,
-			paramImageURL:                    nil,
-			paramImageSHA:                    nil,
-			paramImageAuthType:               nil,
-			paramImageAuthToken:              nil,
-			paramImageDisk:                   nil,
-			paramRootFsID:                    nil,
-			paramRootFsLabel:                 nil,
-			paramIpxeScript:                  nil,
-			paramUserData:                    nil,
-			paramIsCloudInit:                 nil,
-			paramAllowOverride:               nil,
-			paramEnableBlockStorage:          nil,
-			paramPhoneHomeEnabled:            nil,
-			paramStatus:                      nil,
+			paramName:                     nil,
+			paramDescription:              nil,
+			paramOrg:                      nil,
+			paramInfrastructureProviderID: &updatedIP.ID,
+			paramTenantID:                 &updatedTenant.ID,
+			paramVersion:                  nil,
+			paramType:                     nil,
+			paramImageURL:                 nil,
+			paramImageSHA:                 nil,
+			paramImageAuthType:            nil,
+			paramImageAuthToken:           nil,
+			paramImageDisk:                nil,
+			paramRootFsID:                 nil,
+			paramRootFsLabel:              nil,
+			paramIpxeScript:               nil,
+			paramUserData:                 nil,
+			paramIsCloudInit:              nil,
+			paramAllowOverride:            nil,
+			paramEnableBlockStorage:       nil,
+			paramPhoneHomeEnabled:         nil,
+			paramStatus:                   nil,
 
-			expectedName:                        cutil.GetPtr("updatedName"),
-			expectedDescription:                 cutil.GetPtr("updatedDescription"),
-			expectedOrg:                         cutil.GetPtr("updatedOrg"),
-			expectedInfrastructureProviderID:    &updatedIP.ID,
-			expectedTenantID:                    &updatedTenant.ID,
-			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     cutil.GetPtr("updatedVersion"),
-			expectedType:                        cutil.GetPtr("updatedType"),
-			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
-			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
-			expectedAllowOverride:               &os1tenant1.AllowOverride,
-			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
-			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
-			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
+			expectedOrg:                      cutil.GetPtr("updatedOrg"),
+			expectedInfrastructureProviderID: &updatedIP.ID,
+			expectedTenantID:                 &updatedTenant.ID,
+			expectedVersion:                  cutil.GetPtr("updatedVersion"),
+			expectedType:                     cutil.GetPtr("updatedType"),
+			expectedImageURL:                 cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                 cutil.GetPtr("updatedUserData"),
+			expectedIsCloudInit:              &os1tenant1.IsCloudInit,
+			expectedAllowOverride:            &os1tenant1.AllowOverride,
+			expectedEnableBlockStorage:       &os1tenant1.EnableBlockStorage,
+			expectPhoneHomeEnabled:           &os1tenant1.PhoneHomeEnabled,
+			expectedStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc: "can update bool fields: iscloudinit, allowcloudinit, isblockstorage",
 			os:   os1tenant1,
 
-			paramName:                        nil,
-			paramDescription:                 nil,
-			paramOrg:                         nil,
-			paramInfrastructureProviderID:    nil,
-			paramTenantID:                    nil,
-			paramControllerOperatingSystemID: nil,
-			paramVersion:                     nil,
-			paramType:                        nil,
-			paramImageURL:                    nil,
-			paramImageSHA:                    nil,
-			paramImageAuthType:               nil,
-			paramImageAuthToken:              nil,
-			paramImageDisk:                   nil,
-			paramRootFsID:                    nil,
-			paramRootFsLabel:                 nil,
-			paramIpxeScript:                  nil,
-			paramUserData:                    nil,
-			paramIsCloudInit:                 &updatedIsCloudInit,
-			paramAllowOverride:               &updatedAllowOverride,
-			paramEnableBlockStorage:          &updatedEnableBlockStorage,
-			paramPhoneHomeEnabled:            &updatedPhoneHomeEnabled,
-			paramStatus:                      nil,
+			paramName:                     nil,
+			paramDescription:              nil,
+			paramOrg:                      nil,
+			paramInfrastructureProviderID: nil,
+			paramTenantID:                 nil,
+			paramVersion:                  nil,
+			paramType:                     nil,
+			paramImageURL:                 nil,
+			paramImageSHA:                 nil,
+			paramImageAuthType:            nil,
+			paramImageAuthToken:           nil,
+			paramImageDisk:                nil,
+			paramRootFsID:                 nil,
+			paramRootFsLabel:              nil,
+			paramIpxeScript:               nil,
+			paramUserData:                 nil,
+			paramIsCloudInit:              &updatedIsCloudInit,
+			paramAllowOverride:            &updatedAllowOverride,
+			paramEnableBlockStorage:       &updatedEnableBlockStorage,
+			paramPhoneHomeEnabled:         &updatedPhoneHomeEnabled,
+			paramStatus:                   nil,
 
-			expectedName:                        cutil.GetPtr("updatedName"),
-			expectedDescription:                 cutil.GetPtr("updatedDescription"),
-			expectedOrg:                         cutil.GetPtr("updatedOrg"),
-			expectedInfrastructureProviderID:    &updatedIP.ID,
-			expectedTenantID:                    &updatedTenant.ID,
-			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     cutil.GetPtr("updatedVersion"),
-			expectedType:                        cutil.GetPtr("updatedType"),
-			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
-			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
-			expectedAllowOverride:               &updatedAllowOverride,
-			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
-			expectPhoneHomeEnabled:              &updatedEnableBlockStorage,
-			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
+			expectedOrg:                      cutil.GetPtr("updatedOrg"),
+			expectedInfrastructureProviderID: &updatedIP.ID,
+			expectedTenantID:                 &updatedTenant.ID,
+			expectedVersion:                  cutil.GetPtr("updatedVersion"),
+			expectedType:                     cutil.GetPtr("updatedType"),
+			expectedImageURL:                 cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                 cutil.GetPtr("updatedUserData"),
+			expectedIsCloudInit:              &updatedIsCloudInit,
+			expectedAllowOverride:            &updatedAllowOverride,
+			expectedEnableBlockStorage:       &updatedEnableBlockStorage,
+			expectPhoneHomeEnabled:           &updatedEnableBlockStorage,
+			expectedStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc: "ok when no fields are updated",
 			os:   os1tenant1,
 
-			expectedName:                        cutil.GetPtr("updatedName"),
-			expectedDescription:                 cutil.GetPtr("updatedDescription"),
-			expectedOrg:                         cutil.GetPtr("updatedOrg"),
-			expectedInfrastructureProviderID:    &updatedIP.ID,
-			expectedTenantID:                    &updatedTenant.ID,
-			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     cutil.GetPtr("updatedVersion"),
-			expectedType:                        cutil.GetPtr("updatedType"),
-			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
-			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
-			expectedAllowOverride:               &updatedAllowOverride,
-			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
-			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
-			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
+			expectedOrg:                      cutil.GetPtr("updatedOrg"),
+			expectedInfrastructureProviderID: &updatedIP.ID,
+			expectedTenantID:                 &updatedTenant.ID,
+			expectedVersion:                  cutil.GetPtr("updatedVersion"),
+			expectedType:                     cutil.GetPtr("updatedType"),
+			expectedImageURL:                 cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                 cutil.GetPtr("updatedUserData"),
+			expectedIsCloudInit:              &updatedIsCloudInit,
+			expectedAllowOverride:            &updatedAllowOverride,
+			expectedEnableBlockStorage:       &updatedEnableBlockStorage,
+			expectPhoneHomeEnabled:           &updatedPhoneHomeEnabled,
+			expectedStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc:                  "can update isActive from true to false",
@@ -1368,60 +1276,58 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramIsActive:         &updatedIsActive,
 			paramDeactivationNote: &updatedDeactivationNote,
 
-			expectedName:                        cutil.GetPtr("updatedName"),
-			expectedDescription:                 cutil.GetPtr("updatedDescription"),
-			expectedOrg:                         cutil.GetPtr("updatedOrg"),
-			expectedInfrastructureProviderID:    &updatedIP.ID,
-			expectedTenantID:                    &updatedTenant.ID,
-			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     cutil.GetPtr("updatedVersion"),
-			expectedType:                        cutil.GetPtr("updatedType"),
-			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
-			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
-			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
-			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
-			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
-			expectedAllowOverride:               &updatedAllowOverride,
-			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
-			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
-			expectedIsActive:                    &updatedIsActive,
-			expectedDeactivationNote:            &updatedDeactivationNote,
-			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
+			expectedOrg:                      cutil.GetPtr("updatedOrg"),
+			expectedInfrastructureProviderID: &updatedIP.ID,
+			expectedTenantID:                 &updatedTenant.ID,
+			expectedVersion:                  cutil.GetPtr("updatedVersion"),
+			expectedType:                     cutil.GetPtr("updatedType"),
+			expectedImageURL:                 cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                 cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:            cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:           cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                 cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:              cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                 cutil.GetPtr("updatedUserData"),
+			expectedIsCloudInit:              &updatedIsCloudInit,
+			expectedAllowOverride:            &updatedAllowOverride,
+			expectedEnableBlockStorage:       &updatedEnableBlockStorage,
+			expectPhoneHomeEnabled:           &updatedPhoneHomeEnabled,
+			expectedIsActive:                 &updatedIsActive,
+			expectedDeactivationNote:         &updatedDeactivationNote,
+			expectedStatus:                   cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			input := OperatingSystemUpdateInput{
-				OperatingSystemId:           tc.os.ID,
-				Name:                        tc.paramName,
-				Description:                 tc.paramDescription,
-				Org:                         tc.paramOrg,
-				InfrastructureProviderID:    tc.paramInfrastructureProviderID,
-				TenantID:                    tc.paramTenantID,
-				ControllerOperatingSystemID: tc.paramControllerOperatingSystemID,
-				Version:                     tc.paramVersion,
-				OsType:                      tc.paramType,
-				ImageURL:                    tc.paramImageURL,
-				ImageSHA:                    tc.paramImageSHA,
-				ImageAuthType:               tc.paramImageAuthType,
-				ImageAuthToken:              tc.paramImageAuthToken,
-				ImageDisk:                   tc.paramImageDisk,
-				RootFsId:                    tc.paramRootFsID,
-				RootFsLabel:                 tc.paramRootFsLabel,
-				IpxeScript:                  tc.paramIpxeScript,
-				UserData:                    tc.paramUserData,
-				IsCloudInit:                 tc.paramIsCloudInit,
-				AllowOverride:               tc.paramAllowOverride,
-				EnableBlockStorage:          tc.paramEnableBlockStorage,
-				PhoneHomeEnabled:            tc.paramPhoneHomeEnabled,
-				IsActive:                    tc.paramIsActive,
-				DeactivationNote:            tc.paramDeactivationNote,
-				Status:                      tc.paramStatus,
+				OperatingSystemId:        tc.os.ID,
+				Name:                     tc.paramName,
+				Description:              tc.paramDescription,
+				Org:                      tc.paramOrg,
+				InfrastructureProviderID: tc.paramInfrastructureProviderID,
+				TenantID:                 tc.paramTenantID,
+				Version:                  tc.paramVersion,
+				OsType:                   tc.paramType,
+				ImageURL:                 tc.paramImageURL,
+				ImageSHA:                 tc.paramImageSHA,
+				ImageAuthType:            tc.paramImageAuthType,
+				ImageAuthToken:           tc.paramImageAuthToken,
+				ImageDisk:                tc.paramImageDisk,
+				RootFsId:                 tc.paramRootFsID,
+				RootFsLabel:              tc.paramRootFsLabel,
+				IpxeScript:               tc.paramIpxeScript,
+				UserData:                 tc.paramUserData,
+				IsCloudInit:              tc.paramIsCloudInit,
+				AllowOverride:            tc.paramAllowOverride,
+				EnableBlockStorage:       tc.paramEnableBlockStorage,
+				PhoneHomeEnabled:         tc.paramPhoneHomeEnabled,
+				IsActive:                 tc.paramIsActive,
+				DeactivationNote:         tc.paramDeactivationNote,
+				Status:                   tc.paramStatus,
 			}
 			got, err := ossd.Update(ctx, nil, input)
 			assert.Nil(t, err)
@@ -1441,10 +1347,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			assert.Equal(t, tc.expectedTenantID == nil, got.TenantID == nil)
 			if tc.expectedTenantID != nil {
 				assert.Equal(t, *tc.expectedTenantID, *got.TenantID)
-			}
-			assert.Equal(t, tc.expectedControllerOperatingSystemID == nil, got.ControllerOperatingSystemID == nil)
-			if tc.expectedControllerOperatingSystemID != nil {
-				assert.Equal(t, *tc.expectedControllerOperatingSystemID, *got.ControllerOperatingSystemID)
 			}
 			assert.Equal(t, tc.expectedVersion == nil, got.Version == nil)
 			if tc.expectedVersion != nil {
@@ -1522,80 +1424,76 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 	tenant2 := testOperatingSystemBuildTenant(t, dbSession, "testTenant2")
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 	ossd := NewOperatingSystemDAO(dbSession)
-	dummyUUID := uuid.New()
 	os1tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant1.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "image",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			ImageSHA:                    cutil.GetPtr("imageSHA"),
-			ImageAuthType:               cutil.GetPtr("imageAuthType"),
-			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
-			ImageDisk:                   cutil.GetPtr("imageDisk"),
-			RootFsId:                    cutil.GetPtr("rootFsId"),
-			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant1.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "image",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			ImageSHA:                 cutil.GetPtr("imageSHA"),
+			ImageAuthType:            cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                cutil.GetPtr("imageDisk"),
+			RootFsId:                 cutil.GetPtr("rootFsId"),
+			RootFsLabel:              cutil.GetPtr("rootFsLabel"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1tenant1)
 	os2tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os2tenant1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant1.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os2tenant1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant1.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os2tenant1)
 	os1tenant2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant2.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "image",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			ImageSHA:                    cutil.GetPtr("imageSHA"),
-			ImageAuthType:               cutil.GetPtr("imageAuthType"),
-			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
-			ImageDisk:                   cutil.GetPtr("imageDisk"),
-			RootFsId:                    cutil.GetPtr("rootFsId"),
-			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant2.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "image",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			ImageSHA:                 cutil.GetPtr("imageSHA"),
+			ImageAuthType:            cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                cutil.GetPtr("imageDisk"),
+			RootFsId:                 cutil.GetPtr("rootFsId"),
+			RootFsLabel:              cutil.GetPtr("rootFsLabel"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1tenant2)
@@ -1604,39 +1502,37 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		desc                             string
-		os                               *OperatingSystem
-		paramDescription                 bool
-		paramInfrastructureProviderID    bool
-		paramTenantID                    bool
-		paramControllerOperatingSystemID bool
-		paramVersion                     bool
-		paramImageURL                    bool
-		paramImageSHA                    bool
-		paramImageAuthType               bool
-		paramImageAuthToken              bool
-		paramImageDisk                   bool
-		paramRootFsID                    bool
-		paramRootFsLabel                 bool
-		paramIpxeScript                  bool
-		paramUserData                    bool
+		desc                          string
+		os                            *OperatingSystem
+		paramDescription              bool
+		paramInfrastructureProviderID bool
+		paramTenantID                 bool
+		paramVersion                  bool
+		paramImageURL                 bool
+		paramImageSHA                 bool
+		paramImageAuthType            bool
+		paramImageAuthToken           bool
+		paramImageDisk                bool
+		paramRootFsID                 bool
+		paramRootFsLabel              bool
+		paramIpxeScript               bool
+		paramUserData                 bool
 
-		expectedDescription                 *string
-		expectedInfrastructureProviderID    *uuid.UUID
-		expectedTenantID                    *uuid.UUID
-		expectedControllerOperatingSystemID *uuid.UUID
-		expectedVersion                     *string
-		expectedImageURL                    *string
-		expectedImageSHA                    *string
-		expectedImageAuthType               *string
-		expectedImageAuthToken              *string
-		expectedImageDisk                   *string
-		expectedRootFsID                    *string
-		expectedRootFsLabel                 *string
-		expectedIpxeScript                  *string
-		expectedUserData                    *string
-		expectedUpdate                      bool
-		verifyChildSpanner                  bool
+		expectedDescription              *string
+		expectedInfrastructureProviderID *uuid.UUID
+		expectedTenantID                 *uuid.UUID
+		expectedVersion                  *string
+		expectedImageURL                 *string
+		expectedImageSHA                 *string
+		expectedImageAuthType            *string
+		expectedImageAuthToken           *string
+		expectedImageDisk                *string
+		expectedRootFsID                 *string
+		expectedRootFsLabel              *string
+		expectedIpxeScript               *string
+		expectedUserData                 *string
+		expectedUpdate                   bool
+		verifyChildSpanner               bool
 	}{
 		{
 			desc: "can clear description",
@@ -1644,22 +1540,21 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramDescription: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    os1tenant1.InfrastructureProviderID,
-			expectedTenantID:                    os1tenant1.TenantID,
-			expectedControllerOperatingSystemID: os1tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     os1tenant1.Version,
-			expectedImageURL:                    os1tenant1.ImageURL,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
-			verifyChildSpanner:                  true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: os1tenant1.InfrastructureProviderID,
+			expectedTenantID:                 os1tenant1.TenantID,
+			expectedVersion:                  os1tenant1.Version,
+			expectedImageURL:                 os1tenant1.ImageURL,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
+			verifyChildSpanner:               true,
 		},
 		{
 			desc: "can clear InfrastructureProviderID",
@@ -1667,21 +1562,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramInfrastructureProviderID: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    os1tenant1.TenantID,
-			expectedControllerOperatingSystemID: os1tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     os1tenant1.Version,
-			expectedImageURL:                    os1tenant1.ImageURL,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 os1tenant1.TenantID,
+			expectedVersion:                  os1tenant1.Version,
+			expectedImageURL:                 os1tenant1.ImageURL,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear TenantID",
@@ -1689,43 +1583,39 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramTenantID: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: os1tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     os1tenant1.Version,
-			expectedImageURL:                    os1tenant1.ImageURL,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  os1tenant1.Version,
+			expectedImageURL:                 os1tenant1.ImageURL,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
-			desc: "can clear ControllerOperatingSystemID",
+			desc: "can run clear with no flags set",
 			os:   os1tenant1,
 
-			paramControllerOperatingSystemID: true,
-
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     os1tenant1.Version,
-			expectedImageURL:                    os1tenant1.ImageURL,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  os1tenant1.Version,
+			expectedImageURL:                 os1tenant1.ImageURL,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear version",
@@ -1733,21 +1623,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramVersion: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    os1tenant1.ImageURL,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 os1tenant1.ImageURL,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear ImageURL",
@@ -1755,21 +1644,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramImageURL: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    os1tenant1.ImageSHA,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 os1tenant1.ImageSHA,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear ImageSHA",
@@ -1777,21 +1665,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramImageSHA: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               os1tenant1.ImageAuthType,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            os1tenant1.ImageAuthType,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear ImageAuthType",
@@ -1799,21 +1686,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramImageAuthType: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              os1tenant1.ImageAuthToken,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           os1tenant1.ImageAuthToken,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear ImageAuthToken",
@@ -1821,21 +1707,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramImageAuthToken: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   os1tenant1.ImageDisk,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                os1tenant1.ImageDisk,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear ImageDisk",
@@ -1843,21 +1728,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramImageDisk: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   nil,
-			expectedRootFsID:                    os1tenant1.RootFsID,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                nil,
+			expectedRootFsID:                 os1tenant1.RootFsID,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear RootFsId",
@@ -1865,21 +1749,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramRootFsID: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   nil,
-			expectedRootFsID:                    nil,
-			expectedRootFsLabel:                 os1tenant1.RootFsLabel,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                nil,
+			expectedRootFsID:                 nil,
+			expectedRootFsLabel:              os1tenant1.RootFsLabel,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear RootFsLabel",
@@ -1887,21 +1770,20 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramRootFsLabel: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   nil,
-			expectedRootFsID:                    nil,
-			expectedRootFsLabel:                 nil,
-			expectedIpxeScript:                  os1tenant1.IpxeScript,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                nil,
+			expectedRootFsID:                 nil,
+			expectedRootFsLabel:              nil,
+			expectedIpxeScript:               os1tenant1.IpxeScript,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear IpxeScript",
@@ -1909,15 +1791,14 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramIpxeScript: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedIpxeScript:                  nil,
-			expectedUserData:                    os1tenant1.UserData,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedIpxeScript:               nil,
+			expectedUserData:                 os1tenant1.UserData,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear UserData",
@@ -1925,96 +1806,91 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 
 			paramUserData: true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   nil,
-			expectedRootFsID:                    nil,
-			expectedRootFsLabel:                 nil,
-			expectedIpxeScript:                  nil,
-			expectedUserData:                    nil,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                nil,
+			expectedRootFsID:                 nil,
+			expectedRootFsLabel:              nil,
+			expectedIpxeScript:               nil,
+			expectedUserData:                 nil,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "can clear multiple fields at once",
 			os:   os1tenant2,
 
-			paramDescription:                 true,
-			paramInfrastructureProviderID:    true,
-			paramTenantID:                    true,
-			paramControllerOperatingSystemID: true,
-			paramVersion:                     true,
-			paramImageURL:                    true,
-			paramImageSHA:                    true,
-			paramImageAuthType:               true,
-			paramImageAuthToken:              true,
-			paramImageDisk:                   true,
-			paramRootFsID:                    true,
-			paramRootFsLabel:                 true,
-			paramIpxeScript:                  true,
-			paramUserData:                    true,
+			paramDescription:              true,
+			paramInfrastructureProviderID: true,
+			paramTenantID:                 true,
+			paramVersion:                  true,
+			paramImageURL:                 true,
+			paramImageSHA:                 true,
+			paramImageAuthType:            true,
+			paramImageAuthToken:           true,
+			paramImageDisk:                true,
+			paramRootFsID:                 true,
+			paramRootFsLabel:              true,
+			paramIpxeScript:               true,
+			paramUserData:                 true,
 
-			expectedDescription:                 nil,
-			expectedInfrastructureProviderID:    nil,
-			expectedTenantID:                    nil,
-			expectedControllerOperatingSystemID: nil,
-			expectedVersion:                     nil,
-			expectedImageURL:                    nil,
-			expectedImageSHA:                    nil,
-			expectedImageAuthType:               nil,
-			expectedImageAuthToken:              nil,
-			expectedImageDisk:                   nil,
-			expectedRootFsID:                    nil,
-			expectedRootFsLabel:                 nil,
-			expectedIpxeScript:                  nil,
-			expectedUserData:                    nil,
-			expectedUpdate:                      true,
+			expectedDescription:              nil,
+			expectedInfrastructureProviderID: nil,
+			expectedTenantID:                 nil,
+			expectedVersion:                  nil,
+			expectedImageURL:                 nil,
+			expectedImageSHA:                 nil,
+			expectedImageAuthType:            nil,
+			expectedImageAuthToken:           nil,
+			expectedImageDisk:                nil,
+			expectedRootFsID:                 nil,
+			expectedRootFsLabel:              nil,
+			expectedIpxeScript:               nil,
+			expectedUserData:                 nil,
+			expectedUpdate:                   true,
 		},
 		{
 			desc: "nop when no cleared fields are specified",
 			os:   os2tenant1,
 
-			expectedDescription:                 os2tenant1.Description,
-			expectedInfrastructureProviderID:    os2tenant1.InfrastructureProviderID,
-			expectedTenantID:                    os2tenant1.TenantID,
-			expectedControllerOperatingSystemID: os2tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     os2tenant1.Version,
-			expectedImageURL:                    os2tenant1.ImageURL,
-			expectedImageSHA:                    os2tenant1.ImageSHA,
-			expectedImageAuthType:               os2tenant1.ImageAuthType,
-			expectedImageAuthToken:              os2tenant1.ImageAuthToken,
-			expectedImageDisk:                   os2tenant1.ImageDisk,
-			expectedRootFsID:                    os2tenant1.RootFsID,
-			expectedRootFsLabel:                 os2tenant1.RootFsLabel,
-			expectedIpxeScript:                  os2tenant1.IpxeScript,
-			expectedUserData:                    os2tenant1.UserData,
-			expectedUpdate:                      false,
+			expectedDescription:              os2tenant1.Description,
+			expectedInfrastructureProviderID: os2tenant1.InfrastructureProviderID,
+			expectedTenantID:                 os2tenant1.TenantID,
+			expectedVersion:                  os2tenant1.Version,
+			expectedImageURL:                 os2tenant1.ImageURL,
+			expectedImageSHA:                 os2tenant1.ImageSHA,
+			expectedImageAuthType:            os2tenant1.ImageAuthType,
+			expectedImageAuthToken:           os2tenant1.ImageAuthToken,
+			expectedImageDisk:                os2tenant1.ImageDisk,
+			expectedRootFsID:                 os2tenant1.RootFsID,
+			expectedRootFsLabel:              os2tenant1.RootFsLabel,
+			expectedIpxeScript:               os2tenant1.IpxeScript,
+			expectedUserData:                 os2tenant1.UserData,
+			expectedUpdate:                   false,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			input := OperatingSystemClearInput{
-				OperatingSystemId:           tc.os.ID,
-				Description:                 tc.paramDescription,
-				InfrastructureProviderID:    tc.paramInfrastructureProviderID,
-				TenantID:                    tc.paramTenantID,
-				ControllerOperatingSystemID: tc.paramControllerOperatingSystemID,
-				Version:                     tc.paramVersion,
-				ImageURL:                    tc.paramImageURL,
-				ImageSHA:                    tc.paramImageSHA,
-				ImageAuthType:               tc.paramImageAuthType,
-				ImageAuthToken:              tc.paramImageAuthToken,
-				ImageDisk:                   tc.paramImageDisk,
-				RootFsId:                    tc.paramRootFsID,
-				RootFsLabel:                 tc.paramRootFsLabel,
-				IpxeScript:                  tc.paramIpxeScript,
-				UserData:                    tc.paramUserData,
+				OperatingSystemId:        tc.os.ID,
+				Description:              tc.paramDescription,
+				InfrastructureProviderID: tc.paramInfrastructureProviderID,
+				TenantID:                 tc.paramTenantID,
+				Version:                  tc.paramVersion,
+				ImageURL:                 tc.paramImageURL,
+				ImageSHA:                 tc.paramImageSHA,
+				ImageAuthType:            tc.paramImageAuthType,
+				ImageAuthToken:           tc.paramImageAuthToken,
+				ImageDisk:                tc.paramImageDisk,
+				RootFsId:                 tc.paramRootFsID,
+				RootFsLabel:              tc.paramRootFsLabel,
+				IpxeScript:               tc.paramIpxeScript,
+				UserData:                 tc.paramUserData,
 			}
 			tmp, err := ossd.Clear(ctx, nil, input)
 			assert.Nil(t, err)
@@ -2030,10 +1906,6 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 			assert.Equal(t, tc.expectedTenantID == nil, tmp.TenantID == nil)
 			if tc.expectedTenantID != nil {
 				assert.Equal(t, *tc.expectedTenantID, *tmp.TenantID)
-			}
-			assert.Equal(t, tc.expectedControllerOperatingSystemID == nil, tmp.ControllerOperatingSystemID == nil)
-			if tc.expectedControllerOperatingSystemID != nil {
-				assert.Equal(t, *tc.expectedControllerOperatingSystemID, *tmp.ControllerOperatingSystemID)
 			}
 			assert.Equal(t, tc.expectedVersion == nil, tmp.Version == nil)
 			if tc.expectedVersion != nil {
@@ -2098,26 +1970,24 @@ func TestOperatingSystemSQLDAO_Delete(t *testing.T) {
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 	ossd := NewOperatingSystemDAO(dbSession)
-	dummyUUID := uuid.New()
 	os1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
-			Name:                        "os1",
-			Description:                 cutil.GetPtr("description"),
-			Org:                         "testOrg",
-			InfrastructureProviderID:    &ip.ID,
-			TenantID:                    &tenant.ID,
-			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     cutil.GetPtr("version"),
-			OsType:                      "ipxe",
-			ImageURL:                    cutil.GetPtr("imageURL"),
-			IpxeScript:                  cutil.GetPtr("ipxeScript"),
-			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
-			AllowOverride:               true,
-			EnableBlockStorage:          true,
-			PhoneHomeEnabled:            true,
-			Status:                      OperatingSystemStatusPending,
-			CreatedBy:                   user.ID,
+			Name:                     "os1",
+			Description:              cutil.GetPtr("description"),
+			Org:                      "testOrg",
+			InfrastructureProviderID: &ip.ID,
+			TenantID:                 &tenant.ID,
+			Version:                  cutil.GetPtr("version"),
+			OsType:                   "ipxe",
+			ImageURL:                 cutil.GetPtr("imageURL"),
+			IpxeScript:               cutil.GetPtr("ipxeScript"),
+			UserData:                 cutil.GetPtr("userData"),
+			IsCloudInit:              true,
+			AllowOverride:            true,
+			EnableBlockStorage:       true,
+			PhoneHomeEnabled:         true,
+			Status:                   OperatingSystemStatusPending,
+			CreatedBy:                user.ID,
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1)

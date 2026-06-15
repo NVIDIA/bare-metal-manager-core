@@ -15,6 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/infinibandpartition"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/instance"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/instancetype"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/ipxetemplate"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/machine"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/machinevalidation"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/managerapi"
@@ -149,6 +150,11 @@ func (m *Manager) ExpectedSwitch() *expectedswitch.API {
 // SKU - Add SKU Manager instance here
 func (m *Manager) SKU() *sku.API {
 	return sku.NewSKUManager(m.Data.EB, m.API, m.Conf)
+}
+
+// IpxeTemplate - Add IpxeTemplate Manager instance here
+func (m *Manager) IpxeTemplate() *ipxetemplate.API {
+	return ipxetemplate.NewIpxeTemplateManager(m.Data.EB, m.API, m.Conf)
 }
 
 // DpuExtensionService - Add DPU Extension Service Manager instance here

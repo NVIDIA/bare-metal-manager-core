@@ -25,9 +25,7 @@ import standard "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 //
 // Deprecated: use `standard.NewInstanceCreateRequest` + `SetInterfaces`.
 func NewInstanceCreateRequestWithInterfaces(name, tenantID, vpcID string, interfaces []standard.InterfaceCreateRequest) *standard.InstanceCreateRequest {
-	req := standard.NewInstanceCreateRequest(name, tenantID, vpcID)
-	req.SetInterfaces(interfaces)
-	return req
+	return standard.NewInstanceCreateRequest(name, tenantID, vpcID, interfaces)
 }
 
 // NewBatchInstanceCreateRequestWithInterfaces preserves the pre-`auto`
@@ -38,7 +36,5 @@ func NewInstanceCreateRequestWithInterfaces(name, tenantID, vpcID string, interf
 //
 // Deprecated: use `standard.NewBatchInstanceCreateRequest` + `SetInterfaces`.
 func NewBatchInstanceCreateRequestWithInterfaces(namePrefix string, count int32, tenantID, instanceTypeID, vpcID string, interfaces []standard.InterfaceCreateRequest) *standard.BatchInstanceCreateRequest {
-	req := standard.NewBatchInstanceCreateRequest(namePrefix, count, tenantID, instanceTypeID, vpcID)
-	req.SetInterfaces(interfaces)
-	return req
+	return standard.NewBatchInstanceCreateRequest(namePrefix, count, tenantID, instanceTypeID, vpcID, interfaces)
 }

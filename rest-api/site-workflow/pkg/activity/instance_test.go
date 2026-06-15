@@ -30,7 +30,7 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 	labelValue := "value1"
 
 	type fields struct {
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		CoreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -45,7 +45,7 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 		{
 			name: "test Instance update success",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -79,7 +79,7 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
+			mm := NewManageInstance(tt.fields.CoreGrpcAtomicClient)
 			err := mm.UpdateInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -103,7 +103,7 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 	labelValue := "value1"
 
 	type fields struct {
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		CoreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -118,7 +118,7 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 		{
 			name: "test create Instance success",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -152,7 +152,7 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
+			mm := NewManageInstance(tt.fields.CoreGrpcAtomicClient)
 			err := mm.CreateInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -182,7 +182,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 	labelValue := "value1"
 
 	type fields struct {
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		CoreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -197,7 +197,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 		{
 			name: "test batch create Instances success",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -259,7 +259,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 		{
 			name: "test batch create Instances with nil request failure",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -270,7 +270,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 		{
 			name: "test batch create Instances with empty requests failure",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -283,7 +283,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 		{
 			name: "test batch create Instances with missing machine ID failure",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -303,7 +303,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
+			mm := NewManageInstance(tt.fields.CoreGrpcAtomicClient)
 			err := mm.CreateInstancesOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -321,7 +321,7 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		CoreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -336,7 +336,7 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 		{
 			name: "test reboot Instance success",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -350,7 +350,7 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
+			mm := NewManageInstance(tt.fields.CoreGrpcAtomicClient)
 			err := mm.RebootInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -373,7 +373,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 
 	type fields struct {
 		siteID               uuid.UUID
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		coreGrpcAtomicClient  *cClient.CoreGrpcAtomicClient
 		temporalPublishQueue string
 		sitePageSize         int
 		cloudPageSize        int
@@ -390,7 +390,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			name: "test collecting and publishing instance inventory, empty inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				coreGrpcAtomicClient:  coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -403,7 +403,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			name: "test collecting and publishing instance inventory, normal inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				coreGrpcAtomicClient:  coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -423,7 +423,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 
 			manageInstance := NewManageInstanceInventory(ManageInventoryConfig{
 				SiteID:                tt.fields.siteID,
-				CoreGrpcAtomicClient:  tt.fields.coreGrpcAtomicClient,
+				CoreGrpcAtomicClient:   tt.fields.coreGrpcAtomicClient,
 				TemporalPublishClient: tc,
 				TemporalPublishQueue:  tt.fields.temporalPublishQueue,
 				SitePageSize:          tt.fields.sitePageSize,
@@ -473,7 +473,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
+		CoreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -488,7 +488,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 		{
 			name: "test delete Instance success",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -501,7 +501,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 		{
 			name: "test delete Instance with nil ID failure",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -514,7 +514,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 		{
 			name: "test delete Instance with empty non-nil ID failure",
 			fields: fields{
-				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				CoreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -527,7 +527,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
+			mm := NewManageInstance(tt.fields.CoreGrpcAtomicClient)
 			err := mm.DeleteInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)

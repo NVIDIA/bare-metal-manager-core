@@ -80,6 +80,7 @@ service Forge {
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
+  rpc AttachNetworkSegmentToVpc(AttachNetworkSegmentToVpcRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   // TODO: This functionality should get integrated into NetworkSegmentSearchFilter
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
@@ -771,6 +772,9 @@ service Forge {
   // end DPU Remediation APIs
 
   rpc SetPrimaryDpu(SetPrimaryDpuRequest) returns (google.protobuf.Empty);
+  // Make any host interface (DPU or not) the primary / boot interface. This is
+  // the generic form of SetPrimaryDpu, which it deprecates.
+  rpc SetPrimaryInterface(SetPrimaryInterfaceRequest) returns (google.protobuf.Empty);
 
   // Extension service version management
   rpc CreateDpuExtensionService(CreateDpuExtensionServiceRequest) returns (DpuExtensionService);
@@ -1268,6 +1272,7 @@ enum CredentialType {
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
   BgpSiteWideLeafPassword = 11;
+  SiteWideNicLockdownIkm = 12;
 }
 
 message CredentialCreationRequest {
@@ -2438,6 +2443,12 @@ message NetworkSegmentCreationRequest {
 
 message NetworkSegmentDeletionRequest {
   common.NetworkSegmentId id = 1;
+}
+
+message AttachNetworkSegmentToVpcRequest {
+  common.NetworkSegmentId network_segment_id = 1;
+  common.VpcId vpc_id = 2;
+  bool allow_replace = 3;
 }
 
 message NetworkSegmentDeletionResult {
@@ -6039,7 +6050,7 @@ message FirmwareUpgradeActivity {
 message NvosUpdateActivity {
   reserved 1;
   reserved "firmware_object_id";
-  // SOT JSON string passed to RMS ApplySwitchSystemImageFromJSON.
+  // SOT JSON string passed to RMS ApplySwitchSystemImage.
   // Required for nvos-update activity.
   string config_json = 2;
   // Used only by the backend for artifact download when config_json is set.
@@ -6953,8 +6964,14 @@ message DpaInterface {
   optional string mlxconfig_profile = 19;
 
   optional string device_description = 20;
+
+  DpaInterfaceType interface_type = 21;
 }
 
+enum DpaInterfaceType {
+  DPA_INTERFACE_TYPE_SVPC = 0;
+  DPA_INTERFACE_TYPE_ASTRA = 1;
+}
 
 message DpaInterfaceCreationRequest {
   common.MachineId machine_id = 1;
@@ -6962,6 +6979,7 @@ message DpaInterfaceCreationRequest {
   string device_type = 3;
   string pci_name = 4;
   optional string device_description = 5;
+  DpaInterfaceType interface_type = 6;
 }
 
 message DpaInterfaceIdList {
@@ -7631,6 +7649,12 @@ message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
   bool reboot=3;
+}
+
+message SetPrimaryInterfaceRequest {
+  common.MachineId host_machine_id = 1;
+  common.MachineInterfaceId interface_id = 2;
+  bool reboot = 3;
 }
 
 // DPU Extension Service Types and Messages

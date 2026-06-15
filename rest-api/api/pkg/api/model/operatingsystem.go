@@ -4,18 +4,20 @@
 package model
 
 import (
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/go-ozzo/ozzo-validation/v4/is"
-	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
-
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/go-ozzo/ozzo-validation/v4/is"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -65,38 +67,60 @@ type APIOperatingSystemCreateRequest struct {
 	AllowOverride bool `json:"allowOverride"`
 	// EnableBlockStorage indicates whether the Operating System image will be stored remotely via block storage
 	EnableBlockStorage bool `json:"enableBlockStorage"`
+	// IpxeTemplateId is the name of the iPXE template to use (alternative to a raw ipxeScript)
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters to pass to the iPXE template
+	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, …) for the iPXE OS definition
+	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope controls the synchronization direction between carbide-rest and nico-core.
+	// Allowed values: "Global" (rest→core, all sites), "Limited" (rest→core, specific sites
+	// listed in siteIds). Required for Templated iPXE OS. For raw iPXE OS, only "Global"
+	// or unspecified is accepted; the handler always normalizes raw iPXE to "Global".
+	// Rejected for Image OS (validateImageOS).
+	Scope *string `json:"scope"`
 }
 
 // Validate ensure the values passed in request are acceptable
-func (oscr *APIOperatingSystemCreateRequest) Validate() error {
-	var err error
-	err = validation.ValidateStruct(oscr,
+func (oscr APIOperatingSystemCreateRequest) Validate() error {
+	err := validation.ValidateStruct(&oscr,
 		validation.Field(&oscr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
+		// TODO: InfrastructureProviderID as parameter is deprecated and will need to be removed by 2026-10-01.
 		validation.Field(&oscr.InfrastructureProviderID,
-			// infrastructure provider id must be nil
 			validation.Nil.Error(validationErrorInfrastructureProviderIDExpectNil)),
+		validation.Field(&oscr.TenantID,
+			validation.When(oscr.TenantID != nil, validationis.UUID.Error(validationErrorInvalidUUID))),
 	)
 	if err != nil {
 		return err
 	}
 
-	// Make sure siteIds only required in case of image is OS based
-	if oscr.IpxeScript != nil && len(oscr.SiteIDs) > 0 {
+	if oscr.IpxeTemplateId != nil && strings.TrimSpace(*oscr.IpxeTemplateId) == "" {
 		return validation.Errors{
-			"siteIds": errors.New("cannot be specified for iPXE based Operating Systems"),
+			"ipxeTemplateId": errors.New("must not be empty"),
 		}
 	}
 
-	if oscr.IpxeScript != nil && oscr.ImageURL != nil {
+	if oscr.IpxeScript != nil && oscr.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("ipxeScript and ipxeTemplateId are mutually exclusive"),
+		}
+	}
+
+	osType := oscr.GetOperatingSystemType()
+
+	if osType == cdbm.OperatingSystemTypeImage && oscr.ImageURL == nil {
+		return validation.Errors{
+			validationCommonErrorField: errors.New("one of imageURL, ipxeScript, or ipxeTemplateId must be specified"),
+		}
+	}
+
+	if cdbm.IsIPXEType(osType) && oscr.ImageURL != nil {
 		return validation.Errors{
 			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
-		}
-	} else if oscr.IpxeScript == nil && oscr.ImageURL == nil {
-		return validation.Errors{
-			validationCommonErrorField: errors.New("either imageURL or ipxeScript must be specified"),
 		}
 	}
 
@@ -106,67 +130,175 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		}
 	}
 
-	if oscr.ImageURL != nil {
-		err = validation.ValidateStruct(oscr,
-			validation.Field(&oscr.ImageURL, is.URL),
-			validation.Field(&oscr.ImageSHA,
-				validation.Required.Error(validationErrorValueRequired),
-				validation.When(oscr.ImageSHA != nil, validation.Match(util.ShaHashRegex).Error(errMsgInvalidImageSHA))),
-			validation.Field(&oscr.ImageAuthType,
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthType)) && util.IsNilOrEmptyStrPtr(oscr.ImageAuthToken),
-					validation.Required.Error("imageAuthType cannot be specified if imageAuthToken is not specified")),
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthType)),
-					validation.In(cdbm.OperatingSystemAuthTypeBasic, cdbm.OperatingSystemAuthTypeBearer).Error("imageAuthType must be Basic or Bearer")),
-			),
-			validation.Field(&oscr.ImageAuthToken,
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthToken)) && util.IsNilOrEmptyStrPtr(oscr.ImageAuthType), validation.Required.Error("imageAuthType must be specified when imageAuthToken is specified"))),
-			validation.Field(&oscr.ImageDisk,
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageDisk)), validation.Match(util.DiskImagePathRegex).Error(errMsgInvalidImageDiskPath))),
-			validation.Field(&oscr.RootFsID,
-				validation.When(util.IsNilOrEmptyStrPtr(oscr.RootFsLabel), validation.Required.Error(errMsgExactlyOneRootFsField)),
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.RootFsLabel)), validation.Empty.Error(errMsgExactlyOneRootFsField))),
-			validation.Field(&oscr.RootFsLabel,
-				validation.When(util.IsNilOrEmptyStrPtr(oscr.RootFsID), validation.Required.Error(errMsgExactlyOneRootFsField)),
-				validation.When(!(util.IsNilOrEmptyStrPtr(oscr.RootFsID)), validation.Empty.Error(errMsgExactlyOneRootFsField))),
-		)
-		if len(oscr.SiteIDs) == 0 {
-			return validation.Errors{
-				"siteIds": errors.New("must be specified for image based Operating Systems"),
-			}
-		} else if len(oscr.SiteIDs) > 1 {
-			return validation.Errors{
-				"siteIds": errors.New("must specify a single Site ID. Creating Image based Operating System on more than one Site is not supported"),
-			}
+	switch osType {
+	case cdbm.OperatingSystemTypeIPXE:
+		return oscr.validateRawIpxeOS()
+	case cdbm.OperatingSystemTypeTemplatedIPXE:
+		return oscr.validateTemplatedIpxeOS()
+	case cdbm.OperatingSystemTypeImage:
+		return oscr.validateImageOS()
+	}
+
+	return nil
+}
+
+func (oscr APIOperatingSystemCreateRequest) validateImageOS() error {
+	if len(oscr.IpxeTemplateParameters) > 0 {
+		return validation.Errors{
+			"ipxeTemplateParameters": errors.New("cannot be specified for Image based Operating Systems"),
 		}
-	} else {
-		err = validation.ValidateStruct(oscr,
-			validation.Field(&oscr.SiteIDs,
-				validation.Nil.Error("siteIds cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.ImageSHA,
-				validation.Nil.Error("imageSHA cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.ImageAuthType,
-				validation.Nil.Error("imageAuthType cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.ImageAuthToken,
-				validation.Nil.Error("imageAuthToken cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.ImageDisk,
-				validation.Nil.Error("imageDisk cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.RootFsID,
-				validation.Nil.Error("rootFsID cannot be specified if imageURL is not specified")),
-			validation.Field(&oscr.RootFsLabel,
-				validation.Nil.Error("rootFsLabel cannot be specified if imageURL is not specified")),
-		)
+	}
+	if len(oscr.IpxeTemplateArtifacts) > 0 {
+		return validation.Errors{
+			"ipxeTemplateArtifacts": errors.New("cannot be specified for Image based Operating Systems"),
+		}
 	}
 
-	if oscr.IpxeScript != nil {
-		err = validation.ValidateStruct(oscr,
-			validation.Field(&oscr.IpxeScript,
-				validation.Required.Error(validationErrorValueRequired)),
-			validation.Field(&oscr.EnableBlockStorage,
-				validation.Empty.Error("enableBlockStorage must be false if ipxeScript is specified")),
-		)
+	err := validation.ValidateStruct(&oscr,
+		validation.Field(&oscr.ImageURL, is.URL),
+		validation.Field(&oscr.ImageSHA,
+			validation.Required.Error(validationErrorValueRequired),
+			validation.When(oscr.ImageSHA != nil, validation.Match(util.ShaHashRegex).Error(errMsgInvalidImageSHA))),
+		validation.Field(&oscr.ImageAuthType,
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthType)) && util.IsNilOrEmptyStrPtr(oscr.ImageAuthToken),
+				validation.Required.Error("imageAuthType cannot be specified if imageAuthToken is not specified")),
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthType)),
+				validation.In(cdbm.OperatingSystemAuthTypeBasic, cdbm.OperatingSystemAuthTypeBearer).Error("imageAuthType must be Basic or Bearer")),
+		),
+		validation.Field(&oscr.ImageAuthToken,
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageAuthToken)) && util.IsNilOrEmptyStrPtr(oscr.ImageAuthType), validation.Required.Error("imageAuthType must be specified when imageAuthToken is specified"))),
+		validation.Field(&oscr.ImageDisk,
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.ImageDisk)), validation.Match(util.DiskImagePathRegex).Error(errMsgInvalidImageDiskPath))),
+		validation.Field(&oscr.RootFsID,
+			validation.When(util.IsNilOrEmptyStrPtr(oscr.RootFsLabel), validation.Required.Error(errMsgExactlyOneRootFsField)),
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.RootFsLabel)), validation.Empty.Error(errMsgExactlyOneRootFsField))),
+		validation.Field(&oscr.RootFsLabel,
+			validation.When(util.IsNilOrEmptyStrPtr(oscr.RootFsID), validation.Required.Error(errMsgExactlyOneRootFsField)),
+			validation.When(!(util.IsNilOrEmptyStrPtr(oscr.RootFsID)), validation.Empty.Error(errMsgExactlyOneRootFsField))),
+	)
+	if err != nil {
+		return err
 	}
 
-	return err
+	if len(oscr.SiteIDs) == 0 {
+		return validation.Errors{
+			"siteIds": errors.New("must be specified for image based Operating Systems"),
+		}
+	}
+	if len(oscr.SiteIDs) > 1 {
+		return validation.Errors{
+			"siteIds": errors.New("must specify a single Site ID. Creating Image based Operating System on more than one Site is not supported"),
+		}
+	}
+
+	if oscr.Scope != nil {
+		return validation.Errors{
+			"scope": errors.New("scope can only be specified for Templated iPXE Operating Systems"),
+		}
+	}
+
+	return nil
+}
+
+// rejectImageFields validates that image-specific fields are not set.
+func (oscr APIOperatingSystemCreateRequest) rejectImageFields() error {
+	return validation.ValidateStruct(&oscr,
+		validation.Field(&oscr.ImageSHA,
+			validation.Nil.Error("imageSHA cannot be specified if imageURL is not specified")),
+		validation.Field(&oscr.ImageAuthType,
+			validation.Nil.Error("imageAuthType cannot be specified if imageURL is not specified")),
+		validation.Field(&oscr.ImageAuthToken,
+			validation.Nil.Error("imageAuthToken cannot be specified if imageURL is not specified")),
+		validation.Field(&oscr.ImageDisk,
+			validation.Nil.Error("imageDisk cannot be specified if imageURL is not specified")),
+		validation.Field(&oscr.RootFsID,
+			validation.Nil.Error("rootFsID cannot be specified if imageURL is not specified")),
+		validation.Field(&oscr.RootFsLabel,
+			validation.Nil.Error("rootFsLabel cannot be specified if imageURL is not specified")),
+	)
+}
+
+func (oscr APIOperatingSystemCreateRequest) validateRawIpxeOS() error {
+	if err := oscr.rejectImageFields(); err != nil {
+		return err
+	}
+
+	if err := validation.ValidateStruct(&oscr,
+		validation.Field(&oscr.IpxeScript,
+			validation.Required.Error(validationErrorValueRequired)),
+	); err != nil {
+		return err
+	}
+
+	if len(oscr.IpxeTemplateParameters) > 0 {
+		return validation.Errors{
+			"ipxeTemplateParameters": errors.New("cannot be specified for raw iPXE Operating Systems; use ipxeTemplateId for template-based OS"),
+		}
+	}
+	if len(oscr.IpxeTemplateArtifacts) > 0 {
+		return validation.Errors{
+			"ipxeTemplateArtifacts": errors.New("cannot be specified for raw iPXE Operating Systems; use ipxeTemplateId for template-based OS"),
+		}
+	}
+
+	if oscr.Scope != nil && *oscr.Scope != cdbm.OperatingSystemScopeGlobal {
+		return validation.Errors{
+			"scope": fmt.Errorf("scope must be %q or unspecified for raw iPXE Operating Systems", cdbm.OperatingSystemScopeGlobal),
+		}
+	}
+
+	if len(oscr.SiteIDs) > 0 {
+		return validation.Errors{
+			"siteIds": errors.New("siteIds cannot be specified for raw iPXE Operating Systems"),
+		}
+	}
+
+	return nil
+}
+
+func (oscr APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
+	if err := oscr.rejectImageFields(); err != nil {
+		return err
+	}
+
+	if oscr.Scope == nil {
+		return validation.Errors{
+			"scope": errors.New("scope is required for Templated iPXE Operating Systems"),
+		}
+	}
+
+	switch *oscr.Scope {
+	case cdbm.OperatingSystemScopeGlobal, cdbm.OperatingSystemScopeLimited:
+		// valid
+	case cdbm.OperatingSystemScopeLocal:
+		return validation.Errors{
+			"scope": errors.New("scope 'Local' cannot be specified at creation; Local Operating Systems are created in nico-core"),
+		}
+	default:
+		return validation.Errors{
+			"scope": errors.New("scope must be one of 'Global' or 'Limited'"),
+		}
+	}
+
+	if len(oscr.SiteIDs) > 0 && *oscr.Scope != cdbm.OperatingSystemScopeLimited {
+		return validation.Errors{
+			"siteIds": errors.New("siteIds can only be specified for Templated iPXE Operating Systems with scope 'Limited'"),
+		}
+	}
+	if *oscr.Scope == cdbm.OperatingSystemScopeLimited && len(oscr.SiteIDs) == 0 {
+		return validation.Errors{
+			"siteIds": errors.New("at least one siteId must be specified when scope is 'Limited'"),
+		}
+	}
+
+	if err := validateIpxeTemplateParameters(oscr.IpxeTemplateParameters); err != nil {
+		return err
+	}
+	if err := validateIpxeTemplateArtifacts(oscr.IpxeTemplateArtifacts); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl string) error {
@@ -226,25 +358,6 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	return nil
 }
 
-// ToProto builds the workflow request that asks a Site to create the
-// OS image for this API request. `os` is the just-persisted DB record;
-// its `ToImageAttributesProto(tenantOrg)` is the source of every wire
-// field because the handler has already merged the request fields into
-// the entity via the DAO before this method runs. `tenantOrg` is a
-// side input — it lives on the request's resolved Tenant rather than
-// on the entity, and the handler passes it through.
-//
-// The method trusts that the request has already been Validated (and
-// that ValidateAndSetUserData has run) and that the handler has
-// performed the cross-context checks Validate cannot see — most
-// importantly that the OS is image-typed, since
-// `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
-// For iPXE-typed records there is no Site-side image workflow, so
-// this method should not be called.
-func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
-	return os.ToImageAttributesProto(tenantOrg)
-}
-
 // APIOperatingSystemUpdateRequest is the data structure to capture user request to update an OperatingSystem
 type APIOperatingSystemUpdateRequest struct {
 	// Name is the name of the OperatingSystem
@@ -279,11 +392,19 @@ type APIOperatingSystemUpdateRequest struct {
 	IsActive *bool `json:"isActive"`
 	// DeactivationNote is the deactivation note if any
 	DeactivationNote *string `json:"deactivationNote"`
+	// IpxeTemplateId is the name of the iPXE template to use (alternative to a raw ipxeScript)
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters to pass to the iPXE template
+	IpxeTemplateParameters *[]cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, …) for the iPXE OS definition
+	IpxeTemplateArtifacts *[]cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope is immutable after creation. If provided, the request is rejected.
+	Scope *string `json:"scope"`
 }
 
 // Validate ensure the values passed in request are acceptable
-func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingSystem) error {
-	err := validation.ValidateStruct(osur,
+func (osur APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingSystem) error {
+	err := validation.ValidateStruct(&osur,
 		validation.Field(&osur.Name,
 			validation.When(osur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(osur.Name != nil, validation.By(util.ValidateNameCharacters)),
@@ -314,20 +435,44 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		}
 	}
 
-	if osur.IpxeScript != nil && osur.ImageURL != nil {
+	if osur.IpxeScript != nil && osur.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("ipxeScript and ipxeTemplateId are mutually exclusive"),
+		}
+	}
+
+	if osur.IpxeTemplateId != nil && strings.TrimSpace(*osur.IpxeTemplateId) == "" {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("must not be empty"),
+		}
+	}
+
+	if (osur.IpxeScript != nil || osur.IpxeTemplateId != nil) && osur.ImageURL != nil {
 		return validation.Errors{
 			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
 		}
 	}
 
-	// verify if os created with ipxe script, if yes reject the update if imageURL provided
-	if existingOS.Type == cdbm.OperatingSystemTypeIPXE && osur.ImageURL != nil {
+	// Reject cross-type field assignments (iPXE → Templated iPXE → Image).
+	if cdbm.IsIPXEType(existingOS.Type) && osur.ImageURL != nil {
 		return validation.Errors{
 			"imageURL": errors.New("unable to set image URL for iPXE based Operating System"),
+		}
+	} else if existingOS.Type == cdbm.OperatingSystemTypeIPXE && osur.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("unable to set iPXE template for raw iPXE Operating System"),
+		}
+	} else if existingOS.Type == cdbm.OperatingSystemTypeTemplatedIPXE && osur.IpxeScript != nil {
+		return validation.Errors{
+			"ipxeScript": errors.New("unable to set iPXE script for templated iPXE Operating System"),
 		}
 	} else if existingOS.Type == cdbm.OperatingSystemTypeImage && osur.IpxeScript != nil {
 		return validation.Errors{
 			"ipxeScript": errors.New("unable to set iPXE script for image based Operating System"),
+		}
+	} else if existingOS.Type == cdbm.OperatingSystemTypeImage && osur.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("unable to set iPXE template for image based Operating System"),
 		}
 	}
 
@@ -352,7 +497,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	}
 
 	if osur.ImageURL != nil {
-		err = validation.ValidateStruct(osur,
+		err = validation.ValidateStruct(&osur,
 			validation.Field(&osur.ImageURL, is.URL),
 			validation.Field(&osur.ImageSHA,
 				validation.Required.Error(validationErrorValueRequired),
@@ -372,7 +517,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 				validation.When(!(util.IsNilOrEmptyStrPtr(osur.RootFsID)), validation.Empty.Error(errMsgOnlyOneRootFsField))),
 		)
 	} else {
-		err = validation.ValidateStruct(osur,
+		err = validation.ValidateStruct(&osur,
 			validation.Field(&osur.ImageSHA,
 				validation.Nil.Error("imageSHA cannot be specified if imageURL is not specified")),
 			validation.Field(&osur.ImageAuthType,
@@ -389,12 +534,58 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	}
 
 	if osur.IpxeScript != nil {
-		err = validation.ValidateStruct(osur,
+		err = validation.ValidateStruct(&osur,
 			validation.Field(&osur.IpxeScript,
 				validation.Required.Error(validationErrorValueRequired)),
 		)
 	}
-	return err
+
+	if osur.Scope != nil {
+		return validation.Errors{
+			"scope": errors.New("scope cannot be changed after creation"),
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	isImageBased2 := existingOS.Type == cdbm.OperatingSystemTypeImage
+	isRawIpxe := existingOS.Type == cdbm.OperatingSystemTypeIPXE
+
+	if osur.IpxeTemplateParameters != nil {
+		if isImageBased2 {
+			return validation.Errors{
+				"ipxeTemplateParameters": errors.New("cannot be specified for Image based Operating Systems"),
+			}
+		}
+		if isRawIpxe {
+			return validation.Errors{
+				"ipxeTemplateParameters": errors.New("cannot be specified for raw iPXE Operating Systems"),
+			}
+		}
+		if verr := validateIpxeTemplateParameters(*osur.IpxeTemplateParameters); verr != nil {
+			return verr
+		}
+	}
+
+	if osur.IpxeTemplateArtifacts != nil {
+		if isImageBased2 {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": errors.New("cannot be specified for Image based Operating Systems"),
+			}
+		}
+		if isRawIpxe {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": errors.New("cannot be specified for raw iPXE Operating Systems"),
+			}
+		}
+		if verr := validateIpxeTemplateArtifacts(*osur.IpxeTemplateArtifacts); verr != nil {
+			return verr
+		}
+	}
+
+	return nil
 }
 
 func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl string, existingOS *cdbm.OperatingSystem) error {
@@ -506,29 +697,6 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	return nil
 }
 
-// ToProto builds the workflow request that asks a Site to update the
-// OS image for this API request. `uos` is the post-update DB record;
-// its `ToImageAttributesProto(tenantOrg)` is the source of every wire
-// field, so unchanged fields stay populated and updated fields reflect
-// the just-persisted state. `tenantOrg` is a side input — it lives on
-// the request's resolved Tenant rather than on the entity, and the
-// handler passes it through.
-//
-// The same `OsImageAttributes` proto is used for both create and
-// update workflows on the Site side, so this method delegates to the
-// entity-level method rather than building a distinct wire shape. The
-// request-level method exists so call sites stay uniform with the
-// rest of the layered convention (handlers always invoke
-// `apiRequest.ToProto(entity, ...)`).
-//
-// As with the create variant, the method trusts that the request has
-// been Validated (Validate + ValidateAndSetUserData) and that the
-// handler has confirmed the OS is image-typed before this is called;
-// `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
-func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
-	return uos.ToImageAttributesProto(tenantOrg)
-}
-
 // APIOperatingSystem is the data structure to capture API representation of an OS
 type APIOperatingSystem struct {
 	// ID is the unique UUID v4 identifier for the Operating System
@@ -561,8 +729,17 @@ type APIOperatingSystem struct {
 	RootFsID *string `json:"rootFsId"`
 	// RootFsLabel is root fs id for the Operating System image type
 	RootFsLabel *string `json:"rootFsLabel"`
-	// IpxeScript is the ipxe ocript for the Operating System
+	// IpxeScript is the ipxe script for the Operating System
 	IpxeScript *string `json:"ipxeScript"`
+	// IpxeTemplateId is the name of the iPXE template used by this Operating System
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters passed to the iPXE template
+	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, …) for the iPXE OS definition
+	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope controls the synchronization direction between carbide-rest and nico-core.
+	// One of "Local" (default), "Global", or "Limited". Only valid for Templated iPXE OSes.
+	Scope *string `json:"scope"`
 	// PhoneHomeEnabled is an attribute which is specified by user if Operating System needs to be enabled for phone home or not
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
@@ -592,28 +769,32 @@ type APIOperatingSystem struct {
 // NewAPIOperatingSystem accepts a DB layer objects and returns an API layer object
 func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail, ossas []cdbm.OperatingSystemSiteAssociation, sttsmap map[uuid.UUID]*cdbm.TenantSite) *APIOperatingSystem {
 	apiOperatingSystem := APIOperatingSystem{
-		ID:                 dbOS.ID.String(),
-		Name:               dbOS.Name,
-		Description:        dbOS.Description,
-		Type:               &dbOS.Type,
-		ImageURL:           dbOS.ImageURL,
-		ImageSHA:           dbOS.ImageSHA,
-		ImageAuthType:      dbOS.ImageAuthType,
-		ImageAuthToken:     dbOS.ImageAuthToken,
-		ImageDisk:          dbOS.ImageDisk,
-		RootFsID:           dbOS.RootFsID,
-		RootFsLabel:        dbOS.RootFsLabel,
-		IpxeScript:         dbOS.IpxeScript,
-		PhoneHomeEnabled:   dbOS.PhoneHomeEnabled,
-		UserData:           dbOS.UserData,
-		IsCloudInit:        dbOS.IsCloudInit,
-		AllowOverride:      dbOS.AllowOverride,
-		EnableBlockStorage: dbOS.EnableBlockStorage,
-		IsActive:           dbOS.IsActive,
-		DeactivationNote:   dbOS.DeactivationNote,
-		Status:             dbOS.Status,
-		Created:            dbOS.Created,
-		Updated:            dbOS.Updated,
+		ID:                     dbOS.ID.String(),
+		Name:                   dbOS.Name,
+		Description:            dbOS.Description,
+		Type:                   &dbOS.Type,
+		ImageURL:               dbOS.ImageURL,
+		ImageSHA:               dbOS.ImageSHA,
+		ImageAuthType:          dbOS.ImageAuthType,
+		ImageAuthToken:         dbOS.ImageAuthToken,
+		ImageDisk:              dbOS.ImageDisk,
+		RootFsID:               dbOS.RootFsID,
+		RootFsLabel:            dbOS.RootFsLabel,
+		IpxeScript:             dbOS.IpxeScript,
+		IpxeTemplateId:         dbOS.IpxeTemplateId,
+		IpxeTemplateParameters: dbOS.IpxeTemplateParameters,
+		IpxeTemplateArtifacts:  dbOS.IpxeTemplateArtifacts,
+		Scope:                  dbOS.IpxeOsScope,
+		PhoneHomeEnabled:       dbOS.PhoneHomeEnabled,
+		UserData:               dbOS.UserData,
+		IsCloudInit:            dbOS.IsCloudInit,
+		AllowOverride:          dbOS.AllowOverride,
+		EnableBlockStorage:     dbOS.EnableBlockStorage,
+		IsActive:               dbOS.IsActive,
+		DeactivationNote:       dbOS.DeactivationNote,
+		Status:                 dbOS.Status,
+		Created:                dbOS.Created,
+		Updated:                dbOS.Updated,
 	}
 	if dbOS.InfrastructureProviderID != nil {
 		apiOperatingSystem.InfrastructureProviderID = cutil.GetPtr(dbOS.InfrastructureProviderID.String())
@@ -638,6 +819,77 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		apiOperatingSystem.SiteAssociations = append(apiOperatingSystem.SiteAssociations, *NewAPIOperatingSystemSiteAssociation(&curVal, ts))
 	}
 	return &apiOperatingSystem
+}
+
+// GetOperatingSystemType returns the OperatingSystem type inferred from the
+// create request's source fields (`IpxeScript`, `IpxeTemplateId`, or neither).
+func (oscr APIOperatingSystemCreateRequest) GetOperatingSystemType() string {
+	if oscr.IpxeScript != nil {
+		return cdbm.OperatingSystemTypeIPXE
+	}
+	if oscr.IpxeTemplateId != nil {
+		return cdbm.OperatingSystemTypeTemplatedIPXE
+	}
+	return cdbm.OperatingSystemTypeImage
+}
+
+// validCacheStrategies is the set of accepted CacheStrategy string values.
+var validCacheStrategies = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(cwssaws.IpxeTemplateArtifactCacheStrategy_value))
+	for name := range cwssaws.IpxeTemplateArtifactCacheStrategy_value {
+		m[name] = struct{}{}
+	}
+	return m
+}()
+
+func validateIpxeTemplateParameters(params []cdbm.OperatingSystemIpxeParameter) error {
+	for i, p := range params {
+		if strings.TrimSpace(p.Name) == "" {
+			return validation.Errors{
+				"ipxeTemplateParameters": fmt.Errorf("entry %d: name is required", i),
+			}
+		}
+	}
+	return nil
+}
+
+func validateIpxeTemplateArtifacts(artifacts []cdbm.OperatingSystemIpxeArtifact) error {
+	for i, a := range artifacts {
+		if strings.TrimSpace(a.Name) == "" {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": fmt.Errorf("entry %d: name is required", i),
+			}
+		}
+		if strings.TrimSpace(a.URL) == "" {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is required", i, a.Name),
+			}
+		}
+		if _, ok := validCacheStrategies[a.CacheStrategy]; !ok {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): cacheStrategy must be one of CACHE_AS_NEEDED, LOCAL_ONLY, CACHED_ONLY, REMOTE_ONLY", i, a.Name),
+			}
+		}
+		if a.AuthType != nil && *a.AuthType != "" {
+			at := *a.AuthType
+			if at != cdbm.OperatingSystemAuthTypeBasic && at != cdbm.OperatingSystemAuthTypeBearer {
+				return validation.Errors{
+					"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be Basic or Bearer", i, a.Name),
+				}
+			}
+			if a.AuthToken == nil || *a.AuthToken == "" {
+				return validation.Errors{
+					"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authToken is required when authType is specified", i, a.Name),
+				}
+			}
+		}
+		if a.AuthToken != nil && *a.AuthToken != "" && (a.AuthType == nil || *a.AuthType == "") {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be specified when authToken is provided", i, a.Name),
+			}
+		}
+	}
+	return nil
 }
 
 // APIOperatingSystemSummary is the data structure to capture API summary of an OperatingSystem

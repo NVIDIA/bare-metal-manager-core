@@ -167,6 +167,22 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create DpuExtensionServiceDeployment table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.DpuExtensionServiceDeployment)(nil))
 	assert.Nil(t, err)
+	// create IpxeTemplate table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplate)(nil))
+	assert.Nil(t, err)
+	// add UNIQUE(name) on ipxe_template (applied by migration in production)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template DROP CONSTRAINT IF EXISTS ipxe_template_name_key")
+	assert.Nil(t, err)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template ADD CONSTRAINT ipxe_template_name_key UNIQUE (name)")
+	assert.Nil(t, err)
+	// create IpxeTemplateSiteAssociation table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplateSiteAssociation)(nil))
+	assert.Nil(t, err)
+	// add UNIQUE(ipxe_template_id, site_id) on ITSA (applied by migration in production)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template_site_association DROP CONSTRAINT IF EXISTS ipxe_template_site_association_template_id_site_id_key")
+	assert.Nil(t, err)
+	_, err = dbSession.DB.Exec("ALTER TABLE ipxe_template_site_association ADD CONSTRAINT ipxe_template_site_association_template_id_site_id_key UNIQUE (ipxe_template_id, site_id)")
+	assert.Nil(t, err)
 
 	// setup ipam table
 	ipamStorage := cipam.NewBunStorage(dbSession.DB, nil)
