@@ -198,10 +198,11 @@ async fn test_machine_creator_compute_rms_request_uses_rack_profile(
     db::expected_rack::create(txn.as_mut(), &expected_rack).await?;
     txn.commit().await?;
 
-    let managed_host = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: Some(rack_id.clone()),
-        ..Default::default()
-    });
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
     let mut fixture = explored_host_fixture(&env, &managed_host).await;
 
     assert!(
@@ -255,10 +256,11 @@ async fn test_machine_creator_compute_rms_request_errors_for_rack_without_profil
     db::rack::create(txn.as_mut(), &rack_id, None, &RackConfig::default(), None).await?;
     txn.commit().await?;
 
-    let managed_host = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: Some(rack_id.clone()),
-        ..Default::default()
-    });
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
     let mut fixture = explored_host_fixture(&env, &managed_host).await;
 
     let result = creator
@@ -306,10 +308,11 @@ async fn test_machine_creator_compute_rms_request_errors_for_unknown_profile(
     .await?;
     txn.commit().await?;
 
-    let managed_host = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: Some(rack_id.clone()),
-        ..Default::default()
-    });
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
     let mut fixture = explored_host_fixture(&env, &managed_host).await;
 
     let result = creator

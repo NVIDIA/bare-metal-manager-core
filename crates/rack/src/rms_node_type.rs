@@ -214,8 +214,9 @@ fn normalize(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use model::rack_type::RackHardwareTopology;
+
+    use super::*;
 
     fn profile_with_product_family(product_family: RackProductFamily) -> RackProfile {
         RackProfile {
