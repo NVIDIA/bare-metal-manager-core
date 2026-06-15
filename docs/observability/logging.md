@@ -590,6 +590,10 @@ service:
 
 For extremely high-volume logs where you only need a statistical sample:
 
+Log support in the OpenTelemetry `probabilistic_sampler` processor is alpha. Verify that
+your collector distribution supports log pipelines for this processor before relying on it
+in production.
+
 ```yaml
 processors:
   probabilistic_sampler:
