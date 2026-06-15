@@ -593,7 +593,7 @@ impl<'a> JsonResponseParser<'a> {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, scenarios, value_scenarios};
     use serde_json::json;
 
     use super::*;
@@ -659,50 +659,39 @@ mod coverage_tests {
             options: &ExecOptions::default(),
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "TRUE(1) strips the parenthetical",
-                    input: json!("TRUE(1)"),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "FALSE(0) strips the parenthetical",
-                    input: json!("FALSE(0)"),
-                    expect: Yields(false),
-                },
-                Case {
-                    scenario: "bare true",
-                    input: json!("true"),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "bare false",
-                    input: json!("false"),
-                    expect: Yields(false),
-                },
-                Case {
-                    scenario: "mixed case True",
-                    input: json!("True"),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "unrecognized string is rejected",
-                    input: json!("maybe"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a number is not a boolean string",
-                    input: json!(1),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a JSON bool is still rejected (must be a string)",
-                    input: json!(true),
-                    expect: Fails,
-                },
-            ],
-            |value| parser.parse_bool_from_json(&value).map_err(drop),
+        scenarios!(
+            run = |value| parser.parse_bool_from_json(&value).map_err(drop);
+            "TRUE(1) strips the parenthetical" {
+                json!("TRUE(1)") => Yields(true),
+            }
+
+            "FALSE(0) strips the parenthetical" {
+                json!("FALSE(0)") => Yields(false),
+            }
+
+            "bare true" {
+                json!("true") => Yields(true),
+            }
+
+            "bare false" {
+                json!("false") => Yields(false),
+            }
+
+            "mixed case True" {
+                json!("True") => Yields(true),
+            }
+
+            "unrecognized string is rejected" {
+                json!("maybe") => Fails,
+            }
+
+            "a number is not a boolean string" {
+                json!(1) => Fails,
+            }
+
+            "a JSON bool is still rejected (must be a string)" {
+                json!(true) => Fails,
+            }
         );
     }
 
@@ -715,35 +704,27 @@ mod coverage_tests {
             options: &ExecOptions::default(),
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "positive integer",
-                    input: json!(42),
-                    expect: Yields(42),
-                },
-                Case {
-                    scenario: "negative integer",
-                    input: json!(-7),
-                    expect: Yields(-7),
-                },
-                Case {
-                    scenario: "zero",
-                    input: json!(0),
-                    expect: Yields(0),
-                },
-                Case {
-                    scenario: "a float has no i64 representation",
-                    input: json!(1.5),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a numeric string is not a JSON number",
-                    input: json!("42"),
-                    expect: Fails,
-                },
-            ],
-            |value| parser.parse_int_from_json(&value).map_err(drop),
+        scenarios!(
+            run = |value| parser.parse_int_from_json(&value).map_err(drop);
+            "positive integer" {
+                json!(42) => Yields(42),
+            }
+
+            "negative integer" {
+                json!(-7) => Yields(-7),
+            }
+
+            "zero" {
+                json!(0) => Yields(0),
+            }
+
+            "a float has no i64 representation" {
+                json!(1.5) => Fails,
+            }
+
+            "a numeric string is not a JSON number" {
+                json!("42") => Fails,
+            }
         );
     }
 
@@ -757,35 +738,27 @@ mod coverage_tests {
             options: &ExecOptions::default(),
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "parenthetical is stripped",
-                    input: json!("ENUM_VALUE(1)"),
-                    expect: Yields("ENUM_VALUE".to_string()),
-                },
-                Case {
-                    scenario: "plain string is unchanged",
-                    input: json!("plain"),
-                    expect: Yields("plain".to_string()),
-                },
-                Case {
-                    scenario: "only the first '(' splits",
-                    input: json!("a(b(c"),
-                    expect: Yields("a".to_string()),
-                },
-                Case {
-                    scenario: "surrounding whitespace is NOT trimmed here",
-                    input: json!("  spaced  "),
-                    expect: Yields("  spaced  ".to_string()),
-                },
-                Case {
-                    scenario: "a number is rejected",
-                    input: json!(5),
-                    expect: Fails,
-                },
-            ],
-            |value| parser.parse_string_from_json(&value).map_err(drop),
+        scenarios!(
+            run = |value| parser.parse_string_from_json(&value).map_err(drop);
+            "parenthetical is stripped" {
+                json!("ENUM_VALUE(1)") => Yields("ENUM_VALUE".to_string()),
+            }
+
+            "plain string is unchanged" {
+                json!("plain") => Yields("plain".to_string()),
+            }
+
+            "only the first '(' splits" {
+                json!("a(b(c") => Yields("a".to_string()),
+            }
+
+            "surrounding whitespace is NOT trimmed here" {
+                json!("  spaced  ") => Yields("  spaced  ".to_string()),
+            }
+
+            "a number is rejected" {
+                json!(5) => Fails,
+            }
         );
     }
 
@@ -798,45 +771,35 @@ mod coverage_tests {
             options: &ExecOptions::default(),
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "0x prefix",
-                    input: json!("0x1a2b3c"),
-                    expect: Yields(vec![0x1a, 0x2b, 0x3c]),
-                },
-                Case {
-                    scenario: "0X prefix",
-                    input: json!("0X1A2B"),
-                    expect: Yields(vec![0x1a, 0x2b]),
-                },
-                Case {
-                    scenario: "bare hex",
-                    input: json!("1a2b"),
-                    expect: Yields(vec![0x1a, 0x2b]),
-                },
-                Case {
-                    scenario: "empty string decodes to empty bytes",
-                    input: json!(""),
-                    expect: Yields(vec![]),
-                },
-                Case {
-                    scenario: "non-hex characters are rejected",
-                    input: json!("not_hex"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "odd length is rejected",
-                    input: json!("1a2"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a number is rejected",
-                    input: json!(123),
-                    expect: Fails,
-                },
-            ],
-            |value| parser.parse_hex_from_json(&value).map_err(drop),
+        scenarios!(
+            run = |value| parser.parse_hex_from_json(&value).map_err(drop);
+            "0x prefix" {
+                json!("0x1a2b3c") => Yields(vec![0x1a, 0x2b, 0x3c]),
+            }
+
+            "0X prefix" {
+                json!("0X1A2B") => Yields(vec![0x1a, 0x2b]),
+            }
+
+            "bare hex" {
+                json!("1a2b") => Yields(vec![0x1a, 0x2b]),
+            }
+
+            "empty string decodes to empty bytes" {
+                json!("") => Yields(vec![]),
+            }
+
+            "non-hex characters are rejected" {
+                json!("not_hex") => Fails,
+            }
+
+            "odd length is rejected" {
+                json!("1a2") => Fails,
+            }
+
+            "a number is rejected" {
+                json!(123) => Fails,
+            }
         );
     }
 
@@ -851,30 +814,24 @@ mod coverage_tests {
         };
         let jv = json_var_full(json!("cur"), json!("def"), json!("nxt"), false, false);
 
-        check_cases(
-            [
-                Case {
-                    scenario: "Current",
-                    input: JsonValueField::Current,
-                    expect: Yields(json!("cur")),
-                },
-                Case {
-                    scenario: "Default",
-                    input: JsonValueField::Default,
-                    expect: Yields(json!("def")),
-                },
-                Case {
-                    scenario: "Next",
-                    input: JsonValueField::Next,
-                    expect: Yields(json!("nxt")),
-                },
-            ],
-            |field| {
+        scenarios!(
+            run = |field| {
                 parser
                     .get_json_field_value(&jv, field)
                     .cloned()
                     .map_err(drop)
-            },
+            };
+            "Current" {
+                JsonValueField::Current => Yields(json!("cur")),
+            }
+
+            "Default" {
+                JsonValueField::Default => Yields(json!("def")),
+            }
+
+            "Next" {
+                JsonValueField::Next => Yields(json!("nxt")),
+            }
         );
     }
 
@@ -887,43 +844,34 @@ mod coverage_tests {
             options: &ExecOptions::default(),
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "boolean array",
-                    input: MlxVariableSpec::BooleanArray { size: 4 },
-                    expect: Yields(4),
-                },
-                Case {
-                    scenario: "integer array",
-                    input: MlxVariableSpec::IntegerArray { size: 2 },
-                    expect: Yields(2),
-                },
-                Case {
-                    scenario: "binary array",
-                    input: MlxVariableSpec::BinaryArray { size: 7 },
-                    expect: Yields(7),
-                },
-                Case {
-                    scenario: "enum array",
-                    input: MlxVariableSpec::EnumArray {
-                        options: vec!["a".to_string()],
-                        size: 3,
-                    },
-                    expect: Yields(3),
-                },
-                Case {
-                    scenario: "scalar boolean has no size",
-                    input: MlxVariableSpec::Boolean,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "untyped array has no size",
-                    input: MlxVariableSpec::Array,
-                    expect: Fails,
-                },
-            ],
-            |spec| parser.get_array_size(&spec).map_err(drop),
+        scenarios!(
+            run = |spec| parser.get_array_size(&spec).map_err(drop);
+            "boolean array" {
+                MlxVariableSpec::BooleanArray { size: 4 } => Yields(4),
+            }
+
+            "integer array" {
+                MlxVariableSpec::IntegerArray { size: 2 } => Yields(2),
+            }
+
+            "binary array" {
+                MlxVariableSpec::BinaryArray { size: 7 } => Yields(7),
+            }
+
+            "enum array" {
+                MlxVariableSpec::EnumArray {
+                    options: vec!["a".to_string()],
+                    size: 3,
+                } => Yields(3),
+            }
+
+            "scalar boolean has no size" {
+                MlxVariableSpec::Boolean => Fails,
+            }
+
+            "untyped array has no size" {
+                MlxVariableSpec::Array => Fails,
+            }
         );
     }
 
@@ -947,40 +895,32 @@ mod coverage_tests {
         );
 
         // String spec: parse_string keeps the raw text, then `with` trims it.
-        check_cases(
-            [
-                Case {
-                    scenario: "plain string stored (trimmed by `with`)",
-                    input: json!("  hi  "),
-                    expect: Yields(MlxValueType::String("hi".to_string())),
-                },
-                Case {
-                    scenario: "parenthetical stripped before `with`",
-                    input: json!("FOO(2)"),
-                    expect: Yields(MlxValueType::String("FOO".to_string())),
-                },
-                Case {
-                    scenario: "a JSON bool is neither string nor number",
-                    input: json!(true),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "JSON null is rejected",
-                    input: json!(null),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a JSON array is rejected",
-                    input: json!(["a", "b"]),
-                    expect: Fails,
-                },
-            ],
-            |value| {
+        scenarios!(
+            run = |value| {
                 parser
                     .json_value_to_config_value(&str_var, &value)
                     .map(|v| v.value)
                     .map_err(drop)
-            },
+            };
+            "plain string stored (trimmed by `with`)" {
+                json!("  hi  ") => Yields(MlxValueType::String("hi".to_string())),
+            }
+
+            "parenthetical stripped before `with`" {
+                json!("FOO(2)") => Yields(MlxValueType::String("FOO".to_string())),
+            }
+
+            "a JSON bool is neither string nor number" {
+                json!(true) => Fails,
+            }
+
+            "JSON null is rejected" {
+                json!(null) => Fails,
+            }
+
+            "a JSON array is rejected" {
+                json!(["a", "b"]) => Fails,
+            }
         );
 
         // Number spec: routes through parse_int + with(i64).
@@ -1273,13 +1213,11 @@ mod coverage_tests {
         let mut json_vars = HashMap::new();
         json_vars.insert("FOO".to_string(), json_var(json!(7)));
 
-        check_values(
-            [Check {
-                scenario: "no registered variables -> empty result",
-                input: json_vars,
-                expect: 0usize,
-            }],
-            |jv| parser.parse_variables(&jv).expect("parses").len(),
+        value_scenarios!(
+            run = |jv| parser.parse_variables(&jv).expect("parses").len();
+            "no registered variables -> empty result" {
+                json_vars => 0usize,
+            }
         );
     }
 

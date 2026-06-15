@@ -365,7 +365,7 @@ impl NewNetworkSegment {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -384,307 +384,237 @@ mod tests {
 
     #[test]
     fn controller_state_serializes_to_tagged_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "provisioning",
-                    input: NetworkSegmentControllerState::Provisioning,
-                    expect: Yields(r#"{"state":"provisioning"}"#.to_string()),
-                },
-                Case {
-                    scenario: "ready",
-                    input: NetworkSegmentControllerState::Ready,
-                    expect: Yields(r#"{"state":"ready"}"#.to_string()),
-                },
-                Case {
-                    scenario: "deleting / drain allocated ips",
-                    input: drain_state(),
-                    expect: Yields(
-                        r#"{"state":"deleting","deletion_state":{"state":"drainallocatedips","delete_at":"2022-12-13T04:41:38Z"}}"#
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "deleting / db delete",
-                    input: dbdelete_state(),
-                    expect: Yields(
-                        r#"{"state":"deleting","deletion_state":{"state":"dbdelete"}}"#.to_string(),
-                    ),
-                },
-            ],
-            |state| serde_json::to_string(&state).map_err(drop),
+        scenarios!(
+            run = |state| serde_json::to_string(&state).map_err(drop);
+            "provisioning" {
+                NetworkSegmentControllerState::Provisioning => Yields(r#"{"state":"provisioning"}"#.to_string()),
+            }
+
+            "ready" {
+                NetworkSegmentControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
+            }
+
+            "deleting / drain allocated ips" {
+                drain_state() => Yields(
+                    r#"{"state":"deleting","deletion_state":{"state":"drainallocatedips","delete_at":"2022-12-13T04:41:38Z"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "deleting / db delete" {
+                dbdelete_state() => Yields(
+                    r#"{"state":"deleting","deletion_state":{"state":"dbdelete"}}"#.to_string(),
+                ),
+            }
         );
     }
 
     #[test]
     fn controller_state_round_trips_through_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "provisioning",
-                    input: NetworkSegmentControllerState::Provisioning,
-                    expect: Yields(NetworkSegmentControllerState::Provisioning),
-                },
-                Case {
-                    scenario: "ready",
-                    input: NetworkSegmentControllerState::Ready,
-                    expect: Yields(NetworkSegmentControllerState::Ready),
-                },
-                Case {
-                    scenario: "deleting / drain allocated ips",
-                    input: drain_state(),
-                    expect: Yields(drain_state()),
-                },
-                Case {
-                    scenario: "deleting / db delete",
-                    input: dbdelete_state(),
-                    expect: Yields(dbdelete_state()),
-                },
-            ],
-            |state| {
+        scenarios!(
+            run = |state| {
                 let json = serde_json::to_string(&state).map_err(drop)?;
                 serde_json::from_str::<NetworkSegmentControllerState>(&json).map_err(drop)
-            },
+            };
+            "provisioning" {
+                NetworkSegmentControllerState::Provisioning => Yields(NetworkSegmentControllerState::Provisioning),
+            }
+
+            "ready" {
+                NetworkSegmentControllerState::Ready => Yields(NetworkSegmentControllerState::Ready),
+            }
+
+            "deleting / drain allocated ips" {
+                drain_state() => Yields(drain_state()),
+            }
+
+            "deleting / db delete" {
+                dbdelete_state() => Yields(dbdelete_state()),
+            }
         );
     }
 
     #[test]
     fn segment_type_parses_from_db_string() {
-        check_cases(
-            [
-                Case {
-                    scenario: "tenant",
-                    input: "tenant",
-                    expect: Yields(NetworkSegmentType::Tenant),
-                },
-                Case {
-                    scenario: "admin",
-                    input: "admin",
-                    expect: Yields(NetworkSegmentType::Admin),
-                },
-                Case {
-                    scenario: "tor maps to underlay",
-                    input: "tor",
-                    expect: Yields(NetworkSegmentType::Underlay),
-                },
-                Case {
-                    scenario: "host_inband",
-                    input: "host_inband",
-                    expect: Yields(NetworkSegmentType::HostInband),
-                },
-                Case {
-                    scenario: "unknown token",
-                    input: "bogus",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "wrong-case admin",
-                    input: "Admin",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "display name underlay, not parse name",
-                    input: "underlay",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "whitespace padded",
-                    input: " tenant ",
-                    expect: Fails,
-                },
-            ],
-            |s| NetworkSegmentType::from_str(s).map_err(drop),
+        scenarios!(
+            run = |s| NetworkSegmentType::from_str(s).map_err(drop);
+            "tenant" {
+                "tenant" => Yields(NetworkSegmentType::Tenant),
+            }
+
+            "admin" {
+                "admin" => Yields(NetworkSegmentType::Admin),
+            }
+
+            "tor maps to underlay" {
+                "tor" => Yields(NetworkSegmentType::Underlay),
+            }
+
+            "host_inband" {
+                "host_inband" => Yields(NetworkSegmentType::HostInband),
+            }
+
+            "unknown token" {
+                "bogus" => Fails,
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "wrong-case admin" {
+                "Admin" => Fails,
+            }
+
+            "display name underlay, not parse name" {
+                "underlay" => Fails,
+            }
+
+            "whitespace padded" {
+                " tenant " => Fails,
+            }
         );
     }
 
     #[test]
     fn segment_type_parse_error_names_the_input() {
-        check_cases(
-            [
-                Case {
-                    scenario: "error mentions the offending token",
-                    input: ("bogus", &["Invalid segment type", "bogus"][..]),
-                    expect: Yields(true),
-                },
-                Case {
-                    scenario: "error mentions an empty token",
-                    input: ("", &["Invalid segment type"][..]),
-                    expect: Yields(true),
-                },
-            ],
-            |(s, tokens)| {
+        scenarios!(
+            run = |(s, tokens)| {
                 let msg = NetworkSegmentType::from_str(s)
                     .map(|_| String::new())
                     .unwrap_or_else(|e| e.to_string());
                 Ok::<_, ()>(tokens.iter().all(|t| msg.contains(t)))
-            },
+            };
+            "error mentions the offending token" {
+                ("bogus", &["Invalid segment type", "bogus"][..]) => Yields(true),
+            }
+
+            "error mentions an empty token" {
+                ("", &["Invalid segment type"][..]) => Yields(true),
+            }
         );
     }
 
     #[test]
     fn segment_type_round_trips_through_display_and_parse() {
-        check_cases(
-            [
-                Case {
-                    scenario: "tenant",
-                    input: NetworkSegmentType::Tenant,
-                    expect: Yields(NetworkSegmentType::Tenant),
-                },
-                Case {
-                    scenario: "admin",
-                    input: NetworkSegmentType::Admin,
-                    expect: Yields(NetworkSegmentType::Admin),
-                },
-                Case {
-                    scenario: "underlay",
-                    input: NetworkSegmentType::Underlay,
-                    expect: Yields(NetworkSegmentType::Underlay),
-                },
-                Case {
-                    scenario: "host_inband",
-                    input: NetworkSegmentType::HostInband,
-                    expect: Yields(NetworkSegmentType::HostInband),
-                },
-            ],
-            |ty| NetworkSegmentType::from_str(&ty.to_string()).map_err(drop),
+        scenarios!(
+            run = |ty| NetworkSegmentType::from_str(&ty.to_string()).map_err(drop);
+            "tenant" {
+                NetworkSegmentType::Tenant => Yields(NetworkSegmentType::Tenant),
+            }
+
+            "admin" {
+                NetworkSegmentType::Admin => Yields(NetworkSegmentType::Admin),
+            }
+
+            "underlay" {
+                NetworkSegmentType::Underlay => Yields(NetworkSegmentType::Underlay),
+            }
+
+            "host_inband" {
+                NetworkSegmentType::HostInband => Yields(NetworkSegmentType::HostInband),
+            }
         );
     }
 
     #[test]
     fn segment_type_displays_its_db_token() {
-        check_values(
-            [
-                Check {
-                    scenario: "tenant",
-                    input: NetworkSegmentType::Tenant,
-                    expect: "tenant".to_string(),
-                },
-                Check {
-                    scenario: "admin",
-                    input: NetworkSegmentType::Admin,
-                    expect: "admin".to_string(),
-                },
-                Check {
-                    scenario: "underlay renders as tor",
-                    input: NetworkSegmentType::Underlay,
-                    expect: "tor".to_string(),
-                },
-                Check {
-                    scenario: "host_inband",
-                    input: NetworkSegmentType::HostInband,
-                    expect: "host_inband".to_string(),
-                },
-            ],
-            |ty| ty.to_string(),
+        value_scenarios!(
+            run = |ty| ty.to_string();
+            "tenant" {
+                NetworkSegmentType::Tenant => "tenant".to_string(),
+            }
+
+            "admin" {
+                NetworkSegmentType::Admin => "admin".to_string(),
+            }
+
+            "underlay renders as tor" {
+                NetworkSegmentType::Underlay => "tor".to_string(),
+            }
+
+            "host_inband" {
+                NetworkSegmentType::HostInband => "host_inband".to_string(),
+            }
         );
     }
 
     #[test]
     fn is_tenant_is_true_for_tenant_facing_segments() {
-        check_values(
-            [
-                Check {
-                    scenario: "tenant is tenant-facing",
-                    input: NetworkSegmentType::Tenant,
-                    expect: true,
-                },
-                Check {
-                    scenario: "host_inband is tenant-facing",
-                    input: NetworkSegmentType::HostInband,
-                    expect: true,
-                },
-                Check {
-                    scenario: "admin is not tenant-facing",
-                    input: NetworkSegmentType::Admin,
-                    expect: false,
-                },
-                Check {
-                    scenario: "underlay is not tenant-facing",
-                    input: NetworkSegmentType::Underlay,
-                    expect: false,
-                },
-            ],
-            |ty| ty.is_tenant(),
+        value_scenarios!(
+            run = |ty| ty.is_tenant();
+            "tenant is tenant-facing" {
+                NetworkSegmentType::Tenant => true,
+            }
+
+            "host_inband is tenant-facing" {
+                NetworkSegmentType::HostInband => true,
+            }
+
+            "admin is not tenant-facing" {
+                NetworkSegmentType::Admin => false,
+            }
+
+            "underlay is not tenant-facing" {
+                NetworkSegmentType::Underlay => false,
+            }
         );
     }
 
     #[test]
     fn segment_type_converts_from_definition_type() {
-        check_values(
-            [
-                Check {
-                    scenario: "admin",
-                    input: NetworkDefinitionSegmentType::Admin,
-                    expect: NetworkSegmentType::Admin,
-                },
-                Check {
-                    scenario: "underlay",
-                    input: NetworkDefinitionSegmentType::Underlay,
-                    expect: NetworkSegmentType::Underlay,
-                },
-                Check {
-                    scenario: "host_inband",
-                    input: NetworkDefinitionSegmentType::HostInband,
-                    expect: NetworkSegmentType::HostInband,
-                },
-            ],
-            NetworkSegmentType::from,
+        value_scenarios!(
+            run = NetworkSegmentType::from;
+            "admin" {
+                NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
+            }
+
+            "underlay" {
+                NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
+            }
+
+            "host_inband" {
+                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
+            }
         );
     }
 
     #[test]
     fn allocation_strategy_round_trips_through_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "dynamic serializes to its snake-case token",
-                    input: AllocationStrategy::Dynamic,
-                    expect: Yields(r#""dynamic""#.to_string()),
-                },
-                Case {
-                    scenario: "reserved serializes to its snake-case token",
-                    input: AllocationStrategy::Reserved,
-                    expect: Yields(r#""reserved""#.to_string()),
-                },
-            ],
-            |s| serde_json::to_string(&s).map_err(drop),
+        scenarios!(
+            run = |s| serde_json::to_string(&s).map_err(drop);
+            "dynamic serializes to its snake-case token" {
+                AllocationStrategy::Dynamic => Yields(r#""dynamic""#.to_string()),
+            }
+
+            "reserved serializes to its snake-case token" {
+                AllocationStrategy::Reserved => Yields(r#""reserved""#.to_string()),
+            }
         );
     }
 
     #[test]
     fn allocation_strategy_defaults_to_dynamic() {
-        check_values(
-            [Check {
-                scenario: "default",
-                input: (),
-                expect: AllocationStrategy::Dynamic,
-            }],
-            |()| AllocationStrategy::default(),
+        value_scenarios!(
+            run = |()| AllocationStrategy::default();
+            "default" {
+                () => AllocationStrategy::Dynamic,
+            }
         );
     }
 
     #[test]
     fn is_marked_as_deleted_follows_the_deleted_timestamp() {
         let stamp: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
-        check_values(
-            [
-                Check {
-                    scenario: "no timestamp means live",
-                    input: None,
-                    expect: false,
-                },
-                Check {
-                    scenario: "timestamp means deleted",
-                    input: Some(stamp),
-                    expect: true,
-                },
-            ],
-            |deleted| deleted.is_some(),
+        value_scenarios!(
+            run = |deleted| deleted.is_some();
+            "no timestamp means live" {
+                None => false,
+            }
+
+            "timestamp means deleted" {
+                Some(stamp) => true,
+            }
         );
     }
 }

@@ -147,7 +147,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -250,145 +250,135 @@ mod tests {
 
     #[test]
     fn parses_config_shapes() {
-        check_values(
-            [
-                Check {
-                    scenario: "minimal config uses defaults",
-                    input: ConfigCase::Minimal,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: None,
-                    },
+        value_scenarios!(
+            run = summarize_config;
+            "minimal config uses defaults" {
+                ConfigCase::Minimal => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: None,
                 },
-                Check {
-                    scenario: "explicit listeners",
-                    input: ConfigCase::ExplicitListeners,
-                    expect: ConfigSummary {
-                        listen: "127.0.0.1:2079".to_string(),
-                        metrics_endpoint: "127.0.0.1:2080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: None,
-                    },
+            }
+
+            "explicit listeners" {
+                ConfigCase::ExplicitListeners => ConfigSummary {
+                    listen: "127.0.0.1:2079".to_string(),
+                    metrics_endpoint: "127.0.0.1:2080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: None,
                 },
-                Check {
-                    scenario: "allowed principals",
-                    input: ConfigCase::AllowedPrincipals,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![
-                            "spiffe-service-id/carbide-api".to_string(),
-                            "trusted-certificate".to_string(),
-                        ],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: None,
-                    },
+            }
+
+            "allowed principals" {
+                ConfigCase::AllowedPrincipals => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![
+                        "spiffe-service-id/carbide-api".to_string(),
+                        "trusted-certificate".to_string(),
+                    ],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: None,
                 },
-                Check {
-                    scenario: "proxy host only",
-                    input: ConfigCase::ProxyHostOnly,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: Some("proxy.local".to_string()),
-                    },
+            }
+
+            "proxy host only" {
+                ConfigCase::ProxyHostOnly => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: Some("proxy.local".to_string()),
                 },
-                Check {
-                    scenario: "proxy port only",
-                    input: ConfigCase::ProxyPortOnly,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: Some("8443".to_string()),
-                    },
+            }
+
+            "proxy port only" {
+                ConfigCase::ProxyPortOnly => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: Some("8443".to_string()),
                 },
-                Check {
-                    scenario: "proxy host and port",
-                    input: ConfigCase::ProxyHostAndPort,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
-                            .to_string(),
-                        bmc_proxy: Some("proxy.local:8443".to_string()),
-                    },
+            }
+
+            "proxy host and port" {
+                ConfigCase::ProxyHostAndPort => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079/"
+                        .to_string(),
+                    bmc_proxy: Some("proxy.local:8443".to_string()),
                 },
-                Check {
-                    scenario: "explicit Carbide API",
-                    input: ConfigCase::ExplicitCarbideApi,
-                    expect: ConfigSummary {
-                        listen: "[::]:1079".to_string(),
-                        metrics_endpoint: "[::]:1080".to_string(),
-                        allowed_principals: vec![],
-                        identity_pemfile_path: "/tls/cert.pem".to_string(),
-                        root_cafile_path: "/tls/ca.pem".to_string(),
-                        trust_domain: "forge.local".to_string(),
-                        service_base_paths: vec![
-                            "/forge-system/sa/".to_string(),
-                            "/default/sa/".to_string(),
-                        ],
-                        carbide_api_url: "https://api.example.com:1079/".to_string(),
-                        bmc_proxy: None,
-                    },
+            }
+
+            "explicit Carbide API" {
+                ConfigCase::ExplicitCarbideApi => ConfigSummary {
+                    listen: "[::]:1079".to_string(),
+                    metrics_endpoint: "[::]:1080".to_string(),
+                    allowed_principals: vec![],
+                    identity_pemfile_path: "/tls/cert.pem".to_string(),
+                    root_cafile_path: "/tls/ca.pem".to_string(),
+                    trust_domain: "forge.local".to_string(),
+                    service_base_paths: vec![
+                        "/forge-system/sa/".to_string(),
+                        "/default/sa/".to_string(),
+                    ],
+                    carbide_api_url: "https://api.example.com:1079/".to_string(),
+                    bmc_proxy: None,
                 },
-            ],
-            summarize_config,
+            }
         );
     }
 }

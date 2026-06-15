@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,27 +50,22 @@ fn verify_cmd_structure() {
 // is None when omitted and carries the given value when supplied.
 #[test]
 fn parse_show_identifier() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments (all switches)",
-                input: &["managed-switch", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "show with an identifier",
-                input: &["managed-switch", "show", "switch-123"][..],
-                expect: Yields(Some("switch-123".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.identifier,
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments (all switches)" {
+            &["managed-switch", "show"][..] => Yields(None),
+        }
+
+        "show with an identifier" {
+            &["managed-switch", "show", "switch-123"][..] => Yields(Some("switch-123".to_string())),
+        }
     );
 }
 

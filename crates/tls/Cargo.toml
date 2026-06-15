@@ -32,5 +32,8 @@ serde_json = { workspace = true }
 tonic = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

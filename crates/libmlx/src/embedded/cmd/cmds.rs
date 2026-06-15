@@ -1174,7 +1174,7 @@ fn build_credentials(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -1185,46 +1185,37 @@ mod tests {
         fn run(args: &[&str]) -> Result<Vec<(String, String)>, String> {
             parse_assignments(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
         }
-        check_cases(
-            [
-                Case {
-                    scenario: "single assignment",
-                    input: &["SRIOV_EN=1"][..],
-                    expect: Yields(vec![("SRIOV_EN".to_string(), "1".to_string())]),
-                },
-                Case {
-                    scenario: "value with '=' splits on the first only",
-                    input: &["KEY=a=b"][..],
-                    expect: Yields(vec![("KEY".to_string(), "a=b".to_string())]),
-                },
-                Case {
-                    scenario: "whitespace trimmed and blank entries skipped",
-                    input: &["  X=1  ", "", "   ", "Y=2"][..],
-                    expect: Yields(vec![
-                        ("X".to_string(), "1".to_string()),
-                        ("Y".to_string(), "2".to_string()),
-                    ]),
-                },
-                Case {
-                    scenario: "missing '=' is rejected",
-                    input: &["NOEQUALS"][..],
-                    expect: FailsWith(
-                        "Invalid assignment format: 'NOEQUALS'. Expected 'variable=value'"
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "empty variable name is rejected",
-                    input: &["=value"][..],
-                    expect: FailsWith("Variable name cannot be empty".to_string()),
-                },
-                Case {
-                    scenario: "all-blank input yields no assignments",
-                    input: &["", "   "][..],
-                    expect: FailsWith("No valid assignments found".to_string()),
-                },
-            ],
-            run,
+        scenarios!(
+            run = run;
+            "single assignment" {
+                &["SRIOV_EN=1"][..] => Yields(vec![("SRIOV_EN".to_string(), "1".to_string())]),
+            }
+
+            "value with '=' splits on the first only" {
+                &["KEY=a=b"][..] => Yields(vec![("KEY".to_string(), "a=b".to_string())]),
+            }
+
+            "whitespace trimmed and blank entries skipped" {
+                &["  X=1  ", "", "   ", "Y=2"][..] => Yields(vec![
+                    ("X".to_string(), "1".to_string()),
+                    ("Y".to_string(), "2".to_string()),
+                ]),
+            }
+
+            "missing '=' is rejected" {
+                &["NOEQUALS"][..] => FailsWith(
+                    "Invalid assignment format: 'NOEQUALS'. Expected 'variable=value'"
+                        .to_string(),
+                ),
+            }
+
+            "empty variable name is rejected" {
+                &["=value"][..] => FailsWith("Variable name cannot be empty".to_string()),
+            }
+
+            "all-blank input yields no assignments" {
+                &["", "   "][..] => FailsWith("No valid assignments found".to_string()),
+            }
         );
     }
 
@@ -1232,26 +1223,21 @@ mod tests {
     // show-confs text, skipping the header and section lines.
     #[test]
     fn parse_mlx_show_confs_extracts_variable_names() {
-        check_values(
-            [
-                Check {
-                    scenario: "two variables under a section",
-                    input: "List of configurations:\n   POWER SETTINGS:\n       SRIOV_EN=<BOOLEAN> Enable SR-IOV\n       NUM_OF_VFS=<INTEGER> Number of virtual functions\n",
-                    expect: vec!["SRIOV_EN".to_string(), "NUM_OF_VFS".to_string()],
-                },
-                Check {
-                    scenario: "header only yields no variables",
-                    input: "List of configurations:\n",
-                    expect: Vec::<String>::new(),
-                },
-            ],
-            |content| {
+        value_scenarios!(
+            run = |content| {
                 parse_mlx_show_confs(content)
                     .variable_names()
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>()
-            },
+            };
+            "two variables under a section" {
+                "List of configurations:\n   POWER SETTINGS:\n       SRIOV_EN=<BOOLEAN> Enable SR-IOV\n       NUM_OF_VFS=<INTEGER> Number of virtual functions\n" => vec!["SRIOV_EN".to_string(), "NUM_OF_VFS".to_string()],
+            }
+
+            "header only yields no variables" {
+                "List of configurations:\n" => Vec::<String>::new(),
+            }
         );
     }
 }

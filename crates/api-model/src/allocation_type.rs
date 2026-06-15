@@ -91,7 +91,7 @@ mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
     use crate::address_selection_strategy::AddressSelectionStrategy;
@@ -103,79 +103,63 @@ mod tests {
     // confirm the discriminant alone — not the payload — drives the result.
     #[test]
     fn strategy_maps_to_allocation_type() {
-        check_values(
-            [
-                Check {
-                    scenario: "next available ip -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailableIp,
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "automatic alias -> dhcp",
-                    input: AddressSelectionStrategy::Automatic,
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "next available prefix /30 -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailablePrefix(30),
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "next available prefix /0 (boundary low) -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailablePrefix(0),
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "next available prefix /32 -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailablePrefix(32),
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "next available prefix /128 -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailablePrefix(128),
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "next available prefix /255 (boundary high) -> dhcp",
-                    input: AddressSelectionStrategy::NextAvailablePrefix(u8::MAX),
-                    expect: AllocationType::Dhcp,
-                },
-                Check {
-                    scenario: "static ipv4 -> static",
-                    input: AddressSelectionStrategy::StaticAddress(
-                        Ipv4Addr::new(10, 0, 0, 1).into(),
-                    ),
-                    expect: AllocationType::Static,
-                },
-                Check {
-                    scenario: "static ipv4 unspecified (0.0.0.0) -> static",
-                    input: AddressSelectionStrategy::StaticAddress(Ipv4Addr::UNSPECIFIED.into()),
-                    expect: AllocationType::Static,
-                },
-                Check {
-                    scenario: "static ipv4 broadcast (255.255.255.255) -> static",
-                    input: AddressSelectionStrategy::StaticAddress(Ipv4Addr::BROADCAST.into()),
-                    expect: AllocationType::Static,
-                },
-                Check {
-                    scenario: "static ipv6 -> static",
-                    input: AddressSelectionStrategy::StaticAddress(
-                        Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1).into(),
-                    ),
-                    expect: AllocationType::Static,
-                },
-                Check {
-                    scenario: "static ipv6 unspecified (::) -> static",
-                    input: AddressSelectionStrategy::StaticAddress(Ipv6Addr::UNSPECIFIED.into()),
-                    expect: AllocationType::Static,
-                },
-                Check {
-                    scenario: "static ipv6 localhost (::1) -> static",
-                    input: AddressSelectionStrategy::StaticAddress(Ipv6Addr::LOCALHOST.into()),
-                    expect: AllocationType::Static,
-                },
-            ],
-            AllocationType::from,
+        value_scenarios!(
+            run = AllocationType::from;
+            "next available ip -> dhcp" {
+                AddressSelectionStrategy::NextAvailableIp => AllocationType::Dhcp,
+            }
+
+            "automatic alias -> dhcp" {
+                AddressSelectionStrategy::Automatic => AllocationType::Dhcp,
+            }
+
+            "next available prefix /30 -> dhcp" {
+                AddressSelectionStrategy::NextAvailablePrefix(30) => AllocationType::Dhcp,
+            }
+
+            "next available prefix /0 (boundary low) -> dhcp" {
+                AddressSelectionStrategy::NextAvailablePrefix(0) => AllocationType::Dhcp,
+            }
+
+            "next available prefix /32 -> dhcp" {
+                AddressSelectionStrategy::NextAvailablePrefix(32) => AllocationType::Dhcp,
+            }
+
+            "next available prefix /128 -> dhcp" {
+                AddressSelectionStrategy::NextAvailablePrefix(128) => AllocationType::Dhcp,
+            }
+
+            "next available prefix /255 (boundary high) -> dhcp" {
+                AddressSelectionStrategy::NextAvailablePrefix(u8::MAX) => AllocationType::Dhcp,
+            }
+
+            "static ipv4 -> static" {
+                AddressSelectionStrategy::StaticAddress(
+                    Ipv4Addr::new(10, 0, 0, 1).into(),
+                ) => AllocationType::Static,
+            }
+
+            "static ipv4 unspecified (0.0.0.0) -> static" {
+                AddressSelectionStrategy::StaticAddress(Ipv4Addr::UNSPECIFIED.into()) => AllocationType::Static,
+            }
+
+            "static ipv4 broadcast (255.255.255.255) -> static" {
+                AddressSelectionStrategy::StaticAddress(Ipv4Addr::BROADCAST.into()) => AllocationType::Static,
+            }
+
+            "static ipv6 -> static" {
+                AddressSelectionStrategy::StaticAddress(
+                    Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1).into(),
+                ) => AllocationType::Static,
+            }
+
+            "static ipv6 unspecified (::) -> static" {
+                AddressSelectionStrategy::StaticAddress(Ipv6Addr::UNSPECIFIED.into()) => AllocationType::Static,
+            }
+
+            "static ipv6 localhost (::1) -> static" {
+                AddressSelectionStrategy::StaticAddress(Ipv6Addr::LOCALHOST.into()) => AllocationType::Static,
+            }
         );
     }
 
@@ -183,20 +167,15 @@ mod tests {
     // form. Total operation, so the produced string is checked directly.
     #[test]
     fn serializes_to_snake_case() {
-        check_values(
-            [
-                Check {
-                    scenario: "dhcp",
-                    input: AllocationType::Dhcp,
-                    expect: r#""dhcp""#.to_string(),
-                },
-                Check {
-                    scenario: "static",
-                    input: AllocationType::Static,
-                    expect: r#""static""#.to_string(),
-                },
-            ],
-            |value| serde_json::to_string(&value).expect("serialization is infallible"),
+        value_scenarios!(
+            run = |value| serde_json::to_string(&value).expect("serialization is infallible");
+            "dhcp" {
+                AllocationType::Dhcp => r#""dhcp""#.to_string(),
+            }
+
+            "static" {
+                AllocationType::Static => r#""static""#.to_string(),
+            }
         );
     }
 
@@ -205,25 +184,20 @@ mod tests {
     // wire string plus the recovered value so each row pins down both directions.
     #[test]
     fn serde_roundtrip() {
-        check_cases(
-            [
-                Case {
-                    scenario: "dhcp",
-                    input: AllocationType::Dhcp,
-                    expect: Yields((r#""dhcp""#.to_string(), AllocationType::Dhcp)),
-                },
-                Case {
-                    scenario: "static",
-                    input: AllocationType::Static,
-                    expect: Yields((r#""static""#.to_string(), AllocationType::Static)),
-                },
-            ],
+        scenarios!(
             // serialize, then deserialize the wire form back into a value
-            |value| {
+            run = |value| {
                 let wire = serde_json::to_string(&value).map_err(drop)?;
                 let recovered: AllocationType = serde_json::from_str(&wire).map_err(drop)?;
                 Ok::<_, ()>((wire, recovered))
-            },
+            };
+            "dhcp" {
+                AllocationType::Dhcp => Yields((r#""dhcp""#.to_string(), AllocationType::Dhcp)),
+            }
+
+            "static" {
+                AllocationType::Static => Yields((r#""static""#.to_string(), AllocationType::Static)),
+            }
         );
     }
 
@@ -233,65 +207,51 @@ mod tests {
     // with `.map_err(drop)`.
     #[test]
     fn deserializes_known_forms_and_rejects_the_rest() {
-        check_cases(
-            [
-                Case {
-                    scenario: "dhcp",
-                    input: r#""dhcp""#,
-                    expect: Yields(AllocationType::Dhcp),
-                },
-                Case {
-                    scenario: "static",
-                    input: r#""static""#,
-                    expect: Yields(AllocationType::Static),
-                },
-                Case {
-                    scenario: "wrong case rejected",
-                    input: r#""Dhcp""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "uppercase rejected",
-                    input: r#""STATIC""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unknown variant rejected",
-                    input: r#""bootp""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty string rejected",
-                    input: r#""""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "leading whitespace in tag rejected",
-                    input: r#"" dhcp""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "number rejected",
-                    input: "0",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "null rejected",
-                    input: "null",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "object rejected",
-                    input: r#"{"dhcp":true}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "malformed json rejected",
-                    input: r#""dhcp"#,
-                    expect: Fails,
-                },
-            ],
-            |wire| serde_json::from_str::<AllocationType>(wire).map_err(drop),
+        scenarios!(
+            run = |wire| serde_json::from_str::<AllocationType>(wire).map_err(drop);
+            "dhcp" {
+                r#""dhcp""# => Yields(AllocationType::Dhcp),
+            }
+
+            "static" {
+                r#""static""# => Yields(AllocationType::Static),
+            }
+
+            "wrong case rejected" {
+                r#""Dhcp""# => Fails,
+            }
+
+            "uppercase rejected" {
+                r#""STATIC""# => Fails,
+            }
+
+            "unknown variant rejected" {
+                r#""bootp""# => Fails,
+            }
+
+            "empty string rejected" {
+                r#""""# => Fails,
+            }
+
+            "leading whitespace in tag rejected" {
+                r#"" dhcp""# => Fails,
+            }
+
+            "number rejected" {
+                "0" => Fails,
+            }
+
+            "null rejected" {
+                "null" => Fails,
+            }
+
+            "object rejected" {
+                r#"{"dhcp":true}"# => Fails,
+            }
+
+            "malformed json rejected" {
+                r#""dhcp"# => Fails,
+            }
         );
     }
 
@@ -300,76 +260,61 @@ mod tests {
     // equality across its full variant set is its coverage.
     #[test]
     fn variants_compare_by_identity() {
-        check_values(
-            [
-                Check {
-                    scenario: "dhcp == dhcp",
-                    input: (AllocationType::Dhcp, AllocationType::Dhcp),
-                    expect: true,
-                },
-                Check {
-                    scenario: "static == static",
-                    input: (AllocationType::Static, AllocationType::Static),
-                    expect: true,
-                },
-                Check {
-                    scenario: "dhcp != static",
-                    input: (AllocationType::Dhcp, AllocationType::Static),
-                    expect: false,
-                },
-            ],
-            |(left, right)| left == right,
+        value_scenarios!(
+            run = |(left, right)| left == right;
+            "dhcp == dhcp" {
+                (AllocationType::Dhcp, AllocationType::Dhcp) => true,
+            }
+
+            "static == static" {
+                (AllocationType::Static, AllocationType::Static) => true,
+            }
+
+            "dhcp != static" {
+                (AllocationType::Dhcp, AllocationType::Static) => false,
+            }
         );
 
-        check_values(
-            [
-                Check {
-                    scenario: "assigned == assigned",
-                    input: (AssignStaticResult::Assigned, AssignStaticResult::Assigned),
-                    expect: true,
-                },
-                Check {
-                    scenario: "replaced static == replaced static",
-                    input: (
-                        AssignStaticResult::ReplacedStatic,
-                        AssignStaticResult::ReplacedStatic,
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "replaced dhcp == replaced dhcp",
-                    input: (
-                        AssignStaticResult::ReplacedDhcp,
-                        AssignStaticResult::ReplacedDhcp,
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "assigned != replaced static",
-                    input: (
-                        AssignStaticResult::Assigned,
-                        AssignStaticResult::ReplacedStatic,
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "replaced static != replaced dhcp",
-                    input: (
-                        AssignStaticResult::ReplacedStatic,
-                        AssignStaticResult::ReplacedDhcp,
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "assigned != replaced dhcp",
-                    input: (
-                        AssignStaticResult::Assigned,
-                        AssignStaticResult::ReplacedDhcp,
-                    ),
-                    expect: false,
-                },
-            ],
-            |(left, right)| left == right,
+        value_scenarios!(
+            run = |(left, right)| left == right;
+            "assigned == assigned" {
+                (AssignStaticResult::Assigned, AssignStaticResult::Assigned) => true,
+            }
+
+            "replaced static == replaced static" {
+                (
+                    AssignStaticResult::ReplacedStatic,
+                    AssignStaticResult::ReplacedStatic,
+                ) => true,
+            }
+
+            "replaced dhcp == replaced dhcp" {
+                (
+                    AssignStaticResult::ReplacedDhcp,
+                    AssignStaticResult::ReplacedDhcp,
+                ) => true,
+            }
+
+            "assigned != replaced static" {
+                (
+                    AssignStaticResult::Assigned,
+                    AssignStaticResult::ReplacedStatic,
+                ) => false,
+            }
+
+            "replaced static != replaced dhcp" {
+                (
+                    AssignStaticResult::ReplacedStatic,
+                    AssignStaticResult::ReplacedDhcp,
+                ) => false,
+            }
+
+            "assigned != replaced dhcp" {
+                (
+                    AssignStaticResult::Assigned,
+                    AssignStaticResult::ReplacedDhcp,
+                ) => false,
+            }
         );
     }
 }

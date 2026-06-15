@@ -22,7 +22,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::{Check, check_values, value_scenarios};
 use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
 use libmlx::runner::error::MlxRunnerError;
 use libmlx::runner::exec_options::ExecOptions;
@@ -85,45 +85,35 @@ fn test_cleanup_temp_file_nonexistent() {
 
 #[test]
 fn test_is_dry_run() {
-    check_values(
-        [
-            Check {
-                scenario: "dry-run on",
-                input: true,
-                expect: true,
-            },
-            Check {
-                scenario: "dry-run off",
-                input: false,
-                expect: false,
-            },
-        ],
-        |dry_run| {
+    value_scenarios!(
+        run = |dry_run| {
             let options = ExecOptions::new().with_dry_run(dry_run);
             CommandExecutor { options: &options }.is_dry_run()
-        },
+        };
+        "dry-run on" {
+            true => true,
+        }
+
+        "dry-run off" {
+            false => false,
+        }
     );
 }
 
 #[test]
 fn test_is_verbose() {
-    check_values(
-        [
-            Check {
-                scenario: "verbose on",
-                input: true,
-                expect: true,
-            },
-            Check {
-                scenario: "verbose off",
-                input: false,
-                expect: false,
-            },
-        ],
-        |verbose| {
+    value_scenarios!(
+        run = |verbose| {
             let options = ExecOptions::new().with_verbose(verbose);
             CommandExecutor { options: &options }.is_verbose()
-        },
+        };
+        "verbose on" {
+            true => true,
+        }
+
+        "verbose off" {
+            false => false,
+        }
     );
 }
 

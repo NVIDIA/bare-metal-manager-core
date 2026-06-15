@@ -16,7 +16,7 @@
  */
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use libmlx::firmware::source::FirmwareSource;
 
 // from_url classifies a URL into a FirmwareSource whose `description()` records the
@@ -28,74 +28,60 @@ use libmlx::firmware::source::FirmwareSource;
 // standalone below.)
 #[test]
 fn from_url_classifies_by_scheme() {
-    check_cases(
-        [
-            Case {
-                scenario: "absolute local path",
-                input: "/opt/firmware/prod.signed.bin",
-                expect: Yields("local:/opt/firmware/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "relative local path",
-                input: "firmware/prod.signed.bin",
-                expect: Yields("local:firmware/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "file:// absolute path",
-                input: "file:///opt/firmware/prod.signed.bin",
-                expect: Yields("local:/opt/firmware/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "file:// relative path",
-                input: "file://firmware/prod.signed.bin",
-                expect: Yields("local:firmware/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "https URL",
-                input: "https://artifacts.example.com/fw/prod.signed.bin",
-                expect: Yields("http:https://artifacts.example.com/fw/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "http URL",
-                input: "http://internal.example.com/fw/prod.signed.bin",
-                expect: Yields("http:http://internal.example.com/fw/prod.signed.bin".to_string()),
-            },
-            Case {
-                scenario: "ssh with user and relative path",
-                input: "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin",
-                expect: Yields(
-                    "ssh://deploy@build-server.example.com:22:builds/fw/prod.signed.bin"
-                        .to_string(),
-                ),
-            },
-            Case {
-                scenario: "ssh with user and absolute path",
-                input: "ssh://deploy@build-server.example.com:/opt/fw/prod.signed.bin",
-                expect: Yields(
-                    "ssh://deploy@build-server.example.com:22:/opt/fw/prod.signed.bin".to_string(),
-                ),
-            },
-            Case {
-                scenario: "ssh missing path is rejected",
-                input: "ssh://deploy@build-server.example.com",
-                expect: Fails,
-            },
-            Case {
-                scenario: "ssh empty path is rejected",
-                input: "ssh://deploy@build-server.example.com:",
-                expect: Fails,
-            },
-            Case {
-                scenario: "ssh missing host is rejected",
-                input: "ssh://:path/to/file",
-                expect: Fails,
-            },
-        ],
-        |url| {
+    scenarios!(
+        run = |url| {
             FirmwareSource::from_url(url)
                 .map(|s| s.description())
                 .map_err(drop)
-        },
+        };
+        "absolute local path" {
+            "/opt/firmware/prod.signed.bin" => Yields("local:/opt/firmware/prod.signed.bin".to_string()),
+        }
+
+        "relative local path" {
+            "firmware/prod.signed.bin" => Yields("local:firmware/prod.signed.bin".to_string()),
+        }
+
+        "file:// absolute path" {
+            "file:///opt/firmware/prod.signed.bin" => Yields("local:/opt/firmware/prod.signed.bin".to_string()),
+        }
+
+        "file:// relative path" {
+            "file://firmware/prod.signed.bin" => Yields("local:firmware/prod.signed.bin".to_string()),
+        }
+
+        "https URL" {
+            "https://artifacts.example.com/fw/prod.signed.bin" => Yields("http:https://artifacts.example.com/fw/prod.signed.bin".to_string()),
+        }
+
+        "http URL" {
+            "http://internal.example.com/fw/prod.signed.bin" => Yields("http:http://internal.example.com/fw/prod.signed.bin".to_string()),
+        }
+
+        "ssh with user and relative path" {
+            "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin" => Yields(
+                "ssh://deploy@build-server.example.com:22:builds/fw/prod.signed.bin"
+                    .to_string(),
+            ),
+        }
+
+        "ssh with user and absolute path" {
+            "ssh://deploy@build-server.example.com:/opt/fw/prod.signed.bin" => Yields(
+                "ssh://deploy@build-server.example.com:22:/opt/fw/prod.signed.bin".to_string(),
+            ),
+        }
+
+        "ssh missing path is rejected" {
+            "ssh://deploy@build-server.example.com" => Fails,
+        }
+
+        "ssh empty path is rejected" {
+            "ssh://deploy@build-server.example.com:" => Fails,
+        }
+
+        "ssh missing host is rejected" {
+            "ssh://:path/to/file" => Fails,
+        }
     );
 }
 

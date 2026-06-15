@@ -25,7 +25,7 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::maintenance::args::Args as MaintenanceAction;
@@ -58,25 +58,8 @@ fn verify_cmd_structure() {
 // (machine.is_some(), all, ips, more, fix) so every original assertion holds.
 #[test]
 fn parse_show_routes_to_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "no args (all hosts)",
-                input: &["managed-host", "show"][..],
-                expect: Yields((false, false, false, false, false)),
-            },
-            Case {
-                scenario: "with machine id",
-                input: &["managed-host", "show", TEST_MACHINE_ID][..],
-                expect: Yields((true, false, false, false, false)),
-            },
-            Case {
-                scenario: "with --fix flag",
-                input: &["managed-host", "show", "--fix"][..],
-                expect: Yields((false, false, false, false, true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (
@@ -89,7 +72,18 @@ fn parse_show_routes_to_show() {
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no args (all hosts)" {
+            &["managed-host", "show"][..] => Yields((false, false, false, false, false)),
+        }
+
+        "with machine id" {
+            &["managed-host", "show", TEST_MACHINE_ID][..] => Yields((true, false, false, false, false)),
+        }
+
+        "with --fix flag" {
+            &["managed-host", "show", "--fix"][..] => Yields((false, false, false, false, true)),
+        }
     );
 }
 
@@ -98,34 +92,8 @@ fn parse_show_routes_to_show() {
 // empty for the `off` case which carries none.
 #[test]
 fn parse_maintenance_routes_to_maintenance() {
-    check_cases(
-        [
-            Case {
-                scenario: "on with host and reference",
-                input: &[
-                    "managed-host",
-                    "maintenance",
-                    "on",
-                    "--host",
-                    TEST_MACHINE_ID,
-                    "--reference",
-                    "TICKET-123",
-                ][..],
-                expect: Yields((TEST_MACHINE_ID.to_string(), "TICKET-123".to_string())),
-            },
-            Case {
-                scenario: "off with host",
-                input: &[
-                    "managed-host",
-                    "maintenance",
-                    "off",
-                    "--host",
-                    TEST_MACHINE_ID,
-                ][..],
-                expect: Yields((TEST_MACHINE_ID.to_string(), String::new())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Maintenance(MaintenanceAction::On(args)) => {
@@ -137,7 +105,28 @@ fn parse_maintenance_routes_to_maintenance() {
                     _ => panic!("expected Maintenance variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "on with host and reference" {
+            &[
+                "managed-host",
+                "maintenance",
+                "on",
+                "--host",
+                TEST_MACHINE_ID,
+                "--reference",
+                "TICKET-123",
+            ][..] => Yields((TEST_MACHINE_ID.to_string(), "TICKET-123".to_string())),
+        }
+
+        "off with host" {
+            &[
+                "managed-host",
+                "maintenance",
+                "off",
+                "--host",
+                TEST_MACHINE_ID,
+            ][..] => Yields((TEST_MACHINE_ID.to_string(), String::new())),
+        }
     );
 }
 
@@ -146,34 +135,8 @@ fn parse_maintenance_routes_to_maintenance() {
 // for the `off` case which carries none.
 #[test]
 fn parse_quarantine_routes_to_quarantine() {
-    check_cases(
-        [
-            Case {
-                scenario: "on with host and reason",
-                input: &[
-                    "managed-host",
-                    "quarantine",
-                    "on",
-                    "--host",
-                    TEST_MACHINE_ID,
-                    "--reason",
-                    "Security issue",
-                ][..],
-                expect: Yields((TEST_MACHINE_ID.to_string(), "Security issue".to_string())),
-            },
-            Case {
-                scenario: "off with host",
-                input: &[
-                    "managed-host",
-                    "quarantine",
-                    "off",
-                    "--host",
-                    TEST_MACHINE_ID,
-                ][..],
-                expect: Yields((TEST_MACHINE_ID.to_string(), String::new())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Quarantine(QuarantineAction::On(args)) => {
@@ -185,7 +148,28 @@ fn parse_quarantine_routes_to_quarantine() {
                     _ => panic!("expected Quarantine variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "on with host and reason" {
+            &[
+                "managed-host",
+                "quarantine",
+                "on",
+                "--host",
+                TEST_MACHINE_ID,
+                "--reason",
+                "Security issue",
+            ][..] => Yields((TEST_MACHINE_ID.to_string(), "Security issue".to_string())),
+        }
+
+        "off with host" {
+            &[
+                "managed-host",
+                "quarantine",
+                "off",
+                "--host",
+                TEST_MACHINE_ID,
+            ][..] => Yields((TEST_MACHINE_ID.to_string(), String::new())),
+        }
     );
 }
 
@@ -214,30 +198,8 @@ fn parse_reset_host_reprovisioning() {
 // (machine, desired-power-state-string) -- show yields (empty, empty).
 #[test]
 fn parse_power_options_routes_to_power_options() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no machine",
-                input: &["managed-host", "power-options", "show"][..],
-                expect: Yields((String::new(), String::new())),
-            },
-            Case {
-                scenario: "update with machine and desired power state",
-                input: &[
-                    "managed-host",
-                    "power-options",
-                    "update",
-                    TEST_MACHINE_ID,
-                    "--desired-power-state",
-                    "on",
-                ][..],
-                expect: Yields((
-                    TEST_MACHINE_ID.to_string(),
-                    format!("{:?}", DesiredPowerState::On),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::PowerOptions(PowerOptions::Show(args)) => {
@@ -251,7 +213,24 @@ fn parse_power_options_routes_to_power_options() {
                     _ => panic!("expected PowerOptions variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no machine" {
+            &["managed-host", "power-options", "show"][..] => Yields((String::new(), String::new())),
+        }
+
+        "update with machine and desired power state" {
+            &[
+                "managed-host",
+                "power-options",
+                "update",
+                TEST_MACHINE_ID,
+                "--desired-power-state",
+                "on",
+            ][..] => Yields((
+                TEST_MACHINE_ID.to_string(),
+                format!("{:?}", DesiredPowerState::On),
+            )),
+        }
     );
 }
 
@@ -321,17 +300,15 @@ fn parse_debug_bundle() {
 // Every malformed invocation is rejected at parse time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "maintenance on without --host and --reference",
-            input: &["managed-host", "maintenance", "on"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "maintenance on without --host and --reference" {
+            &["managed-host", "maintenance", "on"][..] => Fails,
+        }
     );
 }
 
@@ -350,29 +327,22 @@ fn invalid_invocations_are_rejected() {
 fn desired_power_state_value_enum() {
     use clap::ValueEnum;
 
-    check_cases(
-        [
-            Case {
-                scenario: "on",
-                input: "on",
-                expect: Yields(format!("{:?}", DesiredPowerState::On)),
-            },
-            Case {
-                scenario: "off",
-                input: "off",
-                expect: Yields(format!("{:?}", DesiredPowerState::Off)),
-            },
-            Case {
-                scenario: "power-manager-disabled",
-                input: "power-manager-disabled",
-                expect: Yields(format!("{:?}", DesiredPowerState::PowerManagerDisabled)),
-            },
-            Case {
-                scenario: "invalid value",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |s| DesiredPowerState::from_str(s, false).map(|v| format!("{v:?}")),
+    scenarios!(
+        run = |s| DesiredPowerState::from_str(s, false).map(|v| format!("{v:?}"));
+        "on" {
+            "on" => Yields(format!("{:?}", DesiredPowerState::On)),
+        }
+
+        "off" {
+            "off" => Yields(format!("{:?}", DesiredPowerState::Off)),
+        }
+
+        "power-manager-disabled" {
+            "power-manager-disabled" => Yields(format!("{:?}", DesiredPowerState::PowerManagerDisabled)),
+        }
+
+        "invalid value" {
+            "invalid" => Fails,
+        }
     );
 }

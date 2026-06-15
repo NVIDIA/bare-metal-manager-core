@@ -538,7 +538,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -559,50 +559,8 @@ mod tests {
     // errors. The closure exercises both entry points and confirms they agree.
     #[test]
     fn parse_tenant_org() {
-        check_cases(
-            [
-                Case {
-                    scenario: "alphabetic",
-                    input: "TenantA",
-                    expect: Yields("TenantA".to_string()),
-                },
-                Case {
-                    scenario: "with underscore",
-                    input: "Tenant_B",
-                    expect: Yields("Tenant_B".to_string()),
-                },
-                Case {
-                    scenario: "with dashes and underscores",
-                    input: "Tenant-C-_And_D_",
-                    expect: Yields("Tenant-C-_And_D_".to_string()),
-                },
-                Case {
-                    scenario: "empty",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "leading space",
-                    input: " Tenant_B",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "trailing space",
-                    input: "Tenant_C ",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "internal space",
-                    input: "Tenant D",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "disallowed punctuation",
-                    input: "Tenant!A",
-                    expect: Fails,
-                },
-            ],
-            |s| {
+        scenarios!(
+            run = |s| {
                 let via_try_from = TenantOrganizationId::try_from(s.to_string());
                 let via_parse = s.parse::<TenantOrganizationId>();
                 // Both entry points must agree on success/failure.
@@ -610,7 +568,38 @@ mod tests {
                 via_try_from
                     .map(|org| org.as_str().to_string())
                     .map_err(drop)
-            },
+            };
+            "alphabetic" {
+                "TenantA" => Yields("TenantA".to_string()),
+            }
+
+            "with underscore" {
+                "Tenant_B" => Yields("Tenant_B".to_string()),
+            }
+
+            "with dashes and underscores" {
+                "Tenant-C-_And_D_" => Yields("Tenant-C-_And_D_".to_string()),
+            }
+
+            "empty" {
+                "" => Fails,
+            }
+
+            "leading space" {
+                " Tenant_B" => Fails,
+            }
+
+            "trailing space" {
+                "Tenant_C " => Fails,
+            }
+
+            "internal space" {
+                "Tenant D" => Fails,
+            }
+
+            "disallowed punctuation" {
+                "Tenant!A" => Fails,
+            }
         );
     }
 
@@ -672,20 +661,15 @@ mod tests {
     // the failing row asserts only that it errors.
     #[test]
     fn tenant_identity_signing_algorithm_from_str_rejects_unknown() {
-        check_cases(
-            [
-                Case {
-                    scenario: "supported ES256",
-                    input: "ES256",
-                    expect: Yields(identity_config::SigningAlgorithm::Es256),
-                },
-                Case {
-                    scenario: "unsupported RS256",
-                    input: "RS256",
-                    expect: Fails,
-                },
-            ],
-            |s| s.parse::<identity_config::SigningAlgorithm>().map_err(drop),
+        scenarios!(
+            run = |s| s.parse::<identity_config::SigningAlgorithm>().map_err(drop);
+            "supported ES256" {
+                "ES256" => Yields(identity_config::SigningAlgorithm::Es256),
+            }
+
+            "unsupported RS256" {
+                "RS256" => Fails,
+            }
         );
     }
 }

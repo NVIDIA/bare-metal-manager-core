@@ -105,3 +105,74 @@ impl From<&CpuAccumulator> for rpc_discovery::CpuInfo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    fn cpu(vendor: &str, model: &str, socket: u32, core: u32, number: u32) -> rpc_discovery::Cpu {
+        rpc_discovery::Cpu {
+            vendor: vendor.to_string(),
+            model: model.to_string(),
+            frequency: String::new(),
+            number,
+            core,
+            node: 0,
+            socket,
+        }
+    }
+
+    fn cpu_info(
+        vendor: &str,
+        model: &str,
+        sockets: u32,
+        cores: u32,
+        threads: u32,
+    ) -> rpc_discovery::CpuInfo {
+        rpc_discovery::CpuInfo {
+            model: model.to_string(),
+            vendor: vendor.to_string(),
+            sockets,
+            cores,
+            threads,
+        }
+    }
+
+    #[test]
+    fn aggregates_cpu_discovery_records() {
+        value_scenarios!(
+            run = |cpus| aggregate_cpus(&cpus);
+            "empty discovery" {
+                vec![] => vec![],
+            }
+
+            "single socket" {
+                vec![
+                    cpu("GenuineIntel", "Xeon", 0, 0, 0),
+                    cpu("GenuineIntel", "Xeon", 0, 1, 1),
+                ] => vec![cpu_info("GenuineIntel", "Xeon", 1, 2, 2)],
+            }
+
+            "multiple sockets" {
+                vec![
+                    cpu("GenuineIntel", "Xeon", 0, 0, 0),
+                    cpu("GenuineIntel", "Xeon", 1, 0, 1),
+                    cpu("GenuineIntel", "Xeon", 1, 2, 3),
+                // `threads` is the max threads-per-socket count, not total records.
+                ] => vec![cpu_info("GenuineIntel", "Xeon", 2, 3, 2)],
+            }
+
+            "multiple models are sorted" {
+                vec![
+                    cpu("AMD", "Zen B", 0, 0, 0),
+                    cpu("AMD", "Zen A", 0, 1, 1),
+                ] => vec![
+                    cpu_info("AMD", "Zen A", 1, 2, 2),
+                    cpu_info("AMD", "Zen B", 1, 1, 1),
+                ],
+            }
+        );
+    }
+}

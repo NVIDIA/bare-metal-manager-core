@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 use get_report::args::Args as GetReportMode;
 
@@ -94,33 +94,28 @@ fn parse_get_report_endpoint() {
 // (parsed address, whether a MAC was supplied).
 #[test]
 fn parse_explore() {
-    check_cases(
-        [
-            Case {
-                scenario: "address only, no mac",
-                input: &["site-explorer", "explore", "192.168.1.100"][..],
-                expect: Yields(("192.168.1.100".to_string(), false)),
-            },
-            Case {
-                scenario: "address with mac",
-                input: &[
-                    "site-explorer",
-                    "explore",
-                    "192.168.1.100",
-                    "--mac",
-                    "00:11:22:33:44:55",
-                ][..],
-                expect: Yields(("192.168.1.100".to_string(), true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Explore(args) => (args.inner.address, args.inner.mac.is_some()),
                     _ => panic!("expected Explore variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "address only, no mac" {
+            &["site-explorer", "explore", "192.168.1.100"][..] => Yields(("192.168.1.100".to_string(), false)),
+        }
+
+        "address with mac" {
+            &[
+                "site-explorer",
+                "explore",
+                "192.168.1.100",
+                "--mac",
+                "00:11:22:33:44:55",
+            ][..] => Yields(("192.168.1.100".to_string(), true)),
+        }
     );
 }
 
@@ -187,16 +182,14 @@ fn parse_remediation() {
 // without its required positional address.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "explore without an address",
-            input: &["site-explorer", "explore"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "explore without an address" {
+            &["site-explorer", "explore"][..] => Fails,
+        }
     );
 }

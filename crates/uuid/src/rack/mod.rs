@@ -288,7 +288,7 @@ pub enum RackIdParseError {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -327,103 +327,83 @@ mod tests {
 
     #[test]
     fn test_rack_id_parse_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "legacy ps100-encoded rack ID",
-                    input: "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: Yields(
-                        "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg".to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "DCIM rack name",
-                    input: "P20",
-                    expect: Yields("P20".to_string()),
-                },
-                Case {
-                    scenario: "regional rack name",
-                    input: "rack-42-us-west-2",
-                    expect: Yields("rack-42-us-west-2".to_string()),
-                },
-                Case {
-                    scenario: "descriptive rack name",
-                    input: "i-am-just-a-rack-id",
-                    expect: Yields("i-am-just-a-rack-id".to_string()),
-                },
-                Case {
-                    scenario: "empty rack ID",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Empty),
-                },
-            ],
-            parse_rack_id,
+        scenarios!(
+            run = parse_rack_id;
+            "legacy ps100-encoded rack ID" {
+                "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => Yields(
+                    "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg".to_string(),
+                ),
+            }
+
+            "DCIM rack name" {
+                "P20" => Yields("P20".to_string()),
+            }
+
+            "regional rack name" {
+                "rack-42-us-west-2" => Yields("rack-42-us-west-2".to_string()),
+            }
+
+            "descriptive rack name" {
+                "i-am-just-a-rack-id" => Yields("i-am-just-a-rack-id".to_string()),
+            }
+
+            "empty rack ID" {
+                "" => FailsWith(ParseFailure::Empty),
+            }
         );
     }
 
     #[test]
     fn test_rack_id_conversions() {
-        check_values(
-            [
-                Check {
-                    scenario: "new",
-                    input: RackId::new("test-rack"),
-                    expect: (
-                        "test-rack".to_string(),
-                        "test-rack".to_string(),
-                        "test-rack".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "from str",
-                    input: RackId::from("another-rack"),
-                    expect: (
-                        "another-rack".to_string(),
-                        "another-rack".to_string(),
-                        "another-rack".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "from string",
-                    input: RackId::from(String::from("string-rack")),
-                    expect: (
-                        "string-rack".to_string(),
-                        "string-rack".to_string(),
-                        "string-rack".to_string(),
-                    ),
-                },
-            ],
-            |rack_id| {
+        value_scenarios!(
+            run = |rack_id| {
                 (
                     rack_id.as_str().to_string(),
                     rack_id.to_string(),
                     rack_id.as_ref().to_string(),
                 )
-            },
+            };
+            "new" {
+                RackId::new("test-rack") => (
+                    "test-rack".to_string(),
+                    "test-rack".to_string(),
+                    "test-rack".to_string(),
+                ),
+            }
+
+            "from str" {
+                RackId::from("another-rack") => (
+                    "another-rack".to_string(),
+                    "another-rack".to_string(),
+                    "another-rack".to_string(),
+                ),
+            }
+
+            "from string" {
+                RackId::from(String::from("string-rack")) => (
+                    "string-rack".to_string(),
+                    "string-rack".to_string(),
+                    "string-rack".to_string(),
+                ),
+            }
         );
     }
 
     #[test]
     fn test_rack_id_serde_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid string",
-                    input: "\"my-custom-rack\"",
-                    expect: Yields("my-custom-rack".to_string()),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "\"\"",
-                    expect: Yields(String::new()),
-                },
-                Case {
-                    scenario: "non-string JSON",
-                    input: "42",
-                    expect: Fails,
-                },
-            ],
-            deserialize_rack_id,
+        scenarios!(
+            run = deserialize_rack_id;
+            "valid string" {
+                "\"my-custom-rack\"" => Yields("my-custom-rack".to_string()),
+            }
+
+            "empty string" {
+                "\"\"" => Yields(String::new()),
+            }
+
+            "non-string JSON" {
+                "42" => Fails,
+            }
         );
 
         let serialized = serde_json::to_string(&RackId::new("my-custom-rack"))
@@ -433,91 +413,73 @@ mod tests {
 
     #[test]
     fn test_rack_profile_id_parse_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "rack profile name",
-                    input: "NVL72",
-                    expect: Yields("NVL72".to_string()),
-                },
-                Case {
-                    scenario: "lowercase rack profile name",
-                    input: "nvl36",
-                    expect: Yields("nvl36".to_string()),
-                },
-                Case {
-                    scenario: "empty rack profile ID",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Empty),
-                },
-            ],
-            parse_rack_profile_id,
+        scenarios!(
+            run = parse_rack_profile_id;
+            "rack profile name" {
+                "NVL72" => Yields("NVL72".to_string()),
+            }
+
+            "lowercase rack profile name" {
+                "nvl36" => Yields("nvl36".to_string()),
+            }
+
+            "empty rack profile ID" {
+                "" => FailsWith(ParseFailure::Empty),
+            }
         );
     }
 
     #[test]
     fn test_rack_profile_id_conversions() {
-        check_values(
-            [
-                Check {
-                    scenario: "new",
-                    input: RackProfileId::new("NVL72"),
-                    expect: (
-                        "NVL72".to_string(),
-                        "NVL72".to_string(),
-                        "NVL72".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "from str",
-                    input: RackProfileId::from("NVL36"),
-                    expect: (
-                        "NVL36".to_string(),
-                        "NVL36".to_string(),
-                        "NVL36".to_string(),
-                    ),
-                },
-                Check {
-                    scenario: "from string",
-                    input: RackProfileId::from(String::from("GB200")),
-                    expect: (
-                        "GB200".to_string(),
-                        "GB200".to_string(),
-                        "GB200".to_string(),
-                    ),
-                },
-            ],
-            |profile_id| {
+        value_scenarios!(
+            run = |profile_id| {
                 (
                     profile_id.as_str().to_string(),
                     profile_id.to_string(),
                     profile_id.as_ref().to_string(),
                 )
-            },
+            };
+            "new" {
+                RackProfileId::new("NVL72") => (
+                    "NVL72".to_string(),
+                    "NVL72".to_string(),
+                    "NVL72".to_string(),
+                ),
+            }
+
+            "from str" {
+                RackProfileId::from("NVL36") => (
+                    "NVL36".to_string(),
+                    "NVL36".to_string(),
+                    "NVL36".to_string(),
+                ),
+            }
+
+            "from string" {
+                RackProfileId::from(String::from("GB200")) => (
+                    "GB200".to_string(),
+                    "GB200".to_string(),
+                    "GB200".to_string(),
+                ),
+            }
         );
     }
 
     #[test]
     fn test_rack_profile_id_serde_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid string",
-                    input: "\"NVL72\"",
-                    expect: Yields("NVL72".to_string()),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "\"\"",
-                    expect: Yields(String::new()),
-                },
-                Case {
-                    scenario: "non-string JSON",
-                    input: "42",
-                    expect: Fails,
-                },
-            ],
-            deserialize_rack_profile_id,
+        scenarios!(
+            run = deserialize_rack_profile_id;
+            "valid string" {
+                "\"NVL72\"" => Yields("NVL72".to_string()),
+            }
+
+            "empty string" {
+                "\"\"" => Yields(String::new()),
+            }
+
+            "non-string JSON" {
+                "42" => Fails,
+            }
         );
 
         let serialized = serde_json::to_string(&RackProfileId::new("NVL72"))

@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -63,24 +63,19 @@ fn variant(cmd: &Cmd) -> &'static str {
 // yielded bool is whether `bmc_mac_address` was supplied.
 #[test]
 fn parse_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments (all power shelves)",
-                input: &["expected-power-shelf", "show"][..],
-                expect: Yields(false),
-            },
-            Case {
-                scenario: "show with a MAC address",
-                input: &["expected-power-shelf", "show", "1a:2b:3c:4d:5e:6f"][..],
-                expect: Yields(true),
-            },
-        ],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
             Ok(Cmd::Show(args)) => Ok(args.bmc_mac_address.is_some()),
             Ok(other) => panic!("expected Show variant, got {}", variant(&other)),
             Err(_) => Err(()),
-        },
+        };
+        "show with no arguments (all power shelves)" {
+            &["expected-power-shelf", "show"][..] => Yields(false),
+        }
+
+        "show with a MAC address" {
+            &["expected-power-shelf", "show", "1a:2b:3c:4d:5e:6f"][..] => Yields(true),
+        }
     );
 }
 
@@ -89,54 +84,49 @@ fn parse_show() {
 // and the optional meta-name).
 #[test]
 fn parse_add() {
-    check_cases(
-        [
-            Case {
-                scenario: "add with required arguments",
-                input: &[
-                    "expected-power-shelf",
-                    "add",
-                    "--bmc-mac-address",
-                    "1a:2b:3c:4d:5e:6f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--shelf-serial-number",
-                    "SHELF12345",
-                ][..],
-                expect: Yields(("admin".to_string(), "SHELF12345".to_string(), None)),
-            },
-            Case {
-                scenario: "add with all options",
-                input: &[
-                    "expected-power-shelf",
-                    "add",
-                    "--bmc-mac-address",
-                    "1a:2b:3c:4d:5e:6f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--shelf-serial-number",
-                    "SHELF12345",
-                    "--meta-name",
-                    "MyPowerShelf",
-                    "--label",
-                    "env:prod",
-                ][..],
-                expect: Yields((
-                    "admin".to_string(),
-                    "SHELF12345".to_string(),
-                    Some("MyPowerShelf".to_string()),
-                )),
-            },
-        ],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
             Ok(Cmd::Add(args)) => Ok((args.bmc_username, args.shelf_serial_number, args.meta_name)),
             Ok(other) => panic!("expected Add variant, got {}", variant(&other)),
             Err(_) => Err(()),
-        },
+        };
+        "add with required arguments" {
+            &[
+                "expected-power-shelf",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--shelf-serial-number",
+                "SHELF12345",
+            ][..] => Yields(("admin".to_string(), "SHELF12345".to_string(), None)),
+        }
+
+        "add with all options" {
+            &[
+                "expected-power-shelf",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--shelf-serial-number",
+                "SHELF12345",
+                "--meta-name",
+                "MyPowerShelf",
+                "--label",
+                "env:prod",
+            ][..] => Yields((
+                "admin".to_string(),
+                "SHELF12345".to_string(),
+                Some("MyPowerShelf".to_string()),
+            )),
+        }
     );
 }
 
@@ -144,46 +134,42 @@ fn parse_add() {
 // serial number the original asserted.
 #[test]
 fn parse_update() {
-    check_cases(
-        [Case {
-            scenario: "update with required arguments",
-            input: &[
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Update(args)) => Ok(args.shelf_serial_number),
+            Ok(other) => panic!("expected Update variant, got {}", variant(&other)),
+            Err(_) => Err(()),
+        };
+        "update with required arguments" {
+            &[
                 "expected-power-shelf",
                 "update",
                 "--bmc-mac-address",
                 "1a:2b:3c:4d:5e:6f",
                 "--shelf-serial-number",
                 "NEW_SERIAL",
-            ][..],
-            expect: Yields(Some("NEW_SERIAL".to_string())),
-        }],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::Update(args)) => Ok(args.shelf_serial_number),
-            Ok(other) => panic!("expected Update variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        },
+            ][..] => Yields(Some("NEW_SERIAL".to_string())),
+        }
     );
 }
 
 // replace-all parses with a filename; the yielded value is that filename.
 #[test]
 fn parse_replace_all() {
-    check_cases(
-        [Case {
-            scenario: "replace-all with a filename",
-            input: &[
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::ReplaceAll(args)) => Ok(args.filename),
+            Ok(other) => panic!("expected ReplaceAll variant, got {}", variant(&other)),
+            Err(_) => Err(()),
+        };
+        "replace-all with a filename" {
+            &[
                 "expected-power-shelf",
                 "replace-all",
                 "--filename",
                 "shelves.json",
-            ][..],
-            expect: Yields("shelves.json".to_string()),
-        }],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
-            Ok(Cmd::ReplaceAll(args)) => Ok(args.filename),
-            Ok(other) => panic!("expected ReplaceAll variant, got {}", variant(&other)),
-            Err(_) => Err(()),
-        },
+            ][..] => Yields("shelves.json".to_string()),
+        }
     );
 }
 
@@ -191,24 +177,19 @@ fn parse_replace_all() {
 // the yielded value is the variant name.
 #[test]
 fn parse_routes_to_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "delete with a MAC address",
-                input: &["expected-power-shelf", "delete", "1a:2b:3c:4d:5e:6f"][..],
-                expect: Yields("delete"),
-            },
-            Case {
-                scenario: "erase with no arguments",
-                input: &["expected-power-shelf", "erase"][..],
-                expect: Yields("erase"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| variant(&cmd))
                 .map_err(drop)
-        },
+        };
+        "delete with a MAC address" {
+            &["expected-power-shelf", "delete", "1a:2b:3c:4d:5e:6f"][..] => Yields("delete"),
+        }
+
+        "erase with no arguments" {
+            &["expected-power-shelf", "erase"][..] => Yields("erase"),
+        }
     );
 }
 
@@ -216,16 +197,14 @@ fn parse_routes_to_variant() {
 // its required arguments.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "add without its required arguments",
-            input: &["expected-power-shelf", "add"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "add without its required arguments" {
+            &["expected-power-shelf", "add"][..] => Fails,
+        }
     );
 }

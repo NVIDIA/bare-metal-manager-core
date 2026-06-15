@@ -439,7 +439,7 @@ pub fn resolve_subject_prefix(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -455,89 +455,71 @@ mod tests {
     // (the originals only checked substrings), so we project the error to "does it contain token".
     #[test]
     fn issuer_trust_domain_extraction() {
-        check_cases(
-            [
-                Case {
-                    scenario: "https issuer lowercases host, drops path",
-                    input: ("https://Issuer.EXAMPLE/path", ""),
-                    expect: Yields("issuer.example".to_string()),
-                },
-                Case {
-                    scenario: "https issuer with explicit port",
-                    input: ("https://Issuer.EXAMPLE:8443/", ""),
-                    expect: Yields("issuer.example".to_string()),
-                },
-                Case {
-                    scenario: "spiffe issuer lowercases host",
-                    input: ("spiffe://Issuer.EXAMPLE/bundle", ""),
-                    expect: Yields("issuer.example".to_string()),
-                },
-                Case {
-                    scenario: "spiffe scheme uppercase",
-                    input: ("SPIFFE://Issuer.EXAMPLE/bundle", ""),
-                    expect: Yields("issuer.example".to_string()),
-                },
-                Case {
-                    scenario: "spiffe scheme mixed case, no path",
-                    input: ("SpIfFe://issuer.example", ""),
-                    expect: Yields("issuer.example".to_string()),
-                },
-                Case {
-                    scenario: "query string rejected",
-                    input: ("https://issuer.example/?q=1", "query"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "ipv4 host rejected",
-                    input: ("https://127.0.0.1/", "IP"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "ipv6 host rejected",
-                    input: ("spiffe://[::1]/x", "IP"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "userinfo (user only) rejected",
-                    input: ("https://user@issuer.example/", "userinfo"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "userinfo with password rejected",
-                    input: ("https://user:pass@issuer.example/", "userinfo"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "non-http(s)/spiffe scheme rejected",
-                    input: ("ftp://issuer.example/", "http"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "bare hostname (no scheme) rejected",
-                    input: ("issuer.example", "http://"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "bare hostname with path rejected",
-                    input: ("issuer.example/extra", "http://"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "backslash rejected",
-                    input: ("https://issuer.example\\evil", "disallowed"),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "control char rejected",
-                    input: ("https://issuer.ex\0ample.com/", "disallowed"),
-                    expect: FailsWith(true),
-                },
-            ],
-            |(issuer, token)| {
+        scenarios!(
+            run = |(issuer, token)| {
                 normalize_issuer_and_trust_domain(issuer)
                     .map(|(_, td)| td)
                     .map_err(|e| e.contains(token))
-            },
+            };
+            "https issuer lowercases host, drops path" {
+                ("https://Issuer.EXAMPLE/path", "") => Yields("issuer.example".to_string()),
+            }
+
+            "https issuer with explicit port" {
+                ("https://Issuer.EXAMPLE:8443/", "") => Yields("issuer.example".to_string()),
+            }
+
+            "spiffe issuer lowercases host" {
+                ("spiffe://Issuer.EXAMPLE/bundle", "") => Yields("issuer.example".to_string()),
+            }
+
+            "spiffe scheme uppercase" {
+                ("SPIFFE://Issuer.EXAMPLE/bundle", "") => Yields("issuer.example".to_string()),
+            }
+
+            "spiffe scheme mixed case, no path" {
+                ("SpIfFe://issuer.example", "") => Yields("issuer.example".to_string()),
+            }
+
+            "query string rejected" {
+                ("https://issuer.example/?q=1", "query") => FailsWith(true),
+            }
+
+            "ipv4 host rejected" {
+                ("https://127.0.0.1/", "IP") => FailsWith(true),
+            }
+
+            "ipv6 host rejected" {
+                ("spiffe://[::1]/x", "IP") => FailsWith(true),
+            }
+
+            "userinfo (user only) rejected" {
+                ("https://user@issuer.example/", "userinfo") => FailsWith(true),
+            }
+
+            "userinfo with password rejected" {
+                ("https://user:pass@issuer.example/", "userinfo") => FailsWith(true),
+            }
+
+            "non-http(s)/spiffe scheme rejected" {
+                ("ftp://issuer.example/", "http") => FailsWith(true),
+            }
+
+            "bare hostname (no scheme) rejected" {
+                ("issuer.example", "http://") => FailsWith(true),
+            }
+
+            "bare hostname with path rejected" {
+                ("issuer.example/extra", "http://") => FailsWith(true),
+            }
+
+            "backslash rejected" {
+                ("https://issuer.example\\evil", "disallowed") => FailsWith(true),
+            }
+
+            "control char rejected" {
+                ("https://issuer.ex\0ample.com/", "disallowed") => FailsWith(true),
+            }
         );
     }
 
@@ -545,29 +527,23 @@ mod tests {
     // preservation, host lowercasing, default lone-`/` path omitted. All success rows.
     #[test]
     fn normalize_issuer_preserves_scheme_path_and_port() {
-        check_cases(
-            [
-                Case {
-                    scenario: "http scheme and path lowercased host",
-                    input: "HTTP://Issuer.EXAMPLE/path",
-                    expect: Yields("http://issuer.example/path".to_string()),
-                },
-                Case {
-                    scenario: "explicit port and path preserved",
-                    input: "https://issuer.example:8443/ns",
-                    expect: Yields("https://issuer.example:8443/ns".to_string()),
-                },
-                Case {
-                    scenario: "spiffe scheme normalized",
-                    input: "SpIfFe://Issuer.EXAMPLE/bundle",
-                    expect: Yields("spiffe://issuer.example/bundle".to_string()),
-                },
-            ],
-            |s| {
+        scenarios!(
+            run = |s| {
                 normalize_issuer_and_trust_domain(s)
                     .map(|(iss, _)| iss)
                     .map_err(drop)
-            },
+            };
+            "http scheme and path lowercased host" {
+                "HTTP://Issuer.EXAMPLE/path" => Yields("http://issuer.example/path".to_string()),
+            }
+
+            "explicit port and path preserved" {
+                "https://issuer.example:8443/ns" => Yields("https://issuer.example:8443/ns".to_string()),
+            }
+
+            "spiffe scheme normalized" {
+                "SpIfFe://Issuer.EXAMPLE/bundle" => Yields("spiffe://issuer.example/bundle".to_string()),
+            }
         );
     }
 
@@ -576,74 +552,63 @@ mod tests {
     // error contains `token` via `FailsWith(true)`.
     #[test]
     fn resolve_subject_prefix_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "no proto prefix -> default from https issuer",
-                    input: ("https://my.idp.example", None, ""),
-                    expect: Yields("spiffe://my.idp.example".to_string()),
-                },
-                Case {
-                    scenario: "no proto prefix -> default from spiffe issuer",
-                    input: ("spiffe://my.idp.example/ns/x", None, ""),
-                    expect: Yields("spiffe://my.idp.example".to_string()),
-                },
-                Case {
-                    scenario: "explicit prefix canonicalizes trust-domain case",
-                    input: (
-                        "https://issuer.example",
-                        Some("spiffe://ISSUER.EXAMPLE/wl"),
-                        "",
-                    ),
-                    expect: Yields("spiffe://issuer.example/wl".to_string()),
-                },
-                Case {
-                    scenario: "trust domain mismatch rejected",
-                    input: (
-                        "https://issuer.example",
-                        Some("spiffe://other.example"),
-                        "does not match",
-                    ),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "percent-encoding rejected",
-                    input: (
-                        "https://issuer.example",
-                        Some("spiffe://issuer.example/a%2Fb"),
-                        "disallowed",
-                    ),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "https scheme prefix rejected (must be spiffe)",
-                    input: (
-                        "https://issuer.example",
-                        Some("https://issuer.example/p"),
-                        "spiffe://",
-                    ),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "backslash in prefix rejected",
-                    input: (
-                        "https://issuer.example",
-                        Some("spiffe://issuer.example/a\\b"),
-                        "disallowed",
-                    ),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "whitespace in prefix rejected",
-                    input: (
-                        "https://issuer.example",
-                        Some("spiffe://issuer.example/a b"),
-                        "disallowed",
-                    ),
-                    expect: FailsWith(true),
-                },
-            ],
-            |(issuer, proto, token)| resolve_identity(issuer, proto).map_err(|e| e.contains(token)),
+        scenarios!(
+            run = |(issuer, proto, token)| resolve_identity(issuer, proto).map_err(|e| e.contains(token));
+            "no proto prefix -> default from https issuer" {
+                ("https://my.idp.example", None, "") => Yields("spiffe://my.idp.example".to_string()),
+            }
+
+            "no proto prefix -> default from spiffe issuer" {
+                ("spiffe://my.idp.example/ns/x", None, "") => Yields("spiffe://my.idp.example".to_string()),
+            }
+
+            "explicit prefix canonicalizes trust-domain case" {
+                (
+                    "https://issuer.example",
+                    Some("spiffe://ISSUER.EXAMPLE/wl"),
+                    "",
+                ) => Yields("spiffe://issuer.example/wl".to_string()),
+            }
+
+            "trust domain mismatch rejected" {
+                (
+                    "https://issuer.example",
+                    Some("spiffe://other.example"),
+                    "does not match",
+                ) => FailsWith(true),
+            }
+
+            "percent-encoding rejected" {
+                (
+                    "https://issuer.example",
+                    Some("spiffe://issuer.example/a%2Fb"),
+                    "disallowed",
+                ) => FailsWith(true),
+            }
+
+            "https scheme prefix rejected (must be spiffe)" {
+                (
+                    "https://issuer.example",
+                    Some("https://issuer.example/p"),
+                    "spiffe://",
+                ) => FailsWith(true),
+            }
+
+            "backslash in prefix rejected" {
+                (
+                    "https://issuer.example",
+                    Some("spiffe://issuer.example/a\\b"),
+                    "disallowed",
+                ) => FailsWith(true),
+            }
+
+            "whitespace in prefix rejected" {
+                (
+                    "https://issuer.example",
+                    Some("spiffe://issuer.example/a b"),
+                    "disallowed",
+                ) => FailsWith(true),
+            }
         );
     }
 
@@ -694,258 +659,221 @@ mod tests {
         fn list(entries: &[&str]) -> Vec<String> {
             entries.iter().map(|s| s.to_string()).collect()
         }
-        check_cases(
-            [
-                Case {
-                    scenario: "empty allowlist allows any host",
-                    input: ("anything.example", list(&[])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "exact match",
-                    input: (
-                        "login.example.com",
-                        list(&["login.example.com", "other.net"]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "exact match ignores case and trailing dot",
-                    input: (
-                        "LOGIN.EXAMPLE.COM.",
-                        list(&["login.example.com", "other.net"]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "exact mismatch",
-                    input: ("bad.example.com", list(&["login.example.com", "other.net"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "single-star: one label under suffix matches",
-                    input: ("auth.something.net", list(&["*.something.net"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "single-star: bare suffix does not match",
-                    input: ("something.net", list(&["*.something.net"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "single-star: two labels under suffix do not match",
-                    input: ("a.b.something.net", list(&["*.something.net"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "single-star: dot boundary before suffix",
-                    input: ("notsomething.net", list(&["*.something.net"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "double-star: bare suffix matches",
-                    input: ("internal.example", list(&["**.internal.example"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: one label deep matches",
-                    input: ("x.internal.example", list(&["**.internal.example"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: many labels deep match",
-                    input: ("a.b.internal.example", list(&["**.internal.example"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: suffix not at end does not match",
-                    input: (
-                        "evil.internal.example.evil.com",
-                        list(&["**.internal.example"]),
-                    ),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "single-star: multi-label under suffix rejected",
-                    input: ("auth.prod.something.net", list(&["*.something.net"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "single-star: one label matches mixed-case pattern",
-                    input: ("auth.something.net", list(&["*.SOMETHING.NET"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: suffix as substring of longer zone rejected",
-                    input: ("api.internal.example.com", list(&["**.internal.example"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "double-star: suffix mid-host rejected",
-                    input: (
-                        "not-relevant.internal.example.evil.com",
-                        list(&["**.internal.example"]),
-                    ),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "double-star: zone apex matches",
-                    input: ("co.uk", list(&["**.co.uk"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: child of apex matches",
-                    input: ("tenant.co.uk", list(&["**.co.uk"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: deep child of apex matches",
-                    input: ("a.b.co.uk", list(&["**.co.uk"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "double-star: different apex rejected",
-                    input: ("other.uk", list(&["**.co.uk"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "OR across entries: literal matches",
-                    input: ("exact.only", list(&["exact.only", "**.allowed.zone"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "OR across entries: double-star matches",
-                    input: ("x.allowed.zone", list(&["exact.only", "**.allowed.zone"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "OR across entries: neither matches",
-                    input: ("wrong.zone", list(&["exact.only", "**.allowed.zone"])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "mixed list: literal host matches",
-                    input: (
-                        "idp.example.com",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed list: literal host case-insensitive",
-                    input: (
-                        "LOCALHOST",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed list: single-star matches",
-                    input: (
-                        "auth.tenant.example.net",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed list: double-star apex matches",
-                    input: (
-                        "corp.internal",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed list: double-star deep matches",
-                    input: (
-                        "a.b.corp.internal",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed list: unrelated literal rejected",
-                    input: (
-                        "other.example.com",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "mixed list: single-star too deep rejected",
-                    input: (
-                        "auth.app.tenant.example.net",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "mixed list: double-star suffix mid-host rejected",
-                    input: (
-                        "not.corp.internal.evil.com",
-                        list(&[
-                            "idp.example.com",
-                            "localhost",
-                            "*.tenant.example.net",
-                            "**.corp.internal",
-                        ]),
-                    ),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "pattern trimmed and trailing-dot stripped",
-                    input: ("bar.foo.com", list(&["  *.Foo.COM.  "])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "single-star: dot boundary, one label matches",
-                    input: ("svc.internal.example", list(&["*.internal.example"])),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "single-star: no dot before suffix rejected",
-                    input: ("notinternal.example", list(&["*.internal.example"])),
-                    expect: Fails,
-                },
-            ],
-            |(hostname, patterns)| {
+        scenarios!(
+            run = |(hostname, patterns)| {
                 trust_domain_matches_allowlist(hostname, &patterns).map_err(drop)
-            },
+            };
+            "empty allowlist allows any host" {
+                ("anything.example", list(&[])) => Yields(()),
+            }
+
+            "exact match" {
+                (
+                    "login.example.com",
+                    list(&["login.example.com", "other.net"]),
+                ) => Yields(()),
+            }
+
+            "exact match ignores case and trailing dot" {
+                (
+                    "LOGIN.EXAMPLE.COM.",
+                    list(&["login.example.com", "other.net"]),
+                ) => Yields(()),
+            }
+
+            "exact mismatch" {
+                ("bad.example.com", list(&["login.example.com", "other.net"])) => Fails,
+            }
+
+            "single-star: one label under suffix matches" {
+                ("auth.something.net", list(&["*.something.net"])) => Yields(()),
+            }
+
+            "single-star: bare suffix does not match" {
+                ("something.net", list(&["*.something.net"])) => Fails,
+            }
+
+            "single-star: two labels under suffix do not match" {
+                ("a.b.something.net", list(&["*.something.net"])) => Fails,
+            }
+
+            "single-star: dot boundary before suffix" {
+                ("notsomething.net", list(&["*.something.net"])) => Fails,
+            }
+
+            "double-star: bare suffix matches" {
+                ("internal.example", list(&["**.internal.example"])) => Yields(()),
+            }
+
+            "double-star: one label deep matches" {
+                ("x.internal.example", list(&["**.internal.example"])) => Yields(()),
+            }
+
+            "double-star: many labels deep match" {
+                ("a.b.internal.example", list(&["**.internal.example"])) => Yields(()),
+            }
+
+            "double-star: suffix not at end does not match" {
+                (
+                    "evil.internal.example.evil.com",
+                    list(&["**.internal.example"]),
+                ) => Fails,
+            }
+
+            "single-star: multi-label under suffix rejected" {
+                ("auth.prod.something.net", list(&["*.something.net"])) => Fails,
+            }
+
+            "single-star: one label matches mixed-case pattern" {
+                ("auth.something.net", list(&["*.SOMETHING.NET"])) => Yields(()),
+            }
+
+            "double-star: suffix as substring of longer zone rejected" {
+                ("api.internal.example.com", list(&["**.internal.example"])) => Fails,
+            }
+
+            "double-star: suffix mid-host rejected" {
+                (
+                    "not-relevant.internal.example.evil.com",
+                    list(&["**.internal.example"]),
+                ) => Fails,
+            }
+
+            "double-star: zone apex matches" {
+                ("co.uk", list(&["**.co.uk"])) => Yields(()),
+            }
+
+            "double-star: child of apex matches" {
+                ("tenant.co.uk", list(&["**.co.uk"])) => Yields(()),
+            }
+
+            "double-star: deep child of apex matches" {
+                ("a.b.co.uk", list(&["**.co.uk"])) => Yields(()),
+            }
+
+            "double-star: different apex rejected" {
+                ("other.uk", list(&["**.co.uk"])) => Fails,
+            }
+
+            "OR across entries: literal matches" {
+                ("exact.only", list(&["exact.only", "**.allowed.zone"])) => Yields(()),
+            }
+
+            "OR across entries: double-star matches" {
+                ("x.allowed.zone", list(&["exact.only", "**.allowed.zone"])) => Yields(()),
+            }
+
+            "OR across entries: neither matches" {
+                ("wrong.zone", list(&["exact.only", "**.allowed.zone"])) => Fails,
+            }
+
+            "mixed list: literal host matches" {
+                (
+                    "idp.example.com",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Yields(()),
+            }
+
+            "mixed list: literal host case-insensitive" {
+                (
+                    "LOCALHOST",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Yields(()),
+            }
+
+            "mixed list: single-star matches" {
+                (
+                    "auth.tenant.example.net",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Yields(()),
+            }
+
+            "mixed list: double-star apex matches" {
+                (
+                    "corp.internal",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Yields(()),
+            }
+
+            "mixed list: double-star deep matches" {
+                (
+                    "a.b.corp.internal",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Yields(()),
+            }
+
+            "mixed list: unrelated literal rejected" {
+                (
+                    "other.example.com",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Fails,
+            }
+
+            "mixed list: single-star too deep rejected" {
+                (
+                    "auth.app.tenant.example.net",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Fails,
+            }
+
+            "mixed list: double-star suffix mid-host rejected" {
+                (
+                    "not.corp.internal.evil.com",
+                    list(&[
+                        "idp.example.com",
+                        "localhost",
+                        "*.tenant.example.net",
+                        "**.corp.internal",
+                    ]),
+                ) => Fails,
+            }
+
+            "pattern trimmed and trailing-dot stripped" {
+                ("bar.foo.com", list(&["  *.Foo.COM.  "])) => Yields(()),
+            }
+
+            "single-star: dot boundary, one label matches" {
+                ("svc.internal.example", list(&["*.internal.example"])) => Yields(()),
+            }
+
+            "single-star: no dot before suffix rejected" {
+                ("notinternal.example", list(&["*.internal.example"])) => Fails,
+            }
         );
     }
 
@@ -956,80 +884,64 @@ mod tests {
         fn list(entries: &[&str]) -> Vec<String> {
             entries.iter().map(|s| s.to_string()).collect()
         }
-        check_cases(
-            [
-                Case {
-                    scenario: "bare `*` rejected",
-                    input: list(&["*"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "bare `**` rejected",
-                    input: list(&["**"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "`*.` (empty suffix) rejected",
-                    input: list(&["*."]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "wildcard inside label rejected",
-                    input: list(&["foo*bar"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "plain hostname accepted",
-                    input: list(&["login.example"]),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "`**.` (empty suffix) rejected",
-                    input: list(&["**."]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "`*.` (empty suffix) rejected again",
-                    input: list(&["*."]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "star inside double-star suffix rejected",
-                    input: list(&["**.foo.*.com"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "star inside single-star suffix rejected",
-                    input: list(&["*.foo*bar.com"]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "whitespace-only entry rejected",
-                    input: list(&["   "]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "tab/space-only entry rejected",
-                    input: list(&["  \t "]),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "double-star multi-label suffix accepted",
-                    input: list(&["**.svc.cluster.local"]),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "mixed valid list passes startup validation",
-                    input: list(&[
-                        "idp.example.com",
-                        "localhost",
-                        "*.tenant.example.net",
-                        "**.corp.internal",
-                    ]),
-                    expect: Yields(()),
-                },
-            ],
-            |patterns| validate_trust_domain_allowlist_patterns(&patterns).map_err(drop),
+        scenarios!(
+            run = |patterns| validate_trust_domain_allowlist_patterns(&patterns).map_err(drop);
+            "bare `*` rejected" {
+                list(&["*"]) => Fails,
+            }
+
+            "bare `**` rejected" {
+                list(&["**"]) => Fails,
+            }
+
+            "`*.` (empty suffix) rejected" {
+                list(&["*."]) => Fails,
+            }
+
+            "wildcard inside label rejected" {
+                list(&["foo*bar"]) => Fails,
+            }
+
+            "plain hostname accepted" {
+                list(&["login.example"]) => Yields(()),
+            }
+
+            "`**.` (empty suffix) rejected" {
+                list(&["**."]) => Fails,
+            }
+
+            "`*.` (empty suffix) rejected again" {
+                list(&["*."]) => Fails,
+            }
+
+            "star inside double-star suffix rejected" {
+                list(&["**.foo.*.com"]) => Fails,
+            }
+
+            "star inside single-star suffix rejected" {
+                list(&["*.foo*bar.com"]) => Fails,
+            }
+
+            "whitespace-only entry rejected" {
+                list(&["   "]) => Fails,
+            }
+
+            "tab/space-only entry rejected" {
+                list(&["  \t "]) => Fails,
+            }
+
+            "double-star multi-label suffix accepted" {
+                list(&["**.svc.cluster.local"]) => Yields(()),
+            }
+
+            "mixed valid list passes startup validation" {
+                list(&[
+                    "idp.example.com",
+                    "localhost",
+                    "*.tenant.example.net",
+                    "**.corp.internal",
+                ]) => Yields(()),
+            }
         );
     }
 
@@ -1038,36 +950,29 @@ mod tests {
     // assert the error contains `token` via `FailsWith(true)`.
     #[test]
     fn token_endpoint_url_accepts_http_and_https_only() {
-        check_cases(
-            [
-                Case {
-                    scenario: "https endpoint -> host",
-                    input: ("https://auth.example.com/oauth/token", &[][..]),
-                    expect: Yields("auth.example.com".to_string()),
-                },
-                Case {
-                    scenario: "http endpoint with port -> host",
-                    input: ("http://auth.example:8080/token", &[][..]),
-                    expect: Yields("auth.example".to_string()),
-                },
-                Case {
-                    scenario: "spiffe scheme rejected",
-                    input: ("spiffe://trust.example/path", &["http", "https"][..]),
-                    expect: FailsWith(true),
-                },
-                Case {
-                    scenario: "ftp scheme rejected",
-                    input: ("ftp://auth.example/token", &["http"][..]),
-                    expect: FailsWith(true),
-                },
-            ],
+        scenarios!(
             // Rejection rows require every listed token in the error, preserving the
             // original's independent contains("http") && contains("https") check
             // rather than coupling to one exact phrase.
-            |(endpoint, tokens)| {
+            run = |(endpoint, tokens)| {
                 registered_host_for_token_endpoint(endpoint)
                     .map_err(|e| tokens.iter().all(|t| e.contains(t)))
-            },
+            };
+            "https endpoint -> host" {
+                ("https://auth.example.com/oauth/token", &[][..]) => Yields("auth.example.com".to_string()),
+            }
+
+            "http endpoint with port -> host" {
+                ("http://auth.example:8080/token", &[][..]) => Yields("auth.example".to_string()),
+            }
+
+            "spiffe scheme rejected" {
+                ("spiffe://trust.example/path", &["http", "https"][..]) => FailsWith(true),
+            }
+
+            "ftp scheme rejected" {
+                ("ftp://auth.example/token", &["http"][..]) => FailsWith(true),
+            }
         );
     }
 }

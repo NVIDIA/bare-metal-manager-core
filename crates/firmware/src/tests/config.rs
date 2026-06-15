@@ -15,9 +15,90 @@
  * limitations under the License.
  */
 
-use model::firmware::FirmwareComponentType;
+use carbide_test_support::value_scenarios;
+use model::firmware::{Firmware, FirmwareComponentType};
 
 use crate::config::*;
+
+const LENOVO_CFG: &str = r#"
+model = "ThinkSystem HS350X V3"
+vendor = "Lenovo"
+
+[components.bmc]
+current_version_reported_as = "BMCImage1"
+preingest_upgrade_when_below = "1.27.260418"
+
+[[components.bmc.known_firmware]]
+version = "1.27.260418"
+filename = "/opt/carbide/firmware/lenovo-thinksystem_hs350x_v3-bmc-1.27.260418/lnvgy_fw_BMC_igc602j-1.27_anyos_noarch.ima"
+default = true
+"#;
+
+const LENOVOAMI_CFG: &str = r#"
+model = "ThinkSystem HS350X V3"
+vendor = "LenovoAMI"
+
+[components.bmc]
+current_version_reported_as = "BMCImage1"
+
+[[components.bmc.known_firmware]]
+version = "1.28.260500"
+filename = "/opt/carbide/firmware/lenovoami-thinksystem_hs350x_v3-bmc-1.28.260500/lnvgy_fw_BMC_igc602x-1.28_anyos_noarch.ima"
+default = true
+"#;
+
+#[derive(Clone, Copy, Debug)]
+enum LenovoLookupCase {
+    DirectLenovo,
+    LenovoAmiFallback,
+    LenovoAmiOverride,
+    MissingVendor,
+}
+
+#[derive(Debug, PartialEq)]
+struct FirmwareLookupSummary {
+    vendor: String,
+    bmc_version: Option<String>,
+}
+
+fn config_with_overrides(overrides: &[&str]) -> FirmwareConfig {
+    let mut config: FirmwareConfig = Default::default();
+    for ovrd in overrides {
+        config.add_test_override((*ovrd).to_string());
+    }
+    config
+}
+
+fn summarize_firmware(firmware: Firmware) -> FirmwareLookupSummary {
+    FirmwareLookupSummary {
+        vendor: firmware.vendor.to_string(),
+        bmc_version: firmware
+            .components
+            .get(&FirmwareComponentType::Bmc)
+            .and_then(|component| component.known_firmware.first())
+            .map(|firmware| firmware.version.clone()),
+    }
+}
+
+fn summarize_lenovo_lookup(case: LenovoLookupCase) -> Option<FirmwareLookupSummary> {
+    let (overrides, vendor) = match case {
+        LenovoLookupCase::DirectLenovo => (&[LENOVO_CFG][..], bmc_vendor::BMCVendor::Lenovo),
+        LenovoLookupCase::LenovoAmiFallback => {
+            (&[LENOVO_CFG][..], bmc_vendor::BMCVendor::LenovoAMI)
+        }
+        // The lookup summaries here intentionally ignore upgrade thresholds; this
+        // case only checks that a vendor-specific LenovoAMI config wins.
+        LenovoLookupCase::LenovoAmiOverride => (
+            &[LENOVO_CFG, LENOVOAMI_CFG][..],
+            bmc_vendor::BMCVendor::LenovoAMI,
+        ),
+        LenovoLookupCase::MissingVendor => (&[LENOVO_CFG][..], bmc_vendor::BMCVendor::Dell),
+    };
+    config_with_overrides(overrides)
+        .create_snapshot()
+        .find(vendor, "ThinkSystem HS350X V3")
+        .map(summarize_firmware)
+}
 
 #[test]
 fn merging_config() -> eyre::Result<()> {
@@ -108,91 +189,34 @@ default = true
 }
 
 #[test]
-fn lenovoami_falls_back_to_lenovo_firmware_config() -> eyre::Result<()> {
-    let cfg = r#"
-model = "ThinkSystem HS350X V3"
-vendor = "Lenovo"
+fn finds_lenovo_firmware_configs() {
+    value_scenarios!(
+        summarize_lenovo_lookup:
+        "direct lookup" {
+            LenovoLookupCase::DirectLenovo => Some(FirmwareLookupSummary {
+                vendor: "lenovo".to_string(),
+                bmc_version: Some("1.27.260418".to_string()),
+            }),
+        }
 
-[components.bmc]
-current_version_reported_as = "BMCImage1"
-preingest_upgrade_when_below = "1.27.260418"
+        "lenovoami fallback" {
+            LenovoLookupCase::LenovoAmiFallback => Some(FirmwareLookupSummary {
+                vendor: "lenovo".to_string(),
+                bmc_version: Some("1.27.260418".to_string()),
+            }),
+        }
 
-[[components.bmc.known_firmware]]
-version = "1.27.260418"
-filename = "/opt/carbide/firmware/lenovo-thinksystem_hs350x_v3-bmc-1.27.260418/lnvgy_fw_BMC_igc602j-1.27_anyos_noarch.ima"
-default = true
-"#;
-    let mut config: FirmwareConfig = Default::default();
-    config.add_test_override(cfg.to_string());
+        "lenovoami override" {
+            LenovoLookupCase::LenovoAmiOverride => Some(FirmwareLookupSummary {
+                vendor: "lenovoami".to_string(),
+                bmc_version: Some("1.28.260500".to_string()),
+            }),
+        }
 
-    let snapshot = config.create_snapshot();
-    let server = snapshot
-        .find(bmc_vendor::BMCVendor::LenovoAMI, "ThinkSystem HS350X V3")
-        .unwrap();
-
-    assert_eq!(server.vendor, bmc_vendor::BMCVendor::Lenovo);
-    assert_eq!(
-        server
-            .components
-            .get(&FirmwareComponentType::Bmc)
-            .unwrap()
-            .known_firmware
-            .first()
-            .unwrap()
-            .version,
-        "1.27.260418"
+        "unmatched vendor" {
+            LenovoLookupCase::MissingVendor => None,
+        }
     );
-    Ok(())
-}
-
-#[test]
-fn lenovoami_firmware_config_takes_precedence_over_lenovo_fallback() -> eyre::Result<()> {
-    let lenovo_cfg = r#"
-model = "ThinkSystem HS350X V3"
-vendor = "Lenovo"
-
-[components.bmc]
-current_version_reported_as = "BMCImage1"
-
-[[components.bmc.known_firmware]]
-version = "1.27.260418"
-filename = "/opt/carbide/firmware/lenovo-thinksystem_hs350x_v3-bmc-1.27.260418/lnvgy_fw_BMC_igc602j-1.27_anyos_noarch.ima"
-default = true
-"#;
-    let lenovoami_cfg = r#"
-model = "ThinkSystem HS350X V3"
-vendor = "LenovoAMI"
-
-[components.bmc]
-current_version_reported_as = "BMCImage1"
-
-[[components.bmc.known_firmware]]
-version = "1.28.260500"
-filename = "/opt/carbide/firmware/lenovoami-thinksystem_hs350x_v3-bmc-1.28.260500/lnvgy_fw_BMC_igc602x-1.28_anyos_noarch.ima"
-default = true
-"#;
-    let mut config: FirmwareConfig = Default::default();
-    config.add_test_override(lenovo_cfg.to_string());
-    config.add_test_override(lenovoami_cfg.to_string());
-
-    let snapshot = config.create_snapshot();
-    let server = snapshot
-        .find(bmc_vendor::BMCVendor::LenovoAMI, "ThinkSystem HS350X V3")
-        .unwrap();
-
-    assert_eq!(server.vendor, bmc_vendor::BMCVendor::LenovoAMI);
-    assert_eq!(
-        server
-            .components
-            .get(&FirmwareComponentType::Bmc)
-            .unwrap()
-            .known_firmware
-            .first()
-            .unwrap()
-            .version,
-        "1.28.260500"
-    );
-    Ok(())
 }
 
 #[test]

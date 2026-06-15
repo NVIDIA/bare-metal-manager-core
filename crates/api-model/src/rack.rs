@@ -822,7 +822,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
@@ -1042,54 +1042,45 @@ mod tests {
         );
         let already_pending = std::mem::discriminant(&RackMaintenanceRejection::AlreadyPending);
 
-        check_cases(
-            [
-                Case {
-                    scenario: "accepts in ready state",
-                    input: (RackState::Ready, None),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "accepts in error state",
-                    input: (
-                        RackState::Error {
-                            cause: "something broke".into(),
-                        },
-                        None,
-                    ),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "rejects in created state",
-                    input: (RackState::Created, None),
-                    expect: FailsWith(not_ready_or_error),
-                },
-                Case {
-                    scenario: "rejects in discovering state",
-                    input: (RackState::Discovering, None),
-                    expect: FailsWith(not_ready_or_error),
-                },
-                Case {
-                    scenario: "rejects in maintenance state",
-                    input: (
-                        RackState::Maintenance {
-                            maintenance_state: RackMaintenanceState::Completed,
-                        },
-                        None,
-                    ),
-                    expect: FailsWith(not_ready_or_error),
-                },
-                Case {
-                    scenario: "rejects when already pending",
-                    input: (RackState::Ready, Some(MaintenanceScope::default())),
-                    expect: FailsWith(already_pending),
-                },
-            ],
-            |(state, maintenance_requested)| {
+        scenarios!(
+            run = |(state, maintenance_requested)| {
                 test_rack(state, maintenance_requested)
                     .check_accepts_maintenance()
                     .map_err(|e| std::mem::discriminant(&e))
-            },
+            };
+            "accepts in ready state" {
+                (RackState::Ready, None) => Yields(()),
+            }
+
+            "accepts in error state" {
+                (
+                    RackState::Error {
+                        cause: "something broke".into(),
+                    },
+                    None,
+                ) => Yields(()),
+            }
+
+            "rejects in created state" {
+                (RackState::Created, None) => FailsWith(not_ready_or_error),
+            }
+
+            "rejects in discovering state" {
+                (RackState::Discovering, None) => FailsWith(not_ready_or_error),
+            }
+
+            "rejects in maintenance state" {
+                (
+                    RackState::Maintenance {
+                        maintenance_state: RackMaintenanceState::Completed,
+                    },
+                    None,
+                ) => FailsWith(not_ready_or_error),
+            }
+
+            "rejects when already pending" {
+                (RackState::Ready, Some(MaintenanceScope::default())) => FailsWith(already_pending),
+            }
         );
     }
 

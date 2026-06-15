@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,48 +51,40 @@ fn verify_cmd_structure() {
 // `tenant_org_id` and `name`.
 #[test]
 fn parse_show_routes_to_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments (all segments)",
-                input: &["network-segment", "show"][..],
-                expect: Yields((false, None, None)),
-            },
-            Case {
-                scenario: "with --tenant-org-id",
-                input: &["network-segment", "show", "--tenant-org-id", "tenant-123"][..],
-                expect: Yields((false, Some("tenant-123".to_string()), None)),
-            },
-            Case {
-                scenario: "with --name",
-                input: &["network-segment", "show", "--name", "my-segment"][..],
-                expect: Yields((false, None, Some("my-segment".to_string()))),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.network.is_some(), args.tenant_org_id, args.name),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments (all segments)" {
+            &["network-segment", "show"][..] => Yields((false, None, None)),
+        }
+
+        "with --tenant-org-id" {
+            &["network-segment", "show", "--tenant-org-id", "tenant-123"][..] => Yields((false, Some("tenant-123".to_string()), None)),
+        }
+
+        "with --name" {
+            &["network-segment", "show", "--name", "my-segment"][..] => Yields((false, None, Some("my-segment".to_string()))),
+        }
     );
 }
 
 // Every malformed invocation is rejected at parse time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "delete without --id",
-            input: &["network-segment", "delete"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "delete without --id" {
+            &["network-segment", "delete"][..] => Fails,
+        }
     );
 }

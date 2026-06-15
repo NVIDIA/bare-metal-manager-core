@@ -17,7 +17,7 @@
 
 use std::mem::discriminant;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::variables::spec::MlxVariableSpec;
 
 // Each builder method produces its matching variant. The old version called
@@ -25,45 +25,35 @@ use libmlx::variables::spec::MlxVariableSpec;
 // nothing. Comparing discriminants restores the check (variant only, no payload).
 #[test]
 fn test_simple_variable_specs() {
-    check_values(
-        [
-            Check {
-                scenario: "boolean",
-                input: MlxVariableSpec::builder().boolean().build(),
-                expect: discriminant(&MlxVariableSpec::Boolean),
-            },
-            Check {
-                scenario: "integer",
-                input: MlxVariableSpec::builder().integer().build(),
-                expect: discriminant(&MlxVariableSpec::Integer),
-            },
-            Check {
-                scenario: "string",
-                input: MlxVariableSpec::builder().string().build(),
-                expect: discriminant(&MlxVariableSpec::String),
-            },
-            Check {
-                scenario: "binary",
-                input: MlxVariableSpec::builder().binary().build(),
-                expect: discriminant(&MlxVariableSpec::Binary),
-            },
-            Check {
-                scenario: "bytes",
-                input: MlxVariableSpec::builder().bytes().build(),
-                expect: discriminant(&MlxVariableSpec::Bytes),
-            },
-            Check {
-                scenario: "array",
-                input: MlxVariableSpec::builder().array().build(),
-                expect: discriminant(&MlxVariableSpec::Array),
-            },
-            Check {
-                scenario: "opaque",
-                input: MlxVariableSpec::builder().opaque().build(),
-                expect: discriminant(&MlxVariableSpec::Opaque),
-            },
-        ],
-        |spec| discriminant(&spec),
+    value_scenarios!(
+        run = |spec| discriminant(&spec);
+        "boolean" {
+            MlxVariableSpec::builder().boolean().build() => discriminant(&MlxVariableSpec::Boolean),
+        }
+
+        "integer" {
+            MlxVariableSpec::builder().integer().build() => discriminant(&MlxVariableSpec::Integer),
+        }
+
+        "string" {
+            MlxVariableSpec::builder().string().build() => discriminant(&MlxVariableSpec::String),
+        }
+
+        "binary" {
+            MlxVariableSpec::builder().binary().build() => discriminant(&MlxVariableSpec::Binary),
+        }
+
+        "bytes" {
+            MlxVariableSpec::builder().bytes().build() => discriminant(&MlxVariableSpec::Bytes),
+        }
+
+        "array" {
+            MlxVariableSpec::builder().array().build() => discriminant(&MlxVariableSpec::Array),
+        }
+
+        "opaque" {
+            MlxVariableSpec::builder().opaque().build() => discriminant(&MlxVariableSpec::Opaque),
+        }
     );
 }
 

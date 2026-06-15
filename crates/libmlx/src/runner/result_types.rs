@@ -525,7 +525,7 @@ impl TryFrom<SyncResultPb> for SyncResult {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, scenarios, value_scenarios};
 
     use super::*;
     use crate::variables::spec::MlxVariableSpec;
@@ -567,54 +567,41 @@ mod coverage_tests {
     // name and description are thin wrappers over the backing variable.
     #[test]
     fn queried_variable_name_and_description() {
-        check_values(
-            [
-                Check {
-                    scenario: "name returns the variable name",
-                    input: queried("ALPHA", 1, 1),
-                    expect: "ALPHA".to_string(),
-                },
-                Check {
-                    scenario: "empty name passes through",
-                    input: queried("", 1, 1),
-                    expect: "".to_string(),
-                },
-            ],
-            |q| q.name().to_string(),
+        value_scenarios!(
+            run = |q| q.name().to_string();
+            "name returns the variable name" {
+                queried("ALPHA", 1, 1) => "ALPHA".to_string(),
+            }
+
+            "empty name passes through" {
+                queried("", 1, 1) => "".to_string(),
+            }
         );
 
-        check_values(
-            [Check {
-                scenario: "description mirrors the backing variable",
-                input: queried("BETA", 1, 1),
-                expect: "desc of BETA".to_string(),
-            }],
-            |q| q.description().to_string(),
+        value_scenarios!(
+            run = |q| q.description().to_string();
+            "description mirrors the backing variable" {
+                queried("BETA", 1, 1) => "desc of BETA".to_string(),
+            }
         );
     }
 
     // is_pending_change is true exactly when current_value != next_value.
     #[test]
     fn queried_variable_is_pending_change() {
-        check_values(
-            [
-                Check {
-                    scenario: "current == next -> no pending change",
-                    input: queried("X", 5, 5),
-                    expect: false,
-                },
-                Check {
-                    scenario: "current != next -> pending change",
-                    input: queried("X", 5, 9),
-                    expect: true,
-                },
-                Check {
-                    scenario: "current == next at zero -> no pending change",
-                    input: queried("X", 0, 0),
-                    expect: false,
-                },
-            ],
-            |q| q.is_pending_change(),
+        value_scenarios!(
+            run = |q| q.is_pending_change();
+            "current == next -> no pending change" {
+                queried("X", 5, 5) => false,
+            }
+
+            "current != next -> pending change" {
+                queried("X", 5, 9) => true,
+            }
+
+            "current == next at zero -> no pending change" {
+                queried("X", 0, 0) => false,
+            }
         );
     }
 
@@ -630,25 +617,19 @@ mod coverage_tests {
     // variable_count is just the length of the variables vec, including 0.
     #[test]
     fn query_result_variable_count() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty",
-                    input: query_result(&[]),
-                    expect: 0usize,
-                },
-                Check {
-                    scenario: "single",
-                    input: query_result(&["a"]),
-                    expect: 1usize,
-                },
-                Check {
-                    scenario: "several",
-                    input: query_result(&["a", "b", "c"]),
-                    expect: 3usize,
-                },
-            ],
-            |qr| qr.variable_count(),
+        value_scenarios!(
+            run = |qr| qr.variable_count();
+            "empty" {
+                query_result(&[]) => 0usize,
+            }
+
+            "single" {
+                query_result(&["a"]) => 1usize,
+            }
+
+            "several" {
+                query_result(&["a", "b", "c"]) => 3usize,
+            }
         );
     }
 
@@ -656,59 +637,47 @@ mod coverage_tests {
     // found name (or "<none>") so the row's expectation is a value we are sure of.
     #[test]
     fn query_result_get_variable() {
-        check_values(
-            [
-                Check {
-                    scenario: "present in the middle",
-                    input: ("b", query_result(&["a", "b", "c"])),
-                    expect: "b".to_string(),
-                },
-                Check {
-                    scenario: "present at the front",
-                    input: ("a", query_result(&["a", "b", "c"])),
-                    expect: "a".to_string(),
-                },
-                Check {
-                    scenario: "absent yields None",
-                    input: ("missing", query_result(&["a", "b", "c"])),
-                    expect: "<none>".to_string(),
-                },
-                Check {
-                    scenario: "absent in empty result",
-                    input: ("a", query_result(&[])),
-                    expect: "<none>".to_string(),
-                },
-            ],
-            |(name, qr)| {
+        value_scenarios!(
+            run = |(name, qr)| {
                 qr.get_variable(name)
                     .map(|v| v.name().to_string())
                     .unwrap_or_else(|| "<none>".to_string())
-            },
+            };
+            "present in the middle" {
+                ("b", query_result(&["a", "b", "c"])) => "b".to_string(),
+            }
+
+            "present at the front" {
+                ("a", query_result(&["a", "b", "c"])) => "a".to_string(),
+            }
+
+            "absent yields None" {
+                ("missing", query_result(&["a", "b", "c"])) => "<none>".to_string(),
+            }
+
+            "absent in empty result" {
+                ("a", query_result(&[])) => "<none>".to_string(),
+            }
         );
     }
 
     // variable_names collects every variable's name, preserving order.
     #[test]
     fn query_result_variable_names() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty",
-                    input: query_result(&[]),
-                    expect: Vec::<String>::new(),
-                },
-                Check {
-                    scenario: "preserves order",
-                    input: query_result(&["c", "a", "b"]),
-                    expect: vec!["c".to_string(), "a".to_string(), "b".to_string()],
-                },
-            ],
-            |qr| {
+        value_scenarios!(
+            run = |qr| {
                 qr.variable_names()
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
-            },
+            };
+            "empty" {
+                query_result(&[]) => Vec::<String>::new(),
+            }
+
+            "preserves order" {
+                query_result(&["c", "a", "b"]) => vec!["c".to_string(), "a".to_string(), "b".to_string()],
+            }
         );
     }
 
@@ -728,20 +697,15 @@ mod coverage_tests {
             }
         }
 
-        check_values(
-            [
-                Check {
-                    scenario: "none changed",
-                    input: sync(3, 0),
-                    expect: "Sync complete: 0/3 variables changed in 0ns".to_string(),
-                },
-                Check {
-                    scenario: "all changed",
-                    input: sync(2, 2),
-                    expect: "Sync complete: 2/2 variables changed in 0ns".to_string(),
-                },
-            ],
-            |s| s.summary(),
+        value_scenarios!(
+            run = |s| s.summary();
+            "none changed" {
+                sync(3, 0) => "Sync complete: 0/3 variables changed in 0ns".to_string(),
+            }
+
+            "all changed" {
+                sync(2, 2) => "Sync complete: 2/2 variables changed in 0ns".to_string(),
+            }
         );
     }
 
@@ -757,20 +721,15 @@ mod coverage_tests {
             }
         }
 
-        check_values(
-            [
-                Check {
-                    scenario: "none needing change",
-                    input: cmp(5, 0),
-                    expect: "Comparison complete: 0/5 variables would change".to_string(),
-                },
-                Check {
-                    scenario: "some needing change",
-                    input: cmp(5, 2),
-                    expect: "Comparison complete: 2/5 variables would change".to_string(),
-                },
-            ],
-            |c| c.summary(),
+        value_scenarios!(
+            run = |c| c.summary();
+            "none needing change" {
+                cmp(5, 0) => "Comparison complete: 0/5 variables would change".to_string(),
+            }
+
+            "some needing change" {
+                cmp(5, 2) => "Comparison complete: 2/5 variables would change".to_string(),
+            }
         );
     }
 
@@ -778,34 +737,30 @@ mod coverage_tests {
     // values render bare via to_display_string, so the arrow tail is exact.
     #[test]
     fn planned_change_description() {
-        check_values(
-            [Check {
-                scenario: "integer current and desired",
-                input: PlannedChange {
+        value_scenarios!(
+            run = |c| c.description();
+            "integer current and desired" {
+                PlannedChange {
                     variable_name: "VAR".to_string(),
                     current_value: int_value("VAR", 1),
                     desired_value: int_value("VAR", 2),
-                },
-                expect: "VAR: 1 → 2".to_string(),
-            }],
-            |c| c.description(),
+                } => "VAR: 1 → 2".to_string(),
+            }
         );
     }
 
     // VariableChange::description formats "name: old → new".
     #[test]
     fn variable_change_description() {
-        check_values(
-            [Check {
-                scenario: "integer old and new",
-                input: VariableChange {
+        value_scenarios!(
+            run = |c| c.description();
+            "integer old and new" {
+                VariableChange {
                     variable_name: "VAR".to_string(),
                     old_value: int_value("VAR", 7),
                     new_value: int_value("VAR", 8),
-                },
-                expect: "VAR: 7 → 8".to_string(),
-            }],
-            |c| c.description(),
+                } => "VAR: 7 → 8".to_string(),
+            }
         );
     }
 
@@ -830,49 +785,40 @@ mod coverage_tests {
             )
         }
 
-        check_values(
-            [
-                Check {
-                    scenario: "new is all None",
-                    input: QueriedDeviceInfo::new(),
-                    expect: (None, None, None, None),
-                },
-                Check {
-                    scenario: "with_device_id fills only device_id",
-                    input: QueriedDeviceInfo::new().with_device_id("dev-1"),
-                    expect: (Some("dev-1".to_string()), None, None, None),
-                },
-                Check {
-                    scenario: "with_device_type fills only device_type",
-                    input: QueriedDeviceInfo::new().with_device_type("ConnectX"),
-                    expect: (None, Some("ConnectX".to_string()), None, None),
-                },
-                Check {
-                    scenario: "with_part_number fills only part_number",
-                    input: QueriedDeviceInfo::new().with_part_number("MCX-1"),
-                    expect: (None, None, Some("MCX-1".to_string()), None),
-                },
-                Check {
-                    scenario: "with_description fills only description",
-                    input: QueriedDeviceInfo::new().with_description("a nic"),
-                    expect: (None, None, None, Some("a nic".to_string())),
-                },
-                Check {
-                    scenario: "all setters chain",
-                    input: QueriedDeviceInfo::new()
-                        .with_device_id("dev-1")
-                        .with_device_type("ConnectX")
-                        .with_part_number("MCX-1")
-                        .with_description("a nic"),
-                    expect: (
-                        Some("dev-1".to_string()),
-                        Some("ConnectX".to_string()),
-                        Some("MCX-1".to_string()),
-                        Some("a nic".to_string()),
-                    ),
-                },
-            ],
-            |i| fields(&i),
+        value_scenarios!(
+            run = |i| fields(&i);
+            "new is all None" {
+                QueriedDeviceInfo::new() => (None, None, None, None),
+            }
+
+            "with_device_id fills only device_id" {
+                QueriedDeviceInfo::new().with_device_id("dev-1") => (Some("dev-1".to_string()), None, None, None),
+            }
+
+            "with_device_type fills only device_type" {
+                QueriedDeviceInfo::new().with_device_type("ConnectX") => (None, Some("ConnectX".to_string()), None, None),
+            }
+
+            "with_part_number fills only part_number" {
+                QueriedDeviceInfo::new().with_part_number("MCX-1") => (None, None, Some("MCX-1".to_string()), None),
+            }
+
+            "with_description fills only description" {
+                QueriedDeviceInfo::new().with_description("a nic") => (None, None, None, Some("a nic".to_string())),
+            }
+
+            "all setters chain" {
+                QueriedDeviceInfo::new()
+                .with_device_id("dev-1")
+                .with_device_type("ConnectX")
+                .with_part_number("MCX-1")
+                .with_description("a nic") => (
+                    Some("dev-1".to_string()),
+                    Some("ConnectX".to_string()),
+                    Some("MCX-1".to_string()),
+                    Some("a nic".to_string()),
+                ),
+            }
         );
     }
 
@@ -897,33 +843,28 @@ mod coverage_tests {
             )
         }
 
-        check_values(
-            [
-                Check {
-                    scenario: "all None survives the round-trip",
-                    input: QueriedDeviceInfo::new(),
-                    expect: (None, None, None, None),
-                },
-                Check {
-                    scenario: "all Some survives the round-trip",
-                    input: QueriedDeviceInfo::new()
-                        .with_device_id("d")
-                        .with_device_type("t")
-                        .with_part_number("p")
-                        .with_description("x"),
-                    expect: (
-                        Some("d".to_string()),
-                        Some("t".to_string()),
-                        Some("p".to_string()),
-                        Some("x".to_string()),
-                    ),
-                },
-            ],
-            |info| {
+        value_scenarios!(
+            run = |info| {
                 let pb: QueriedDeviceInfoPb = info.into();
                 let back: QueriedDeviceInfo = pb.into();
                 fields(&back)
-            },
+            };
+            "all None survives the round-trip" {
+                QueriedDeviceInfo::new() => (None, None, None, None),
+            }
+
+            "all Some survives the round-trip" {
+                QueriedDeviceInfo::new()
+                .with_device_id("d")
+                .with_device_type("t")
+                .with_part_number("p")
+                .with_description("x") => (
+                    Some("d".to_string()),
+                    Some("t".to_string()),
+                    Some("p".to_string()),
+                    Some("x".to_string()),
+                ),
+            }
         );
     }
 
@@ -952,46 +893,39 @@ mod coverage_tests {
             q.try_into().expect("complete QueriedVariable converts")
         }
 
-        check_cases(
-            [
-                Case {
-                    scenario: "missing variable",
-                    input: QueriedVariablePb {
-                        variable: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing current_value",
-                    input: QueriedVariablePb {
-                        current_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing default_value",
-                    input: QueriedVariablePb {
-                        default_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing next_value",
-                    input: QueriedVariablePb {
-                        next_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-            ],
-            |pb| {
+        scenarios!(
+            run = |pb| {
                 QueriedVariable::try_from(pb)
                     .map(|q| q.name().to_string())
                     .map_err(drop)
-            },
+            };
+            "missing variable" {
+                QueriedVariablePb {
+                    variable: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing current_value" {
+                QueriedVariablePb {
+                    current_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing default_value" {
+                QueriedVariablePb {
+                    default_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing next_value" {
+                QueriedVariablePb {
+                    next_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
         );
     }
 
@@ -1056,30 +990,25 @@ mod coverage_tests {
                 .expect("complete PlannedChange converts")
         }
 
-        check_cases(
-            [
-                Case {
-                    scenario: "missing current_value",
-                    input: PlannedChangePb {
-                        current_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing desired_value",
-                    input: PlannedChangePb {
-                        desired_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-            ],
-            |pb| {
+        scenarios!(
+            run = |pb| {
                 PlannedChange::try_from(pb)
                     .map(|c| c.variable_name)
                     .map_err(drop)
-            },
+            };
+            "missing current_value" {
+                PlannedChangePb {
+                    current_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing desired_value" {
+                PlannedChangePb {
+                    desired_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
         );
     }
 
@@ -1112,30 +1041,25 @@ mod coverage_tests {
                 .expect("complete VariableChange converts")
         }
 
-        check_cases(
-            [
-                Case {
-                    scenario: "missing old_value",
-                    input: VariableChangePb {
-                        old_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing new_value",
-                    input: VariableChangePb {
-                        new_value: None,
-                        ..full_pb()
-                    },
-                    expect: Fails,
-                },
-            ],
-            |pb| {
+        scenarios!(
+            run = |pb| {
                 VariableChange::try_from(pb)
                     .map(|c| c.variable_name)
                     .map_err(drop)
-            },
+            };
+            "missing old_value" {
+                VariableChangePb {
+                    old_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing new_value" {
+                VariableChangePb {
+                    new_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
         );
     }
 

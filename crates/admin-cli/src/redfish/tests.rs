@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -65,49 +65,39 @@ fn variant(cmd: &Cmd) -> &'static str {
 // a valid global --address.
 #[test]
 fn payload_free_subcommands_route_to_their_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "bios-attrs",
-                input: &["redfish", "--address", "192.0.2.10", "bios-attrs"][..],
-                expect: Yields("bios-attrs"),
-            },
-            Case {
-                scenario: "boot-hdd",
-                input: &["redfish", "--address", "192.0.2.10", "boot-hdd"][..],
-                expect: Yields("boot-hdd"),
-            },
-            Case {
-                scenario: "boot-pxe",
-                input: &["redfish", "--address", "192.0.2.10", "boot-pxe"][..],
-                expect: Yields("boot-pxe"),
-            },
-            Case {
-                scenario: "get-power-state",
-                input: &["redfish", "--address", "192.0.2.10", "get-power-state"][..],
-                expect: Yields("get-power-state"),
-            },
-            Case {
-                scenario: "force-off",
-                input: &["redfish", "--address", "192.0.2.10", "force-off"][..],
-                expect: Yields("force-off"),
-            },
-            Case {
-                scenario: "force-restart",
-                input: &["redfish", "--address", "192.0.2.10", "force-restart"][..],
-                expect: Yields("force-restart"),
-            },
-            Case {
-                scenario: "on",
-                input: &["redfish", "--address", "192.0.2.10", "on"][..],
-                expect: Yields("on"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             RedfishAction::try_parse_from(argv.iter().copied())
                 .map(|a| variant(&a.command))
                 .map_err(drop)
-        },
+        };
+        "bios-attrs" {
+            &["redfish", "--address", "192.0.2.10", "bios-attrs"][..] => Yields("bios-attrs"),
+        }
+
+        "boot-hdd" {
+            &["redfish", "--address", "192.0.2.10", "boot-hdd"][..] => Yields("boot-hdd"),
+        }
+
+        "boot-pxe" {
+            &["redfish", "--address", "192.0.2.10", "boot-pxe"][..] => Yields("boot-pxe"),
+        }
+
+        "get-power-state" {
+            &["redfish", "--address", "192.0.2.10", "get-power-state"][..] => Yields("get-power-state"),
+        }
+
+        "force-off" {
+            &["redfish", "--address", "192.0.2.10", "force-off"][..] => Yields("force-off"),
+        }
+
+        "force-restart" {
+            &["redfish", "--address", "192.0.2.10", "force-restart"][..] => Yields("force-restart"),
+        }
+
+        "on" {
+            &["redfish", "--address", "192.0.2.10", "on"][..] => Yields("on"),
+        }
     );
 }
 
@@ -159,10 +149,17 @@ fn parse_with_credentials() {
 // new-password through to the CreateBmcUser variant.
 #[test]
 fn parse_create_bmc_user() {
-    check_cases(
-        [Case {
-            scenario: "create-bmc-user with user and new-password",
-            input: &[
+    scenarios!(
+        run = |argv| {
+            RedfishAction::try_parse_from(argv.iter().copied())
+                .map(|a| match a.command {
+                    Cmd::CreateBmcUser(args) => (args.user, args.new_password),
+                    _ => panic!("expected CreateBmcUser variant"),
+                })
+                .map_err(drop)
+        };
+        "create-bmc-user with user and new-password" {
+            &[
                 "redfish",
                 "--address",
                 "192.0.2.10",
@@ -171,17 +168,8 @@ fn parse_create_bmc_user() {
                 "secret",
                 "--user",
                 "admin",
-            ][..],
-            expect: Yields(("admin".to_string(), "secret".to_string())),
-        }],
-        |argv| {
-            RedfishAction::try_parse_from(argv.iter().copied())
-                .map(|a| match a.command {
-                    Cmd::CreateBmcUser(args) => (args.user, args.new_password),
-                    _ => panic!("expected CreateBmcUser variant"),
-                })
-                .map_err(drop)
-        },
+            ][..] => Yields(("admin".to_string(), "secret".to_string())),
+        }
     );
 }
 
@@ -189,26 +177,24 @@ fn parse_create_bmc_user() {
 // subcommands to the Dpu Firmware Status variant.
 #[test]
 fn parse_dpu_firmware_status() {
-    check_cases(
-        [Case {
-            scenario: "dpu firmware status",
-            input: &[
-                "redfish",
-                "--address",
-                "192.0.2.10",
-                "dpu",
-                "firmware",
-                "status",
-            ][..],
-            expect: Yields("dpu firmware status"),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             RedfishAction::try_parse_from(argv.iter().copied())
                 .map(|a| match a.command {
                     Cmd::Dpu(DpuOperations::Firmware(FwCommand::Status)) => "dpu firmware status",
                     _ => panic!("expected Dpu Firmware Status variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "dpu firmware status" {
+            &[
+                "redfish",
+                "--address",
+                "192.0.2.10",
+                "dpu",
+                "firmware",
+                "status",
+            ][..] => Yields("dpu firmware status"),
+        }
     );
 }

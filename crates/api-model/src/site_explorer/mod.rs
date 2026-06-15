@@ -1554,7 +1554,7 @@ pub fn is_bluefield_model(model: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, scenarios};
 
     use super::*;
     use crate::firmware::FirmwareComponent;
@@ -1621,30 +1621,25 @@ mod tests {
     #[test]
     fn test_find_version() {
         let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        check_cases(
-            [
-                Case {
-                    scenario: "single match",
-                    input: vec![("BMC_Firmware", Some("1.2.3")), ("DPU_UEFI", Some("4.5.6"))],
-                    expect: Yields("1.2.3".to_string()),
-                },
-                Case {
-                    scenario: "no match",
-                    input: vec![
-                        ("DPU_UEFI", Some("4.5.6")),
-                        ("Other_Component", Some("7.8.9")),
-                    ],
-                    expect: Fails,
-                },
-            ],
+        scenarios!(
             // Build an endpoint from the inventories, then look up the BMC
             // version; absent -> error so the no-match row reads as a failure.
-            |inventories| {
+            run = |inventories| {
                 create_test_endpoint(inventories)
                     .find_version(&fw_info, FirmwareComponentType::Bmc)
                     .cloned()
                     .ok_or(())
-            },
+            };
+            "single match" {
+                vec![("BMC_Firmware", Some("1.2.3")), ("DPU_UEFI", Some("4.5.6"))] => Yields("1.2.3".to_string()),
+            }
+
+            "no match" {
+                vec![
+                    ("DPU_UEFI", Some("4.5.6")),
+                    ("Other_Component", Some("7.8.9")),
+                ] => Fails,
+            }
         );
     }
 
@@ -2146,35 +2141,28 @@ mod tests {
             ..Default::default()
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "matching MAC yields its interface id",
-                    input: (two_iface_report.clone(), mac),
-                    expect: Yields("NIC.Slot.7-1-1".to_string()),
-                },
-                Case {
-                    scenario: "unknown MAC -> None (keeps last-known-good record)",
-                    input: (two_iface_report, MacAddress::new([0, 0, 0, 0, 0, 0])),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "MAC present but no interface id -> no complete pair",
-                    input: (single_iface_report(None), mac),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty id treated as absent (don't clobber stored boot interface)",
-                    input: (single_iface_report(Some(String::new())), mac),
-                    expect: Fails,
-                },
-            ],
-            |(report, mac)| {
+        scenarios!(
+            run = |(report, mac)| {
                 report
                     .find_interface_id_for_mac(mac)
                     .map(str::to_string)
                     .ok_or(())
-            },
+            };
+            "matching MAC yields its interface id" {
+                (two_iface_report.clone(), mac) => Yields("NIC.Slot.7-1-1".to_string()),
+            }
+
+            "unknown MAC -> None (keeps last-known-good record)" {
+                (two_iface_report, MacAddress::new([0, 0, 0, 0, 0, 0])) => Fails,
+            }
+
+            "MAC present but no interface id -> no complete pair" {
+                (single_iface_report(None), mac) => Fails,
+            }
+
+            "empty id treated as absent (don't clobber stored boot interface)" {
+                (single_iface_report(Some(String::new())), mac) => Fails,
+            }
         );
     }
 
@@ -2298,75 +2286,68 @@ mod tests {
     /// Each row projects to the resulting `base_mac`.
     #[test]
     fn test_computer_system_base_mac_deserialization() {
-        check_cases(
-            [
-                Case {
-                    scenario: "invalid BaseMac -> None",
-                    input: serde_json::json!({
-                        "EthernetInterfaces": [],
-                        "Id": "Bluefield",
-                        "Manufacturer": "Nvidia",
-                        "Model": "Bluefield-3 DPU",
-                        "SerialNumber": "ABC1234",
-                        "Attributes": {},
-                        "PcieDevices": [],
-                        "BaseMac": "pe:",
-                        "PowerState": "On"
-                    }),
-                    expect: Yields(None),
-                },
-                Case {
-                    scenario: "valid BaseMac parses through",
-                    input: serde_json::json!({
-                        "EthernetInterfaces": [],
-                        "Id": "Bluefield",
-                        "Manufacturer": "Nvidia",
-                        "Model": "Bluefield-3 DPU",
-                        "SerialNumber": "ABC1234",
-                        "Attributes": {},
-                        "PcieDevices": [],
-                        "BaseMac": "A088C208804C",
-                        "PowerState": "On"
-                    }),
-                    expect: Yields(Some("A088C208804C".parse().unwrap())),
-                },
-                Case {
-                    scenario: "null BaseMac -> None",
-                    input: serde_json::json!({
-                        "EthernetInterfaces": [],
-                        "Id": "Bluefield",
-                        "Manufacturer": "Nvidia",
-                        "Model": "Bluefield-3 DPU",
-                        "SerialNumber": "ABC1234",
-                        "Attributes": {},
-                        "PcieDevices": [],
-                        "BaseMac": null,
-                        "PowerState": "On"
-                    }),
-                    expect: Yields(None),
-                },
-                Case {
-                    scenario: "missing BaseMac -> None",
-                    input: serde_json::json!({
-                        "EthernetInterfaces": [],
-                        "Id": "Bluefield",
-                        "Manufacturer": "Nvidia",
-                        "Model": "Bluefield-3 DPU",
-                        "SerialNumber": "ABC1234",
-                        "Attributes": {},
-                        "PcieDevices": [],
-                        "PowerState": "On"
-                    }),
-                    expect: Yields(None),
-                },
-            ],
+        scenarios!(
             // Deserialize and project to base_mac; every row is expected to
             // deserialize, so the (non-PartialEq) serde error is discarded.
-            |json| {
+            run = |json| {
                 serde_json::from_value::<ComputerSystem>(json)
                     .map(|system| system.base_mac)
                     .map_err(drop)
-            },
+            };
+            "invalid BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": "pe:",
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
+
+            "valid BaseMac parses through" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": "A088C208804C",
+                    "PowerState": "On"
+                }) => Yields(Some("A088C208804C".parse().unwrap())),
+            }
+
+            "null BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "BaseMac": null,
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
+
+            "missing BaseMac -> None" {
+                serde_json::json!({
+                    "EthernetInterfaces": [],
+                    "Id": "Bluefield",
+                    "Manufacturer": "Nvidia",
+                    "Model": "Bluefield-3 DPU",
+                    "SerialNumber": "ABC1234",
+                    "Attributes": {},
+                    "PcieDevices": [],
+                    "PowerState": "On"
+                }) => Yields(None),
+            }
         );
     }
 }

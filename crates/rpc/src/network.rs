@@ -73,48 +73,39 @@ pub fn vpc_virtualization_type_try_from_rpc(
 mod test {
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, value_scenarios};
 
     use super::*;
 
     // proto -> model: `From<rpc::VpcVirtualizationType>` (infallible).
+    #[allow(deprecated)]
     #[test]
     fn from_rpc_maps_to_model() {
-        #[allow(deprecated)]
-        check_values(
-            [
-                Check {
-                    scenario: "etv-with-nvue maps to etv",
-                    input: rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue,
-                    expect: VpcVirtualizationType::EthernetVirtualizer,
-                },
-                Check {
-                    scenario: "flat round-trips to flat",
-                    input: rpc::VpcVirtualizationType::Flat,
-                    expect: VpcVirtualizationType::Flat,
-                },
-            ],
-            |v| v.into(),
+        value_scenarios!(
+            run = |v| v.into();
+            "deprecated etv-with-nvue maps to etv" {
+                // deprecated: EthernetVirtualizerWithNvue remains accepted as etv.
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => VpcVirtualizationType::EthernetVirtualizer,
+            }
+
+            "flat round-trips to flat" {
+                rpc::VpcVirtualizationType::Flat => VpcVirtualizationType::Flat,
+            }
         );
     }
 
     // model -> proto: `From<VpcVirtualizationType>` (infallible).
     #[test]
     fn to_rpc_maps_to_proto() {
-        check_values(
-            [
-                Check {
-                    scenario: "etv maps to proto etv",
-                    input: VpcVirtualizationType::EthernetVirtualizer,
-                    expect: rpc::VpcVirtualizationType::EthernetVirtualizer,
-                },
-                Check {
-                    scenario: "flat round-trips to proto flat",
-                    input: VpcVirtualizationType::Flat,
-                    expect: rpc::VpcVirtualizationType::Flat,
-                },
-            ],
-            |v| v.into(),
+        value_scenarios!(
+            run = |v| v.into();
+            "etv maps to proto etv" {
+                VpcVirtualizationType::EthernetVirtualizer => rpc::VpcVirtualizationType::EthernetVirtualizer,
+            }
+
+            "flat round-trips to proto flat" {
+                VpcVirtualizationType::Flat => rpc::VpcVirtualizationType::Flat,
+            }
         );
     }
 

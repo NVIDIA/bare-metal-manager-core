@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,27 +51,22 @@ fn verify_cmd_structure() {
 // threads the filter through.
 #[test]
 fn parse_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments targets all partitions",
-                input: &["nvl-logical-partition", "show"][..],
-                expect: Yields((true, None)),
-            },
-            Case {
-                scenario: "with a --name filter",
-                input: &["nvl-logical-partition", "show", "--name", "my-partition"][..],
-                expect: Yields((true, Some("my-partition".to_string()))),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.id.is_empty(), args.name),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments targets all partitions" {
+            &["nvl-logical-partition", "show"][..] => Yields((true, None)),
+        }
+
+        "with a --name filter" {
+            &["nvl-logical-partition", "show", "--name", "my-partition"][..] => Yields((true, Some("my-partition".to_string()))),
+        }
     );
 }
 
@@ -79,47 +74,43 @@ fn parse_show() {
 // threading both through to the Create variant.
 #[test]
 fn parse_create() {
-    check_cases(
-        [Case {
-            scenario: "create with required arguments",
-            input: &[
-                "nvl-logical-partition",
-                "create",
-                "--name",
-                "my-partition",
-                "--tenant-organization-id",
-                "tenant-123",
-            ][..],
-            expect: Yields(("my-partition".to_string(), "tenant-123".to_string())),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Create(args) => (args.name, args.tenant_organization_id),
                     _ => panic!("expected Create variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "create with required arguments" {
+            &[
+                "nvl-logical-partition",
+                "create",
+                "--name",
+                "my-partition",
+                "--tenant-organization-id",
+                "tenant-123",
+            ][..] => Yields(("my-partition".to_string(), "tenant-123".to_string())),
+        }
     );
 }
 
 // delete parses with its required --name, routing to the Delete variant.
 #[test]
 fn parse_delete() {
-    check_cases(
-        [Case {
-            scenario: "delete with required --name",
-            input: &["nvl-logical-partition", "delete", "--name", "my-partition"][..],
-            expect: Yields("my-partition".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Delete(args) => args.name,
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "delete with required --name" {
+            &["nvl-logical-partition", "delete", "--name", "my-partition"][..] => Yields("my-partition".to_string()),
+        }
     );
 }
 
@@ -128,23 +119,18 @@ fn parse_delete() {
 // without its required --name.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "create without --name and --tenant-organization-id",
-                input: &["nvl-logical-partition", "create"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "delete without --name",
-                input: &["nvl-logical-partition", "delete"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "create without --name and --tenant-organization-id" {
+            &["nvl-logical-partition", "create"][..] => Fails,
+        }
+
+        "delete without --name" {
+            &["nvl-logical-partition", "delete"][..] => Fails,
+        }
     );
 }

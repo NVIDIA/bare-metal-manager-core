@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,29 +51,23 @@ fn verify_cmd_structure() {
 // --enable/--disable choice.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "log-filter without --filter",
-                input: &["set", "log-filter"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "create-machines without --enable/--disable",
-                input: &["set", "create-machines"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "site-explorer without --enable/--disable",
-                input: &["set", "site-explorer"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "log-filter without --filter" {
+            &["set", "log-filter"][..] => Fails,
+        }
+
+        "create-machines without --enable/--disable" {
+            &["set", "create-machines"][..] => Fails,
+        }
+
+        "site-explorer without --enable/--disable" {
+            &["set", "site-explorer"][..] => Fails,
+        }
     );
 }
 
@@ -81,34 +75,29 @@ fn invalid_invocations_are_rejected() {
 // defaults to "1h"; the yielded tuple is (filter, expiry).
 #[test]
 fn parse_log_filter_routes_to_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "filter only, expiry defaults",
-                input: &["set", "log-filter", "--filter", "debug"][..],
-                expect: Yields(("debug".to_string(), "1h".to_string())),
-            },
-            Case {
-                scenario: "filter with custom expiry",
-                input: &[
-                    "set",
-                    "log-filter",
-                    "--filter",
-                    "trace",
-                    "--expiry",
-                    "30min",
-                ][..],
-                expect: Yields(("trace".to_string(), "30min".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::LogFilter(args) => (args.filter, args.expiry),
                     _ => panic!("expected LogFilter variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "filter only, expiry defaults" {
+            &["set", "log-filter", "--filter", "debug"][..] => Yields(("debug".to_string(), "1h".to_string())),
+        }
+
+        "filter with custom expiry" {
+            &[
+                "set",
+                "log-filter",
+                "--filter",
+                "trace",
+                "--expiry",
+                "30min",
+            ][..] => Yields(("trace".to_string(), "30min".to_string())),
+        }
     );
 }
 
@@ -116,27 +105,22 @@ fn parse_log_filter_routes_to_variant() {
 // is_enabled() == true, --disable yields false.
 #[test]
 fn parse_create_machines_toggle() {
-    check_cases(
-        [
-            Case {
-                scenario: "--enable",
-                input: &["set", "create-machines", "--enable"][..],
-                expect: Yields(true),
-            },
-            Case {
-                scenario: "--disable",
-                input: &["set", "create-machines", "--disable"][..],
-                expect: Yields(false),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::CreateMachines(args) => args.is_enabled(),
                     _ => panic!("expected CreateMachines variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "--enable" {
+            &["set", "create-machines", "--enable"][..] => Yields(true),
+        }
+
+        "--disable" {
+            &["set", "create-machines", "--disable"][..] => Yields(false),
+        }
     );
 }
 
@@ -144,27 +128,22 @@ fn parse_create_machines_toggle() {
 // is_enabled() == true, --disable yields false.
 #[test]
 fn parse_site_explorer_toggle() {
-    check_cases(
-        [
-            Case {
-                scenario: "--enable",
-                input: &["set", "site-explorer", "--enable"][..],
-                expect: Yields(true),
-            },
-            Case {
-                scenario: "--disable",
-                input: &["set", "site-explorer", "--disable"][..],
-                expect: Yields(false),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::SiteExplorer(args) => args.is_enabled(),
                     _ => panic!("expected SiteExplorer variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "--enable" {
+            &["set", "site-explorer", "--enable"][..] => Yields(true),
+        }
+
+        "--disable" {
+            &["set", "site-explorer", "--disable"][..] => Yields(false),
+        }
     );
 }
 
@@ -172,27 +151,25 @@ fn parse_site_explorer_toggle() {
 // (enabled, proxy).
 #[test]
 fn parse_bmc_proxy_routes_to_variant() {
-    check_cases(
-        [Case {
-            scenario: "enabled with a proxy address",
-            input: &[
-                "set",
-                "bmc-proxy",
-                "--enabled",
-                "true",
-                "--proxy",
-                "proxy.example.com:8080",
-            ][..],
-            expect: Yields((true, Some("proxy.example.com:8080".to_string()))),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::BmcProxy(args) => (args.enabled, args.proxy),
                     _ => panic!("expected BmcProxy variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "enabled with a proxy address" {
+            &[
+                "set",
+                "bmc-proxy",
+                "--enabled",
+                "true",
+                "--proxy",
+                "proxy.example.com:8080",
+            ][..] => Yields((true, Some("proxy.example.com:8080".to_string()))),
+        }
     );
 }
 
@@ -200,26 +177,21 @@ fn parse_bmc_proxy_routes_to_variant() {
 // value == true, "false" yields false.
 #[test]
 fn parse_tracing_enabled_value() {
-    check_cases(
-        [
-            Case {
-                scenario: "true",
-                input: &["set", "tracing-enabled", "true"][..],
-                expect: Yields(true),
-            },
-            Case {
-                scenario: "false",
-                input: &["set", "tracing-enabled", "false"][..],
-                expect: Yields(false),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::TracingEnabled(args) => args.value,
                     _ => panic!("expected TracingEnabled variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "true" {
+            &["set", "tracing-enabled", "true"][..] => Yields(true),
+        }
+
+        "false" {
+            &["set", "tracing-enabled", "false"][..] => Yields(false),
+        }
     );
 }

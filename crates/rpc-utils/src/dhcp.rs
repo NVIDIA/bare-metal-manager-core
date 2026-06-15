@@ -293,3 +293,382 @@ impl IntoIterator for DhcpTimestamps {
         self.timestamps.into_iter()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+    use rpc::forge::{
+        FlatInterfaceConfig, InterfaceFunctionType, ManagedHostNetworkConfigResponse,
+        VpcVirtualizationType,
+    };
+
+    use super::*;
+
+    const HOST_INTERFACE_ID: &str = "11111111-1111-1111-1111-111111111111";
+    const DEFAULT_LEASE_TIME_SECS: u32 = 7 * 24 * 60 * 60;
+
+    #[derive(Debug, PartialEq)]
+    struct DhcpConfigSummary {
+        provisioning_server: Ipv4Addr,
+        dhcp_server: Ipv4Addr,
+        ntpservers: Vec<Ipv4Addr>,
+        nameservers: Vec<Ipv4Addr>,
+        lease_time_secs: u32,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct InterfaceSummary {
+        address: Ipv4Addr,
+        gateway: Ipv4Addr,
+        prefix: String,
+        fqdn: String,
+        booturl: Option<String>,
+        mtu: Option<u32>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct HostConfigSummary {
+        host_interface_id: String,
+        host_ip_addresses: Vec<(String, InterfaceSummary)>,
+    }
+
+    fn host_interface_id() -> MachineInterfaceId {
+        HOST_INTERFACE_ID.parse().unwrap()
+    }
+
+    fn interface_config(
+        function_type: InterfaceFunctionType,
+        vlan_id: u32,
+        virtual_function_id: Option<u32>,
+        is_l2_segment: bool,
+        ip: &str,
+        gateway: &str,
+    ) -> FlatInterfaceConfig {
+        FlatInterfaceConfig {
+            function_type: function_type as i32,
+            vlan_id,
+            gateway: gateway.to_string(),
+            ip: ip.to_string(),
+            virtual_function_id,
+            prefix: "192.0.2.0/24".to_string(),
+            fqdn: "host.example.com".to_string(),
+            booturl: Some("http://boot.example.com/ipxe".to_string()),
+            is_l2_segment,
+            mtu: Some(9000),
+            ..Default::default()
+        }
+    }
+
+    fn host_network_config(
+        use_admin_network: bool,
+        admin_interface: Option<FlatInterfaceConfig>,
+        tenant_interfaces: Vec<FlatInterfaceConfig>,
+        virtualization_type: VpcVirtualizationType,
+        host_interface_id: Option<String>,
+    ) -> ManagedHostNetworkConfigResponse {
+        ManagedHostNetworkConfigResponse {
+            use_admin_network,
+            admin_interface,
+            tenant_interfaces,
+            network_virtualization_type: Some(virtualization_type as i32),
+            host_interface_id,
+            ..Default::default()
+        }
+    }
+
+    fn summarize_interface(interface: InterfaceInfo) -> InterfaceSummary {
+        InterfaceSummary {
+            address: interface.address,
+            gateway: interface.gateway,
+            prefix: interface.prefix,
+            fqdn: interface.fqdn,
+            booturl: interface.booturl,
+            mtu: interface.mtu,
+        }
+    }
+
+    fn summarize_host_config(
+        (config, is_dpu_os): (ManagedHostNetworkConfigResponse, bool),
+    ) -> Result<HostConfigSummary, &'static str> {
+        HostConfig::try_from(config, "p0", "vf", "sf", is_dpu_os)
+            .map(|host_config| HostConfigSummary {
+                host_interface_id: host_config.host_interface_id.to_string(),
+                host_ip_addresses: host_config
+                    .host_ip_addresses
+                    .into_iter()
+                    .map(|(name, interface)| (name, summarize_interface(interface)))
+                    .collect(),
+            })
+            .map_err(dhcp_error_kind)
+    }
+
+    fn summarize_dhcp_config(
+        (provisioning_server, ntpservers, nameservers, dhcp_server): (
+            Ipv4Addr,
+            Vec<Ipv4Addr>,
+            Vec<Ipv4Addr>,
+            Ipv4Addr,
+        ),
+    ) -> Result<DhcpConfigSummary, &'static str> {
+        DhcpConfig::from_forge_dhcp_config(
+            provisioning_server,
+            ntpservers,
+            nameservers,
+            dhcp_server,
+        )
+        .map(|config| DhcpConfigSummary {
+            provisioning_server: config.carbide_provisioning_server_ipv4,
+            dhcp_server: config.carbide_dhcp_server,
+            ntpservers: config.carbide_ntpservers,
+            nameservers: config.carbide_nameservers,
+            lease_time_secs: config.lease_time_secs,
+        })
+        .map_err(dhcp_error_kind)
+    }
+
+    fn summarize_flat_interface(
+        config: FlatInterfaceConfig,
+    ) -> Result<InterfaceSummary, &'static str> {
+        InterfaceInfo::try_from(config)
+            .map(summarize_interface)
+            .map_err(dhcp_error_kind)
+    }
+
+    fn dhcp_error_kind(error: DhcpDataError) -> &'static str {
+        match error {
+            DhcpDataError::AddressParseError(_) => "address-parse",
+            DhcpDataError::ParameterMissing(_) => "parameter-missing",
+            DhcpDataError::IpNetworkError(_) => "ip-network",
+            DhcpDataError::RpcConversion(_) => "rpc-conversion",
+            DhcpDataError::UuidConversion(_) => "uuid-conversion",
+            DhcpDataError::UuidParseError(_) => "uuid-parse",
+        }
+    }
+
+    #[test]
+    fn builds_dhcp_config_from_forge_values() {
+        scenarios!(summarize_dhcp_config:
+            "configured addresses" {
+                (
+                    Ipv4Addr::new(192, 0, 2, 10),
+                    vec![Ipv4Addr::new(192, 0, 2, 20)],
+                    vec![Ipv4Addr::new(192, 0, 2, 53)],
+                    Ipv4Addr::new(127, 0, 0, 2),
+                ) => Yields(DhcpConfigSummary {
+                    provisioning_server: Ipv4Addr::new(192, 0, 2, 10),
+                    dhcp_server: Ipv4Addr::new(127, 0, 0, 2),
+                    ntpservers: vec![Ipv4Addr::new(192, 0, 2, 20)],
+                    nameservers: vec![Ipv4Addr::new(192, 0, 2, 53)],
+                    lease_time_secs: DEFAULT_LEASE_TIME_SECS,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn converts_flat_interface_config() {
+        scenarios!(summarize_flat_interface:
+            "valid interface" {
+                interface_config(
+                    InterfaceFunctionType::Virtual,
+                    100,
+                    Some(3),
+                    false,
+                    "192.0.2.50",
+                    "192.0.2.1/24",
+                ) => Yields(InterfaceSummary {
+                    address: Ipv4Addr::new(192, 0, 2, 50),
+                    gateway: Ipv4Addr::new(192, 0, 2, 1),
+                    prefix: "192.0.2.0/24".to_string(),
+                    fqdn: "host.example.com".to_string(),
+                    booturl: Some("http://boot.example.com/ipxe".to_string()),
+                    mtu: Some(9000),
+                }),
+            }
+
+            "invalid addresses" {
+                interface_config(
+                    InterfaceFunctionType::Virtual,
+                    100,
+                    Some(3),
+                    false,
+                    "not an ip",
+                    "192.0.2.1/24",
+                ) => FailsWith("address-parse"),
+                interface_config(
+                    InterfaceFunctionType::Virtual,
+                    100,
+                    Some(3),
+                    false,
+                    "192.0.2.50",
+                    "not a network",
+                ) => FailsWith("ip-network"),
+            }
+        );
+    }
+
+    #[test]
+    fn converts_host_network_config() {
+        scenarios!(summarize_host_config:
+            "admin network uses vlan circuit id" {
+                (
+                    host_network_config(
+                        true,
+                        Some(interface_config(
+                            InterfaceFunctionType::Physical,
+                            100,
+                            None,
+                            true,
+                            "192.0.2.10",
+                            "192.0.2.1/24",
+                        )),
+                        vec![],
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        Some(HOST_INTERFACE_ID.to_string()),
+                    ),
+                    true,
+                ) => Yields(HostConfigSummary {
+                    host_interface_id: HOST_INTERFACE_ID.to_string(),
+                    host_ip_addresses: vec![(
+                        "vlan100".to_string(),
+                        InterfaceSummary {
+                            address: Ipv4Addr::new(192, 0, 2, 10),
+                            gateway: Ipv4Addr::new(192, 0, 2, 1),
+                            prefix: "192.0.2.0/24".to_string(),
+                            fqdn: "host.example.com".to_string(),
+                            booturl: Some("http://boot.example.com/ipxe".to_string()),
+                            mtu: Some(9000),
+                        },
+                    )],
+                }),
+            }
+
+            "fnn virtual functions use representor circuit id" {
+                (
+                    host_network_config(
+                        false,
+                        None,
+                        vec![interface_config(
+                            InterfaceFunctionType::Virtual,
+                            200,
+                            Some(3),
+                            false,
+                            "192.0.2.20",
+                            "192.0.2.1/24",
+                        )],
+                        VpcVirtualizationType::Fnn,
+                        Some(HOST_INTERFACE_ID.to_string()),
+                    ),
+                    true,
+                ) => Yields(HostConfigSummary {
+                    host_interface_id: HOST_INTERFACE_ID.to_string(),
+                    host_ip_addresses: vec![(
+                        "vf3sf".to_string(),
+                        InterfaceSummary {
+                            address: Ipv4Addr::new(192, 0, 2, 20),
+                            gateway: Ipv4Addr::new(192, 0, 2, 1),
+                            prefix: "192.0.2.0/24".to_string(),
+                            fqdn: "host.example.com".to_string(),
+                            booturl: Some("http://boot.example.com/ipxe".to_string()),
+                            mtu: Some(9000),
+                        },
+                    )],
+                }),
+            }
+
+            "non dpu os uses physical representor" {
+                (
+                    host_network_config(
+                        false,
+                        None,
+                        vec![interface_config(
+                            InterfaceFunctionType::Physical,
+                            300,
+                            None,
+                            true,
+                            "192.0.2.30",
+                            "192.0.2.1/24",
+                        )],
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        Some(HOST_INTERFACE_ID.to_string()),
+                    ),
+                    false,
+                ) => Yields(HostConfigSummary {
+                    host_interface_id: HOST_INTERFACE_ID.to_string(),
+                    host_ip_addresses: vec![(
+                        "p0".to_string(),
+                        InterfaceSummary {
+                            address: Ipv4Addr::new(192, 0, 2, 30),
+                            gateway: Ipv4Addr::new(192, 0, 2, 1),
+                            prefix: "192.0.2.0/24".to_string(),
+                            fqdn: "host.example.com".to_string(),
+                            booturl: Some("http://boot.example.com/ipxe".to_string()),
+                            mtu: Some(9000),
+                        },
+                    )],
+                }),
+            }
+
+            "missing required fields" {
+                (
+                    host_network_config(
+                        true,
+                        None,
+                        vec![],
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        Some(HOST_INTERFACE_ID.to_string()),
+                    ),
+                    true,
+                ) => FailsWith("parameter-missing"),
+                (
+                    host_network_config(
+                        false,
+                        None,
+                        vec![interface_config(
+                            InterfaceFunctionType::Physical,
+                            400,
+                            None,
+                            true,
+                            "192.0.2.40",
+                            "192.0.2.1/24",
+                        )],
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        None,
+                    ),
+                    true,
+                ) => FailsWith("parameter-missing"),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_timestamp_file_paths() {
+        value_scenarios!(
+            run = |path| path.path_str().to_string();
+            "known paths" {
+                DhcpTimestampsFilePath::HbnTmp => "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
+                DhcpTimestampsFilePath::Hbn => "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+                DhcpTimestampsFilePath::Dpu => "/var/lib/hbn/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+                DhcpTimestampsFilePath::Test => "/tmp/timestamps.json".to_string(),
+                DhcpTimestampsFilePath::NotSet => "Not set".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn stores_timestamps_by_host_interface_id() {
+        let id = host_interface_id();
+        let mut timestamps = DhcpTimestamps::default();
+
+        timestamps.add_timestamp(id, "2026-06-13T00:00:00Z".to_string());
+
+        assert_eq!(
+            timestamps.get_timestamp(&id),
+            Some(&"2026-06-13T00:00:00Z".to_string())
+        );
+        assert_eq!(timestamps.into_iter().count(), 1);
+    }
+}

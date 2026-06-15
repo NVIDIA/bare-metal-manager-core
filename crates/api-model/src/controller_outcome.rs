@@ -79,7 +79,7 @@ impl From<&&'static Location<'static>> for PersistentSourceReference {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
 
@@ -97,91 +97,78 @@ mod tests {
     // when None.
     #[test]
     fn test_state_outcome_serialize() {
-        check_cases(
-            [
-                Case {
-                    scenario: "wait with reason, no source ref",
-                    input: PersistentStateHandlerOutcome::Wait {
-                        reason: "Reason goes here".to_string(),
-                        source_ref: None,
-                    },
-                    expect: Yields(r#"{"outcome":"wait","reason":"Reason goes here"}"#.to_string()),
-                },
-                Case {
-                    scenario: "wait with empty reason",
-                    input: PersistentStateHandlerOutcome::Wait {
-                        reason: String::new(),
-                        source_ref: None,
-                    },
-                    expect: Yields(r#"{"outcome":"wait","reason":""}"#.to_string()),
-                },
-                Case {
-                    scenario: "wait with reason and source ref",
-                    input: PersistentStateHandlerOutcome::Wait {
-                        reason: "waiting".to_string(),
-                        source_ref: Some(source_ref()),
-                    },
-                    expect: Yields(
-                        r#"{"outcome":"wait","reason":"waiting","source_ref":{"file":"a.rs","line":100}}"#
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "error variant, no source ref",
-                    input: PersistentStateHandlerOutcome::Error {
-                        err: "boom".to_string(),
-                        source_ref: None,
-                    },
-                    expect: Yields(r#"{"outcome":"error","err":"boom"}"#.to_string()),
-                },
-                Case {
-                    scenario: "error variant with source ref",
-                    input: PersistentStateHandlerOutcome::Error {
-                        err: "boom".to_string(),
-                        source_ref: Some(source_ref()),
-                    },
-                    expect: Yields(
-                        r#"{"outcome":"error","err":"boom","source_ref":{"file":"a.rs","line":100}}"#
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "transition, no source ref",
-                    input: PersistentStateHandlerOutcome::Transition { source_ref: None },
-                    expect: Yields(r#"{"outcome":"transition"}"#.to_string()),
-                },
-                Case {
-                    scenario: "transition with source ref",
-                    input: PersistentStateHandlerOutcome::Transition {
-                        source_ref: Some(source_ref()),
-                    },
-                    expect: Yields(
-                        r#"{"outcome":"transition","source_ref":{"file":"a.rs","line":100}}"#
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "donothing, no source ref",
-                    input: PersistentStateHandlerOutcome::DoNothing { source_ref: None },
-                    expect: Yields(r#"{"outcome":"donothing"}"#.to_string()),
-                },
-                Case {
-                    scenario: "donothing with source ref details",
-                    input: PersistentStateHandlerOutcome::DoNothing {
-                        source_ref: Some(source_ref()),
-                    },
-                    expect: Yields(
-                        r#"{"outcome":"donothing","source_ref":{"file":"a.rs","line":100}}"#
-                            .to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "donothingwithdetails legacy variant",
-                    input: PersistentStateHandlerOutcome::DoNothingWithDetails,
-                    expect: Yields(r#"{"outcome":"donothingwithdetails"}"#.to_string()),
-                },
-            ],
-            |outcome| serde_json::to_string(&outcome).map_err(drop),
+        scenarios!(
+            run = |outcome| serde_json::to_string(&outcome).map_err(drop);
+            "wait with reason, no source ref" {
+                PersistentStateHandlerOutcome::Wait {
+                    reason: "Reason goes here".to_string(),
+                    source_ref: None,
+                } => Yields(r#"{"outcome":"wait","reason":"Reason goes here"}"#.to_string()),
+            }
+
+            "wait with empty reason" {
+                PersistentStateHandlerOutcome::Wait {
+                    reason: String::new(),
+                    source_ref: None,
+                } => Yields(r#"{"outcome":"wait","reason":""}"#.to_string()),
+            }
+
+            "wait with reason and source ref" {
+                PersistentStateHandlerOutcome::Wait {
+                    reason: "waiting".to_string(),
+                    source_ref: Some(source_ref()),
+                } => Yields(
+                    r#"{"outcome":"wait","reason":"waiting","source_ref":{"file":"a.rs","line":100}}"#
+                        .to_string(),
+                ),
+            }
+
+            "error variant, no source ref" {
+                PersistentStateHandlerOutcome::Error {
+                    err: "boom".to_string(),
+                    source_ref: None,
+                } => Yields(r#"{"outcome":"error","err":"boom"}"#.to_string()),
+            }
+
+            "error variant with source ref" {
+                PersistentStateHandlerOutcome::Error {
+                    err: "boom".to_string(),
+                    source_ref: Some(source_ref()),
+                } => Yields(
+                    r#"{"outcome":"error","err":"boom","source_ref":{"file":"a.rs","line":100}}"#
+                        .to_string(),
+                ),
+            }
+
+            "transition, no source ref" {
+                PersistentStateHandlerOutcome::Transition { source_ref: None } => Yields(r#"{"outcome":"transition"}"#.to_string()),
+            }
+
+            "transition with source ref" {
+                PersistentStateHandlerOutcome::Transition {
+                    source_ref: Some(source_ref()),
+                } => Yields(
+                    r#"{"outcome":"transition","source_ref":{"file":"a.rs","line":100}}"#
+                        .to_string(),
+                ),
+            }
+
+            "donothing, no source ref" {
+                PersistentStateHandlerOutcome::DoNothing { source_ref: None } => Yields(r#"{"outcome":"donothing"}"#.to_string()),
+            }
+
+            "donothing with source ref details" {
+                PersistentStateHandlerOutcome::DoNothing {
+                    source_ref: Some(source_ref()),
+                } => Yields(
+                    r#"{"outcome":"donothing","source_ref":{"file":"a.rs","line":100}}"#
+                        .to_string(),
+                ),
+            }
+
+            "donothingwithdetails legacy variant" {
+                PersistentStateHandlerOutcome::DoNothingWithDetails => Yields(r#"{"outcome":"donothingwithdetails"}"#.to_string()),
+            }
         );
     }
 
@@ -297,59 +284,51 @@ mod tests {
     // without hard-coding the exact derived layout.
     #[test]
     fn test_display_matches_debug() {
-        check_values(
-            [
-                Check {
-                    scenario: "source reference display equals debug",
-                    input: format!("{}", source_ref()),
-                    expect: format!("{:?}", source_ref()),
-                },
-                Check {
-                    scenario: "transition outcome display equals debug",
-                    input: format!(
-                        "{}",
-                        PersistentStateHandlerOutcome::Transition { source_ref: None }
-                    ),
-                    expect: format!(
-                        "{:?}",
-                        PersistentStateHandlerOutcome::Transition { source_ref: None }
-                    ),
-                },
-                Check {
-                    scenario: "wait outcome display equals debug",
-                    input: format!(
-                        "{}",
-                        PersistentStateHandlerOutcome::Wait {
-                            reason: "r".to_string(),
-                            source_ref: Some(source_ref()),
-                        }
-                    ),
-                    expect: format!(
-                        "{:?}",
-                        PersistentStateHandlerOutcome::Wait {
-                            reason: "r".to_string(),
-                            source_ref: Some(source_ref()),
-                        }
-                    ),
-                },
-            ],
-            |rendered| rendered,
+        value_scenarios!(
+            run = |rendered| rendered;
+            "source reference display equals debug" {
+                format!("{}", source_ref()) => format!("{:?}", source_ref()),
+            }
+
+            "transition outcome display equals debug" {
+                format!(
+                    "{}",
+                    PersistentStateHandlerOutcome::Transition { source_ref: None }
+                ) => format!(
+                    "{:?}",
+                    PersistentStateHandlerOutcome::Transition { source_ref: None }
+                ),
+            }
+
+            "wait outcome display equals debug" {
+                format!(
+                    "{}",
+                    PersistentStateHandlerOutcome::Wait {
+                        reason: "r".to_string(),
+                        source_ref: Some(source_ref()),
+                    }
+                ) => format!(
+                    "{:?}",
+                    PersistentStateHandlerOutcome::Wait {
+                        reason: "r".to_string(),
+                        source_ref: Some(source_ref()),
+                    }
+                ),
+            }
         );
     }
 
     // Display for the source reference contains both the file and the line.
     #[test]
     fn test_source_reference_display_tokens() {
-        check_cases(
-            [Case {
-                scenario: "display carries file and line",
-                input: (source_ref(), &["a.rs", "100"][..]),
-                expect: Yields(true),
-            }],
-            |(reference, tokens): (PersistentSourceReference, &[&str])| {
+        scenarios!(
+            run = |(reference, tokens): (PersistentSourceReference, &[&str])| {
                 let produced = format!("{reference}");
                 Ok::<_, ()>(tokens.iter().all(|t| produced.contains(t)))
-            },
+            };
+            "display carries file and line" {
+                (source_ref(), &["a.rs", "100"][..]) => Yields(true),
+            }
         );
     }
 
@@ -360,20 +339,15 @@ mod tests {
     fn test_source_reference_from_location() {
         let location = Location::caller();
         let reference = PersistentSourceReference::from(&location);
-        check_values(
-            [
-                Check {
-                    scenario: "line carried from location",
-                    input: reference.line == location.line(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "file carried from location",
-                    input: reference.file.as_str() == location.file(),
-                    expect: true,
-                },
-            ],
-            |value| value,
+        value_scenarios!(
+            run = |value| value;
+            "line carried from location" {
+                reference.line == location.line() => true,
+            }
+
+            "file carried from location" {
+                reference.file.as_str() == location.file() => true,
+            }
         );
     }
 }

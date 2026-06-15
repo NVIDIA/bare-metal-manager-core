@@ -23,7 +23,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,42 +50,34 @@ fn verify_cmd_structure() {
 // round-trips to the canonical string the original argv supplied.
 #[test]
 fn parse_find_accepts_valid_ips() {
-    check_cases(
-        [
-            Case {
-                scenario: "standard IPv4 address",
-                input: &["ip", "find", "192.168.1.100"][..],
-                expect: Yields("192.168.1.100".to_string()),
-            },
-            Case {
-                scenario: "10.x IPv4 address",
-                input: &["ip", "find", "10.0.0.1"][..],
-                expect: Yields("10.0.0.1".to_string()),
-            },
-            Case {
-                scenario: "172.x IPv4 address",
-                input: &["ip", "find", "172.16.0.1"][..],
-                expect: Yields("172.16.0.1".to_string()),
-            },
-            Case {
-                scenario: "0.0.0.0 IPv4 address",
-                input: &["ip", "find", "0.0.0.0"][..],
-                expect: Yields("0.0.0.0".to_string()),
-            },
-            Case {
-                scenario: "IPv6 loopback address",
-                input: &["ip", "find", "::1"][..],
-                expect: Yields("::1".to_string()),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| {
                     let Cmd::Find(args) = cmd;
                     args.ip.to_string()
                 })
                 .map_err(drop)
-        },
+        };
+        "standard IPv4 address" {
+            &["ip", "find", "192.168.1.100"][..] => Yields("192.168.1.100".to_string()),
+        }
+
+        "10.x IPv4 address" {
+            &["ip", "find", "10.0.0.1"][..] => Yields("10.0.0.1".to_string()),
+        }
+
+        "172.x IPv4 address" {
+            &["ip", "find", "172.16.0.1"][..] => Yields("172.16.0.1".to_string()),
+        }
+
+        "0.0.0.0 IPv4 address" {
+            &["ip", "find", "0.0.0.0"][..] => Yields("0.0.0.0".to_string()),
+        }
+
+        "IPv6 loopback address" {
+            &["ip", "find", "::1"][..] => Yields("::1".to_string()),
+        }
     );
 }
 
@@ -93,23 +85,18 @@ fn parse_find_accepts_valid_ips() {
 // and a missing required ip argument.
 #[test]
 fn parse_find_rejects_invalid_invocations() {
-    check_cases(
-        [
-            Case {
-                scenario: "value is not a valid IP",
-                input: &["ip", "find", "not-an-ip"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "missing required ip argument",
-                input: &["ip", "find"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "value is not a valid IP" {
+            &["ip", "find", "not-an-ip"][..] => Fails,
+        }
+
+        "missing required ip argument" {
+            &["ip", "find"][..] => Fails,
+        }
     );
 }

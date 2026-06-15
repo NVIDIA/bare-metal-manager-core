@@ -25,7 +25,7 @@
 // Routing Profile Parsing - Ensure profile strings are accepted unchanged.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,24 +51,19 @@ fn verify_cmd_structure() {
 // value flows straight through, so each row yields the resulting Option.
 #[test]
 fn parse_show_tenant_org() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments",
-                input: &["tenant", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "with tenant_org",
-                input: &["tenant", "show", "org-123"][..],
-                expect: Yields(Some("org-123".to_string())),
-            },
-        ],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
             Ok(Cmd::Show(args)) => Ok(args.tenant_org),
             Ok(_) => panic!("expected Show variant"),
             Err(_) => Err(()),
-        },
+        };
+        "no arguments" {
+            &["tenant", "show"][..] => Yields(None),
+        }
+
+        "with tenant_org" {
+            &["tenant", "show", "org-123"][..] => Yields(Some("org-123".to_string())),
+        }
     );
 }
 
@@ -76,40 +71,8 @@ fn parse_show_tenant_org() {
 // row yields the full (tenant_org, routing_profile_type, version, name) tuple.
 #[test]
 fn parse_update_fields() {
-    check_cases(
-        [
-            Case {
-                scenario: "tenant_org only",
-                input: &["tenant", "update", "org-123"][..],
-                expect: Yields(("org-123".to_string(), None, None, None)),
-            },
-            Case {
-                scenario: "with -p routing profile",
-                input: &["tenant", "update", "org-123", "-p", "profile-a"][..],
-                expect: Yields((
-                    "org-123".to_string(),
-                    Some("profile-a".to_string()),
-                    None,
-                    None,
-                )),
-            },
-            Case {
-                scenario: "with -v version",
-                input: &["tenant", "update", "org-123", "-v", "1.0"][..],
-                expect: Yields(("org-123".to_string(), None, Some("1.0".to_string()), None)),
-            },
-            Case {
-                scenario: "with -n name",
-                input: &["tenant", "update", "org-123", "-n", "New Name"][..],
-                expect: Yields((
-                    "org-123".to_string(),
-                    None,
-                    None,
-                    Some("New Name".to_string()),
-                )),
-            },
-        ],
-        |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
             Ok(Cmd::Update(args)) => Ok((
                 args.tenant_org,
                 args.routing_profile_type,
@@ -118,7 +81,32 @@ fn parse_update_fields() {
             )),
             Ok(_) => panic!("expected Update variant"),
             Err(_) => Err(()),
-        },
+        };
+        "tenant_org only" {
+            &["tenant", "update", "org-123"][..] => Yields(("org-123".to_string(), None, None, None)),
+        }
+
+        "with -p routing profile" {
+            &["tenant", "update", "org-123", "-p", "profile-a"][..] => Yields((
+                "org-123".to_string(),
+                Some("profile-a".to_string()),
+                None,
+                None,
+            )),
+        }
+
+        "with -v version" {
+            &["tenant", "update", "org-123", "-v", "1.0"][..] => Yields(("org-123".to_string(), None, Some("1.0".to_string()), None)),
+        }
+
+        "with -n name" {
+            &["tenant", "update", "org-123", "-n", "New Name"][..] => Yields((
+                "org-123".to_string(),
+                None,
+                None,
+                Some("New Name".to_string()),
+            )),
+        }
     );
 }
 
@@ -126,16 +114,14 @@ fn parse_update_fields() {
 // required tenant_org positional omitted.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "update without tenant_org",
-            input: &["tenant", "update"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "update without tenant_org" {
+            &["tenant", "update"][..] => Fails,
+        }
     );
 }

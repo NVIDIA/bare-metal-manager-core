@@ -233,7 +233,7 @@ impl From<VpcPeering> for rpc::forge::VpcPeering {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -248,47 +248,8 @@ mod tests {
             Option<(String, Option<String>)>,
         );
 
-        check_values(
-            [
-                Check {
-                    scenario: "all fields populated",
-                    input: rpc::forge::VpcSearchFilter {
-                        name: Some("my-vpc".to_string()),
-                        tenant_org_id: Some("org-123".to_string()),
-                        label: Some(rpc::forge::Label {
-                            key: "env".to_string(),
-                            value: Some("prod".to_string()),
-                        }),
-                    },
-                    expect: (
-                        Some("my-vpc".to_string()),
-                        Some("org-123".to_string()),
-                        Some(("env".to_string(), Some("prod".to_string()))),
-                    ),
-                },
-                Check {
-                    scenario: "no fields",
-                    input: rpc::forge::VpcSearchFilter {
-                        name: None,
-                        tenant_org_id: None,
-                        label: None,
-                    },
-                    expect: (None, None, None),
-                },
-                Check {
-                    scenario: "label key only",
-                    input: rpc::forge::VpcSearchFilter {
-                        name: None,
-                        tenant_org_id: None,
-                        label: Some(rpc::forge::Label {
-                            key: "team".to_string(),
-                            value: None,
-                        }),
-                    },
-                    expect: (None, None, Some(("team".to_string(), None))),
-                },
-            ],
-            |rpc_filter| {
+        value_scenarios!(
+            run = |rpc_filter| {
                 let filter = VpcSearchFilter::from(rpc_filter);
                 let projected: Projected = (
                     filter.name,
@@ -296,7 +257,40 @@ mod tests {
                     filter.label.map(|l| (l.key, l.value)),
                 );
                 projected
-            },
+            };
+            "all fields populated" {
+                rpc::forge::VpcSearchFilter {
+                    name: Some("my-vpc".to_string()),
+                    tenant_org_id: Some("org-123".to_string()),
+                    label: Some(rpc::forge::Label {
+                        key: "env".to_string(),
+                        value: Some("prod".to_string()),
+                    }),
+                } => (
+                    Some("my-vpc".to_string()),
+                    Some("org-123".to_string()),
+                    Some(("env".to_string(), Some("prod".to_string()))),
+                ),
+            }
+
+            "no fields" {
+                rpc::forge::VpcSearchFilter {
+                    name: None,
+                    tenant_org_id: None,
+                    label: None,
+                } => (None, None, None),
+            }
+
+            "label key only" {
+                rpc::forge::VpcSearchFilter {
+                    name: None,
+                    tenant_org_id: None,
+                    label: Some(rpc::forge::Label {
+                        key: "team".to_string(),
+                        value: None,
+                    }),
+                } => (None, None, Some(("team".to_string(), None))),
+            }
         );
     }
 }

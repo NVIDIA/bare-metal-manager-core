@@ -1872,6 +1872,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-macros",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "futures-util",
  "hex",
@@ -2692,6 +2693,7 @@ dependencies = [
  "byte-unit",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "config-version",
@@ -3043,6 +3045,7 @@ version = "0.0.0"
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "rustls",
  "serde",
  "serde_json",
@@ -8560,6 +8563,7 @@ dependencies = [
 name = "prometheus-text-parser"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "thiserror 2.0.18",
 ]
 

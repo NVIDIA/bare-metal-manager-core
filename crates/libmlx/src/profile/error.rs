@@ -171,7 +171,7 @@ impl From<std::io::Error> for MlxProfileError {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Check, scenarios, value_scenarios};
 
     use super::*;
 
@@ -198,41 +198,33 @@ mod coverage_tests {
     // independent of the (non-PartialEq) payloads.
     #[test]
     fn constructors_select_the_right_variant() {
-        check_values(
-            [
-                Check {
-                    scenario: "registry_not_found -> RegistryNotFound",
-                    input: MlxProfileError::registry_not_found("reg"),
-                    expect: "RegistryNotFound",
-                },
-                Check {
-                    scenario: "variable_not_found -> VariableNotFound",
-                    input: MlxProfileError::variable_not_found("var", "reg"),
-                    expect: "VariableNotFound",
-                },
-                Check {
-                    scenario: "value_validation -> ValueValidation",
-                    input: MlxProfileError::value_validation(
-                        "var",
-                        MlxValueError::TypeMismatch {
-                            expected: "Integer".to_string(),
-                            got: "bool".to_string(),
-                        },
-                    ),
-                    expect: "ValueValidation",
-                },
-                Check {
-                    scenario: "profile_validation -> ProfileValidation",
-                    input: MlxProfileError::profile_validation("bad"),
-                    expect: "ProfileValidation",
-                },
-                Check {
-                    scenario: "serialization -> Serialization",
-                    input: MlxProfileError::serialization("boom"),
-                    expect: "Serialization",
-                },
-            ],
-            |error| discriminant(&error),
+        value_scenarios!(
+            run = |error| discriminant(&error);
+            "registry_not_found -> RegistryNotFound" {
+                MlxProfileError::registry_not_found("reg") => "RegistryNotFound",
+            }
+
+            "variable_not_found -> VariableNotFound" {
+                MlxProfileError::variable_not_found("var", "reg") => "VariableNotFound",
+            }
+
+            "value_validation -> ValueValidation" {
+                MlxProfileError::value_validation(
+                    "var",
+                    MlxValueError::TypeMismatch {
+                        expected: "Integer".to_string(),
+                        got: "bool".to_string(),
+                    },
+                ) => "ValueValidation",
+            }
+
+            "profile_validation -> ProfileValidation" {
+                MlxProfileError::profile_validation("bad") => "ProfileValidation",
+            }
+
+            "serialization -> Serialization" {
+                MlxProfileError::serialization("boom") => "Serialization",
+            }
         );
     }
 
@@ -241,43 +233,35 @@ mod coverage_tests {
     // exercises the nested MlxValueError Display ("Type mismatch: ...").
     #[test]
     fn constructors_render_their_display_strings() {
-        check_values(
-            [
-                Check {
-                    scenario: "RegistryNotFound Display",
-                    input: MlxProfileError::registry_not_found("my_registry"),
-                    expect: "Registry 'my_registry' not found in available registries".to_string(),
-                },
-                Check {
-                    scenario: "VariableNotFound Display",
-                    input: MlxProfileError::variable_not_found("my_var", "my_registry"),
-                    expect: "Variable 'my_var' not found in registry 'my_registry'".to_string(),
-                },
-                Check {
-                    scenario: "ValueValidation Display nests the MlxValueError",
-                    input: MlxProfileError::value_validation(
-                        "my_var",
-                        MlxValueError::TypeMismatch {
-                            expected: "Integer".to_string(),
-                            got: "bool".to_string(),
-                        },
-                    ),
-                    expect: "Value validation failed for variable 'my_var': \
-                             Type mismatch: expected Integer, got bool"
-                        .to_string(),
-                },
-                Check {
-                    scenario: "ProfileValidation Display",
-                    input: MlxProfileError::profile_validation("something went wrong"),
-                    expect: "Profile validation failed: something went wrong".to_string(),
-                },
-                Check {
-                    scenario: "Serialization Display",
-                    input: MlxProfileError::serialization("could not serialize"),
-                    expect: "Serialization error: could not serialize".to_string(),
-                },
-            ],
-            |error| error.to_string(),
+        value_scenarios!(
+            run = |error| error.to_string();
+            "RegistryNotFound Display" {
+                MlxProfileError::registry_not_found("my_registry") => "Registry 'my_registry' not found in available registries".to_string(),
+            }
+
+            "VariableNotFound Display" {
+                MlxProfileError::variable_not_found("my_var", "my_registry") => "Variable 'my_var' not found in registry 'my_registry'".to_string(),
+            }
+
+            "ValueValidation Display nests the MlxValueError" {
+                MlxProfileError::value_validation(
+                    "my_var",
+                    MlxValueError::TypeMismatch {
+                        expected: "Integer".to_string(),
+                        got: "bool".to_string(),
+                    },
+                ) => "Value validation failed for variable 'my_var': \
+                     Type mismatch: expected Integer, got bool"
+                .to_string(),
+            }
+
+            "ProfileValidation Display" {
+                MlxProfileError::profile_validation("something went wrong") => "Profile validation failed: something went wrong".to_string(),
+            }
+
+            "Serialization Display" {
+                MlxProfileError::serialization("could not serialize") => "Serialization error: could not serialize".to_string(),
+            }
         );
     }
 
@@ -285,25 +269,19 @@ mod coverage_tests {
     // both flavors flow through the constructors and land in Display.
     #[test]
     fn constructors_accept_str_and_string() {
-        check_values(
-            [
-                Check {
-                    scenario: "registry_not_found from &str",
-                    input: MlxProfileError::registry_not_found("a"),
-                    expect: "Registry 'a' not found in available registries".to_string(),
-                },
-                Check {
-                    scenario: "registry_not_found from String",
-                    input: MlxProfileError::registry_not_found("b".to_string()),
-                    expect: "Registry 'b' not found in available registries".to_string(),
-                },
-                Check {
-                    scenario: "profile_validation from String",
-                    input: MlxProfileError::profile_validation("msg".to_string()),
-                    expect: "Profile validation failed: msg".to_string(),
-                },
-            ],
-            |error| error.to_string(),
+        value_scenarios!(
+            run = |error| error.to_string();
+            "registry_not_found from &str" {
+                MlxProfileError::registry_not_found("a") => "Registry 'a' not found in available registries".to_string(),
+            }
+
+            "registry_not_found from String" {
+                MlxProfileError::registry_not_found("b".to_string()) => "Registry 'b' not found in available registries".to_string(),
+            }
+
+            "profile_validation from String" {
+                MlxProfileError::profile_validation("msg".to_string()) => "Profile validation failed: msg".to_string(),
+            }
         );
     }
 
@@ -312,48 +290,39 @@ mod coverage_tests {
     // resulting discriminant (the wrapped payloads are not PartialEq).
     #[test]
     fn from_impls_select_the_right_variant() {
-        check_values(
-            [
-                Check {
-                    scenario: "MlxValueError -> ValueValidation",
-                    input: MlxProfileError::from(MlxValueError::ReadOnlyVariable {
-                        variable_name: "ro".to_string(),
-                    }),
-                    expect: "ValueValidation",
-                },
-                Check {
-                    scenario: "MlxRunnerError -> Runner",
-                    input: MlxProfileError::from(MlxRunnerError::NoDeviceFound),
-                    expect: "Runner",
-                },
-                Check {
-                    scenario: "std::io::Error -> Io",
-                    input: MlxProfileError::from(std::io::Error::other("disk gone")),
-                    expect: "Io",
-                },
-                Check {
-                    scenario: "serde_json::Error -> JsonParsing",
-                    input: MlxProfileError::from(
-                        serde_json::from_str::<i32>("not json").unwrap_err(),
-                    ),
-                    expect: "JsonParsing",
-                },
-                Check {
-                    scenario: "serde_yaml::Error -> YamlParsing",
-                    input: MlxProfileError::from(
-                        serde_yaml::from_str::<i32>("{ : : invalid").unwrap_err(),
-                    ),
-                    expect: "YamlParsing",
-                },
-                Check {
-                    scenario: "toml::de::Error -> TomlParsing",
-                    input: MlxProfileError::from(
-                        toml::from_str::<toml::Value>("= broken").unwrap_err(),
-                    ),
-                    expect: "TomlParsing",
-                },
-            ],
-            |error| discriminant(&error),
+        value_scenarios!(
+            run = |error| discriminant(&error);
+            "MlxValueError -> ValueValidation" {
+                MlxProfileError::from(MlxValueError::ReadOnlyVariable {
+                    variable_name: "ro".to_string(),
+                }) => "ValueValidation",
+            }
+
+            "MlxRunnerError -> Runner" {
+                MlxProfileError::from(MlxRunnerError::NoDeviceFound) => "Runner",
+            }
+
+            "std::io::Error -> Io" {
+                MlxProfileError::from(std::io::Error::other("disk gone")) => "Io",
+            }
+
+            "serde_json::Error -> JsonParsing" {
+                MlxProfileError::from(
+                    serde_json::from_str::<i32>("not json").unwrap_err(),
+                ) => "JsonParsing",
+            }
+
+            "serde_yaml::Error -> YamlParsing" {
+                MlxProfileError::from(
+                    serde_yaml::from_str::<i32>("{ : : invalid").unwrap_err(),
+                ) => "YamlParsing",
+            }
+
+            "toml::de::Error -> TomlParsing" {
+                MlxProfileError::from(
+                    toml::from_str::<toml::Value>("= broken").unwrap_err(),
+                ) => "TomlParsing",
+            }
         );
     }
 
@@ -390,44 +359,34 @@ mod coverage_tests {
             Ok(value)
         }
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid toml yields",
-                    input: "key = 1",
-                    expect: Yields("TomlParsing-or-ok"),
-                },
-                Case {
-                    scenario: "invalid toml fails as TomlParsing",
-                    input: "= nope",
-                    expect: FailsWith("TomlParsing"),
-                },
-            ],
-            |raw| {
+        scenarios!(
+            run = |raw| {
                 parse_toml(raw)
                     .map(|_| "TomlParsing-or-ok")
                     .map_err(|error| discriminant(&error))
-            },
+            };
+            "valid toml yields" {
+                "key = 1" => Yields("TomlParsing-or-ok"),
+            }
+
+            "invalid toml fails as TomlParsing" {
+                "= nope" => FailsWith("TomlParsing"),
+            }
         );
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid json yields",
-                    input: "{}",
-                    expect: Yields("JsonParsing-or-ok"),
-                },
-                Case {
-                    scenario: "invalid json fails as JsonParsing",
-                    input: "not json",
-                    expect: FailsWith("JsonParsing"),
-                },
-            ],
-            |raw| {
+        scenarios!(
+            run = |raw| {
                 parse_json(raw)
                     .map(|_| "JsonParsing-or-ok")
                     .map_err(|error| discriminant(&error))
-            },
+            };
+            "valid json yields" {
+                "{}" => Yields("JsonParsing-or-ok"),
+            }
+
+            "invalid json fails as JsonParsing" {
+                "not json" => FailsWith("JsonParsing"),
+            }
         );
     }
 }

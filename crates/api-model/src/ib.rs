@@ -220,114 +220,89 @@ impl From<IBServiceLevel> for i32 {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Check, scenarios, value_scenarios};
 
     use crate::ib::{IBMtu, IBPortMembership, IBPortState, IBRateLimit, IBServiceLevel};
 
     #[test]
     fn port_membership_to_string() {
-        check_values(
-            [
-                Check {
-                    scenario: "full",
-                    input: IBPortMembership::Full,
-                    expect: "full".to_string(),
-                },
-                Check {
-                    scenario: "limited",
-                    input: IBPortMembership::Limited,
-                    expect: "limited".to_string(),
-                },
-            ],
-            |membership| membership.to_string(),
+        value_scenarios!(
+            run = |membership| membership.to_string();
+            "full" {
+                IBPortMembership::Full => "full".to_string(),
+            }
+
+            "limited" {
+                IBPortMembership::Limited => "limited".to_string(),
+            }
         );
     }
 
     #[test]
     fn port_state_try_from_str() {
-        check_cases(
-            [
-                Case {
-                    scenario: "active",
-                    input: "active",
-                    expect: Yields(IBPortState::Active),
-                },
-                Case {
-                    scenario: "down",
-                    input: "down",
-                    expect: Yields(IBPortState::Down),
-                },
-                Case {
-                    scenario: "initialize",
-                    input: "initialize",
-                    expect: Yields(IBPortState::Initialize),
-                },
-                Case {
-                    scenario: "armed",
-                    input: "armed",
-                    expect: Yields(IBPortState::Armed),
-                },
-                Case {
-                    scenario: "uppercase is lowercased",
-                    input: "ACTIVE",
-                    expect: Yields(IBPortState::Active),
-                },
-                Case {
-                    scenario: "mixed case",
-                    input: "ArMeD",
-                    expect: Yields(IBPortState::Armed),
-                },
-                Case {
-                    scenario: "surrounding whitespace is trimmed",
-                    input: "  down  ",
-                    expect: Yields(IBPortState::Down),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "whitespace only",
-                    input: "   ",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unknown word",
-                    input: "sleeping",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "near miss",
-                    input: "actives",
-                    expect: Fails,
-                },
-            ],
-            |state| IBPortState::try_from(state).map_err(drop),
+        scenarios!(
+            run = |state| IBPortState::try_from(state).map_err(drop);
+            "active" {
+                "active" => Yields(IBPortState::Active),
+            }
+
+            "down" {
+                "down" => Yields(IBPortState::Down),
+            }
+
+            "initialize" {
+                "initialize" => Yields(IBPortState::Initialize),
+            }
+
+            "armed" {
+                "armed" => Yields(IBPortState::Armed),
+            }
+
+            "uppercase is lowercased" {
+                "ACTIVE" => Yields(IBPortState::Active),
+            }
+
+            "mixed case" {
+                "ArMeD" => Yields(IBPortState::Armed),
+            }
+
+            "surrounding whitespace is trimmed" {
+                "  down  " => Yields(IBPortState::Down),
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "whitespace only" {
+                "   " => Fails,
+            }
+
+            "unknown word" {
+                "sleeping" => Fails,
+            }
+
+            "near miss" {
+                "actives" => Fails,
+            }
         );
     }
 
     #[test]
     fn port_state_try_from_string() {
-        check_cases(
-            [
-                Case {
-                    scenario: "active",
-                    input: "active".to_string(),
-                    expect: Yields(IBPortState::Active),
-                },
-                Case {
-                    scenario: "trimmed and lowercased",
-                    input: " Initialize ".to_string(),
-                    expect: Yields(IBPortState::Initialize),
-                },
-                Case {
-                    scenario: "invalid",
-                    input: "bogus".to_string(),
-                    expect: Fails,
-                },
-            ],
-            |state| IBPortState::try_from(state).map_err(drop),
+        scenarios!(
+            run = |state| IBPortState::try_from(state).map_err(drop);
+            "active" {
+                "active".to_string() => Yields(IBPortState::Active),
+            }
+
+            "trimmed and lowercased" {
+                " Initialize ".to_string() => Yields(IBPortState::Initialize),
+            }
+
+            "invalid" {
+                "bogus".to_string() => Fails,
+            }
         );
     }
 
@@ -343,64 +318,49 @@ mod tests {
 
     #[test]
     fn mtu_try_from_i32() {
-        check_cases(
-            [
-                Case {
-                    scenario: "2k",
-                    input: 2,
-                    expect: Yields(IBMtu(2)),
-                },
-                Case {
-                    scenario: "4k",
-                    input: 4,
-                    expect: Yields(IBMtu(4)),
-                },
-                Case {
-                    scenario: "zero",
-                    input: 0,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "one",
-                    input: 1,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "three between valid values",
-                    input: 3,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "negative",
-                    input: -2,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "large",
-                    input: 4096,
-                    expect: Fails,
-                },
-            ],
-            |mtu| IBMtu::try_from(mtu).map_err(drop),
+        scenarios!(
+            run = |mtu| IBMtu::try_from(mtu).map_err(drop);
+            "2k" {
+                2 => Yields(IBMtu(2)),
+            }
+
+            "4k" {
+                4 => Yields(IBMtu(4)),
+            }
+
+            "zero" {
+                0 => Fails,
+            }
+
+            "one" {
+                1 => Fails,
+            }
+
+            "three between valid values" {
+                3 => Fails,
+            }
+
+            "negative" {
+                -2 => Fails,
+            }
+
+            "large" {
+                4096 => Fails,
+            }
         );
     }
 
     #[test]
     fn mtu_into_i32() {
-        check_values(
-            [
-                Check {
-                    scenario: "2k",
-                    input: IBMtu(2),
-                    expect: 2,
-                },
-                Check {
-                    scenario: "4k",
-                    input: IBMtu(4),
-                    expect: 4,
-                },
-            ],
-            i32::from,
+        value_scenarios!(
+            run = i32::from;
+            "2k" {
+                IBMtu(2) => 2,
+            }
+
+            "4k" {
+                IBMtu(4) => 4,
+            }
         );
     }
 
@@ -416,139 +376,109 @@ mod tests {
 
     #[test]
     fn rate_limit_try_from_i32() {
-        check_cases(
-            [
-                Case {
-                    scenario: "legacy sdr 2.5 sentinel",
-                    input: 2,
-                    expect: Yields(IBRateLimit(2)),
-                },
-                Case {
-                    scenario: "5",
-                    input: 5,
-                    expect: Yields(IBRateLimit(5)),
-                },
-                Case {
-                    scenario: "10",
-                    input: 10,
-                    expect: Yields(IBRateLimit(10)),
-                },
-                Case {
-                    scenario: "14",
-                    input: 14,
-                    expect: Yields(IBRateLimit(14)),
-                },
-                Case {
-                    scenario: "20",
-                    input: 20,
-                    expect: Yields(IBRateLimit(20)),
-                },
-                Case {
-                    scenario: "25",
-                    input: 25,
-                    expect: Yields(IBRateLimit(25)),
-                },
-                Case {
-                    scenario: "30",
-                    input: 30,
-                    expect: Yields(IBRateLimit(30)),
-                },
-                Case {
-                    scenario: "40",
-                    input: 40,
-                    expect: Yields(IBRateLimit(40)),
-                },
-                Case {
-                    scenario: "56",
-                    input: 56,
-                    expect: Yields(IBRateLimit(56)),
-                },
-                Case {
-                    scenario: "60",
-                    input: 60,
-                    expect: Yields(IBRateLimit(60)),
-                },
-                Case {
-                    scenario: "80",
-                    input: 80,
-                    expect: Yields(IBRateLimit(80)),
-                },
-                Case {
-                    scenario: "100",
-                    input: 100,
-                    expect: Yields(IBRateLimit(100)),
-                },
-                Case {
-                    scenario: "112",
-                    input: 112,
-                    expect: Yields(IBRateLimit(112)),
-                },
-                Case {
-                    scenario: "120",
-                    input: 120,
-                    expect: Yields(IBRateLimit(120)),
-                },
-                Case {
-                    scenario: "168",
-                    input: 168,
-                    expect: Yields(IBRateLimit(168)),
-                },
-                Case {
-                    scenario: "200",
-                    input: 200,
-                    expect: Yields(IBRateLimit(200)),
-                },
-                Case {
-                    scenario: "300",
-                    input: 300,
-                    expect: Yields(IBRateLimit(300)),
-                },
-                Case {
-                    scenario: "zero",
-                    input: 0,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "one",
-                    input: 1,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "three is not a valid rate",
-                    input: 3,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "negative",
-                    input: -200,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unsupported large",
-                    input: 400,
-                    expect: Fails,
-                },
-            ],
-            |rate| IBRateLimit::try_from(rate).map_err(drop),
+        scenarios!(
+            run = |rate| IBRateLimit::try_from(rate).map_err(drop);
+            "legacy sdr 2.5 sentinel" {
+                2 => Yields(IBRateLimit(2)),
+            }
+
+            "5" {
+                5 => Yields(IBRateLimit(5)),
+            }
+
+            "10" {
+                10 => Yields(IBRateLimit(10)),
+            }
+
+            "14" {
+                14 => Yields(IBRateLimit(14)),
+            }
+
+            "20" {
+                20 => Yields(IBRateLimit(20)),
+            }
+
+            "25" {
+                25 => Yields(IBRateLimit(25)),
+            }
+
+            "30" {
+                30 => Yields(IBRateLimit(30)),
+            }
+
+            "40" {
+                40 => Yields(IBRateLimit(40)),
+            }
+
+            "56" {
+                56 => Yields(IBRateLimit(56)),
+            }
+
+            "60" {
+                60 => Yields(IBRateLimit(60)),
+            }
+
+            "80" {
+                80 => Yields(IBRateLimit(80)),
+            }
+
+            "100" {
+                100 => Yields(IBRateLimit(100)),
+            }
+
+            "112" {
+                112 => Yields(IBRateLimit(112)),
+            }
+
+            "120" {
+                120 => Yields(IBRateLimit(120)),
+            }
+
+            "168" {
+                168 => Yields(IBRateLimit(168)),
+            }
+
+            "200" {
+                200 => Yields(IBRateLimit(200)),
+            }
+
+            "300" {
+                300 => Yields(IBRateLimit(300)),
+            }
+
+            "zero" {
+                0 => Fails,
+            }
+
+            "one" {
+                1 => Fails,
+            }
+
+            "three is not a valid rate" {
+                3 => Fails,
+            }
+
+            "negative" {
+                -200 => Fails,
+            }
+
+            "unsupported large" {
+                400 => Fails,
+            }
         );
     }
 
     #[test]
     fn rate_limit_into_i32() {
-        check_values(
-            [
-                Check {
-                    scenario: "200",
-                    input: IBRateLimit(200),
-                    expect: 200,
-                },
-                Check {
-                    scenario: "sdr sentinel",
-                    input: IBRateLimit(2),
-                    expect: 2,
-                },
-            ],
-            i32::from,
+        value_scenarios!(
+            run = i32::from;
+            "200" {
+                IBRateLimit(200) => 200,
+            }
+
+            "sdr sentinel" {
+                IBRateLimit(2) => 2,
+            }
         );
     }
 
@@ -564,59 +494,45 @@ mod tests {
 
     #[test]
     fn service_level_try_from_i32() {
-        check_cases(
-            [
-                Case {
-                    scenario: "lower bound 0",
-                    input: 0,
-                    expect: Yields(IBServiceLevel(0)),
-                },
-                Case {
-                    scenario: "mid 7",
-                    input: 7,
-                    expect: Yields(IBServiceLevel(7)),
-                },
-                Case {
-                    scenario: "upper bound 15",
-                    input: 15,
-                    expect: Yields(IBServiceLevel(15)),
-                },
-                Case {
-                    scenario: "just past upper bound",
-                    input: 16,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "negative below lower bound",
-                    input: -1,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "large",
-                    input: 1000,
-                    expect: Fails,
-                },
-            ],
-            |level| IBServiceLevel::try_from(level).map_err(drop),
+        scenarios!(
+            run = |level| IBServiceLevel::try_from(level).map_err(drop);
+            "lower bound 0" {
+                0 => Yields(IBServiceLevel(0)),
+            }
+
+            "mid 7" {
+                7 => Yields(IBServiceLevel(7)),
+            }
+
+            "upper bound 15" {
+                15 => Yields(IBServiceLevel(15)),
+            }
+
+            "just past upper bound" {
+                16 => Fails,
+            }
+
+            "negative below lower bound" {
+                -1 => Fails,
+            }
+
+            "large" {
+                1000 => Fails,
+            }
         );
     }
 
     #[test]
     fn service_level_into_i32() {
-        check_values(
-            [
-                Check {
-                    scenario: "0",
-                    input: IBServiceLevel(0),
-                    expect: 0,
-                },
-                Check {
-                    scenario: "15",
-                    input: IBServiceLevel(15),
-                    expect: 15,
-                },
-            ],
-            i32::from,
+        value_scenarios!(
+            run = i32::from;
+            "0" {
+                IBServiceLevel(0) => 0,
+            }
+
+            "15" {
+                IBServiceLevel(15) => 15,
+            }
         );
     }
 }

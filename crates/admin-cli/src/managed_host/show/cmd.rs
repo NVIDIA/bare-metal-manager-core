@@ -30,7 +30,7 @@ use super::args::Args;
 use crate::cfg::cli_options::SortField;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv};
+use crate::{async_write_table_as_csv, async_writeln};
 
 const UNKNOWN: &str = "Unknown";
 
@@ -275,9 +275,9 @@ async fn show_managed_hosts(
             } else {
                 let (result, warnings) =
                     convert_managed_hosts_to_nice_output(managed_hosts, output_options);
-                async_write!(output_file, "{}", result)?;
+                crate::async_writeln!(output_file, "{}", result)?;
                 for warning in &warnings {
-                    async_write!(output_file, "WARNING: {warning}")?;
+                    async_writeln!(output_file, "WARNING: {warning}")?;
                 }
             }
         }
