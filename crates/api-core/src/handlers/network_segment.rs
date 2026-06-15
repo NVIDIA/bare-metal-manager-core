@@ -143,7 +143,7 @@ pub(crate) async fn create(
             .first()
             .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
 
-        let virtualization_type = vpc.network_virtualization_type;
+        let virtualization_type = vpc.config.network_virtualization_type;
 
         // Segment compatibility (segment-type binding + IPv6 support)
         // and SVI allocation are both expressed as capability checks
@@ -214,7 +214,8 @@ pub(crate) async fn attach_to_vpc(
         .into());
     }
 
-    vpc.network_virtualization_type
+    vpc.config
+        .network_virtualization_type
         .ensure_supports_segment(&segment)
         .map_err(CarbideError::from)?;
 

@@ -411,6 +411,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.DpaInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterfaceList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.VpcConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
         .type_attribute(

@@ -1488,19 +1488,30 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
-// 
+message VpcConfig {
+  string tenant_organization_id = 1;
+  optional string tenant_keyset_id = 2;
+  optional VpcVirtualizationType network_virtualization_type = 3;
+  optional string network_security_group_id = 4;
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 5;
+  // Desired VNI for this VPC. Only populated when explicitly requested during creation.
+  optional uint32 vni = 6;
+  optional string routing_profile_type = 7;
+}
+
 message VpcStatus {
   // The actual VNI allocated to the VPC. If a VNI had been
-  // explicitly requested, we'd expect this to match the VNI
-  // of the Vpc message. If not explicitly requested, we'd
-  // expect the VNI of the Vpc message to be unset.
+  // explicitly requested, we'd expect this to match config.vni.
+  // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
 }
 
 message Vpc {
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_organization_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
 
@@ -1509,34 +1520,41 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  optional string tenantKeysetId = 7; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_keyset_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
-  // We'll keep populating this field but it will come from
-  // status.vni
-  // We'll be able to trim it out later after some deprecation window.
-  optional uint32 deprecated_vni = 8; // Deprecated
+  // Deprecated: use status.vni
+  // TODO change to reserved once rest component uses `VpcStatus`
+  optional uint32 deprecated_vni = 8 [deprecated = true];
 
-  optional VpcVirtualizationType network_virtualization_type = 9;
+  // Deprecated: use config.network_virtualization_type
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
   Metadata metadata = 10;
 
-  // Sets the desired NSG ID for a VPC
-  optional string network_security_group_id  = 11;
+  // Deprecated: use config.network_security_group_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string network_security_group_id  = 11 [deprecated = true];
 
   // dpa_vni
   reserved 12;
 
-  // The ID of the default NVLink Logical Partition for a VPC
-  // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
+  // Deprecated: use config.default_nvlink_logical_partition_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
 
   optional VpcStatus status = 14;
 
-  // This will only be populated if the VNI was explicitly
-  // requested during creation of the VPC.
-  optional uint32 vni = 15;
+  // Deprecated: use config.vni
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional uint32 vni = 15 [deprecated = true];
 
-  // The resolved routing profile type applied to this VPC.
-  optional string routing_profile_type = 16;
+  // Deprecated: use config.routing_profile_type
+  // TODO change to reserved once rest-component uses `VpcConfig`
+  optional string routing_profile_type = 16 [deprecated = true];
+
+  VpcConfig config = 17;
 }
 
 message VpcCreationRequest {

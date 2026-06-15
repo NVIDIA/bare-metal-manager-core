@@ -105,7 +105,8 @@ pub async fn create_initial_networks(
         ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {
             match db::vpc::find_by_name(&mut txn, vpc_name).await?.as_slice() {
                 [vpc] => {
-                    vpc.network_virtualization_type
+                    vpc.config
+                        .network_virtualization_type
                         .ensure_supports_segment(&ns)?;
                     Some(vpc.id)
                 }
@@ -283,7 +284,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         };
 
         // SVI IP is needed only for FNN.
-        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+        if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {
             continue;
         }
 
@@ -400,8 +401,8 @@ pub(crate) async fn create_admin_vpc(
     };
 
     if let Some(mut existing_vpc) = existing_vpc {
-        let existing_vni = existing_vpc.status.as_ref().and_then(|status| status.vni);
-        if existing_vni != Some(configured_vni) || existing_vpc.vni != Some(configured_vni) {
+        let existing_vni = existing_vpc.status.vni;
+        if existing_vni != Some(configured_vni) || existing_vpc.config.vni != Some(configured_vni) {
             if let Some(conflicting_vpc) = db::vpc::find_by_vni(&mut txn, configured_vni)
                 .await?
                 .into_iter()

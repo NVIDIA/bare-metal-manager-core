@@ -624,11 +624,11 @@ pub async fn test_create_initial_vpc_and_attached_network(
     assert_eq!(seeded_vpcs.len(), 1);
     let seeded_vpc = &seeded_vpcs[0];
     assert_eq!(
-        seeded_vpc.tenant_organization_id,
+        seeded_vpc.config.tenant_organization_id,
         "2829bbe3-c169-4cd9-8b2a-19a8b1618a93"
     );
     assert_eq!(
-        seeded_vpc.network_virtualization_type,
+        seeded_vpc.config.network_virtualization_type,
         VpcVirtualizationType::Flat
     );
 
@@ -1164,7 +1164,7 @@ async fn test_update_svi_ip_admin_segment(
         )
         .await?;
         assert_eq!(
-            admin_vpc[0].network_virtualization_type,
+            admin_vpc[0].config.network_virtualization_type,
             VpcVirtualizationType::Fnn
         );
     }
