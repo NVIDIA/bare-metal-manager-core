@@ -141,10 +141,37 @@ function get_distro_image() {
 
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
-	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
+	if [ -d /mnt/etc/cloud ]; then
+		mkdir -p /mnt/etc/cloud/cloud.cfg.d
 		echo "datasource_list: [ NoCloud, None ]" | tee /mnt/etc/cloud/cloud.cfg.d/98-forge-dslist.cfg
-		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/99-user-data.cfg 2>&1 | tee $log_output
 	fi
+	seed_dir=/mnt/var/lib/cloud/seed/nocloud-net
+	mkdir -p "$seed_dir"
+	curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output "$seed_dir/user-data" 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k "$cloud_init_url/meta-data" --output "$seed_dir/meta-data" 2>&1 | tee $log_output
+	write_cloud_init_network_config "$seed_dir"
+}
+
+function write_cloud_init_network_config() {
+	seed_dir=$1
+	cloud_init_host=${cloud_init_url#*://}
+	cloud_init_host=${cloud_init_host%%[:/]*}
+	network_dev=$(ip -o route get "$cloud_init_host" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+	if [ -z "$network_dev" -o ! -f "/sys/class/net/$network_dev/address" ]; then
+		echo "Could not resolve cloud-init network device for $cloud_init_host" | tee $log_output
+		return 0
+	fi
+	network_mac=$(cat "/sys/class/net/$network_dev/address")
+	cat > "$seed_dir/network-config" << EOF
+version: 2
+ethernets:
+  nico-mgmt:
+    match:
+      macaddress: "$network_mac"
+    set-name: mgmt0
+    dhcp4: true
+    optional: true
+EOF
 }
 
 function expand_root_fs() {
@@ -531,7 +558,7 @@ function main() {
 	fi
 
 	echo "Imaging $file to $image_disk" | tee $log_output
-	qemu-img convert -p -O raw $file $image_disk 2>&1 | tee $log_output
+	qemu-img convert -p -O raw -S 0 $file $image_disk 2>&1 | tee $log_output
 	ret=$?
 	if [ $ret -ne 0 ]; then
 		echo "Imaging failed $ret" | tee $log_output
