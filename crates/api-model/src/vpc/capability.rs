@@ -51,8 +51,9 @@
 use std::fmt;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use ipnetwork::IpNetwork;
 
-use crate::network_segment::{NetworkSegmentType, NewNetworkSegment};
+use crate::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
 
 /// Which host-side fabric interface kind a VPC virtualization type
 /// attaches to. Used at instance-allocation time to decide which hosts
@@ -311,7 +312,7 @@ pub trait VpcVirtualizationTypeCapabilities {
     /// per-address-family prefix checks ([`Self::supports_ipv4_prefix`]
     /// and [`Self::supports_ipv6_prefix`]) for any prefixes the segment
     /// carries.
-    fn supports_segment(self, segment: &NewNetworkSegment) -> bool;
+    fn supports_segment(self, segment: impl NetworkSegmentProperties) -> bool;
 
     /// Whether this type can have IPv4 network prefixes.
     fn supports_ipv4_prefix(self) -> bool;
@@ -335,7 +336,7 @@ pub trait VpcVirtualizationTypeCapabilities {
     /// `can_stretch` opt-in -- a SVI is only allocated on stretched-L2
     /// segments in a SVI-capable VPC type. Tenant /31 link segments
     /// (`can_stretch = false`) don't get one even on FNN.
-    fn allocates_svi_for(self, segment: &NewNetworkSegment) -> bool;
+    fn allocates_svi_for(self, segment: impl NetworkSegmentProperties) -> bool;
 
     /// Whether this type's DPU agent imports peer VPCs' VNIs into the
     /// local VRF for EVPN-style route exchange. See
@@ -359,12 +360,51 @@ pub trait VpcVirtualizationTypeCapabilities {
     ) -> Result<(), VpcCapabilityError>;
     /// Validates segment-type compatibility plus per-address-family
     /// support for any prefixes the segment carries.
-    fn ensure_supports_segment(self, segment: &NewNetworkSegment)
-    -> Result<(), VpcCapabilityError>;
+    fn ensure_supports_segment(
+        self,
+        segment: impl NetworkSegmentProperties,
+    ) -> Result<(), VpcCapabilityError>;
     fn ensure_supports_ipv4_prefix(self) -> Result<(), VpcCapabilityError>;
     fn ensure_supports_ipv6_prefix(self) -> Result<(), VpcCapabilityError>;
     fn ensure_supports_routing_profiles(self) -> Result<(), VpcCapabilityError>;
     fn ensure_can_peer_with(self, other: VpcVirtualizationType) -> Result<(), VpcCapabilityError>;
+}
+
+/// Trait representing the information we need from a NetworkSegment to perform validation. Included
+/// so that you can pass a `&NewNetworkSegment` or a `&NetworkSegment` to
+/// VpcVirtualizationTypeCapabilities.
+pub trait NetworkSegmentProperties {
+    fn segment_type(&self) -> NetworkSegmentType;
+    fn prefixes(&self) -> impl Iterator<Item = IpNetwork>;
+    fn can_stretch(&self) -> Option<bool>;
+}
+
+impl NetworkSegmentProperties for &NewNetworkSegment {
+    fn segment_type(&self) -> NetworkSegmentType {
+        self.segment_type
+    }
+
+    fn prefixes(&self) -> impl Iterator<Item = IpNetwork> {
+        self.prefixes.iter().map(|p| p.prefix)
+    }
+
+    fn can_stretch(&self) -> Option<bool> {
+        self.can_stretch
+    }
+}
+
+impl NetworkSegmentProperties for &NetworkSegment {
+    fn segment_type(&self) -> NetworkSegmentType {
+        self.config.segment_type
+    }
+
+    fn prefixes(&self) -> impl Iterator<Item = IpNetwork> {
+        self.prefixes.iter().map(|p| p.prefix)
+    }
+
+    fn can_stretch(&self) -> Option<bool> {
+        self.status.can_stretch
+    }
 }
 
 impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
@@ -386,12 +426,12 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
             .contains(&segment_type)
     }
 
-    fn supports_segment(self, segment: &NewNetworkSegment) -> bool {
-        if !self.supports_segment_type(segment.segment_type) {
+    fn supports_segment(self, segment: impl NetworkSegmentProperties) -> bool {
+        if !self.supports_segment_type(segment.segment_type()) {
             return false;
         }
-        let has_ipv4_prefix = segment.prefixes.iter().any(|p| p.prefix.is_ipv4());
-        let has_ipv6_prefix = segment.prefixes.iter().any(|p| p.prefix.is_ipv6());
+        let has_ipv4_prefix = segment.prefixes().any(|p| p.is_ipv4());
+        let has_ipv6_prefix = segment.prefixes().any(|p| p.is_ipv6());
         (!has_ipv4_prefix || self.supports_ipv4_prefix())
             && (!has_ipv6_prefix || self.supports_ipv6_prefix())
     }
@@ -412,8 +452,8 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
         self.capabilities().data_plane.allocates_svi_ip()
     }
 
-    fn allocates_svi_for(self, segment: &NewNetworkSegment) -> bool {
-        segment.can_stretch.unwrap_or(true) && self.allocates_svi_ip()
+    fn allocates_svi_for(self, segment: impl NetworkSegmentProperties) -> bool {
+        segment.can_stretch().unwrap_or(true) && self.allocates_svi_ip()
     }
 
     fn imports_peer_vnis_into_overlay(self) -> bool {
@@ -446,13 +486,13 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
 
     fn ensure_supports_segment(
         self,
-        segment: &NewNetworkSegment,
+        segment: impl NetworkSegmentProperties,
     ) -> Result<(), VpcCapabilityError> {
-        self.ensure_supports_segment_type(segment.segment_type)?;
-        if segment.prefixes.iter().any(|p| p.prefix.is_ipv4()) {
+        self.ensure_supports_segment_type(segment.segment_type())?;
+        if segment.prefixes().any(|p| p.is_ipv4()) {
             self.ensure_supports_ipv4_prefix()?;
         }
-        if segment.prefixes.iter().any(|p| p.prefix.is_ipv6()) {
+        if segment.prefixes().any(|p| p.is_ipv6()) {
             self.ensure_supports_ipv6_prefix()?;
         }
         Ok(())

@@ -88,3 +88,69 @@ fn invalid_invocations_are_rejected() {
         }
     );
 }
+
+#[test]
+fn parse_attach_vpc() {
+    let cmd = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+    ])
+    .expect("should parse attach-vpc");
+
+    match cmd {
+        Cmd::AttachVpc(args) => {
+            assert_eq!(args.id.to_string(), "12345678-1234-5678-90ab-cdef01234567");
+            assert_eq!(
+                args.vpc_id.to_string(),
+                "abcdef01-2345-6789-abcd-ef0123456789"
+            );
+            assert!(!args.force);
+        }
+        _ => panic!("expected AttachVpc variant"),
+    }
+}
+
+#[test]
+fn parse_attach_vpc_force() {
+    let cmd = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+        "--force",
+    ])
+    .expect("should parse attach-vpc with force");
+
+    match cmd {
+        Cmd::AttachVpc(args) => assert!(args.force),
+        _ => panic!("expected AttachVpc variant"),
+    }
+}
+
+#[test]
+fn parse_attach_vpc_missing_id_fails() {
+    let result = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+    ]);
+    assert!(result.is_err(), "should fail without --id");
+}
+
+#[test]
+fn parse_attach_vpc_missing_vpc_id_fails() {
+    let result = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+    ]);
+    assert!(result.is_err(), "should fail without --vpc-id");
+}
