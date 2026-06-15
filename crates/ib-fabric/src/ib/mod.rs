@@ -176,3 +176,161 @@ impl IBFabricManager for IBFabricManagerImpl {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use carbide_secrets::SecretsError;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    struct NoopCredentialReader;
+
+    #[async_trait]
+    impl CredentialReader for NoopCredentialReader {
+        async fn get_credentials(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum ManagerCase {
+        ValidDisabled,
+        EmptyEndpointList,
+        MultipleEndpoints,
+        InvalidEndpoint,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ManagerConfigSummary {
+        endpoint_count: usize,
+        manager_type: &'static str,
+        max_partition_per_tenant: i32,
+        allow_insecure_fabric_configuration: bool,
+        fabric_manager_run_interval_secs: u64,
+    }
+
+    fn credential_reader() -> Arc<dyn CredentialReader> {
+        Arc::new(NoopCredentialReader)
+    }
+
+    fn manager_type_name(manager_type: IBFabricManagerType) -> &'static str {
+        match manager_type {
+            IBFabricManagerType::Disable => "disable",
+            #[cfg(feature = "test-support")]
+            IBFabricManagerType::Mock => "mock",
+            IBFabricManagerType::Rest => "rest",
+        }
+    }
+
+    fn summarize_manager_config(config: IBFabricManagerConfig) -> ManagerConfigSummary {
+        ManagerConfigSummary {
+            endpoint_count: config.endpoints.len(),
+            manager_type: manager_type_name(config.manager_type),
+            max_partition_per_tenant: config.max_partition_per_tenant,
+            allow_insecure_fabric_configuration: config.allow_insecure_fabric_configuration,
+            fabric_manager_run_interval_secs: config.fabric_manager_run_interval.as_secs(),
+        }
+    }
+
+    fn config_for_case(case: ManagerCase) -> IBFabricManagerConfig {
+        let mut config = IBFabricManagerConfig::default();
+        match case {
+            ManagerCase::ValidDisabled => {
+                config.endpoints.insert(
+                    "fabric-a".to_string(),
+                    vec!["https://127.0.0.1:443".to_string()],
+                );
+            }
+            ManagerCase::EmptyEndpointList => {
+                config.endpoints.insert("fabric-a".to_string(), vec![]);
+            }
+            ManagerCase::MultipleEndpoints => {
+                config.endpoints.insert(
+                    "fabric-a".to_string(),
+                    vec![
+                        "https://127.0.0.1:443".to_string(),
+                        "https://127.0.0.2:443".to_string(),
+                    ],
+                );
+            }
+            ManagerCase::InvalidEndpoint => {
+                config
+                    .endpoints
+                    .insert("fabric-a".to_string(), vec!["not a uri".to_string()]);
+            }
+        }
+        config
+    }
+
+    fn create_manager(case: ManagerCase) -> Result<ManagerConfigSummary, &'static str> {
+        create_ib_fabric_manager(credential_reader(), config_for_case(case))
+            .map(|manager| summarize_manager_config(manager.get_config()))
+            .map_err(manager_error_kind)
+    }
+
+    fn manager_error_kind(error: eyre::Report) -> &'static str {
+        let error = error.to_string();
+        if error.contains("Exactly 1 endpoint") {
+            "endpoint-count"
+        } else if error.contains("not a valid HTTP(S) URI") {
+            "invalid-uri"
+        } else {
+            "unknown"
+        }
+    }
+
+    #[test]
+    fn default_manager_config_uses_disabled_defaults() {
+        assert_eq!(
+            summarize_manager_config(IBFabricManagerConfig::default()),
+            ManagerConfigSummary {
+                endpoint_count: 0,
+                manager_type: "disable",
+                max_partition_per_tenant: config::IBFabricConfig::default_max_partition_per_tenant(
+                ),
+                allow_insecure_fabric_configuration: false,
+                fabric_manager_run_interval_secs: 60,
+            }
+        );
+    }
+
+    #[test]
+    fn validates_manager_endpoints() {
+        scenarios!(create_manager:
+            "valid config" {
+                ManagerCase::ValidDisabled => Yields(ManagerConfigSummary {
+                    endpoint_count: 1,
+                    manager_type: "disable",
+                    max_partition_per_tenant: config::IBFabricConfig::default_max_partition_per_tenant(),
+                    allow_insecure_fabric_configuration: false,
+                    fabric_manager_run_interval_secs: 60,
+                }),
+            }
+
+            "invalid endpoints" {
+                ManagerCase::EmptyEndpointList => FailsWith("endpoint-count"),
+                ManagerCase::MultipleEndpoints => FailsWith("endpoint-count"),
+                ManagerCase::InvalidEndpoint => FailsWith("invalid-uri"),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_manager_returns_disabled_client() {
+        let manager =
+            create_ib_fabric_manager(credential_reader(), IBFabricManagerConfig::default())
+                .unwrap();
+        let client = manager.new_client("fabric-a").await.unwrap();
+
+        assert_eq!(
+            client.get_fabric_config().await.unwrap_err().to_string(),
+            "Failed to call IBFabricManager: ib fabric is disabled"
+        );
+    }
+}

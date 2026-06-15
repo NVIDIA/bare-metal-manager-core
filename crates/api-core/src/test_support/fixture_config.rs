@@ -80,6 +80,7 @@ pub trait ManagedHostConfigExt {
     fn with_expected_state(expected_state: ManagedHostState) -> Self;
     fn with_hardware_info_template(hardware_info_template: HardwareInfoTemplate) -> Self;
     fn with_expected_machine_data(expected_machine_data: ExpectedMachineData) -> Self;
+    fn with_admin_dhcp_fallback(self) -> Self;
 }
 
 impl FixtureDefault for ManagedHostConfig {
@@ -102,6 +103,7 @@ impl FixtureDefault for ManagedHostConfig {
             hardware_info_template: HardwareInfoTemplate::Default,
             expected_machine_data: None,
             vendor: Some(bmc_vendor::BMCVendor::Dell),
+            admin_dhcp_fallback: false,
         }
     }
 }
@@ -133,6 +135,11 @@ impl ManagedHostConfigExt for ManagedHostConfig {
             hardware_info_template,
             ..ManagedHostConfig::default()
         }
+    }
+
+    fn with_admin_dhcp_fallback(mut self) -> Self {
+        self.admin_dhcp_fallback = true;
+        self
     }
 
     fn with_expected_machine_data(expected_machine_data: ExpectedMachineData) -> Self {

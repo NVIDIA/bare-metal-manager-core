@@ -16,23 +16,49 @@
  */
 
 use ::rpc::machine_discovery::Gpu;
-use common::api_fixtures::create_managed_host_with_hardware_info_template;
+use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use common::api_fixtures::instance::{
     create_instance_with_nvlink_config, update_instance_nvlink_config,
 };
-use common::api_fixtures::nvl_logical_partition::create_nvl_logical_partition;
-use libnmxc::nmxc_model::{
-    CreatePartitionRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr,
-    UpdatePartitionRequest,
+use common::api_fixtures::network_segment::{
+    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2, create_network_segment,
 };
+use common::api_fixtures::nvl_logical_partition::create_nvl_logical_partition;
+use common::api_fixtures::site_explorer::{
+    TestRackDbBuilder, new_host, register_expected_switch_exploration_results,
+};
+use common::api_fixtures::{
+    TestEnv, TestManagedHost, create_managed_host_with_hardware_info_template,
+    insert_nvlink_nmxc_endpoint_from_managed_host,
+};
+use db::switch as db_switch;
+use ipnetwork::IpNetwork;
+use libnmxc::nmxc_model::{GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr};
+use model::expected_switch::ExpectedSwitch;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::test_support::HardwareInfoTemplate;
+use model::metadata::Metadata;
+use model::switch::{
+    CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
+    SwitchConfig, SwitchControllerState,
+};
+use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
+use crate::test_support::fixture_config::ManagedHostConfigExt;
+use crate::test_support::mac_address_pool::{
+    EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL, EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL,
+};
+use crate::test_support::network::TEST_SITE_PREFIXES;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::nvl_logical_partition::NvlLogicalPartitionFixture;
+
+const SWITCH_BMC_STATIC_IP: std::net::IpAddr =
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 1, 50));
+const SWITCH_NVOS_STATIC_IP: std::net::IpAddr =
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
 
 #[crate::sqlx_test]
 async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx::PgPool) {
@@ -1605,7 +1631,6 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
         .unwrap()
         .partition_info_list;
 
-    println!("\n\n\n nmxc_partitions {:?}", nmxc_partitions);
     assert_eq!(nmxc_partitions.len(), 1);
     assert_eq!(nmxc_partitions[0].gpu_uid_list.len(), 4);
 
@@ -1623,7 +1648,6 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
     assert_eq!(discovery_info2.gpus.len(), 4);
 
     let gpus2: Vec<Gpu> = discovery_info2.gpus.to_vec();
-    println!("{gpus2:?}");
 
     let nvl_config2 = rpc::forge::InstanceNvLinkConfig {
         gpu_configs: gpus2
@@ -1923,7 +1947,6 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
         .unwrap()
         .partition_info_list;
     assert_eq!(nmxc_partitions.len(), 1);
-    println!("\n\n\nnmxc_partitions: {:?}", nmxc_partitions);
 
     let mh1 = create_managed_host_with_hardware_info_template(
         &env,
@@ -1939,7 +1962,6 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     assert_eq!(discovery_info1.gpus.len(), 4);
 
     let gpus: Vec<Gpu> = discovery_info1.gpus.to_vec();
-    println!("{gpus:?}");
 
     let nvl_config = rpc::forge::InstanceNvLinkConfig {
         gpu_configs: gpus
@@ -2078,8 +2100,6 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
 
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
 
-    println!("{gpus:?}");
-
     let mut nvl_config = rpc::forge::InstanceNvLinkConfig {
         gpu_configs: gpus
             .iter()
@@ -2202,6 +2222,277 @@ async fn test_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgP
         return;
     }
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, false).await;
+}
+
+async fn seed_switch_endpoint_records(
+    txn: &mut sqlx::PgConnection,
+    bmc_mac: mac_address::MacAddress,
+    nvos_mac: mac_address::MacAddress,
+    serial_number: &str,
+    switch_name: &str,
+    rack_id: &RackId,
+) {
+    db::expected_switch::create(
+        txn,
+        ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: bmc_mac,
+            nvos_mac_addresses: vec![nvos_mac],
+            serial_number: serial_number.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "Pwd2023x0x0x0x7".into(),
+            nvos_username: None,
+            nvos_password: None,
+            bmc_ip_address: Some(SWITCH_BMC_STATIC_IP),
+            nvos_ip_address: Some(SWITCH_NVOS_STATIC_IP),
+            metadata: Metadata {
+                name: switch_name.to_string(),
+                description: "Test switch for NMX-C simulator".to_string(),
+                labels: Default::default(),
+            },
+            rack_id: Some(rack_id.clone()),
+            bmc_retain_credentials: None,
+        },
+    )
+    .await
+    .expect("create expected switch");
+
+    db::machine_interface::preallocate_bmc_machine_interface(
+        txn,
+        bmc_mac,
+        SWITCH_BMC_STATIC_IP,
+        None,
+    )
+    .await
+    .expect("BMC machine interface");
+    db::machine_interface::preallocate_machine_interface(
+        txn,
+        nvos_mac,
+        SWITCH_NVOS_STATIC_IP,
+        None,
+    )
+    .await
+    .expect("NVOS machine interface");
+}
+
+async fn create_rack_switch_for_nmxc_simulator(env: &TestEnv, rack_id: &RackId) -> SwitchId {
+    const SWITCH_SERIAL: &str = "SW-SN-001";
+    let bmc_mac = EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL.allocate();
+    let nvos_mac = EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL.allocate();
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        SWITCH_SERIAL,
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )
+    .expect("switch id");
+
+    let mut txn = env.pool.begin().await.expect("begin txn");
+    seed_switch_endpoint_records(
+        txn.as_mut(),
+        bmc_mac,
+        nvos_mac,
+        SWITCH_SERIAL,
+        "Switch1",
+        rack_id,
+    )
+    .await;
+    db_switch::create(
+        txn.as_mut(),
+        &NewSwitch {
+            id: switch_id,
+            config: SwitchConfig {
+                name: "Switch1".to_string(),
+                enable_nmxc: false,
+                fabric_manager_config: None,
+            },
+            bmc_mac_address: Some(bmc_mac),
+            metadata: None,
+            rack_id: Some(rack_id.clone()),
+            slot_number: Some(0),
+            tray_index: Some(0),
+        },
+    )
+    .await
+    .expect("create switch");
+
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await
+        .expect("load switch")
+        .expect("switch");
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::Ready,
+    )
+    .await
+    .expect("set switch ready");
+    db_switch::update_fabric_manager_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Ok,
+            addition_info: Some(CONTROL_PLANE_STATE_CONFIGURED.to_string()),
+            reason: None,
+            error_message: None,
+        }),
+    )
+    .await
+    .expect("set fabric manager status");
+    db_switch::set_primary_switch_for_rack(txn.as_mut(), rack_id, &switch_id)
+        .await
+        .expect("set primary switch");
+    txn.commit().await.expect("commit switch");
+    switch_id
+}
+
+#[crate::sqlx_test]
+async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_rack_switch_create_nvl_config_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+        nvlink_config.allow_insecure = true;
+    }
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxc_simulator = Some(true);
+    let mut site_prefixes = TEST_SITE_PREFIXES.clone();
+    site_prefixes.push(*FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2);
+    overrides.site_prefixes = Some(site_prefixes);
+
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    create_network_segment(
+        &env.api,
+        "ADMIN2",
+        &IpNetwork::new(
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+        )
+        .unwrap()
+        .to_string(),
+        &FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2
+            .ip()
+            .to_string(),
+        rpc::forge::NetworkSegmentType::Admin,
+        None,
+        true,
+    )
+    .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    let rack_id: RackId = "rack_1".parse().expect("rack id");
+    let mut txn = pool.begin().await.expect("begin txn");
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .expect("create rack");
+    txn.commit().await.expect("commit rack");
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    // Switch must exist before host discovery so NMX-C endpoint resolution can use rack NVOS IP.
+    let _switch_id = create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
+
+    register_expected_switch_exploration_results(&env)
+        .await
+        .expect("register switch endpoint exploration mocks");
+
+    let hardware_info_template = HardwareInfoTemplate::Custom(
+        crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+    );
+    insert_nvlink_nmxc_endpoint_from_managed_host(&env, &hardware_info_template).await;
+    let mh_snapshot = new_host(
+        &env,
+        ManagedHostConfig::with_hardware_info_template(hardware_info_template)
+            .with_admin_dhcp_fallback(),
+    )
+    .await
+    .expect("create managed host");
+    let mh = TestManagedHost {
+        id: mh_snapshot.host_snapshot.id,
+        dpu_ids: mh_snapshot
+            .dpu_snapshots
+            .into_iter()
+            .map(|snapshot| snapshot.id)
+            .collect(),
+        api: env.api.clone(),
+    };
+
+    let mut txn = pool.begin().await.expect("begin txn");
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(mh.id)
+        .execute(txn.as_mut())
+        .await
+        .expect("set machine rack_id");
+    txn.commit().await.expect("commit machine rack_id");
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(machine.rack_id.as_ref(), Some(&rack_id));
+    assert_eq!(&machine.state, "Ready");
+
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config, segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+
+    let check_instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.machine_id(), mh.id);
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance, check_instance);
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(tonic::Request::new(
+            rpc::forge::NvLinkPartitionSearchFilter {
+                name: None,
+                tenant_organization_id: None,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(ids_all.partition_ids.len(), 1);
 }
 
 // mTLS scenario. For this test, the simulator needs to be configured with mTLS.
@@ -2583,141 +2874,4 @@ async fn test_managed_host_creation_with_tray_default_partition_use_nmxc_simulat
         .partition_info_list;
     assert_eq!(nmxc_partitions.len(), 1);
     assert_eq!(nmxc_partitions[0].name, "tray_partition_1");
-}
-
-#[crate::sqlx_test]
-async fn test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator(
-    pool: sqlx::PgPool,
-) {
-    if !nmxc_simulator_tests_enabled() {
-        println!(
-            "skipping test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator as nmxc simulator tests are not enabled"
-        );
-        return;
-    }
-
-    let mut config = common::api_fixtures::get_config();
-    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
-        nvlink_config.enabled = true;
-    }
-
-    let mut test_overrides = TestEnvOverrides::with_config(config);
-    test_overrides.nmxc_simulator = Some(true);
-
-    let env =
-        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
-
-    let _segment_id = env.create_vpc_and_tenant_segment().await;
-
-    let NvlLogicalPartitionFixture {
-        id: _logical_partition_id,
-        logical_partition: _logical_partition,
-    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
-
-    let request_logical_ids =
-        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
-
-    let logical_ids_list = env
-        .api
-        .find_nv_link_logical_partition_ids(request_logical_ids)
-        .await
-        .map(|response| response.into_inner())
-        .unwrap();
-    assert_eq!(logical_ids_list.partition_ids.len(), 1);
-
-    let mh = create_managed_host_with_hardware_info_template(
-        &env,
-        HardwareInfoTemplate::Custom(
-            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
-        ),
-    )
-    .await;
-    let machine = mh.host().rpc_machine().await;
-
-    assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
-
-    assert_eq!(discovery_info.gpus.len(), 4);
-
-    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
-
-    let gpu_uids: Vec<u64> = gpus
-        .iter()
-        .filter_map(|gpu| {
-            gpu.platform_info.as_ref().map(|platform_info| {
-                let s = platform_info.fabric_guid.trim();
-                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-                    u64::from_str_radix(hex, 16).unwrap_or(0)
-                } else {
-                    s.parse::<u64>().unwrap_or(0)
-                }
-            })
-        })
-        .collect();
-    assert_eq!(gpu_uids.len(), 4);
-
-    let mut nmxc_sim_client = env
-        .nmxc_sim
-        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
-        .await
-        .unwrap();
-
-    const NMXC_DEFAULT_PARTITION_ID: u32 = 32766;
-    nmxc_sim_client
-        .remove_gpus_from_partition(UpdatePartitionRequest {
-            context: None,
-            partition_id: Some(libnmxc::nmxc_model::PartitionId {
-                partition_id: NMXC_DEFAULT_PARTITION_ID,
-            }),
-            location_list: vec![],
-            gpu_uid: gpu_uids.clone(),
-            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
-            name: String::new(),
-            reroute: true,
-        })
-        .await
-        .expect("remove host GPUs from default NMX-C partition");
-
-    println!("\n\n\n\n\n\n\n creating 1\n");
-    // create a NMX-C partition with all the GPUs from the managed host. This is used to simulate the case
-    // as if NMX-M created the partition
-    nmxc_sim_client
-        .create_partition(CreatePartitionRequest {
-            context: None,
-            name: "test-existing-nmxc-partition".to_string(),
-            gpu_resource_id: gpu_uids
-                .iter()
-                .map(|&uid| libnmxc::nmxc_model::GpuResourceId {
-                    resource_id: Some(libnmxc::nmxc_model::gpu_resource_id::ResourceId::GpuUid(
-                        uid,
-                    )),
-                })
-                .collect(),
-            attr: None,
-            partition_id: None,
-            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
-        })
-        .await
-        .expect("create NMX-C partition for managed host GPUs");
-
-    println!("\n\n\n\n\n\n\n creating 2\n");
-
-    nmxc_sim_client
-        .create_partition(CreatePartitionRequest {
-            context: None,
-            name: "test-existing-nmxc-partition".to_string(),
-            gpu_resource_id: gpu_uids
-                .iter()
-                .map(|&uid| libnmxc::nmxc_model::GpuResourceId {
-                    resource_id: Some(libnmxc::nmxc_model::gpu_resource_id::ResourceId::GpuUid(
-                        uid,
-                    )),
-                })
-                .collect(),
-            attr: None,
-            partition_id: None,
-            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
-        })
-        .await
-        .expect("create NMX-C partition for managed host GPUs");
 }

@@ -15,27 +15,17 @@
  * limitations under the License.
  */
 
-mod attach_vpc;
-mod delete;
-mod show;
+pub mod args;
+pub mod cmd;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowNetworkSegment;
-pub use show::cmd::handle_show;
+pub use args::Args;
 
-#[cfg(test)]
-mod tests;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Network Segment information")]
-    Show(show::Args),
-    #[clap(about = "Attach Network Segment to VPC")]
-    AttachVpc(attach_vpc::Args),
-    #[clap(about = "Delete Network Segment")]
-    Delete(delete::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::handle_attach_vpc(self, ctx).await
+    }
 }

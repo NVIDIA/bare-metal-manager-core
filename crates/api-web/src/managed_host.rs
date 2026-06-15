@@ -60,6 +60,7 @@ struct ManagedHostShow {
     mems: Vec<(isize, String)>,
     active_mem_filter: isize,
     is_filtered: bool,
+    has_dpf_warning: bool,
     page: PageContext,
 }
 
@@ -97,6 +98,8 @@ pub struct ManagedHostRowDisplay {
     pub maintenance_reference: String,
     pub maintenance_start_time: String,
     pub dpus: Vec<AttachedDpuRowDisplay>,
+    pub dpf_enabled: bool,
+    pub dpf_used_for_ingestion: bool,
 }
 
 impl ManagedHostRowDisplay {
@@ -210,6 +213,8 @@ impl ManagedHostRowDisplay {
             maintenance_reference,
             maintenance_start_time,
             dpus: dpu_snapshots.into_iter().map_into().collect(),
+            dpf_enabled: host_snapshot.dpf.enabled,
+            dpf_used_for_ingestion: host_snapshot.dpf.used_for_ingestion,
         }
     }
 }
@@ -610,11 +615,14 @@ pub async fn show_html(
     }
     .to_query_params();
 
+    let has_dpf_warning = hosts.iter().any(|h| !h.dpf_used_for_ingestion);
+
     let tmpl = ManagedHostShow {
         grouped_hosts,
         active_group_by: GroupingKey::vec_to_params(&group_by),
         active_health_alerts_filter,
         active_maintenance_filter,
+        has_dpf_warning,
         hosts,
         active_vendor_filter,
         active_model_filter,

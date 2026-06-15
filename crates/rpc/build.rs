@@ -331,6 +331,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkSegmentConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.AttachNetworkSegmentToVpcRequest",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.SpxPartitionConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
@@ -550,6 +554,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("ExpectedRackList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "TpmCaCertDetail",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "DpfMachineState",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(

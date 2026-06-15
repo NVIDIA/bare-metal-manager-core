@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_uuid::machine_validation::MachineValidationId;
 use libredfish::SystemPowerControl;
 use model::machine::{
     FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
@@ -28,6 +29,52 @@ use super::{HostHandlerParams, is_machine_validation_requested, machine_validati
 use crate::context::{MachineStateHandlerContextObjects, MachineStateHandlerServices};
 use crate::handler::{handler_host_power_control, rebooted, trigger_reboot_if_needed};
 
+async fn skip_machine_validation(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    validation_id: &MachineValidationId,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    tracing::info!("Skipping Machine Validation");
+    let machine_id = mh_snapshot.host_snapshot.id;
+    let mut txn = ctx.services.db_pool.begin().await?;
+    let completed = db::machine_validation::mark_machine_validation_complete(
+        txn.as_mut(),
+        &machine_id,
+        validation_id,
+        MachineValidationStatus {
+            state: MachineValidationState::Skipped,
+            ..MachineValidationStatus::default()
+        },
+    )
+    .await?;
+    if !completed {
+        tracing::info!(
+            %machine_id,
+            machine_validation_id = %validation_id,
+            "skipped machine validation completion ignored because run is no longer active"
+        );
+        return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+    }
+    let machine_validation = db::machine_validation::find_by_id(txn.as_mut(), validation_id)
+        .await
+        .map_err(|err| StateHandlerError::GenericError(err.into()))?;
+
+    *ctx.metrics
+        .last_machine_validation_list
+        .entry((
+            machine_validation.machine_id.to_string(),
+            machine_validation.context.unwrap_or_default(),
+        ))
+        .or_default() = 0_i32;
+
+    Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
+        machine_state: MachineState::Discovered {
+            skip_reboot_wait: true,
+        },
+    })
+    .with_txn(txn))
+}
+
 pub(crate) async fn handle_machine_validation_state(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     machine_validation: &MachineValidatingState,
@@ -36,6 +83,9 @@ pub(crate) async fn handle_machine_validation_state(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match machine_validation {
         MachineValidatingState::RebootHost { validation_id } => {
+            if !host_handler_params.machine_validation_config.enabled {
+                return skip_machine_validation(ctx, validation_id, mh_snapshot).await;
+            }
             // Handle reboot host case
             handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
             let machine_validation =
@@ -83,50 +133,7 @@ pub(crate) async fn handle_machine_validation_state(
                 return Ok(StateHandlerOutcome::wait(status.status));
             }
             if !host_handler_params.machine_validation_config.enabled {
-                tracing::info!("Skipping Machine Validation");
-                let machine_id = mh_snapshot.host_snapshot.id;
-                let machine_validation_id = *id;
-                let mut txn = ctx.services.db_pool.begin().await?;
-                let completed = db::machine_validation::mark_machine_validation_complete(
-                    txn.as_mut(),
-                    &machine_id,
-                    &machine_validation_id,
-                    MachineValidationStatus {
-                        state: MachineValidationState::Skipped,
-                        ..MachineValidationStatus::default()
-                    },
-                )
-                .await?;
-                if !completed {
-                    tracing::info!(
-                        %machine_id,
-                        %machine_validation_id,
-                        "skipped machine validation completion ignored because run is no longer active"
-                    );
-                    return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
-                }
-                let machine_validation = db::machine_validation::find_by_id(txn.as_mut(), id)
-                    .await
-                    .map_err(|err| StateHandlerError::GenericError(err.into()))?;
-
-                *ctx.metrics
-                    .last_machine_validation_list
-                    .entry((
-                        machine_validation.machine_id.to_string(),
-                        machine_validation.context.unwrap_or_default(),
-                    ))
-                    .or_default() = 0_i32;
-
-                return Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
-                    machine_state: MachineState::Discovered {
-                        // Since we're skipping machine validation, we don't need to
-                        // wait on *another* reboot. We already waited for the prior
-                        // reboot to complete above, so tell the Discovered state to
-                        // skip it.
-                        skip_reboot_wait: true,
-                    },
-                })
-                .with_txn(txn));
+                return skip_machine_validation(ctx, id, mh_snapshot).await;
             }
             // Host validation completed
             if machine_validation_completed(&mh_snapshot.host_snapshot) {

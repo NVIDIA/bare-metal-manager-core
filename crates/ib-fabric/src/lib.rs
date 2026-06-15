@@ -1270,59 +1270,58 @@ fn is_pkey_in_managed_range(pkey: PartitionKey, fabric_definition: &IbFabricDefi
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
-    fn test_parse_num() {
-        assert_eq!(0, parse_num("0x0000000000000000").unwrap());
-        assert_eq!(1, parse_num("0x0000000000000001").unwrap());
-        assert_eq!(0, parse_num("0x00").unwrap());
-        assert_eq!(1, parse_num("0x01").unwrap());
-    }
+    fn parses_numbers() {
+        value_scenarios!(parse_num:
+            "hex" {
+                "0x0000000000000000" => Some(0),
+                "0x0000000000000001" => Some(1),
+                "0x00" => Some(0),
+                "0x01" => Some(1),
+                "0xff" => Some(255),
+            }
 
-    // ============================================================
-    // Unit Tests for parse_guids_from_alert
-    // ============================================================
+            "decimal" {
+                "0" => Some(0),
+                "1" => Some(1),
+                "2303" => Some(2303),
+            }
 
-    #[test]
-    fn test_parse_guids_single() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "946dae03006104f8");
-    }
-
-    #[test]
-    fn test_parse_guids_multiple() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8; abc123def4567890; fedcba9876543210";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0], "946dae03006104f8");
-        assert_eq!(result[1], "abc123def4567890");
-        assert_eq!(result[2], "fedcba9876543210");
+            "invalid" {
+                "" => None,
+                "0x" => None,
+                "not-a-number" => None,
+            }
+        );
     }
 
     #[test]
-    fn test_parse_guids_wrong_prefix() {
-        let message = "Wrong prefix message";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 0);
-    }
+    fn parses_cleanup_alert_guids() {
+        value_scenarios!(parse_guids_from_alert:
+            "valid alerts" {
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8" => vec![
+                    "946dae03006104f8".to_string(),
+                ],
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8; abc123def4567890; fedcba9876543210" => vec![
+                    "946dae03006104f8".to_string(),
+                    "abc123def4567890".to_string(),
+                    "fedcba9876543210".to_string(),
+                ],
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs:  abc  ;  def  " => vec![
+                    "abc".to_string(),
+                    "def".to_string(),
+                ],
+            }
 
-    #[test]
-    fn test_parse_guids_empty() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: ";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_guids_with_whitespace() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs:  abc  ;  def  ";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "abc");
-        assert_eq!(result[1], "def");
+            "ignored messages" {
+                "Wrong prefix message" => Vec::<String>::new(),
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: " => Vec::<String>::new(),
+            }
+        );
     }
 
     // ============================================================
@@ -1394,75 +1393,40 @@ mod tests {
     }
 
     #[test]
-    fn test_pkey_in_range_decimal() {
-        let fabric = make_fabric_definition(vec![("256", "2303")]);
-        // 0x100 = 256, should be in range
-        let pkey = PartitionKey::try_from(256u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
+    fn checks_managed_pkey_ranges() {
+        value_scenarios!(
+            run = |(pkey, ranges): (u16, Vec<(&str, &str)>)| {
+                let fabric = make_fabric_definition(ranges);
+                let pkey = PartitionKey::try_from(pkey).unwrap();
+                is_pkey_in_managed_range(pkey, &fabric)
+            };
+            "decimal range" {
+                (256, vec![("256", "2303")]) => true,
+                (2302, vec![("256", "2303")]) => true,
+                (1280, vec![("256", "2303")]) => true,
+                (255, vec![("256", "2303")]) => false,
+                (2303, vec![("256", "2303")]) => false,
+                (0x5000, vec![("256", "2303")]) => false,
+            }
 
-        // 0x8FE = 2302, should be in range (end is exclusive)
-        let pkey = PartitionKey::try_from(2302u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
+            "hex range" {
+                (0x100, vec![("0x100", "0x8FF")]) => true,
+                (0x8FE, vec![("0x100", "0x8FF")]) => true,
+                (0x8FF, vec![("0x100", "0x8FF")]) => false,
+            }
 
-        // 0x500 = 1280, should be in range
-        let pkey = PartitionKey::try_from(1280u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-    }
+            "multiple ranges" {
+                (150, vec![("100", "200"), ("500", "600")]) => true,
+                (550, vec![("100", "200"), ("500", "600")]) => true,
+                (300, vec![("100", "200"), ("500", "600")]) => false,
+            }
 
-    #[test]
-    fn test_pkey_outside_range() {
-        let fabric = make_fabric_definition(vec![("256", "2303")]);
-
-        // 0x5000 = 20480, should be OUTSIDE range
-        let pkey = PartitionKey::try_from(0x5000u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-
-        // 255 is just below range
-        let pkey = PartitionKey::try_from(255u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-
-        // 2303 is the exclusive end, should be OUTSIDE range
-        let pkey = PartitionKey::try_from(2303u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_in_range_hex() {
-        let fabric = make_fabric_definition(vec![("0x100", "0x8FF")]);
-
-        // 0x100 = 256, should be in range
-        let pkey = PartitionKey::try_from(0x100u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // 0x8FE = 2302, should be in range (end is exclusive)
-        let pkey = PartitionKey::try_from(0x8FEu16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_multiple_ranges() {
-        let fabric = make_fabric_definition(vec![("100", "200"), ("500", "600")]);
-
-        // In first range
-        let pkey = PartitionKey::try_from(150u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // In second range
-        let pkey = PartitionKey::try_from(550u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // Between ranges (not managed)
-        let pkey = PartitionKey::try_from(300u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_empty_ranges() {
-        let fabric = make_fabric_definition(vec![]);
-
-        // No ranges configured, nothing is managed
-        let pkey = PartitionKey::try_from(256u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+            "empty or invalid ranges" {
+                (256, vec![]) => false,
+                (256, vec![("not-a-number", "300")]) => false,
+                (256, vec![("100", "not-a-number")]) => false,
+            }
+        );
     }
 
     // ============================================================

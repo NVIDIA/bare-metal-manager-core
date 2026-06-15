@@ -44,6 +44,16 @@ pub struct NewNetworkPrefix {
     pub num_reserved: i32,
 }
 
+impl From<NetworkPrefix> for NewNetworkPrefix {
+    fn from(prefix: NetworkPrefix) -> Self {
+        Self {
+            prefix: prefix.prefix,
+            gateway: prefix.gateway,
+            num_reserved: prefix.num_reserved,
+        }
+    }
+}
+
 impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         Ok(NetworkPrefix {

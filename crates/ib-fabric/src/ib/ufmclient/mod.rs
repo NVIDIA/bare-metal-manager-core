@@ -603,103 +603,83 @@ impl Ufm {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
-    #[test]
-    fn test_filter_port() {
-        struct TestCase {
-            name: String,
-            ports: Vec<Port>,
-            pkey_guids: Option<HashSet<String>>,
-            guids: Option<HashSet<String>>,
-            port_state: Option<String>,
-            expected: Vec<Port>,
+    #[derive(Clone, Copy, Debug)]
+    enum FilterCase {
+        NoFilter,
+        PkeyGuids,
+        Guids,
+        GuidAndPkeyIntersection,
+        GuidAndPkeyIntersectionSecondPort,
+        PortState,
+        PortStateIsCaseInsensitive,
+        GuidAndMissingPortState,
+    }
+
+    fn port(guid: &str, logical_state: &str) -> Port {
+        Port {
+            guid: guid.to_string(),
+            logical_state: logical_state.to_string(),
+            ..Port::default()
         }
+    }
 
-        let p1_id = String::from("p1");
-        let p1 = Port {
-            guid: p1_id.clone(),
-            logical_state: "Active".to_string(),
-            ..Port::default()
-        };
+    fn guid_set(guids: &[&str]) -> Option<HashSet<String>> {
+        Some(guids.iter().map(|guid| (*guid).to_string()).collect())
+    }
 
-        let p2_id = String::from("p2");
-        let p2 = Port {
-            guid: p2_id.clone(),
-            logical_state: "Down".to_string(),
-            ..Port::default()
-        };
-
-        let p3_id = String::from("p3");
-        let p3 = Port {
-            guid: p3_id.clone(),
-            logical_state: "Initialize".to_string(),
-            ..Port::default()
-        };
-
-        let cases = vec![
-            TestCase {
-                name: String::from("no filter"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: None,
-                guids: None,
-                port_state: None,
-                expected: vec![p1.clone(), p2.clone(), p3.clone()],
-            },
-            TestCase {
-                name: String::from("filter by pkey guids"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(HashSet::from_iter([p1_id.clone()])),
-                guids: None,
-                port_state: None,
-                expected: vec![p1.clone()],
-            },
-            TestCase {
-                name: String::from("filter by guids"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: None,
-                guids: Some(HashSet::from_iter([p1_id.clone()])),
-                port_state: None,
-                expected: vec![p1.clone()],
-            },
-            TestCase {
-                name: String::from("filter by guids (1) and pkey guids (1,2)"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(HashSet::from_iter([p1_id.clone(), p2_id.clone()])),
-                guids: Some(HashSet::from_iter([p1_id.clone()])),
-                port_state: None,
-                expected: vec![p1.clone()],
-            },
-            TestCase {
-                name: String::from("filter by guids (2,3) and pkey guids (1,2)"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: Some(HashSet::from_iter([p1_id.clone(), p2_id.clone()])),
-                guids: Some(HashSet::from_iter([p2_id, p3_id])),
-                port_state: None,
-                expected: vec![p2.clone()],
-            },
-            TestCase {
-                name: String::from("filter by port statet"),
-                ports: vec![p1.clone(), p2.clone(), p3.clone()],
-                pkey_guids: None,
-                guids: None,
-                port_state: Some("Active".to_string()),
-                expected: vec![p1.clone()],
-            },
-            TestCase {
-                name: String::from("filter by guids and port state"),
-                ports: vec![p1, p2, p3],
-                pkey_guids: None,
-                guids: Some(HashSet::from_iter([p1_id])),
-                port_state: Some("Disabled".to_string()),
-                expected: vec![],
-            },
+    fn filter_port_guids(case: FilterCase) -> Vec<String> {
+        let ports = vec![
+            port("p1", "Active"),
+            port("p2", "Down"),
+            port("p3", "Initialize"),
         ];
+        let (pkey_guids, guids, port_state) = match case {
+            FilterCase::NoFilter => (None, None, None),
+            FilterCase::PkeyGuids => (guid_set(&["p1"]), None, None),
+            FilterCase::Guids => (None, guid_set(&["p1"]), None),
+            FilterCase::GuidAndPkeyIntersection => {
+                (guid_set(&["p1", "p2"]), guid_set(&["p1"]), None)
+            }
+            FilterCase::GuidAndPkeyIntersectionSecondPort => {
+                (guid_set(&["p1", "p2"]), guid_set(&["p2", "p3"]), None)
+            }
+            FilterCase::PortState => (None, None, Some("Active".to_string())),
+            FilterCase::PortStateIsCaseInsensitive => (None, None, Some(" active ".to_string())),
+            FilterCase::GuidAndMissingPortState => {
+                (None, guid_set(&["p1"]), Some("Disabled".to_string()))
+            }
+        };
 
-        for c in cases {
-            let got = Ufm::filter_ports(c.ports, c.pkey_guids, c.guids, c.port_state);
-            assert_eq!(c.expected, got, "{}", c.name);
-        }
+        Ufm::filter_ports(ports, pkey_guids, guids, port_state)
+            .into_iter()
+            .map(|port| port.guid)
+            .collect()
+    }
+
+    #[test]
+    fn filters_ports() {
+        value_scenarios!(filter_port_guids:
+            "unfiltered" {
+                FilterCase::NoFilter => vec!["p1".to_string(), "p2".to_string(), "p3".to_string()],
+            }
+
+            "guid filters" {
+                FilterCase::PkeyGuids => vec!["p1".to_string()],
+                FilterCase::Guids => vec!["p1".to_string()],
+                FilterCase::GuidAndPkeyIntersection => vec!["p1".to_string()],
+                FilterCase::GuidAndPkeyIntersectionSecondPort => vec!["p2".to_string()],
+            }
+
+            "state filters" {
+                FilterCase::PortState => vec!["p1".to_string()],
+                FilterCase::PortStateIsCaseInsensitive => vec!["p1".to_string()],
+                FilterCase::GuidAndMissingPortState => Vec::<String>::new(),
+            }
+        );
     }
 }
 

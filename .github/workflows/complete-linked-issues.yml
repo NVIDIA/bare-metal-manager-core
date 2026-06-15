@@ -1,0 +1,238 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Moves issues linked by closing keywords in merged PRs to the completed state
+# in the NVIDIA Infra Controller project.
+#
+# Required configuration:
+# - Variable: PROJECT_AUTOMATION_APP_ID
+# - Secret: PROJECT_AUTOMATION_APP_PRIVATE_KEY
+#
+# The GitHub App must be installed for this repository and have access to the
+# NVIDIA organization project with Projects read/write permissions. This workflow
+# uses pull_request_target so app credentials are available for fork PRs; it does
+# not check out or run code from the PR.
+
+name: Complete Linked Issues
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to process
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  complete-linked-issues:
+    name: Complete linked project issues
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    timeout-minutes: 10
+    env:
+      PROJECT_OWNER: NVIDIA
+      PROJECT_NUMBER: "142"
+      STATUS_FIELD: Status
+      STATUS_OPTION: Code Complete
+      DISPOSITION_FIELD: Disposition
+      DISPOSITION_OPTION: Item Completed
+      PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number || github.event.pull_request.number }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Generate project automation token
+        id: generate-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ vars.PROJECT_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ env.PROJECT_OWNER }}
+
+      - name: Update linked issue project fields
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          repo_owner="${REPOSITORY%/*}"
+          repo_name="${REPOSITORY#*/}"
+
+          project_data="$(mktemp)"
+          gh api graphql -f query='
+            query($org: String!, $number: Int!) {
+              organization(login: $org) {
+                projectV2(number: $number) {
+                  id
+                  fields(first: 100) {
+                    nodes {
+                      ... on ProjectV2FieldCommon {
+                        id
+                        name
+                      }
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                        options {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f org="$PROJECT_OWNER" -F number="$PROJECT_NUMBER" > "$project_data"
+
+          project_id="$(jq -er '.data.organization.projectV2.id' "$project_data")"
+          status_field_id="$(jq -er --arg field "$STATUS_FIELD" \
+            '.data.organization.projectV2.fields.nodes[] | select(.name == $field) | .id' "$project_data")"
+          status_option_id="$(jq -er --arg field "$STATUS_FIELD" --arg option "$STATUS_OPTION" \
+            '.data.organization.projectV2.fields.nodes[] | select(.name == $field) | .options[]? | select(.name == $option) | .id' "$project_data")"
+          disposition_field_id="$(jq -er --arg field "$DISPOSITION_FIELD" \
+            '.data.organization.projectV2.fields.nodes[] | select(.name == $field) | .id' "$project_data")"
+          disposition_option_id="$(jq -er --arg field "$DISPOSITION_FIELD" --arg option "$DISPOSITION_OPTION" \
+            '.data.organization.projectV2.fields.nodes[] | select(.name == $field) | .options[]? | select(.name == $option) | .id' "$project_data")"
+
+          pr_data="$(mktemp)"
+          gh api graphql -f query='
+            query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                defaultBranchRef {
+                  name
+                }
+                pullRequest(number: $number) {
+                  number
+                  url
+                  merged
+                  baseRefName
+                  closingIssuesReferences(first: 100) {
+                    nodes {
+                      id
+                      number
+                      url
+                      repository {
+                        name
+                        owner {
+                          login
+                        }
+                      }
+                      projectItems(first: 50) {
+                        nodes {
+                          id
+                          project {
+                            id
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f owner="$repo_owner" -f repo="$repo_name" -F number="$PR_NUMBER" > "$pr_data"
+
+          merged="$(jq -r '.data.repository.pullRequest.merged // false' "$pr_data")"
+          if [ "$merged" != "true" ]; then
+            echo "::notice::PR #${PR_NUMBER} is not merged; skipping linked issue completion."
+            exit 0
+          fi
+
+          base_ref="$(jq -er '.data.repository.pullRequest.baseRefName' "$pr_data")"
+          default_branch="$(jq -er '.data.repository.defaultBranchRef.name' "$pr_data")"
+          if [ "$base_ref" != "$default_branch" ]; then
+            echo "::notice::PR #${PR_NUMBER} targets ${base_ref}, not default branch ${default_branch}; skipping."
+            exit 0
+          fi
+
+          linked_issue_count="$(jq '.data.repository.pullRequest.closingIssuesReferences.nodes | length' "$pr_data")"
+          if [ "$linked_issue_count" -eq 0 ]; then
+            echo "::notice::PR #${PR_NUMBER} has no closing issue references."
+            exit 0
+          fi
+
+          echo "Completing ${linked_issue_count} linked issue(s) for PR #${PR_NUMBER}."
+          while IFS=$'\t' read -r issue_id issue_number issue_url issue_owner issue_repo item_id; do
+            if [ -z "$item_id" ]; then
+              echo "Adding ${issue_owner}/${issue_repo}#${issue_number} to project ${PROJECT_OWNER}/${PROJECT_NUMBER}."
+              item_id="$(gh api graphql -f query='
+                mutation($project: ID!, $issue: ID!) {
+                  addProjectV2ItemById(input: {projectId: $project, contentId: $issue}) {
+                    item {
+                      id
+                    }
+                  }
+                }' -f project="$project_id" -f issue="$issue_id" --jq '.data.addProjectV2ItemById.item.id')"
+            fi
+
+            gh api graphql -f query='
+              mutation(
+                $project: ID!
+                $item: ID!
+                $statusField: ID!
+                $statusOption: String!
+                $dispositionField: ID!
+                $dispositionOption: String!
+              ) {
+                set_status: updateProjectV2ItemFieldValue(input: {
+                  projectId: $project
+                  itemId: $item
+                  fieldId: $statusField
+                  value: {
+                    singleSelectOptionId: $statusOption
+                  }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+                set_disposition: updateProjectV2ItemFieldValue(input: {
+                  projectId: $project
+                  itemId: $item
+                  fieldId: $dispositionField
+                  value: {
+                    singleSelectOptionId: $dispositionOption
+                  }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+              }' \
+              -f project="$project_id" \
+              -f item="$item_id" \
+              -f statusField="$status_field_id" \
+              -f statusOption="$status_option_id" \
+              -f dispositionField="$disposition_field_id" \
+              -f dispositionOption="$disposition_option_id" \
+              --silent
+
+            echo "Updated ${issue_url}: ${STATUS_FIELD}=${STATUS_OPTION}, ${DISPOSITION_FIELD}=${DISPOSITION_OPTION}."
+          done < <(jq -r --arg project "$project_id" '
+            .data.repository.pullRequest.closingIssuesReferences.nodes[]
+            | [
+                .id,
+                (.number | tostring),
+                .url,
+                .repository.owner.login,
+                .repository.name,
+                ((.projectItems.nodes[]? | select(.project.id == $project) | .id) // "")
+              ]
+            | @tsv
+          ' "$pr_data")

@@ -15,27 +15,12 @@
  * limitations under the License.
  */
 
-mod attach_vpc;
-mod delete;
-mod show;
+use super::args::Args;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowNetworkSegment;
-pub use show::cmd::handle_show;
-
-#[cfg(test)]
-mod tests;
-
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Network Segment information")]
-    Show(show::Args),
-    #[clap(about = "Attach Network Segment to VPC")]
-    AttachVpc(attach_vpc::Args),
-    #[clap(about = "Delete Network Segment")]
-    Delete(delete::Args),
+pub async fn handle_attach_vpc(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    ctx.assert_cloud_unsafe_op_message()?;
+    ctx.api_client.0.attach_network_segment_to_vpc(args).await?;
+    Ok(())
 }

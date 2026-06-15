@@ -61,6 +61,7 @@ uuid = { features = ["v4", "serde"], workspace = true }
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 tempfile = { workspace = true }
 
 [lints]

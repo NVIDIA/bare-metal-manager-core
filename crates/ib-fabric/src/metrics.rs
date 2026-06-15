@@ -554,3 +554,68 @@ fn truncate_error_for_metric_label(mut error: String) -> String {
     error.truncate(upto);
     error
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    fn operation_metric_value(operation: UfmOperation) -> String {
+        opentelemetry::Value::from(operation).to_string()
+    }
+
+    fn status_metric_value(status: UfmOperationStatus) -> String {
+        opentelemetry::Value::from(status).to_string()
+    }
+
+    #[test]
+    fn enumerates_ufm_operations_and_statuses() {
+        assert_eq!(
+            UfmOperation::values().collect::<Vec<_>>(),
+            vec![
+                UfmOperation::BindGuidToPkey,
+                UfmOperation::UnbindGuidFromPkey
+            ]
+        );
+        assert_eq!(
+            UfmOperationStatus::values().collect::<Vec<_>>(),
+            vec![UfmOperationStatus::Ok, UfmOperationStatus::Error]
+        );
+    }
+
+    #[test]
+    fn converts_ufm_operations_to_metric_values() {
+        value_scenarios!(operation_metric_value:
+            "operations" {
+                UfmOperation::BindGuidToPkey => "bind_guid_to_pkey".to_string(),
+                UfmOperation::UnbindGuidFromPkey => "unbind_guid_from_pkey".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn converts_ufm_operation_statuses_to_metric_values() {
+        value_scenarios!(status_metric_value:
+            "statuses" {
+                UfmOperationStatus::Ok => "ok".to_string(),
+                UfmOperationStatus::Error => "error".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn creates_empty_monitor_metrics() {
+        let metrics = IbFabricMonitorMetrics::new();
+
+        assert_eq!(metrics.num_fabrics, 0);
+        assert!(metrics.fabrics.is_empty());
+        assert_eq!(metrics.num_machine_ib_status_updates, 0);
+        assert!(metrics.num_machines_by_port_states.is_empty());
+        assert!(metrics.num_machines_by_ports_with_partitions.is_empty());
+        assert_eq!(metrics.num_machines_with_missing_pkeys, 0);
+        assert_eq!(metrics.num_machines_with_unexpected_pkeys, 0);
+        assert_eq!(metrics.num_machines_with_unknown_pkeys, 0);
+        assert!(metrics.applied_changes.is_empty());
+    }
+}

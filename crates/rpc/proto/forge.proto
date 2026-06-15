@@ -75,6 +75,7 @@ service Forge {
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
+  rpc AttachNetworkSegmentToVpc(AttachNetworkSegmentToVpcRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   // TODO: This functionality should get integrated into NetworkSegmentSearchFilter
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
@@ -2445,6 +2446,12 @@ message NetworkSegmentDeletionRequest {
   common.NetworkSegmentId id = 1;
 }
 
+message AttachNetworkSegmentToVpcRequest {
+  common.NetworkSegmentId network_segment_id = 1;
+  common.VpcId vpc_id = 2;
+  bool allow_replace = 3;
+}
+
 message NetworkSegmentDeletionResult {
 }
 
@@ -3542,6 +3549,13 @@ message Machine {
 
   // Build version of forge-scout last observed during machine discovery registration.
   optional string last_scout_observed_version = 48;
+
+  optional DpfMachineState dpf = 49;
+}
+
+message DpfMachineState {
+  bool enabled = 1;
+  bool used_for_ingestion = 2;
 }
 
 message InstanceNetworkRestrictions {

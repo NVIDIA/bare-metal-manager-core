@@ -48,6 +48,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 figment = { features = ["env", "test", "toml"], workspace = true }
 
 [lints]
