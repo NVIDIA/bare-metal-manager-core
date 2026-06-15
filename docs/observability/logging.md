@@ -52,6 +52,7 @@ sidecar - just configure your collector to read pod logs.
 | **nico-hardware-health** | `carbide-hw-health` | logfmt | Hardware health monitoring. |
 | **nico-ssh-console** | `carbide-ssh-console-rs` | compact | SSH console access service. Also captures machine/DPU console output to files (see 2.5). |
 | **nico-dsx-exchange-consumer** | `carbide-dsx-exchange-consumer` | logfmt | DSX message consumer. |
+| **nico-dpu-otel-agent** | `forge-dpu-otel-agent` | compact | DPU certificate renewal agent. |
 
 ### 2.1 logfmt format
 
