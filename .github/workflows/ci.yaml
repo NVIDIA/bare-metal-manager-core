@@ -61,6 +61,8 @@ jobs:
               - '!rest-api/**'
               - '!.github/workflows/rest-*.yml'
               - '!helm/rest/**'
+              - '!docs/**'
+              - '!fern/**'
 
       - name: Decide whether Core CI should run
         id: gate

@@ -2807,6 +2807,13 @@ pub fn dpf_based_dpu_provisioning_possible(
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
             state.host_snapshot.id
         );
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
+
         return false;
     }
 
@@ -2825,6 +2832,12 @@ pub fn dpf_based_dpu_provisioning_possible(
             and not all DPUs are being reprovisioned.",
             state.host_snapshot.id
         );
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
         return false;
     }
 
@@ -2840,6 +2853,12 @@ pub fn dpf_based_dpu_provisioning_possible(
             "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
             state.host_snapshot.id
         );
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
         return false;
     }
 
@@ -2851,6 +2870,12 @@ pub fn dpf_based_dpu_provisioning_possible(
     {
         tracing::info!(
             "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
+        );
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );
         return false;
     }

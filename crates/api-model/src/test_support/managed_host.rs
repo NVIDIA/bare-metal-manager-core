@@ -89,6 +89,9 @@ pub struct ManagedHostConfig {
     /// Default: true (maintains backward compatibility)
     pub auto_assign_sku_in_fixture: bool,
     pub hardware_info_template: HardwareInfoTemplate,
+    /// When set, DPU-backed hosts try ADMIN then ADMIN2 admin-segment DHCP during fixture
+    /// ingestion. Used by NVLink rack-switch tests that provision a second admin segment.
+    pub admin_dhcp_fallback: bool,
     /// The contents of this will be used as ExpectedMachine entry
     /// However not all fields need to be filled
     /// - bmc username/password are not required

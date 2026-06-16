@@ -15,14 +15,12 @@
  * limitations under the License.
  */
 
-pub use carbide_macros::sqlx_test;
-pub use rpc::forge::forge_server::Forge;
-pub use sqlx::PgPool;
-pub use sqlx_testing;
+use super::args::Args;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-pub use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
-pub use crate::resource_pool::ResourcePoolBuilder;
-pub use crate::{
-    Api, TestDpuMachine, TestHarness, TestHostMachine, TestMachine, TestManagedHost,
-    TestManagedHostBuildData, TestManagedHostBuilder, TestSiteExplorer, rpc,
-};
+pub async fn handle_attach_vpc(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    ctx.assert_cloud_unsafe_op_message()?;
+    ctx.api_client.0.attach_network_segment_to_vpc(args).await?;
+    Ok(())
+}

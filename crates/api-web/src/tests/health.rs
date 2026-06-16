@@ -62,7 +62,8 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
     .await;
 
     // Health page for Machine which was force deleted
-    let host_machine_id = env.create_ready_managed_host(1).await.host_machine_id;
+    let mh = env.create_ready_managed_host(1).await.0;
+    let host_machine_id = mh.host.id;
     env.api()
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: host_machine_id.to_string(),
@@ -89,7 +90,8 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
 async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let host_machine_id = env.create_ready_managed_host(1).await.host_machine_id;
+    let mh = env.create_ready_managed_host(1).await.0;
+    let host_machine_id = mh.host.id;
 
     let payload = r#"{
         "mode": "Merge",
@@ -167,9 +169,9 @@ async fn test_add_remove_nvlink_domain_health_report_via_web_ui(pool: sqlx::PgPo
 async fn test_add_replace_remove_dpu_health_report_via_web_ui(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let host = env.create_ready_managed_host(1).await;
-    let host_machine_id = host.host_machine_id;
-    let dpu_machine_id = host.dpu_machine_id(0);
+    let mh = env.create_ready_managed_host(1).await.0;
+    let host_machine_id = mh.host.id;
+    let dpu_machine_id = mh.dpu(0).id;
 
     let merge_payload = r#"{
         "mode": "Merge",

@@ -33,7 +33,7 @@ use carbide_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::network_segment::NetworkSegmentType;
-use model::test_support::{DpuConfig, ManagedHostConfig};
+use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
@@ -53,11 +53,9 @@ use crate::tests::common::api_fixtures::network_segment::{
 async fn host_with_moved_primary(
     env: &api_fixtures::TestEnv,
 ) -> Result<(MachineId, MacAddress), Box<dyn std::error::Error>> {
-    let host = api_fixtures::site_explorer::new_host(
-        env,
-        ManagedHostConfig::with_dpus(vec![DpuConfig::default(), DpuConfig::default()]),
-    )
-    .await?;
+    let host =
+        api_fixtures::site_explorer::new_host(env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
     let host_id = host.host_snapshot.id;
 
     let (promote_id, promote_mac) = {
@@ -208,8 +206,7 @@ async fn test_set_dpu_first_resolves_a_zero_dpu_host_without_an_explored_default
     env.run_network_segment_controller_iteration().await;
     env.run_network_segment_controller_iteration().await;
 
-    let host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(vec![])).await?;
+    let host = api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
     let host_id = host.host_snapshot.id;
 
     let inband_mac = {
@@ -256,11 +253,9 @@ async fn test_boot_interface_candidates_skips_dpu_machines(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let host = api_fixtures::site_explorer::new_host(
-        &env,
-        ManagedHostConfig::with_dpus(vec![DpuConfig::default()]),
-    )
-    .await?;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
+            .await?;
     let host_id = host.host_snapshot.id;
     let dpu_id = host
         .dpu_snapshots

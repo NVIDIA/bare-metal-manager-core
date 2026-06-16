@@ -520,6 +520,11 @@ pub async fn start_api(
             join_set,
         )?))
     } else {
+        tracing::warn!(
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
         None
     };
 

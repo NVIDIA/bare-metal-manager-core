@@ -15,14 +15,17 @@
  * limitations under the License.
  */
 
-pub use carbide_macros::sqlx_test;
-pub use rpc::forge::forge_server::Forge;
-pub use sqlx::PgPool;
-pub use sqlx_testing;
+pub mod args;
+pub mod cmd;
 
-pub use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
-pub use crate::resource_pool::ResourcePoolBuilder;
-pub use crate::{
-    Api, TestDpuMachine, TestHarness, TestHostMachine, TestMachine, TestManagedHost,
-    TestManagedHostBuildData, TestManagedHostBuilder, TestSiteExplorer, rpc,
-};
+pub use args::Args;
+
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::handle_attach_vpc(self, ctx).await
+    }
+}

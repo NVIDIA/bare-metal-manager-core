@@ -770,7 +770,7 @@ async fn test_dhcp_allows_zero_dpu_host_with_instance(
     .await;
     create_host_inband_network_segment(&env.api, None).await;
 
-    let mh = create_managed_host_with_config(&env, ManagedHostConfig::with_dpus(Vec::new())).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
     assert!(
         mh.dpu_ids.is_empty(),
         "zero-DPU fixture should produce no DPU machines"
