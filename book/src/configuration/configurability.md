@@ -190,7 +190,7 @@ explicitly enabled in the TOML.
 | `[machine_identity]` | SPIFFE JWT-SVID issuance for machine (host) identity | Per-org JWT signing. See [Day 0 Machine Identity](../../../docs/getting-started/installation-options/day0-machine-identity.md) and [Machine Identity (Day 1)](../../../docs/configuration/machine_identity.md). |
 | `[measured_boot_collector]` | TPM-based attestation metrics | |
 | `[machine_validation_config]` | Pre-ingestion validation tests | |
-| `[component_manager]` | NvLink switch and power shelf management | RMS backends require rack profile data for node type resolution. |
+| `[component_manager]` | Compute tray, NvLink switch, and power shelf management | RMS backends require rack profile data for node type resolution. |
 | `[vmaas_config]` | VM system integration / VM-aware traffic intercept | Requires `public_prefixes`. |
 | `[rms]` | Rack Manager Service (mTLS connectivity to external RMS) | |
 | `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster. |
@@ -1181,7 +1181,7 @@ on or off.
 | Rack Management | siteConfig | `rack_management_enabled = true` | off | Standalone infrastructure manager mode (GB200/GB300/VR144). |
 | Site Explorer machine auto-creation | siteConfig | `[site_explorer].create_machines` | on | Disable for manual-onboarding environments. |
 | Firmware autoupdate | siteConfig | `[firmware_global].autoupdate` | off | Enable once the fleet's firmware baseline is stable. |
-| Component Manager (NvLink switches / power shelves) | siteConfig | `[component_manager]` present | off | GB200/GB300 sites with managed power and switch fabric. RMS backends require rack profile data for node type resolution. |
+| Component Manager (compute trays / NvLink switches / power shelves) | siteConfig | `[component_manager]` present | off | GB200/GB300 sites with managed compute, power, and switch fabric. RMS backends require rack profile data for node type resolution. |
 | Auto-repair plugin | siteConfig | `[auto_machine_repair_plugin]` | off | Enable per fault class as fleet maturity grows. |
 | BOM / SKU validation | siteConfig | `[bom_validation]` present | off | Validate ingested hardware against expected BOM before `Ready`. |
 | Network Security Groups | siteConfig | `[network_security_group]` | default | Touch only for non-default direction policy or scale-out limits. |
