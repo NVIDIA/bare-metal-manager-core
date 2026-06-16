@@ -33,6 +33,9 @@ use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
 
+#[cfg(test)]
+mod test_metadata;
+
 #[derive(Debug, Clone, Default)]
 pub struct PowerShelfSearchConfig {
     // pub include_history: bool, // unused
