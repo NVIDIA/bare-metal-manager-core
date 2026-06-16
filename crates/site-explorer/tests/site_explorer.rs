@@ -2606,6 +2606,132 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
     Ok(())
 }
 
+/// Regression guard for the fallback-serial path (#2631): a DPU paired only
+/// through `fallback_dpu_serial_numbers` must get the same NIC-mode enforcement
+/// as a host-reported one. The host BMC here enumerates no DPU over PCIe -- the
+/// usual reason the fallback exists (e.g. a GB200 that drops a DPU from its
+/// inventory) -- so the only link is the operator-listed serial, and the DPU is
+/// still reporting DPU mode against a `NicMode` host.
+///
+/// Before the fix the fallback path trusted the match as already-configured: it
+/// attached the DPU without a mode check, then dropped it to zero-DPU, so the
+/// host registered as a NIC-mode host while the BlueField stayed in DPU mode and
+/// `set_nic_mode` was never issued. Now the flip is issued, the host is
+/// power-cycled to apply it, and the host waits instead of settling this pass.
+#[sqlx_test]
+async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = Env::new(pool).await;
+
+    const FALLBACK_DPU_SERIAL: &str = "fallback-only-dpu-serial";
+    // DPU reports DPU mode; the host report carries no DPU device, so the
+    // serial is the only thing that can pair them.
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        serial: FALLBACK_DPU_SERIAL.to_string(),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig::default();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    // Operator declares the host NIC mode and lists the DPU's serial as a
+    // pairing fallback.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2631-FALLBACK-NIC".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                fallback_dpu_serial_numbers: vec![FALLBACK_DPU_SERIAL.to_string()],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(mock_host.into())),
+    ]);
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    // Second iteration: per-host matching falls through to the fallback-serial
+    // path, which must enforce the declared NIC mode.
+    explorer.run_single_iteration().await.unwrap();
+
+    {
+        let calls = explorer
+            .endpoint_explorer()
+            .set_nic_mode_calls
+            .lock()
+            .unwrap();
+        assert!(
+            calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+            "fallback-matched DPU on a NicMode host should get set_nic_mode(Nic); calls so far: {calls:?}"
+        );
+    }
+
+    // The host must not settle as a zero-DPU managed host until the flip has
+    // applied -- otherwise the database reads "NIC-mode host" while the
+    // BlueField is still physically in DPU mode.
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert!(
+        explored_managed_hosts.is_empty(),
+        "host should wait for the queued NIC-mode flip to apply, not register as zero-DPU this pass"
+    );
+
+    // The reset path fires even though the host BMC never enumerated the DPU
+    // over PCIe (`expected_managed_dpus_total == 0`), so the queued flip can
+    // actually apply.
+    {
+        let power_calls = explorer
+            .endpoint_explorer()
+            .redfish_power_control_calls
+            .lock()
+            .unwrap();
+        assert!(
+            power_calls
+                .iter()
+                .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+            "host should be power-cycled to apply the queued NIC-mode flip; power calls so far: {power_calls:?}"
+        );
+    }
+
+    Ok(())
+}
+
 /// A managed host's DPU-facing `machine_interface` is created (via DHCP) with
 /// just a MAC and no `boot_interface_id`. The exploration that ingests the host
 /// then backfills the vendor-specific Redfish interface id onto that row, matched

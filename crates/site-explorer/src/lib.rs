@@ -1149,7 +1149,7 @@ impl SiteExplorer {
             let DpuExplorationState {
                 reported_total: host_reported_dpus_total,
                 running_as_nic_total: mut host_reported_dpus_nic_mode_total,
-                all_configured: all_dpus_configured_properly_in_host,
+                all_configured: mut all_dpus_configured_properly_in_host,
                 running_as_dpu: mut dpus_explored_for_host,
             } = dpu_exploration;
 
@@ -1166,30 +1166,53 @@ impl SiteExplorer {
                 {
                     for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
-                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(&dpu_ep, &ep)
-                                && host_reported_dpus_total
-                                    .saturating_sub(host_reported_dpus_nic_mode_total)
-                                    > 0
-                            {
-                                host_reported_dpus_nic_mode_total += 1;
-                                continue;
-                            }
+                            // Enforce the host's declared DPU mode on a fallback-serial
+                            // match the same way the host-reported path does, rather than
+                            // trusting it as already-configured. A DPU still in the wrong
+                            // mode gets a `set_nic_mode` here and has to wait for the host
+                            // reset to apply it; without this, a DPU-mode BlueField on a
+                            // `NicMode` host would be attached and then dropped to zero-DPU
+                            // (the `NicMode` arm further down), leaving the database reading
+                            // "NIC-mode host" while the hardware stayed in DPU mode.
+                            let mode_check = Some(
+                                self.check_and_configure_dpu_mode(
+                                    &dpu_ep,
+                                    dpu_ep.report.model().unwrap_or_default(),
+                                    host_dpu_mode,
+                                )
+                                .await,
+                            );
 
-                            // we found at least one DPU from expected machines for this host
-                            // assume that the expected machines is the source of truth. Clear the
-                            // contents of dpus_explored_for_host to discard the previous results of
-                            // iterating over the hosts pcie devices.
-                            if !dpu_added {
-                                dpus_explored_for_host.clear();
+                            match classify_matched_dpu(&dpu_ep, &ep, mode_check) {
+                                DiscoveredDpu::RunningAsDpu(dpu) => {
+                                    // The expected-machine fallback list is the source of
+                                    // truth here, so discard whatever the PCIe scan found
+                                    // on the first confirmed match.
+                                    if !dpu_added {
+                                        dpus_explored_for_host.clear();
+                                    }
+                                    dpu_added = true;
+                                    dpus_explored_for_host.push(dpu);
+                                }
+                                DiscoveredDpu::RunningAsNic => {
+                                    host_reported_dpus_nic_mode_total += 1;
+                                }
+                                DiscoveredDpu::NeedsReconfig => {
+                                    // `set_nic_mode` was just issued; the host needs a
+                                    // reset before this DPU re-reports in the new mode, so
+                                    // mark it not-yet-configured and let the reset path
+                                    // below run.
+                                    all_dpus_configured_properly_in_host = false;
+                                }
+                                DiscoveredDpu::ModeCheckFailed(err) => {
+                                    tracing::warn!(
+                                        dpu = %dpu_ep.address,
+                                        dpu_sn = %dpu_sn,
+                                        error = %err,
+                                        "failed to check fallback-matched DPU mode; skipping this device this pass",
+                                    );
+                                }
                             }
-
-                            dpu_added = true;
-                            dpus_explored_for_host.push(ExploredDpu {
-                                bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report.into(),
-                            });
                         }
                     }
                 }
@@ -1203,13 +1226,20 @@ impl SiteExplorer {
                     // confirmed to be running as plain NICs.
                     let expected_managed_dpus_total =
                         host_reported_dpus_total.saturating_sub(host_reported_dpus_nic_mode_total);
-                    if expected_managed_dpus_total > 0 {
-                        tracing::warn!(
-                            address = %ep.address,
-                            exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
-                            dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
-                        );
+                    // Enter the reset/wait path when DPUs are still expected to pair, or
+                    // when a `set_nic_mode` was just issued -- a fallback-serial match can
+                    // queue a flip even on a host whose BMC reports no DPU over PCIe
+                    // (`expected_managed_dpus_total == 0`), which is the usual reason we are
+                    // on the fallback path at all.
+                    if expected_managed_dpus_total > 0 || !all_dpus_configured_properly_in_host {
+                        if expected_managed_dpus_total > 0 {
+                            tracing::warn!(
+                                address = %ep.address,
+                                exploration_report = ?ep,
+                                "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
+                                dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
+                            );
+                        }
 
                         if !all_dpus_configured_properly_in_host {
                             // A queued `set_nic_mode` only takes effect after a host
