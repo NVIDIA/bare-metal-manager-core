@@ -15,10 +15,14 @@
  * limitations under the License.
  */
 
+use carbide_api_core::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_test_harness::dns::TestDomain;
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use model::machine::ManagedHostState;
+use model::test_support::ManagedHostConfig;
 
 pub struct TestEnv {
     pub test_harness: TestHarness,
@@ -62,23 +66,25 @@ impl TestEnv {
         &self.domain
     }
 
-    pub async fn create_ready_managed_host(&self, dpu_count: usize) -> TestManagedHost {
-        let mut host = self
+    pub async fn create_ready_managed_host(
+        &self,
+        dpu_count: usize,
+    ) -> (TestManagedHost, TestManagedHostBuildData) {
+        let (mut host, build_data) = self
             .test_harness
             .managed_host_builder(&self.site_explorer, self.underlay_segment)
-            .with_dpu_count(dpu_count)
+            .with_config(ManagedHostConfig::default().with_dpu_count(dpu_count))
             .build()
             .await;
 
-        host.discover_host_primary_iface(self.api(), self.admin_segment)
+        host.host.discover_primary_iface(self.admin_segment).await;
+        for dpu in &host.dpus {
+            dpu.discover_oob_iface(self.admin_segment).await;
+        }
+        host.report_dpu_network_status().await;
+        host.insert_empty_host_health_report("test-harness-health")
             .await;
-        host.discover_dpu_oob_ifaces(self.api(), self.admin_segment)
-            .await;
-        host.report_dpu_network_status(self.api()).await;
-        host.insert_empty_host_health_report(self.api(), "test-harness-health")
-            .await;
-        host.advance_host_state(&self.test_harness, ManagedHostState::Ready)
-            .await;
-        host
+        host.advance_state(ManagedHostState::Ready).await;
+        (host, build_data)
     }
 }

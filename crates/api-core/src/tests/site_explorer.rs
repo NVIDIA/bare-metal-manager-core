@@ -133,15 +133,14 @@ async fn test_site_explorer_new_host_fixture(
     create_host_inband_network_segment(&env.api, None).await;
 
     let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(Vec::new()))
-            .await?;
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
     assert_eq!(zero_dpu_host.dpu_snapshots.len(), 0);
 
     let single_dpu_host =
         api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default()).await?;
     assert_eq!(single_dpu_host.dpu_snapshots.len(), 1);
 
-    let config = ManagedHostConfig::with_dpus((0..2).map(|_| DpuConfig::default()).collect());
+    let config = ManagedHostConfig::default().with_dpu_count(2);
     let two_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
     assert_eq!(two_dpu_host.dpu_snapshots.len(), 2);
 

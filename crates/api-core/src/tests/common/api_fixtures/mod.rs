@@ -2257,7 +2257,7 @@ pub async fn create_managed_host_with_dpf_multi(
             DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON))
         })
         .collect();
-    let mh_config = ManagedHostConfig::with_dpus(dpu_configs);
+    let mh_config = ManagedHostConfig::default().with_dpus(dpu_configs);
     let mh = site_explorer::new_mock_host_with_dpf(env, mh_config)
         .await
         .expect("Failed to create a new host");
@@ -2280,8 +2280,7 @@ pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestM
 /// Create a managed host with `dpu_count` DPUs (default config)
 pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> TestManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
-    let config =
-        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let config = ManagedHostConfig::default().with_dpu_count(dpu_count);
     create_managed_host_with_config(env, config).await
 }
 
@@ -2327,7 +2326,7 @@ pub async fn create_managed_host_with_hardware_info_template(
     hardware_info_template: HardwareInfoTemplate,
 ) -> TestManagedHost {
     insert_nvlink_nmxc_endpoint_from_managed_host(env, &hardware_info_template).await;
-    let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
+    let config = ManagedHostConfig::default().with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
     TestManagedHost {
         id: mh.host_snapshot.id,

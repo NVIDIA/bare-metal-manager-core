@@ -631,7 +631,7 @@ pub mod tests {
 
         // Create machine config with expected state
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some(MachineValidationContext::Discovery),
@@ -673,7 +673,7 @@ pub mod tests {
     async fn test_leave_waiting_when_assigned(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some(MachineValidationContext::Discovery),
@@ -720,12 +720,15 @@ pub mod tests {
     async fn test_stuck_in_waiting_without_sku(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
 
-        let mut config = ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
-            bom_validating_state: BomValidating::WaitingForSkuAssignment(BomValidatingContext {
-                machine_validation_context: Some(MachineValidationContext::Discovery),
-                ..BomValidatingContext::default()
-            }),
-        });
+        let mut config =
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    BomValidatingContext {
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
+                        ..BomValidatingContext::default()
+                    },
+                ),
+            });
         config.auto_assign_sku_in_fixture = false;
 
         let mh = create_managed_host_with_config(&env, config).await;
@@ -764,12 +767,15 @@ pub mod tests {
 
         // Expect WaitingForSkuAssignment, but machine will never enter that state
         // because allow_allocation=true makes it skip directly to MachineValidation
-        let mut config = ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
-            bom_validating_state: BomValidating::WaitingForSkuAssignment(BomValidatingContext {
-                machine_validation_context: Some(MachineValidationContext::Discovery),
-                ..BomValidatingContext::default()
-            }),
-        });
+        let mut config =
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
+                bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                    BomValidatingContext {
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
+                        ..BomValidatingContext::default()
+                    },
+                ),
+            });
         config.auto_assign_sku_in_fixture = false;
 
         // This will panic because machine never enters WaitingForSkuAssignment
@@ -790,7 +796,7 @@ pub mod tests {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
 
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
@@ -885,7 +891,7 @@ pub mod tests {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
 
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
@@ -955,7 +961,7 @@ pub mod tests {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, true).await;
 
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
@@ -1042,7 +1048,7 @@ pub mod tests {
         let env = create_test_env_for_bom_validation(pool.clone(), true, None, false).await;
 
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
                     machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
@@ -1128,7 +1134,7 @@ pub mod tests {
     ) -> Result<(), eyre::Error> {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some(MachineValidationContext::Discovery),
@@ -1539,7 +1545,7 @@ pub mod tests {
     async fn test_auto_match_sku(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
         let managed_host_config =
-            ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
+            ManagedHostConfig::default().with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
                         machine_validation_context: Some(MachineValidationContext::Discovery),

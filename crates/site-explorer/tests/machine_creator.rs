@@ -207,7 +207,7 @@ async fn test_machine_creator_creates_managed_host(
 
     let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
     dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, mock_dpu.oob_mac_address).await;
-    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
+    let mock_host = ManagedHostConfig::default().with_dpus(vec![mock_dpu.clone()]);
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
 
     assert_eq!(fixture.dpu_machine_ids[&0].to_string(), expected_machine_id,);
@@ -378,8 +378,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     txn.commit().await?;
 
     let mut oob_interfaces = Vec::new();
-    let mock_host =
-        ManagedHostConfig::with_dpus((0..NUM_DPUS).map(|_| DpuConfig::default()).collect());
+    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
     for dpu in &mock_host.dpus {
         dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, dpu.oob_mac_address).await;
         let mut txn = env.pool.begin().await?;
@@ -737,7 +736,7 @@ async fn test_machine_creator_creates_managed_host_with_dpf_disabled(
             dpf_enabled: Some(false),
             ..Default::default()
         }),
-        ..ManagedHostConfig::with_dpus(vec![mock_dpu.clone()])
+        ..ManagedHostConfig::default().with_dpus(vec![mock_dpu.clone()])
     };
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
 
@@ -789,7 +788,7 @@ async fn test_machine_creator_creates_managed_host_with_dpf_enabled(
             dpf_enabled: Some(true),
             ..Default::default()
         }),
-        ..ManagedHostConfig::with_dpus(vec![mock_dpu.clone()])
+        ..ManagedHostConfig::default().with_dpus(vec![mock_dpu.clone()])
     };
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
 

@@ -46,7 +46,7 @@ use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt;
+use crate::test_support::fixture_config::{FixtureDefault, ManagedHostConfigExt};
 use crate::test_support::mac_address_pool::{
     EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL, EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL,
 };
@@ -2421,7 +2421,8 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
     insert_nvlink_nmxc_endpoint_from_managed_host(&env, &hardware_info_template).await;
     let mh_snapshot = new_host(
         &env,
-        ManagedHostConfig::with_hardware_info_template(hardware_info_template)
+        ManagedHostConfig::default()
+            .with_hardware_info_template(hardware_info_template)
             .with_admin_dhcp_fallback(),
     )
     .await
