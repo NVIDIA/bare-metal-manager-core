@@ -20,7 +20,6 @@ mod client_resolution;
 pub mod common;
 mod compute_allocation;
 mod connected_device;
-mod create_domain;
 mod credential;
 mod dhcp_lease_expiration;
 mod dns;
