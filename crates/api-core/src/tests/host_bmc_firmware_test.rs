@@ -2339,6 +2339,7 @@ async fn test_preingestion_time_sync_ok(
         .into_inner();
 
     let addr = response.address.as_str();
+    let ip_addr = IpAddr::from_str(addr).unwrap();
     // Insert endpoint with current versions that are up to date
     insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
     txn.commit().await?;
@@ -2349,6 +2350,8 @@ async fn test_preingestion_time_sync_ok(
     // then check firmware and complete.
     mgr.run_single_iteration().await?;
 
+    // Second iteration applies site NTP servers and records when that
+    // succeeded, but does not check BMC time until the convergence wait elapses.
     mgr.run_single_iteration().await?;
 
     let actions = env.redfish_sim.actions_since(&timepoint);
@@ -2360,6 +2363,36 @@ async fn test_preingestion_time_sync_ok(
         "Expected SetNtpServers when site NTP is configured"
     );
 
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
+    let endpoint = endpoints.first().expect("Endpoint should exist");
+    assert!(
+        matches!(
+            endpoint.preingestion_state,
+            PreingestionState::SetNtpServers {
+                set_at: Some(_),
+                attempts: 0
+            }
+        ),
+        "Expected SetNtpServers wait after applying NTP, got: {:?}",
+        endpoint.preingestion_state
+    );
+    txn.commit().await?;
+
+    // The next iteration should still wait for BMC NTP convergence.
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    db::explored_endpoints::set_preingestion_set_ntp_servers(
+        ip_addr,
+        Some(chrono::Utc::now() - chrono::TimeDelta::minutes(3)),
+        0,
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Once the convergence wait has elapsed, time sync and firmware checks complete.
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();

@@ -79,6 +79,8 @@ const INITIAL_BMC_RESET_MAX_ATTEMPTS: u32 = 3;
 
 /// How many times to attempt configuring site NTP servers before giving up.
 const SET_NTP_SERVERS_MAX_ATTEMPTS: u32 = 3;
+/// How long to wait for NTP servers to converge before checking time sync.
+const SET_NTP_SERVERS_CONVERGENCE_WAIT: chrono::TimeDelta = chrono::TimeDelta::minutes(1);
 
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
@@ -1515,12 +1517,26 @@ impl PreingestionManagerStatic {
         set_at: Option<&DateTime<Utc>>,
         attempts: u32,
     ) -> PreingestionManagerResult<bool> {
-        if self.ntp_servers.is_empty()
-            || attempts >= SET_NTP_SERVERS_MAX_ATTEMPTS
-            || set_at.is_some()
-        {
+        if self.ntp_servers.is_empty() || attempts >= SET_NTP_SERVERS_MAX_ATTEMPTS {
             tracing::info!(
-                "{} NTP setup is complete, unavailable, or exhausted; running initial checks",
+                "{} has no NTP servers configured or max attempts reached; running initial checks",
+                endpoint.address
+            );
+            return self.run_initial_checks(db, endpoint).await;
+        }
+
+        if let Some(set_at) = set_at {
+            let elapsed = Utc::now().signed_duration_since(*set_at);
+            if elapsed < SET_NTP_SERVERS_CONVERGENCE_WAIT {
+                tracing::info!(
+                    "{} waiting for BMC NTP servers to converge before checking time sync",
+                    endpoint.address
+                );
+                return Ok(false);
+            }
+
+            tracing::info!(
+                "{} BMC NTP convergence wait complete; running initial checks",
                 endpoint.address
             );
             return self.run_initial_checks(db, endpoint).await;
@@ -1556,7 +1572,7 @@ impl PreingestionManagerStatic {
         }
 
         tracing::info!(
-            "{} set NTP servers; running initial checks on next iteration",
+            "{} set NTP servers; waiting for BMC time to converge",
             endpoint.address
         );
         db.with_txn(|txn| {
