@@ -143,7 +143,13 @@ nico-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
 
 NICo needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines".  The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
 
-Prepare an `expected_machines.json` file as follows:
+To add a single host, use `expected-machine add`:
+
+```bash
+nico-admin-cli -c <api-url> expected-machine add --bmc-mac-address "D8:19:09:00:05:A4" --bmc-password '0penBmc' --chassis-serial-number B8111801000852100085Y0SA --bmc-username root
+```
+
+To load or replace the full table, prepare an `expected_machines.json` file as follows:
 
 ```json
 {
@@ -164,7 +170,7 @@ Prepare an `expected_machines.json` file as follows:
 }
 ```
 
-Only servers listed in this table will be ingested, so you must include all servers in this file.
+Only servers listed in the expected machines table will be ingested. Use `expected-machine add` for individual hosts, or use `replace-all` when you want the JSON file to define the complete table.
 
 ### Optional Per-Host Fields
 
