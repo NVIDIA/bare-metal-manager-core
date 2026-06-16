@@ -59,6 +59,7 @@ chrono = { workspace = true }
 futures = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 tempfile = { workspace = true }
 
 [build-dependencies]

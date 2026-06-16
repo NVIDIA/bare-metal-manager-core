@@ -47,6 +47,11 @@ impl From<ModelDhcpConfig> for proto::DhcpConfig {
                 .collect(),
             carbide_provisioning_server_ipv4: c.carbide_provisioning_server_ipv4.to_string(),
             carbide_dhcp_server: c.carbide_dhcp_server.to_string(),
+            carbide_nameservers_v6: c
+                .carbide_nameservers_v6
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect(),
         }
     }
 }
@@ -170,4 +175,25 @@ pub async fn update_and_reload(
         .map_err(|s| eyre::eyre!("UpdateAndReloadConfig gRPC failed: {s}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_ipv6_nameservers_to_proto() {
+        let model = ModelDhcpConfig {
+            carbide_nameservers_v6: vec![
+                "2001:db8::1".parse().unwrap(),
+                "2001:db8::2".parse().unwrap(),
+            ],
+            ..Default::default()
+        };
+        let proto = proto::DhcpConfig::from(model);
+        assert_eq!(
+            proto.carbide_nameservers_v6,
+            vec!["2001:db8::1".to_string(), "2001:db8::2".to_string()],
+        );
+    }
 }

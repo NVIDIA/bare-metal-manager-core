@@ -16,7 +16,7 @@
  */
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use carbide_uuid::UuidConversionError;
@@ -40,6 +40,12 @@ pub struct DhcpConfig {
     pub carbide_ntpservers: Vec<Ipv4Addr>,
     pub carbide_provisioning_server_ipv4: Ipv4Addr,
     pub carbide_dhcp_server: Ipv4Addr,
+    /// IPv6 DNS server addresses advertised via DHCPv6 option 23 (DNS Recursive Name Server).
+    /// Empty when no IPv6 nameservers are configured. Omitted from the serialized config when
+    /// empty, so the on-disk format is unchanged for IPv4-only deployments and configs written
+    /// by older agents (which lack the field) still deserialize.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carbide_nameservers_v6: Vec<Ipv6Addr>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -68,6 +74,7 @@ impl Default for DhcpConfig {
             carbide_nameservers: vec![],
             carbide_api_url: None,
             carbide_ntpservers: vec![],
+            carbide_nameservers_v6: vec![],
 
             // These two must be updated with valid values.
             carbide_provisioning_server_ipv4: Ipv4Addr::from([127, 0, 0, 1]),
@@ -466,6 +473,31 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn carries_ipv6_nameservers_through_serde() {
+        let config = DhcpConfig {
+            carbide_nameservers_v6: vec![
+                "2001:db8::1".parse().unwrap(),
+                "2001:db8::2".parse().unwrap(),
+            ],
+            ..Default::default()
+        };
+
+        let serialized = serde_json::to_string(&config).unwrap();
+        let restored: DhcpConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(
+            restored.carbide_nameservers_v6,
+            config.carbide_nameservers_v6
+        );
+
+        // An empty v6 list is omitted, so IPv4-only configs serialize unchanged and
+        // a config without the field still deserializes (the field defaults to empty).
+        let v4_only = serde_json::to_string(&DhcpConfig::default()).unwrap();
+        assert!(!v4_only.contains("carbide_nameservers_v6"));
+        let restored_v4: DhcpConfig = serde_json::from_str(&v4_only).unwrap();
+        assert!(restored_v4.carbide_nameservers_v6.is_empty());
     }
 
     #[test]

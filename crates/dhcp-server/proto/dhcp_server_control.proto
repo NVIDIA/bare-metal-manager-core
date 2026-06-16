@@ -39,6 +39,7 @@ service DhcpServerControl {
 
 // Mirrors utils::models::dhcp::DhcpConfig.
 // IPv4 addresses are encoded as dotted-decimal strings (e.g. "192.168.1.1").
+// IPv6 addresses are encoded as colon-notation strings (e.g. "2001:db8::1").
 message DhcpConfig {
     uint32 lease_time_secs = 1;
     uint32 renewal_time_secs = 2;
@@ -48,6 +49,9 @@ message DhcpConfig {
     repeated string carbide_ntpservers = 6;
     string carbide_provisioning_server_ipv4 = 7;
     string carbide_dhcp_server = 8;
+    // IPv6 DNS server addresses for DHCPv6 option 23 (DNS Recursive Name Server).
+    // Empty when no IPv6 nameservers are configured.
+    repeated string carbide_nameservers_v6 = 9;
 }
 
 // Mirrors utils::models::dhcp::InterfaceInfo.

@@ -1619,6 +1619,7 @@ version = "0.1.0"
 dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",

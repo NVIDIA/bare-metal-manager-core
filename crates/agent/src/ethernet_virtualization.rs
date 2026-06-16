@@ -3317,6 +3317,10 @@ mod tests {
             expected.carbide_provisioning_server_ipv4
         );
         assert_eq!(received.carbide_dhcp_server, expected.carbide_dhcp_server);
+        assert_eq!(
+            received.carbide_nameservers_v6,
+            expected.carbide_nameservers_v6
+        );
     }
 
     fn validate_host_config(received: HostConfig, expected: HostConfig) {
@@ -3463,6 +3467,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            carbide_nameservers_v6: vec![],
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3656,6 +3661,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            carbide_nameservers_v6: vec![],
         };
         let dhcp_contents = super::read_limited(g.path())?;
         assert!(dhcp_contents.contains("vlan196"));

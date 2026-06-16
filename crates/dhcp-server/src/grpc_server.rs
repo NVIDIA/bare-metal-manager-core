@@ -76,6 +76,11 @@ impl TryFrom<proto::DhcpConfig> for ModelDhcpConfig {
                 .collect::<Result<Vec<_>, _>>()?,
             carbide_provisioning_server_ipv4: c.carbide_provisioning_server_ipv4.parse()?,
             carbide_dhcp_server: c.carbide_dhcp_server.parse()?,
+            carbide_nameservers_v6: c
+                .carbide_nameservers_v6
+                .iter()
+                .map(|s| s.parse())
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }
@@ -215,5 +220,59 @@ pub async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequ
         .await
     {
         tracing::error!("gRPC server exited with error: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv6Addr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    fn base_proto_config() -> proto::DhcpConfig {
+        proto::DhcpConfig {
+            lease_time_secs: 1,
+            renewal_time_secs: 2,
+            rebinding_time_secs: 3,
+            carbide_nameservers: vec!["10.0.0.1".to_string()],
+            carbide_api_url: None,
+            carbide_ntpservers: vec![],
+            carbide_provisioning_server_ipv4: "10.0.0.2".to_string(),
+            carbide_dhcp_server: "10.0.0.3".to_string(),
+            carbide_nameservers_v6: vec![],
+        }
+    }
+
+    /// Convert a proto `DhcpConfig` carrying `v6` nameservers (atop a valid IPv4
+    /// base) and surface the parsed IPv6 set, mapping a parse failure to a static
+    /// error kind so success and failure cases share one table.
+    fn parse_proto_v6_nameservers(v6: Vec<String>) -> Result<Vec<Ipv6Addr>, &'static str> {
+        let proto = proto::DhcpConfig {
+            carbide_nameservers_v6: v6,
+            ..base_proto_config()
+        };
+        ModelDhcpConfig::try_from(proto)
+            .map(|model| model.carbide_nameservers_v6)
+            .map_err(|_| "invalid-ipv6")
+    }
+
+    #[test]
+    fn parses_ipv6_nameservers_from_proto() {
+        scenarios!(parse_proto_v6_nameservers:
+            "valid ipv6 nameservers" {
+                vec!["2001:db8::1".to_string(), "2001:db8::2".to_string()]
+                    => Yields(vec![
+                        "2001:db8::1".parse::<Ipv6Addr>().unwrap(),
+                        "2001:db8::2".parse::<Ipv6Addr>().unwrap(),
+                    ]),
+            }
+
+            "malformed ipv6 nameserver" {
+                vec!["not-an-ip".to_string()] => Fails,
+            }
+        );
     }
 }
