@@ -51,7 +51,7 @@ async fn skip_machine_validation(
         tracing::info!(
             %machine_id,
             machine_validation_id = %validation_id,
-            "skipped machine validation completion ignored because run is no longer active"
+            "machine validation completion ignored because run is no longer active"
         );
         return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
     }
