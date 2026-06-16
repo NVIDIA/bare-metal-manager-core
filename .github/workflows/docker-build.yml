@@ -185,7 +185,11 @@ jobs:
       - name: Compute Grype scan key
         id: scankey
         if: ${{ inputs.scan && inputs.load && !inputs.push && steps.build.outcome == 'success' }}
-        run: echo "key=$(basename "${{ inputs.image_name }}")" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          key="$(basename -- "$IMAGE_NAME")"
+          printf 'key=%s\n' "$key" >> "$GITHUB_OUTPUT"
 
       - name: Grype vulnerability scan
         if: ${{ inputs.scan && inputs.load && !inputs.push && steps.build.outcome == 'success' }}
