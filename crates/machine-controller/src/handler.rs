@@ -119,6 +119,9 @@ mod helpers;
 mod machine_validation;
 mod power;
 mod sku;
+#[cfg(test)]
+mod test_machine_setup;
+
 use bios_config::{
     BiosConfigJobAdvanceOutcome, BiosConfigOutcome, PollingBiosSetupOutcome,
     advance_bios_config_job, advance_polling_bios_setup, configure_host_bios,
