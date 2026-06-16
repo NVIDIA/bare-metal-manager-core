@@ -504,6 +504,19 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 
 				assert.Equal(t, rst.Status, cdbm.SiteStatusPending)
 				assert.Equal(t, len(rst.StatusHistory), 1)
+				require.NotNil(t, rst.Capabilities)
+				assert.True(t, rst.Capabilities.NativeNetworking)
+				assert.True(t, rst.Capabilities.NetworkSecurityGroup)
+
+				createdSiteID, perr := uuid.Parse(rst.ID)
+				require.NoError(t, perr)
+				createdSite, gerr := cdbm.NewSiteDAO(tt.fields.dbSession).GetByID(
+					context.Background(), nil, createdSiteID, nil, false,
+				)
+				require.NoError(t, gerr)
+				require.NotNil(t, createdSite.Config)
+				assert.True(t, createdSite.Config.NativeNetworking)
+				assert.True(t, createdSite.Config.NetworkSecurityGroup)
 
 				if !tt.siteMgrDisabled {
 					assert.NotNil(t, rst.RegistrationToken)
