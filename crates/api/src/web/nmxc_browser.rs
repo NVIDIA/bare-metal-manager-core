@@ -55,8 +55,11 @@ pub struct QueryParams {
 fn browse_operation_from_query(s: &str) -> i32 {
     match s.trim() {
         "compute_node_info_list" => rpc::forge::NmxcBrowseOperation::ComputeNodeInfoList as i32,
+        "switch_node_info_list" => rpc::forge::NmxcBrowseOperation::SwitchNodeInfoList as i32,
         "gpu_info" => rpc::forge::NmxcBrowseOperation::GpuInfo as i32,
         "gpu_info_list" => rpc::forge::NmxcBrowseOperation::GpuInfoList as i32,
+        "partition_info_list" => rpc::forge::NmxcBrowseOperation::PartitionInfoList as i32,
+        "get_domain_properties" => rpc::forge::NmxcBrowseOperation::GetDomainProperties as i32,
         _ => rpc::forge::NmxcBrowseOperation::Unspecified as i32,
     }
 }

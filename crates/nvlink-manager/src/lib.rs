@@ -42,7 +42,10 @@ use db::{self, ObjectColumnFilter, TransactionVending, machine};
 use errors::{NvLinkManagerError, NvLinkManagerResult};
 use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
-use metrics::{AppliedChange, NmxcMetricOperationStatus, NvlPartitionMonitorMetrics};
+use metrics::{
+    AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
+    NvlPartitionMonitorMetrics,
+};
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::instance::status::SyncState;
 use model::instance::status::nvlink::InstanceNvLinkStatus;
@@ -771,6 +774,16 @@ struct CheckPartitionsInput {
     nvlink_info_db_updates: Vec<(MachineId, MachineNvLinkInfo)>,
 }
 
+/// Work queued when NMX-C cannot be used for a chassis and observations must be cleared.
+struct PendingNullNvlinkObservation {
+    /// Chassis serial for the machines whose observations will be cleared.
+    chassis_serial: String,
+    /// Failure reason recorded in partition-monitor metrics.
+    reason: ChassisNmxCUnreachableReason,
+    /// Host machines on the chassis that will receive a null `nvlink_status_observation`.
+    machine_ids: Vec<MachineId>,
+}
+
 impl NvlPartitionMonitor {
     const ITERATION_WORK_KEY: &'static str = "NvlPartitionMonitor::run_single_iteration";
 
@@ -943,12 +956,19 @@ impl NvlPartitionMonitor {
         metrics.num_physical_partitions = db_nvl_partitions.len();
 
         let mut total_completed_operations = 0;
+        let mut pending_null_nvlink_observations = Vec::new();
 
         for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
             let Some(endpoint_url) = chassis_serial_to_resolved_endpoint.get(chassis_serial) else {
-                tracing::debug!(
+                tracing::warn!(
                     %chassis_serial,
                     "No NMX-C endpoint for chassis (switch NVOS IP or nvlink_nmxc_endpoints mapping); skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    &mut pending_null_nvlink_observations,
+                    chassis_serial,
+                    chassis_snapshots,
+                    ChassisNmxCUnreachableReason::NoEndpoint,
                 );
                 continue;
             };
@@ -961,6 +981,12 @@ impl NvlPartitionMonitor {
                         endpoint = %endpoint_url,
                         error = %e,
                         "Invalid NMX-C endpoint URI; skipping partition monitor work for this chassis"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::InvalidEndpointUri,
                     );
                     continue;
                 }
@@ -975,6 +1001,12 @@ impl NvlPartitionMonitor {
                         error = %e,
                         "Failed to create NMX-C client; skipping partition monitor work for this chassis"
                     );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::ClientCreateFailed,
+                    );
                     continue;
                 }
             };
@@ -987,6 +1019,12 @@ impl NvlPartitionMonitor {
                         error = %e,
                         "NMX-C hello failed; skipping partition monitor work for this chassis"
                     );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::HelloFailed,
+                    );
                     continue;
                 }
             };
@@ -998,6 +1036,12 @@ impl NvlPartitionMonitor {
                         endpoint = %endpoint_url,
                         error = %e,
                         "Failed to parse domain UUID from NMX-C hello; skipping partition monitor work for this chassis"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::DomainUuidParseFailed,
                     );
                     continue;
                 }
@@ -1047,7 +1091,7 @@ impl NvlPartitionMonitor {
                 .cloned()
                 .collect();
 
-            let num_completed = self
+            let num_completed = match self
                 .check_partitions_and_apply_nmx_c_operations(
                     nmxc_client.as_mut(),
                     metrics,
@@ -1059,9 +1103,29 @@ impl NvlPartitionMonitor {
                         nvlink_info_db_updates,
                     },
                 )
-                .await?;
+                .await
+            {
+                Ok(num_completed) => num_completed,
+                Err(e) => {
+                    tracing::warn!(
+                        %chassis_serial,
+                        error = %e,
+                        "Partition monitor work failed for chassis; queuing null nvlink status observations"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
+                    );
+                    0
+                }
+            };
             total_completed_operations += num_completed;
         }
+
+        self.record_null_nvlink_status_observations(&pending_null_nvlink_observations, metrics)
+            .await?;
 
         metrics.num_completed_operations = total_completed_operations;
 
@@ -1644,6 +1708,76 @@ impl NvlPartitionMonitor {
                 );
                 partition_ctx.handle_gpu_removal(&gpu_ctx, gpus_to_keep)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Queues machines on `chassis_serial` for a batched null `nvlink_status_observation` write.
+    ///
+    /// Entries are flushed in one transaction by [`Self::record_null_nvlink_status_observations`].
+    fn queue_null_nvlink_status_observation(
+        pending: &mut Vec<PendingNullNvlinkObservation>,
+        chassis_serial: &str,
+        chassis_snapshots: &[&ManagedHostStateSnapshot],
+        reason: ChassisNmxCUnreachableReason,
+    ) {
+        let machine_ids: Vec<MachineId> = chassis_snapshots
+            .iter()
+            .map(|snapshot| snapshot.host_snapshot.id)
+            .collect();
+        if machine_ids.is_empty() {
+            return;
+        }
+        pending.push(PendingNullNvlinkObservation {
+            chassis_serial: chassis_serial.to_string(),
+            reason,
+            machine_ids,
+        });
+    }
+
+    /// Clears `nvlink_status_observation` for all queued chassis in one transaction and updates metrics.
+    async fn record_null_nvlink_status_observations(
+        &self,
+        pending: &[PendingNullNvlinkObservation],
+        metrics: &mut NvlPartitionMonitorMetrics,
+    ) -> NvLinkManagerResult<()> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        for entry in pending {
+            *metrics
+                .num_nmx_c_unreachable_chassis
+                .entry(entry.reason)
+                .or_insert(0) += 1;
+        }
+
+        let machine_ids: Vec<MachineId> = pending
+            .iter()
+            .flat_map(|entry| entry.machine_ids.iter().copied())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let mut obs_txn = self.db_pool.begin().await.map_err(|e| {
+            NvLinkManagerError::internal(format!(
+                "Failed to create transaction for clearing nvlink status observations: {e}"
+            ))
+        })?;
+        machine::clear_nvlink_status_observations(&mut obs_txn, &machine_ids).await?;
+        obs_txn.commit().await.map_err(|e| {
+            NvLinkManagerError::internal(format!(
+                "Failed to commit transaction for clearing nvlink status observations: {e}"
+            ))
+        })?;
+
+        for entry in pending {
+            tracing::info!(
+                chassis_serial = %entry.chassis_serial,
+                reason = ?entry.reason,
+                machine_ids = ?entry.machine_ids,
+                "Posted null nvlink status observations because NMX-C is unreachable for chassis"
+            );
         }
         Ok(())
     }

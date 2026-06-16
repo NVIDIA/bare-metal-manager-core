@@ -52,6 +52,25 @@ pub struct NvlPartitionMonitorMetrics {
     pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
     /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
     pub nvlink_config_apply_durations_ms: Vec<f64>,
+    /// Chassis-level NMX-C connectivity failures that caused null nvlink status observations
+    pub num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
+}
+
+/// Why the partition monitor could not use NMX-C for a chassis during an iteration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ChassisNmxCUnreachableReason {
+    /// No rack-switch NVOS IP or `nvlink_nmxc_endpoints` row resolved an endpoint URL.
+    NoEndpoint,
+    /// The resolved endpoint URL could not be parsed as a valid NMX-C client URI.
+    InvalidEndpointUri,
+    /// The NMX-C client pool failed to create a client for the resolved endpoint.
+    ClientCreateFailed,
+    /// NMX-C `hello` failed after the client was created.
+    HelloFailed,
+    /// NMX-C `hello` succeeded but the domain UUID in the response could not be parsed.
+    DomainUuidParseFailed,
+    /// Partition monitor work failed after NMX-C connectivity was established (for example, partition list fetch).
+    PartitionMonitorWorkFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -109,6 +128,7 @@ impl NvlPartitionMonitorMetrics {
             applied_changes: HashMap::new(),
             operation_latencies: HashMap::new(),
             nvlink_config_apply_durations_ms: Vec::new(),
+            num_nmx_c_unreachable_chassis: HashMap::new(),
             nmxc: NmxcMetrics {
                 endpoint: String::new(),
                 connect_error: String::new(),
@@ -124,7 +144,7 @@ impl Display for NvlPartitionMonitorMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, nvlink_info_mismatches: {}, stale_partitions_deleted: {}, applied_changes: {}, nmxc_connect_err: {}, nmxc_num_partitions: {}, nmxc_num_gpus: {}, completed_operations: {}, duration: {} }}",
+            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, nvlink_info_mismatches: {}, stale_partitions_deleted: {}, nmx_c_unreachable_chassis: {:?}, applied_changes: {}, nmxc_connect_err: {}, nmxc_num_partitions: {}, nmxc_num_gpus: {}, completed_operations: {}, duration: {} }}",
             self.num_machines_scanned,
             self.num_instances_scanned,
             self.num_machine_nvl_status_updates,
@@ -133,6 +153,7 @@ impl Display for NvlPartitionMonitorMetrics {
             self.num_gpus_scanned,
             self.num_nvlink_info_mismatches,
             self.num_stale_partitions_deleted,
+            self.num_nmx_c_unreachable_chassis,
             self.applied_changes.len(),
             self.nmxc.connect_error,
             self.nmxc.num_partitions,
@@ -289,6 +310,28 @@ impl NvlPartitionMonitorInstruments {
         }
 
         {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge(
+                    "carbide_nvlink_partition_monitor_nmx_c_unreachable_chassis_count",
+                )
+                .with_description(
+                    "Number of chassis where NMX-C was unreachable during partition monitor iteration",
+                )
+                .with_callback(move |o| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (reason, &count) in &metrics.num_nmx_c_unreachable_chassis {
+                            o.observe(
+                                count as u64,
+                                &[attrs, &[KeyValue::new("reason", *reason)]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build();
+        }
+
+        {
             let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_stale_partitions_deleted")
@@ -366,6 +409,23 @@ impl NmxcMetricOperation {
             Self::RemoveDefaultPartition,
         ]
         .into_iter()
+    }
+}
+
+impl From<ChassisNmxCUnreachableReason> for opentelemetry::Value {
+    fn from(value: ChassisNmxCUnreachableReason) -> Self {
+        let str_value = match value {
+            ChassisNmxCUnreachableReason::NoEndpoint => "no_endpoint",
+            ChassisNmxCUnreachableReason::InvalidEndpointUri => "invalid_endpoint_uri",
+            ChassisNmxCUnreachableReason::ClientCreateFailed => "client_create_failed",
+            ChassisNmxCUnreachableReason::HelloFailed => "hello_failed",
+            ChassisNmxCUnreachableReason::DomainUuidParseFailed => "domain_uuid_parse_failed",
+            ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed => {
+                "partition_monitor_work_failed"
+            }
+        };
+
+        Self::from(str_value)
     }
 }
 

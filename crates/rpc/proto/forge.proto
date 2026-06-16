@@ -7117,6 +7117,9 @@ enum NmxcBrowseOperation {
   NMXC_BROWSE_OPERATION_GPU_INFO = 2;
   // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
   NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
+  NMXC_BROWSE_OPERATION_PARTITION_INFO_LIST = 4;
+  NMXC_BROWSE_OPERATION_SWITCH_NODE_INFO_LIST = 5;
+  NMXC_BROWSE_OPERATION_GET_DOMAIN_PROPERTIES = 6;
 }
 
 message NmxcBrowseRequest {
