@@ -27,6 +27,9 @@ use sqlx::{FromRow, PgConnection};
 use super::DatabaseError;
 use crate::db_read::DbReader;
 
+#[cfg(test)]
+mod test_find_by_address;
+
 /// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
 /// when the target IP is already held by some other interface.
 #[derive(thiserror::Error, Debug)]
