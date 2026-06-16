@@ -77,6 +77,9 @@ const BFB_INSTALLATION_TIMEOUT_MINS: i64 = 45;
 /// lose the inventory refresh.
 const INITIAL_BMC_RESET_MAX_ATTEMPTS: u32 = 3;
 
+/// How many times to attempt configuring site NTP servers before giving up.
+const SET_NTP_SERVERS_MAX_ATTEMPTS: u32 = 3;
+
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -358,6 +361,11 @@ async fn one_endpoint(
         }
         PreingestionState::InitialBMCReset { phase } => {
             static_info.initial_bmc_reset(db, endpoint, phase).await?
+        }
+        PreingestionState::SetNtpServers { set_at, attempts } => {
+            static_info
+                .set_ntp_servers(db, endpoint, set_at.as_ref(), *attempts)
+                .await?
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
@@ -1378,7 +1386,17 @@ impl PreingestionManagerStatic {
                              proceeding with preingestion without it",
                             endpoint.address
                         );
-                        return self.run_initial_checks(db, endpoint).await;
+                        db.with_txn(|txn| {
+                            db::explored_endpoints::set_preingestion_set_ntp_servers(
+                                endpoint.address,
+                                None,
+                                0,
+                                txn,
+                            )
+                            .boxed()
+                        })
+                        .await??;
+                        return Ok(false);
                     }
                     tracing::warn!(
                         "{} initial BMC reset attempt {next}/{INITIAL_BMC_RESET_MAX_ATTEMPTS} \
@@ -1471,12 +1489,136 @@ impl PreingestionManagerStatic {
                 // Reached only once the refresh flag is cleared, i.e. site
                 // explorer re-reads the BMC post-reset.
                 tracing::info!(
-                    "{} fresh exploration report received after initial BMC reset; running time-sync / firmware checks",
+                    "{} fresh exploration report received after initial BMC reset; running NTP / time-sync / firmware checks",
                     endpoint.address
                 );
-                self.run_initial_checks(db, endpoint).await
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_set_ntp_servers(
+                        endpoint.address,
+                        None,
+                        0,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(false)
             }
         }
+    }
+
+    /// Handle the `SetNtpServers` preingestion state before initial checks.
+    async fn set_ntp_servers(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        set_at: Option<&DateTime<Utc>>,
+        attempts: u32,
+    ) -> PreingestionManagerResult<bool> {
+        if self.ntp_servers.is_empty()
+            || attempts >= SET_NTP_SERVERS_MAX_ATTEMPTS
+            || set_at.is_some()
+        {
+            tracing::info!(
+                "{} NTP setup is complete, unavailable, or exhausted; running initial checks",
+                endpoint.address
+            );
+            return self.run_initial_checks(db, endpoint).await;
+        }
+
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint.address, db)
+            .await
+        {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                return self
+                    .set_ntp_servers_retry_or_fail(db, endpoint, attempts, e)
+                    .await;
+            }
+        };
+
+        let ntp_servers: Vec<String> = self
+            .ntp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect();
+        if let Err(e) = redfish_client.set_ntp_servers(&ntp_servers).await {
+            return self
+                .set_ntp_servers_retry_or_fail(
+                    db,
+                    endpoint,
+                    attempts,
+                    PreingestionManagerError::RedfishError(e),
+                )
+                .await;
+        }
+
+        tracing::info!(
+            "{} set NTP servers; running initial checks on next iteration",
+            endpoint.address
+        );
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_set_ntp_servers(
+                endpoint.address,
+                Some(Utc::now()),
+                attempts,
+                txn,
+            )
+            .boxed()
+        })
+        .await??;
+
+        Ok(false)
+    }
+
+    /// Helper to retry setting NTP servers or fail after a failed NTP Redfish operation.
+    async fn set_ntp_servers_retry_or_fail(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        attempts: u32,
+        error: PreingestionManagerError,
+    ) -> PreingestionManagerResult<bool> {
+        if matches!(error, PreingestionManagerError::DatabaseError(_)) {
+            return Err(error);
+        }
+
+        let next = attempts + 1;
+        if next >= SET_NTP_SERVERS_MAX_ATTEMPTS {
+            tracing::warn!(
+                "{} failed to set NTP servers after {next} attempts: {error}; proceeding with initial checks",
+                endpoint.address
+            );
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_set_ntp_servers(
+                    endpoint.address,
+                    None,
+                    SET_NTP_SERVERS_MAX_ATTEMPTS,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return self.run_initial_checks(db, endpoint).await;
+        }
+
+        tracing::warn!(
+            "{} failed to set NTP servers attempt {next}/{SET_NTP_SERVERS_MAX_ATTEMPTS}: {error}; will retry",
+            endpoint.address
+        );
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_set_ntp_servers(
+                endpoint.address,
+                None,
+                next,
+                txn,
+            )
+            .boxed()
+        })
+        .await??;
+        Ok(false)
     }
 
     /// Helper: Execute power off and BMC reset sequence
@@ -1683,16 +1825,6 @@ impl PreingestionManagerStatic {
                 if let Err(e) = redfish_client.set_utc_timezone().await {
                     tracing::error!("Could not set UTC timezone on {}: {e}", endpoint.address);
                     return Err(PreingestionManagerError::RedfishError(e));
-                }
-                if !self.ntp_servers.is_empty() {
-                    let ntp_servers: Vec<String> =
-                        self.ntp_servers.iter().map(ToString::to_string).collect();
-                    if let Err(e) = redfish_client.set_ntp_servers(&ntp_servers).await {
-                        tracing::warn!(
-                            "Could not set NTP servers on {}: {e}; continuing time sync reset",
-                            endpoint.address
-                        );
-                    }
                 }
                 if !self
                     .execute_power_off_and_bmc_reset(redfish_client.as_ref(), endpoint)

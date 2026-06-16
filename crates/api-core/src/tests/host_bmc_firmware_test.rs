@@ -92,10 +92,13 @@ async fn test_preingestion_bmc_upgrade(
         .await?
         .into_inner();
 
-    // First, a host where it's already up to date; it should immediately go to complete.
+    // First, a host where it's already up to date; it should go to complete
+    // after passing through the explicit NTP setup state.
     let addr = response.address.as_str();
     insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
     txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
 
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
@@ -118,6 +121,7 @@ async fn test_preingestion_bmc_upgrade(
     let mut txn = pool.begin().await.unwrap();
 
     mgr.run_single_iteration().await?;
+    mgr.run_single_iteration().await?;
 
     assert!(
         db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
@@ -136,6 +140,7 @@ async fn test_preingestion_bmc_upgrade(
     insert_endpoint_version(&mut txn, addr, "4.9", "1.13.2", false).await?;
     txn.commit().await?;
 
+    mgr.run_single_iteration().await?;
     mgr.run_single_iteration().await?;
     // The "upload" is synchronous now and will be complete at this point.
 
@@ -287,6 +292,7 @@ async fn test_preingestion_upgrade_script(
     insert_endpoint_version(&mut txn, addr, "0", "0", false).await?;
     txn.commit().await?;
 
+    mgr.run_single_iteration().await?;
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
@@ -999,6 +1005,7 @@ async fn test_preingestion_preupdate_powercycling(
     insert_endpoint_version(&mut txn, addr, "4.9", "1.1", true).await?;
     txn.commit().await?;
 
+    mgr.run_single_iteration().await?;
     mgr.run_single_iteration().await?;
     // The "upload" is synchronous now and will be complete at this point.
 
@@ -2299,7 +2306,13 @@ async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
 async fn test_preingestion_time_sync_ok(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mut config = get_config();
+    config.ntp_servers = vec![
+        "198.51.100.10".parse().unwrap(),
+        "198.51.100.11".parse().unwrap(),
+    ];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
 
     let mgr = PreingestionManager::new(
         pool.clone(),
@@ -2330,7 +2343,23 @@ async fn test_preingestion_time_sync_ok(
     insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
     txn.commit().await?;
 
-    // Run preingestion manager - should check time sync, pass, then check firmware, and complete
+    let timepoint = env.redfish_sim.timepoint();
+
+    // Run preingestion manager - should apply site NTP servers, check time sync,
+    // then check firmware and complete.
+    mgr.run_single_iteration().await?;
+
+    mgr.run_single_iteration().await?;
+
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    assert!(
+        actions
+            .all_hosts()
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetNtpServers(_))),
+        "Expected SetNtpServers when site NTP is configured"
+    );
+
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
@@ -2340,6 +2369,141 @@ async fn test_preingestion_time_sync_ok(
             .await?
             .len()
             == 1
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// Test that an empty NTP server config skips Redfish NTP setup and proceeds
+/// directly to initial checks from the SetNtpServers state.
+#[crate::sqlx_test]
+async fn test_preingestion_set_ntp_servers_empty(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers.clear(); // Use empty NTP servers.
+
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.preingestion_manager(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let addr = response.address.as_str();
+    let ip_addr = IpAddr::from_str(addr).unwrap();
+    let mut txn = pool.begin().await.unwrap();
+    insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
+
+    // Transition to start of SetNtpServers state with no attempts made so far.
+    db::explored_endpoints::set_preingestion_set_ntp_servers(ip_addr, None, 0, &mut txn).await?;
+    txn.commit().await?;
+
+    let timepoint = env.redfish_sim.timepoint();
+    mgr.run_single_iteration().await?;
+
+    // Expect no SetNtpServers actions since NTP server config is empty.
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    assert!(
+        !actions
+            .all_hosts()
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetNtpServers(_))),
+        "Did not expect SetNtpServers when NTP server config is empty"
+    );
+
+    // Expect to go to complete since no need to set NTP server config.
+    let mut txn = pool.begin().await.unwrap();
+    assert_eq!(
+        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+            .await?
+            .len(),
+        1
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// Test that exhausting NTP setup attempts proceeds to initial checks without
+/// failing preingestion or trying to set NTP again.
+#[crate::sqlx_test]
+async fn test_preingestion_set_ntp_servers_max_attempts(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers = vec!["198.51.100.10".parse().unwrap()];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.preingestion_manager(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api.work_lock_manager_handle.clone(),
+        env.config.ntp_servers.clone(),
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let addr = response.address.as_str();
+    let ip_addr = IpAddr::from_str(addr).unwrap();
+    let mut txn = pool.begin().await.unwrap();
+    insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
+
+    db::explored_endpoints::set_preingestion_set_ntp_servers(ip_addr, None, 3, &mut txn).await?;
+    txn.commit().await?;
+
+    let timepoint = env.redfish_sim.timepoint();
+    mgr.run_single_iteration().await?;
+
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    assert!(
+        !actions
+            .all_hosts()
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetNtpServers(_))),
+        "Did not expect SetNtpServers after max attempts are exhausted"
+    );
+
+    // The next iteration should go to complete since NTP setup is given up.
+    let mut txn = pool.begin().await.unwrap();
+    assert_eq!(
+        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+            .await?
+            .len(),
+        1
     );
     txn.commit().await?;
 
@@ -2404,12 +2568,6 @@ async fn test_preingestion_time_sync_reset_flow(
     assert!(
         all_actions.contains(&RedfishSimAction::SetUtcTimezone),
         "Expected SetUtcTimezone action to be called during TimeSyncReset Start phase"
-    );
-    assert!(
-        all_actions
-            .iter()
-            .any(|a| matches!(a, RedfishSimAction::SetNtpServers(_))),
-        "Expected SetNtpServers action to be called during TimeSyncReset Start phase"
     );
 
     let mut txn = pool.begin().await.unwrap();
