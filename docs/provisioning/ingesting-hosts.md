@@ -146,7 +146,7 @@ NICo needs to know the factory default credentials for each BMC, which is expres
 To add a single host, use `expected-machine add`:
 
 ```bash
-nico-admin-cli -c <api-url> expected-machine add --bmc-mac-address "D8:19:09:00:05:A4" --bmc-password '0penBmc' --chassis-serial-number B8111801000852100085Y0SA --bmc-username root
+nico-admin-cli -c <api-url> expected-machine add --bmc-mac-address "02:00:00:00:00:01" --bmc-password 'default-password' --chassis-serial-number CHASSIS-SN-001 --bmc-username root
 ```
 
 To load or replace the full table, prepare an `expected_machines.json` file as follows:
