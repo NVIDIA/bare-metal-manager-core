@@ -163,6 +163,9 @@ run_interval = "10s"
 [component_manager]
 nv_switch_backend = "nsm"
 power_shelf_backend = "psm"
+# Local dev does not configure RMS by default. Keep compute tray management on a
+# non-RMS backend so startup validation does not require rack profiles.
+compute_tray_backend = "mock"
 
 [component_manager.nsm]
 url = "http://localhost:50052"

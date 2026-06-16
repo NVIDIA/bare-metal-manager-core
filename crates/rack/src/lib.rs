@@ -22,6 +22,7 @@ pub mod bms_client;
 pub mod firmware_object;
 pub mod firmware_update;
 pub mod rms_client;
+pub mod rms_node_type;
 
 pub fn rack_manager_error(operation: &'static str, error: RackManagerError) -> StateHandlerError {
     ExternalServiceError::with_source(

@@ -16,6 +16,7 @@
  */
 
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackProfileId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -513,24 +514,30 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a power shelf: the power shelf ID (used as the RMS
-/// node_id), the BMC MAC address, and the rack_id.
+/// RMS identity for a power shelf, including rack profile context for node type
+/// resolution.
 #[derive(Debug, sqlx::FromRow)]
 pub struct PowerShelfRmsIdentity {
     pub id: String,
     pub bmc_mac_address: MacAddress,
     pub rack_id: Option<RackId>,
+    pub rack_profile_id: Option<RackProfileId>,
 }
 
-/// Look up RMS identities (node_id, rack_id) for power shelves by their
+/// Look up RMS identities and rack profile context for power shelves by their
 /// BMC MAC addresses.
 pub async fn find_rms_identities_by_macs(
     db: impl crate::db_read::DbReader<'_>,
     macs: &[MacAddress],
 ) -> DatabaseResult<Vec<PowerShelfRmsIdentity>> {
     let sql = r#"
-        SELECT ps.id::text, ps.bmc_mac_address, ps.rack_id
+        SELECT
+            ps.id::text,
+            ps.bmc_mac_address,
+            ps.rack_id,
+            r.rack_profile_id
         FROM power_shelves ps
+        LEFT JOIN racks r ON r.id = ps.rack_id
         WHERE ps.bmc_mac_address = ANY($1)
     "#;
 

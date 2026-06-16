@@ -65,6 +65,26 @@ impl From<&str> for RackHardwareType {
     }
 }
 
+/// RackProductFamily identifies the product family shared by rack components.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum RackProductFamily {
+    /// GB200 rack hardware.
+    Gb200,
+    /// GB300 rack hardware.
+    Gb300,
+}
+
+impl fmt::Display for RackProductFamily {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RackProductFamily::Gb200 => write!(f, "gb200"),
+            RackProductFamily::Gb300 => write!(f, "gb300"),
+        }
+    }
+}
+
 /// RackHardwareTopology describes the hardware topology of a rack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
@@ -239,6 +259,10 @@ pub struct RackCapabilitiesSet {
 /// (the map key in the config file) from expected racks and rack configs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackProfile {
+    /// Product family used for product-level component behavior.
+    #[serde(default)]
+    pub product_family: Option<RackProductFamily>,
+
     #[serde(default)]
     pub rack_hardware_type: Option<RackHardwareType>,
 
@@ -290,6 +314,7 @@ mod tests {
         config.rack_profiles.insert(
             "NVL72".to_string(),
             RackProfile {
+                product_family: Some(RackProductFamily::Gb200),
                 rack_capabilities: RackCapabilitiesSet {
                     compute: RackCapabilityCompute {
                         name: Some("GB200".to_string()),
@@ -325,6 +350,9 @@ mod tests {
     #[test]
     fn test_rack_profile_config_toml_deserialization() {
         let toml_str = r#"
+[NVL72]
+product_family = "gb200"
+
 [NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
@@ -335,6 +363,9 @@ count = 9
 
 [NVL72.rack_capabilities.power_shelf]
 count = 8
+
+[NVL36]
+product_family = "gb200"
 
 [NVL36.rack_capabilities.compute]
 count = 9
@@ -349,6 +380,7 @@ count = 2
         assert_eq!(config.rack_profiles.len(), 2);
 
         let nvl72 = config.get("NVL72").unwrap();
+        assert_eq!(nvl72.product_family, Some(RackProductFamily::Gb200));
         assert_eq!(nvl72.rack_capabilities.compute.count, 18);
         assert_eq!(
             nvl72.rack_capabilities.compute.name.as_deref(),
@@ -356,6 +388,7 @@ count = 2
         );
 
         let nvl36 = config.get("NVL36").unwrap();
+        assert_eq!(nvl36.product_family, Some(RackProductFamily::Gb200));
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
@@ -365,6 +398,7 @@ count = 2
     fn test_rack_profile_config_toml_with_hardware_fields() {
         let toml_str = r#"
 [NVL72]
+product_family = "gb200"
 rack_hardware_type = "dsx_gb200nvl_72x1"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 rack_hardware_class = "prod"
@@ -383,6 +417,7 @@ count = 8
         let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
         let nvl72 = config.get("NVL72").unwrap();
 
+        assert_eq!(nvl72.product_family, Some(RackProductFamily::Gb200));
         assert_eq!(
             nvl72.rack_hardware_type,
             Some(RackHardwareType::from("dsx_gb200nvl_72x1"))
@@ -398,6 +433,9 @@ count = 8
     #[test]
     fn test_rack_profile_config_toml_without_hardware_fields_defaults_to_none() {
         let toml_str = r#"
+[NVL36]
+product_family = "gb300"
+
 [NVL36.rack_capabilities.compute]
 count = 9
 [NVL36.rack_capabilities.switch]
@@ -408,9 +446,27 @@ count = 2
         let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
         let nvl36 = config.get("NVL36").unwrap();
 
+        assert_eq!(nvl36.product_family, Some(RackProductFamily::Gb300));
         assert_eq!(nvl36.rack_hardware_type, None);
         assert_eq!(nvl36.rack_hardware_topology, None);
         assert_eq!(nvl36.rack_hardware_class, None);
+    }
+
+    #[test]
+    fn test_rack_profile_config_without_product_family_defaults_to_none() {
+        let toml_str = r#"
+[NVL36.rack_capabilities.compute]
+count = 9
+[NVL36.rack_capabilities.switch]
+count = 9
+[NVL36.rack_capabilities.power_shelf]
+count = 2
+"#;
+
+        let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
+        let nvl36 = config.get("NVL36").unwrap();
+
+        assert_eq!(nvl36.product_family, None);
     }
 
     // RackHardwareType tests.
@@ -530,6 +586,62 @@ count = 2
 
             "owned and borrowed agree" {
                 RackHardwareType::from("any".to_string()) => RackHardwareType::from("any"),
+            }
+        );
+    }
+
+    // RackProductFamily serde.
+
+    #[test]
+    fn test_rack_product_family_serde_round_trip() {
+        scenarios!(
+            run = |variant| {
+                let json = serde_json::to_string(&variant).map_err(drop)?;
+                let back: RackProductFamily = serde_json::from_str(&json).map_err(drop)?;
+                Ok::<_, ()>((json, back))
+            };
+            "gb200 round-trips" {
+                RackProductFamily::Gb200 => Yields(("\"gb200\"".to_string(), RackProductFamily::Gb200)),
+            }
+
+            "gb300 round-trips" {
+                RackProductFamily::Gb300 => Yields(("\"gb300\"".to_string(), RackProductFamily::Gb300)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_rack_product_family_display() {
+        value_scenarios!(
+            run = |variant| variant.to_string();
+            "gb200" {
+                RackProductFamily::Gb200 => "gb200".to_string(),
+            }
+
+            "gb300" {
+                RackProductFamily::Gb300 => "gb300".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_rack_product_family_deserialize() {
+        scenarios!(
+            run = |json| serde_json::from_str::<RackProductFamily>(json).map_err(drop);
+            "valid gb200" {
+                "\"gb200\"" => Yields(RackProductFamily::Gb200),
+            }
+
+            "valid gb300" {
+                "\"gb300\"" => Yields(RackProductFamily::Gb300),
+            }
+
+            "unknown product family" {
+                "\"gb400\"" => Fails,
+            }
+
+            "wrong case" {
+                "\"GB200\"" => Fails,
             }
         );
     }

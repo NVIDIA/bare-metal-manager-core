@@ -56,12 +56,13 @@ pub(super) fn validate_switch_inventory_for_nmx_cluster(
 fn build_scale_up_fabric_services_status_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
+    node_type: rms::NodeType,
 ) -> rms::BatchGetScaleUpFabricServiceStatusRequest {
     rms::BatchGetScaleUpFabricServiceStatusRequest {
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, node_type))
                 .collect(),
         }),
     }
@@ -71,6 +72,7 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_config: &RmsConfig,
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
+    node_type: rms::NodeType,
 ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, String> {
     let Some(url) = rms_config.api_url.as_deref().filter(|url| !url.is_empty()) else {
         return Err("RMS client not configured".to_string());
@@ -88,7 +90,7 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_client
         .client
         .batch_get_scale_up_fabric_service_status(build_scale_up_fabric_services_status_request(
-            rack_id, switches,
+            rack_id, switches, node_type,
         ))
         .await
         .map_err(|error| format!("RMS BatchGetScaleUpFabricServiceStatus failed: {}", error))

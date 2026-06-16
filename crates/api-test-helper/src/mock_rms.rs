@@ -201,14 +201,6 @@ pub struct MockRmsApi {
     upgrade_switch_firmware_calls: Mutex<Vec<rms::UpgradeSwitchFirmwareRequest>>,
 
     // Switch system images calls.
-    fetch_switch_system_image_responses:
-        Mutex<VecDeque<Result<rms::FetchSwitchSystemImageResponse, RackManagerError>>>,
-    fetch_switch_system_image_calls: Mutex<Vec<rms::FetchSwitchSystemImageRequest>>,
-
-    install_switch_system_image_responses:
-        Mutex<VecDeque<Result<rms::InstallSwitchSystemImageResponse, RackManagerError>>>,
-    install_switch_system_image_calls: Mutex<Vec<rms::InstallSwitchSystemImageRequest>>,
-
     list_switch_system_images_responses:
         Mutex<VecDeque<Result<rms::ListSwitchSystemImagesResponse, RackManagerError>>>,
     list_switch_system_images_calls: Mutex<Vec<rms::ListSwitchSystemImagesRequest>>,
@@ -338,10 +330,6 @@ impl MockRmsApi {
             push_switch_firmware_calls: Default::default(),
             upgrade_switch_firmware_responses: Default::default(),
             upgrade_switch_firmware_calls: Default::default(),
-            fetch_switch_system_image_responses: Default::default(),
-            fetch_switch_system_image_calls: Default::default(),
-            install_switch_system_image_responses: Default::default(),
-            install_switch_system_image_calls: Default::default(),
             list_switch_system_images_responses: Default::default(),
             list_switch_system_images_calls: Default::default(),
             poll_switch_firmware_job_status_responses: Default::default(),
@@ -669,22 +657,6 @@ impl MockRmsApi {
     );
 
     // Switch system images
-    impl_enqueue_inspect!(
-        enqueue_fetch_switch_system_image,
-        fetch_switch_system_image_calls,
-        fetch_switch_system_image_responses,
-        fetch_switch_system_image_calls,
-        rms::FetchSwitchSystemImageRequest,
-        rms::FetchSwitchSystemImageResponse
-    );
-    impl_enqueue_inspect!(
-        enqueue_install_switch_system_image,
-        install_switch_system_image_calls,
-        install_switch_system_image_responses,
-        install_switch_system_image_calls,
-        rms::InstallSwitchSystemImageRequest,
-        rms::InstallSwitchSystemImageResponse
-    );
     impl_enqueue_inspect!(
         enqueue_list_switch_system_images,
         list_switch_system_images_calls,
@@ -1343,23 +1315,6 @@ impl RmsApi for MockRmsApi {
     ) -> Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError> {
         self.upgrade_switch_firmware_calls.lock().await.push(cmd);
         pop_or_err(&mut self.upgrade_switch_firmware_responses.lock().await)
-    }
-    async fn fetch_switch_system_image(
-        &self,
-        cmd: rms::FetchSwitchSystemImageRequest,
-    ) -> Result<rms::FetchSwitchSystemImageResponse, RackManagerError> {
-        self.fetch_switch_system_image_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.fetch_switch_system_image_responses.lock().await)
-    }
-    async fn install_switch_system_image(
-        &self,
-        cmd: rms::InstallSwitchSystemImageRequest,
-    ) -> Result<rms::InstallSwitchSystemImageResponse, RackManagerError> {
-        self.install_switch_system_image_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.install_switch_system_image_responses.lock().await)
     }
     async fn list_switch_system_images(
         &self,

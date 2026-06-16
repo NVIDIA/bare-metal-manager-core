@@ -128,6 +128,7 @@ impl TestHarness {
             Arc::new(api.runtime_config.get_firmware_config()),
             api.common_pools().clone(),
             api.work_lock_manager_handle(),
+            api.runtime_config.rack_profiles.clone(),
             None,
             api.credential_manager().clone(),
         );

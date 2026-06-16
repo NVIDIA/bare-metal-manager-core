@@ -29,6 +29,7 @@ use crate::rpc::ApiClient;
 struct ProfileOutput {
     rack_id: String,
     rack_profile_id: String,
+    product_family: String,
     rack_hardware_type: String,
     rack_hardware_topology: String,
     rack_hardware_class: String,
@@ -65,6 +66,9 @@ impl From<&GetRackProfileResponse> for ProfileOutput {
                 .as_ref()
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
+            product_family: profile
+                .map(|p| product_family_display(p.product_family))
+                .unwrap_or_else(|| "N/A".to_string()),
             rack_hardware_type: profile
                 .and_then(|p| p.rack_hardware_type.as_ref())
                 .map(|t| t.value.clone())
@@ -141,6 +145,15 @@ fn slot_ids_display(ids: &[u32]) -> String {
     }
 }
 
+fn product_family_display(value: i32) -> String {
+    match rpc::forge::RackProductFamily::try_from(value) {
+        Ok(
+            family @ (rpc::forge::RackProductFamily::Gb200 | rpc::forge::RackProductFamily::Gb300),
+        ) => family.as_str_name().to_string(),
+        Ok(rpc::forge::RackProductFamily::Unspecified) | Err(_) => "N/A".to_string(),
+    }
+}
+
 fn show_detail(r: &GetRackProfileResponse) {
     let profile = r.profile.as_ref();
     let capabilities = profile.and_then(|p| p.capabilities.as_ref());
@@ -169,6 +182,12 @@ fn show_detail(r: &GetRackProfileResponse) {
             .and_then(|p| p.rack_hardware_type.as_ref())
             .map(|t| t.value.as_str())
             .unwrap_or("N/A")
+    ]);
+    table.add_row(row![
+        "Product Family",
+        profile
+            .map(|p| product_family_display(p.product_family))
+            .unwrap_or_else(|| "N/A".to_string())
     ]);
     table.add_row(row![
         "Hardware Topology",

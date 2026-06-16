@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_test_harness::network::segment::TestNetworkSegment;
@@ -29,12 +30,20 @@ use carbide_test_harness::test_support::fixture_config::{
 };
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::ObjectFilter;
 use itertools::Itertools;
+use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_rack::ExpectedRack;
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::rack::RackConfig;
+use model::rack_type::{
+    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
+    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
+};
 use model::resource_pool::ResourcePoolStats;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use model::test_support::{DpuConfig, ManagedHostConfig};
@@ -53,6 +62,8 @@ struct Env {
     underlay_segment: TestNetworkSegment,
     test_harness: TestHarness,
 }
+
+const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
 
 impl Env {
     async fn new(pool: PgPool) -> Self {
@@ -95,7 +106,46 @@ fn machine_creator(env: &Env, config: SiteExplorerConfig) -> MachineCreator {
         env.pool.clone(),
         config,
         env.api().common_pools().clone(),
+        Arc::new(env.api().runtime_config.rack_profiles.clone()),
         None,
+        env.api().credential_manager().clone(),
+    )
+}
+
+fn machine_creator_with_rms(env: &Env, rms_sim: &RmsSim) -> MachineCreator {
+    let rack_profiles = RackProfileConfig {
+        rack_profiles: [(
+            TEST_RMS_RACK_PROFILE_ID.to_string(),
+            RackProfile {
+                product_family: Some(RackProductFamily::Gb200),
+                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+                rack_capabilities: RackCapabilitiesSet {
+                    compute: RackCapabilityCompute {
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    switch: RackCapabilitySwitch {
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    power_shelf: RackCapabilityPowerShelf {
+                        vendor: Some("LiteOn".to_string()),
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+
+    MachineCreator::new(
+        env.pool.clone(),
+        machine_creator_config(false),
+        env.api().common_pools().clone(),
+        Arc::new(rack_profiles),
+        rms_sim.as_rms_client(),
         env.api().credential_manager().clone(),
     )
 }
@@ -109,6 +159,185 @@ fn expected_machine(managed_host: &ManagedHostConfig) -> ExpectedMachine {
             .clone()
             .unwrap_or_default(),
     }
+}
+
+async fn assert_no_machines_created(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let machines = db::machine::find(
+        pool,
+        ObjectFilter::All,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        machines.len(),
+        0,
+        "expected no machine rows after RMS rack-profile preflight failure, got {machines:#?}"
+    );
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_machine_creator_compute_rms_request_uses_rack_profile(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let rms_sim = RmsSim::default();
+    let creator = machine_creator_with_rms(&env, &rms_sim);
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+    let expected_rack = ExpectedRack {
+        rack_id: rack_id.clone(),
+        rack_profile_id: RackProfileId::new(TEST_RMS_RACK_PROFILE_ID),
+        metadata: Default::default(),
+    };
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_rack::create(txn.as_mut(), &expected_rack).await?;
+    txn.commit().await?;
+
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
+    let mut fixture = explored_host_fixture(&env, &managed_host).await;
+
+    assert!(
+        creator
+            .create_managed_host(
+                &fixture.host,
+                &mut fixture.host_report,
+                Some(&expected_machine(&managed_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let requests = rms_sim
+        .submitted_batch_get_node_device_info_requests()
+        .await;
+    let [request] = requests.as_slice() else {
+        return Err(std::io::Error::other(format!(
+            "expected one RMS BatchGetNodeDeviceInfo request, got {}",
+            requests.len()
+        ))
+        .into());
+    };
+    let Some(nodes) = request.nodes.as_ref() else {
+        return Err(std::io::Error::other("RMS request missing nodes").into());
+    };
+    let [node] = nodes.nodes.as_slice() else {
+        return Err(std::io::Error::other(format!(
+            "expected one RMS node in request, got {}",
+            nodes.nodes.len()
+        ))
+        .into());
+    };
+
+    assert_eq!(node.rack_id, rack_id.to_string());
+    assert_eq!(node.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_machine_creator_compute_rms_request_errors_for_rack_without_profile(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let rms_sim = RmsSim::default();
+    let creator = machine_creator_with_rms(&env, &rms_sim);
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = env.pool.begin().await?;
+    db::rack::create(txn.as_mut(), &rack_id, None, &RackConfig::default(), None).await?;
+    txn.commit().await?;
+
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
+    let mut fixture = explored_host_fixture(&env, &managed_host).await;
+
+    let result = creator
+        .create_managed_host(
+            &fixture.host,
+            &mut fixture.host_report,
+            Some(&expected_machine(&managed_host)),
+            &env.pool,
+        )
+        .await;
+
+    let Err(error) = result else {
+        return Err(std::io::Error::other("expected missing rack profile error").into());
+    };
+
+    assert!(error.to_string().contains("has no rack_profile_id"));
+    assert_eq!(
+        rms_sim
+            .submitted_batch_get_node_device_info_requests()
+            .await,
+        Vec::new()
+    );
+    assert_no_machines_created(&env.pool).await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_machine_creator_compute_rms_request_errors_for_unknown_profile(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let rms_sim = RmsSim::default();
+    let creator = machine_creator_with_rms(&env, &rms_sim);
+    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = env.pool.begin().await?;
+    db::rack::create(
+        txn.as_mut(),
+        &rack_id,
+        Some(&RackProfileId::new("Unknown")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let managed_host =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
+    let mut fixture = explored_host_fixture(&env, &managed_host).await;
+
+    let result = creator
+        .create_managed_host(
+            &fixture.host,
+            &mut fixture.host_report,
+            Some(&expected_machine(&managed_host)),
+            &env.pool,
+        )
+        .await;
+
+    let Err(error) = result else {
+        return Err(std::io::Error::other("expected unknown rack profile error").into());
+    };
+
+    assert!(error.to_string().contains("is not configured"));
+    assert_eq!(
+        rms_sim
+            .submitted_batch_get_node_device_info_requests()
+            .await,
+        Vec::new()
+    );
+    assert_no_machines_created(&env.pool).await?;
+
+    Ok(())
 }
 
 async fn discover_bmc(

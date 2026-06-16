@@ -2568,6 +2568,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-controller",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tonic",
@@ -2824,6 +2825,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-ipmi",
  "carbide-network",
+ "carbide-rack",
  "carbide-redfish",
  "carbide-rpc",
  "carbide-secrets",
@@ -3480,6 +3482,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-rack",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -6555,8 +6558,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.13"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+version = "0.0.14"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
 dependencies = [
  "async-trait",
  "chrono",
@@ -11518,7 +11521,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
 dependencies = [
  "async-trait",
  "heck",

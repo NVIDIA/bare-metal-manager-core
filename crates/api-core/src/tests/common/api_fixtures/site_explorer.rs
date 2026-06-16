@@ -1887,7 +1887,7 @@ impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_profile_id: Some(RackProfileId::new("rack")),
+            rack_profile_id: Some(RackProfileId::new(super::TEST_RMS_RACK_PROFILE_ID)),
         }
     }
 }
