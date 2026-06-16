@@ -96,6 +96,8 @@ impl ColumnInfo<'_> for IdColumn {
 }
 
 #[cfg(test)]
+mod ip_allocator;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy)]
