@@ -95,7 +95,6 @@ mod power_shelf_find;
 mod power_shelf_health;
 mod power_shelf_state_controller;
 mod preingestion_dpu_nic_mode;
-mod prevent_duplicate_mac_addresses;
 mod rack_find;
 mod rack_health;
 mod rack_state_controller;

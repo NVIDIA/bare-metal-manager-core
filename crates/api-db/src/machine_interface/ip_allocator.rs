@@ -26,26 +26,7 @@ use model::network_segment::{
 };
 
 use crate as db;
-
-fn admin_segment(name: &str, prefix: &str, gateway: &str, num_reserved: i32) -> NewNetworkSegment {
-    NewNetworkSegment {
-        name: name.to_string(),
-        subdomain_id: None,
-        vpc_id: None,
-        mtu: 1500,
-        prefixes: vec![NewNetworkPrefix {
-            prefix: prefix.parse().unwrap(),
-            gateway: Some(gateway.parse().unwrap()),
-            num_reserved,
-        }],
-        vlan_id: None,
-        vni: None,
-        segment_type: NetworkSegmentType::Admin,
-        id: uuid::Uuid::new_v4().into(),
-        can_stretch: None,
-        allocation_strategy: AllocationStrategy::Dynamic,
-    }
-}
+use crate::test_support::network_segment::admin_segment;
 
 async fn init_dwrt1_domain(txn: &mut sqlx::PgTransaction<'_>) -> db::DatabaseResult<Domain> {
     db::dns::domain::persist(NewDomain::new("dwrt1.com"), txn.as_mut()).await
