@@ -86,9 +86,7 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 
 #[crate::sqlx_test]
-async fn test_duplicate_fail_create(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()
@@ -133,9 +131,7 @@ async fn test_duplicate_fail_create(
 }
 
 #[crate::sqlx_test]
-async fn test_update_bmc_credentials(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()

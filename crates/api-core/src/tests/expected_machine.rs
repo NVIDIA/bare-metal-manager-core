@@ -26,9 +26,9 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use uuid::Uuid;
 
+use crate::CarbideError;
 use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common;
-use crate::CarbideError;
 
 async fn create_fixture_expected_machines(pool: &sqlx::PgPool) {
     let mut txn = pool.begin().await.unwrap();

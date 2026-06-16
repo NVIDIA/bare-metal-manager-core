@@ -18,7 +18,7 @@
 use model::machine_interface::InterfaceType;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
-    AllocationStrategy, NetworkSegmentControllerState, NewNetworkSegment, NetworkSegmentType,
+    AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
 use super::*;
