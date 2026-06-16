@@ -18,7 +18,10 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
-use libnmxc::nmxc_model::{GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GpuAttr};
+use libnmxc::nmxc_model::{
+    GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest,
+    GetSwitchNodeInfoListRequest, GpuAttr,
+};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc};
 use tonic::{Request, Response, Status};
 
@@ -38,6 +41,24 @@ async fn compute_node_info_list_json(
 
     let body = serde_json::to_string(&resp).map_err(|e| {
         CarbideError::internal(format!("serialize GetComputeNodeInfoListResponse: {e}"))
+    })?;
+    Ok((body, 200, HashMap::new()))
+}
+
+/// Calls NMX-C `GetSwitchNodeInfoList` and returns the JSON response for the NMX-C browser.
+async fn switch_node_info_list_json(
+    nmxc: &mut dyn Nmxc,
+) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
+    let resp = nmxc
+        .get_switch_node_info_list(GetSwitchNodeInfoListRequest {
+            context: Some(Default::default()),
+            loc_list: vec![],
+            gateway_id: NMX_C_GATEWAY_ID.to_string(),
+        })
+        .await?;
+
+    let body = serde_json::to_string(&resp).map_err(|e| {
+        CarbideError::internal(format!("serialize GetSwitchNodeInfoListResponse: {e}"))
     })?;
     Ok((body, 200, HashMap::new()))
 }
@@ -67,6 +88,38 @@ async fn gpu_info_json(
 
     let body = serde_json::to_string(gpu)
         .map_err(|e| CarbideError::internal(format!("serialize GpuInfo: {e}")))?;
+    Ok((body, 200, HashMap::new()))
+}
+
+/// Calls NMX-C `GetPartitionInfoList` and returns the JSON response for the NMX-C browser.
+async fn partition_info_list_json(
+    nmxc: &mut dyn Nmxc,
+) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
+    let resp = nmxc
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(Default::default()),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: NMX_C_GATEWAY_ID.into(),
+        })
+        .await?;
+
+    let body = serde_json::to_string(&resp).map_err(|e| {
+        CarbideError::internal(format!("serialize GetPartitionInfoListResponse: {e}"))
+    })?;
+    Ok((body, 200, HashMap::new()))
+}
+
+/// Calls NMX-C `GetDomainProperties` and returns the JSON response for the NMX-C browser.
+async fn get_domain_properties_json(
+    nmxc: &mut dyn Nmxc,
+) -> Result<(String, i32, HashMap<String, String>), CarbideError> {
+    let resp = nmxc
+        .get_domain_properties(Some(Default::default()), NMX_C_GATEWAY_ID)
+        .await?;
+
+    let body = serde_json::to_string(&resp)
+        .map_err(|e| CarbideError::internal(format!("serialize DomainProperties: {e}")))?;
     Ok((body, 200, HashMap::new()))
 }
 
@@ -140,6 +193,9 @@ pub(crate) async fn nmxc_browse(
             rpc::NmxcBrowseOperation::ComputeNodeInfoList => {
                 compute_node_info_list_json(nmxc.as_mut()).await
             }
+            rpc::NmxcBrowseOperation::SwitchNodeInfoList => {
+                switch_node_info_list_json(nmxc.as_mut()).await
+            }
             rpc::NmxcBrowseOperation::GpuInfo => {
                 if request.gpu_uid == 0 {
                     Err(CarbideError::InvalidArgument(
@@ -150,6 +206,12 @@ pub(crate) async fn nmxc_browse(
                 }
             }
             rpc::NmxcBrowseOperation::GpuInfoList => gpu_info_list_json(nmxc.as_mut()).await,
+            rpc::NmxcBrowseOperation::PartitionInfoList => {
+                partition_info_list_json(nmxc.as_mut()).await
+            }
+            rpc::NmxcBrowseOperation::GetDomainProperties => {
+                get_domain_properties_json(nmxc.as_mut()).await
+            }
         };
 
         match result {

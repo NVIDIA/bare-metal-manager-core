@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -58,37 +58,33 @@ fn variant(cmd: &Cmd) -> &'static str {
 // list parses with no arguments and routes to the List variant.
 #[test]
 fn parse_list() {
-    check_cases(
-        [Case {
-            scenario: "list with no arguments",
-            input: &["resource-pool", "list"][..],
-            expect: Yields("list"),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| variant(&cmd))
                 .map_err(drop)
-        },
+        };
+        "list with no arguments" {
+            &["resource-pool", "list"][..] => Yields("list"),
+        }
     );
 }
 
 // grow parses with --filename and surfaces that filename on the Grow variant.
 #[test]
 fn parse_grow() {
-    check_cases(
-        [Case {
-            scenario: "grow with --filename",
-            input: &["resource-pool", "grow", "--filename", "config.toml"][..],
-            expect: Yields("config.toml".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Grow(args) => args.filename,
                     _ => panic!("expected Grow variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "grow with --filename" {
+            &["resource-pool", "grow", "--filename", "config.toml"][..] => Yields("config.toml".to_string()),
+        }
     );
 }
 
@@ -96,16 +92,14 @@ fn parse_grow() {
 // its required --filename.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "grow without --filename",
-            input: &["resource-pool", "grow"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "grow without --filename" {
+            &["resource-pool", "grow"][..] => Fails,
+        }
     );
 }

@@ -16,42 +16,34 @@
  */
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use libmlx::firmware::credentials::Credentials;
 
 // -- validate_http --
 
 #[test]
 fn validate_http_accepts_http_creds_and_rejects_ssh_creds() {
-    check_cases(
-        [
-            Case {
-                scenario: "bearer token is valid for http",
-                input: Credentials::bearer_token("my-token"),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "basic auth is valid for http",
-                input: Credentials::basic_auth("user", "pass"),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "header is valid for http",
-                input: Credentials::header("X-API-Key", "abc123"),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "ssh key is invalid for http",
-                input: Credentials::ssh_key("/home/user/.ssh/id_rsa"),
-                expect: Fails,
-            },
-            Case {
-                scenario: "ssh agent is invalid for http",
-                input: Credentials::ssh_agent(),
-                expect: Fails,
-            },
-        ],
-        |cred| cred.validate_http().map_err(drop),
+    scenarios!(
+        run = |cred| cred.validate_http().map_err(drop);
+        "bearer token is valid for http" {
+            Credentials::bearer_token("my-token") => Yields(()),
+        }
+
+        "basic auth is valid for http" {
+            Credentials::basic_auth("user", "pass") => Yields(()),
+        }
+
+        "header is valid for http" {
+            Credentials::header("X-API-Key", "abc123") => Yields(()),
+        }
+
+        "ssh key is invalid for http" {
+            Credentials::ssh_key("/home/user/.ssh/id_rsa") => Fails,
+        }
+
+        "ssh agent is invalid for http" {
+            Credentials::ssh_agent() => Fails,
+        }
     );
 }
 
@@ -59,38 +51,30 @@ fn validate_http_accepts_http_creds_and_rejects_ssh_creds() {
 
 #[test]
 fn validate_ssh_accepts_ssh_creds_and_rejects_http_creds() {
-    check_cases(
-        [
-            Case {
-                scenario: "ssh key is valid for ssh",
-                input: Credentials::ssh_key("/home/user/.ssh/id_rsa"),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "ssh key with passphrase is valid for ssh",
-                input: Credentials::ssh_key_with_passphrase(
-                    "/home/user/.ssh/id_rsa",
-                    "my-passphrase",
-                ),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "ssh agent is valid for ssh",
-                input: Credentials::ssh_agent(),
-                expect: Yields(()),
-            },
-            Case {
-                scenario: "bearer token is invalid for ssh",
-                input: Credentials::bearer_token("my-token"),
-                expect: Fails,
-            },
-            Case {
-                scenario: "basic auth is invalid for ssh",
-                input: Credentials::basic_auth("user", "pass"),
-                expect: Fails,
-            },
-        ],
-        |cred| cred.validate_ssh().map_err(drop),
+    scenarios!(
+        run = |cred| cred.validate_ssh().map_err(drop);
+        "ssh key is valid for ssh" {
+            Credentials::ssh_key("/home/user/.ssh/id_rsa") => Yields(()),
+        }
+
+        "ssh key with passphrase is valid for ssh" {
+            Credentials::ssh_key_with_passphrase(
+                "/home/user/.ssh/id_rsa",
+                "my-passphrase",
+            ) => Yields(()),
+        }
+
+        "ssh agent is valid for ssh" {
+            Credentials::ssh_agent() => Yields(()),
+        }
+
+        "bearer token is invalid for ssh" {
+            Credentials::bearer_token("my-token") => Fails,
+        }
+
+        "basic auth is invalid for ssh" {
+            Credentials::basic_auth("user", "pass") => Fails,
+        }
     );
 }
 

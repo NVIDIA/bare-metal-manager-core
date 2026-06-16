@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,27 +50,22 @@ fn verify_cmd_structure() {
 // whether a MAC was supplied.
 #[test]
 fn parse_show() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments (all switches)",
-                input: &["expected-switch", "show"][..],
-                expect: Yields(false),
-            },
-            Case {
-                scenario: "show with a MAC address",
-                input: &["expected-switch", "show", "1a:2b:3c:4d:5e:6f"][..],
-                expect: Yields(true),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.bmc_mac_address.is_some(),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments (all switches)" {
+            &["expected-switch", "show"][..] => Yields(false),
+        }
+
+        "show with a MAC address" {
+            &["expected-switch", "show", "1a:2b:3c:4d:5e:6f"][..] => Yields(true),
+        }
     );
 }
 
@@ -79,50 +74,8 @@ fn parse_show() {
 // meta_name).
 #[test]
 fn parse_add() {
-    check_cases(
-        [
-            Case {
-                scenario: "add with required arguments",
-                input: &[
-                    "expected-switch",
-                    "add",
-                    "--bmc-mac-address",
-                    "1a:2b:3c:4d:5e:6f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--switch-serial-number",
-                    "SW12345",
-                ][..],
-                expect: Yields(("admin".to_string(), "SW12345".to_string(), None)),
-            },
-            Case {
-                scenario: "add with all options",
-                input: &[
-                    "expected-switch",
-                    "add",
-                    "--bmc-mac-address",
-                    "1a:2b:3c:4d:5e:6f",
-                    "--bmc-username",
-                    "admin",
-                    "--bmc-password",
-                    "secret",
-                    "--switch-serial-number",
-                    "SW12345",
-                    "--meta-name",
-                    "MySwitch",
-                    "--label",
-                    "env:prod",
-                ][..],
-                expect: Yields((
-                    "admin".to_string(),
-                    "SW12345".to_string(),
-                    Some("MySwitch".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Add(args) => {
@@ -131,7 +84,44 @@ fn parse_add() {
                     _ => panic!("expected Add variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "add with required arguments" {
+            &[
+                "expected-switch",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--switch-serial-number",
+                "SW12345",
+            ][..] => Yields(("admin".to_string(), "SW12345".to_string(), None)),
+        }
+
+        "add with all options" {
+            &[
+                "expected-switch",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--switch-serial-number",
+                "SW12345",
+                "--meta-name",
+                "MySwitch",
+                "--label",
+                "env:prod",
+            ][..] => Yields((
+                "admin".to_string(),
+                "SW12345".to_string(),
+                Some("MySwitch".to_string()),
+            )),
+        }
     );
 }
 
@@ -139,52 +129,48 @@ fn parse_add() {
 // the yielded value is the parsed switch_serial_number.
 #[test]
 fn parse_update() {
-    check_cases(
-        [Case {
-            scenario: "update with required arguments",
-            input: &[
-                "expected-switch",
-                "update",
-                "--bmc-mac-address",
-                "1a:2b:3c:4d:5e:6f",
-                "--switch-serial-number",
-                "NEW_SERIAL",
-            ][..],
-            expect: Yields(Some("NEW_SERIAL".to_string())),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Update(args) => args.switch_serial_number,
                     _ => panic!("expected Update variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "update with required arguments" {
+            &[
+                "expected-switch",
+                "update",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--switch-serial-number",
+                "NEW_SERIAL",
+            ][..] => Yields(Some("NEW_SERIAL".to_string())),
+        }
     );
 }
 
 // replace-all parses with a filename; the yielded value is the parsed filename.
 #[test]
 fn parse_replace_all() {
-    check_cases(
-        [Case {
-            scenario: "replace-all with a filename",
-            input: &[
-                "expected-switch",
-                "replace-all",
-                "--filename",
-                "switches.json",
-            ][..],
-            expect: Yields("switches.json".to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::ReplaceAll(args) => args.filename,
                     _ => panic!("expected ReplaceAll variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "replace-all with a filename" {
+            &[
+                "expected-switch",
+                "replace-all",
+                "--filename",
+                "switches.json",
+            ][..] => Yields("switches.json".to_string()),
+        }
     );
 }
 
@@ -203,40 +189,33 @@ fn parse_routes_to_variant() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "delete with a MAC address",
-                input: &["expected-switch", "delete", "1a:2b:3c:4d:5e:6f"][..],
-                expect: Yields("delete"),
-            },
-            Case {
-                scenario: "erase with no arguments",
-                input: &["expected-switch", "erase"][..],
-                expect: Yields("erase"),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| variant(&cmd))
                 .map_err(drop)
-        },
+        };
+        "delete with a MAC address" {
+            &["expected-switch", "delete", "1a:2b:3c:4d:5e:6f"][..] => Yields("delete"),
+        }
+
+        "erase with no arguments" {
+            &["expected-switch", "erase"][..] => Yields("erase"),
+        }
     );
 }
 
 // Every malformed invocation is rejected at parse time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "add without its required arguments",
-            input: &["expected-switch", "add"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "add without its required arguments" {
+            &["expected-switch", "add"][..] => Fails,
+        }
     );
 }

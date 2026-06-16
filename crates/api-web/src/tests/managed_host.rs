@@ -16,10 +16,10 @@
  */
 use axum::body::Body;
 use carbide_rpc_utils::ManagedHostOutput;
+use carbide_test_harness::TestMachine as _;
 use db::{machine, managed_host};
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
-use model::hardware_info::HardwareInfo;
 use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
 use tower::ServiceExt;
 
@@ -77,7 +77,8 @@ async fn test_ok(pool: sqlx::PgPool) {
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let host_machine_id = env.create_ready_managed_host(2).await.host_machine_id;
+    let mh = env.create_ready_managed_host(2).await.0;
+    let host_machine_id = mh.host.id;
 
     let response = app
         .oneshot(
@@ -131,14 +132,13 @@ async fn test_multi_dpu(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     let env = TestEnv::new(pool).await;
-    let host = env.create_ready_managed_host(2).await;
-    let hardware_info = HardwareInfo::from(&host.managed_host);
+    let (mh, build_data) = env.create_ready_managed_host(2).await;
+    let hardware_info = mh.host.hardware_info();
+    let dpu_1 = mh.dpu(0);
+    let dpu_2 = mh.dpu(1);
 
     // Get info from the test managed host so we know what to assert on in the ManagedHostRowDisplay.
-    let machine_id = host.host_machine_id;
-    let host_bmc_ip = host.host_bmc_ip;
-    let dpu_1_bmc_ip = host.dpu_bmc_ip(0);
-    let dpu_2_bmc_ip = host.dpu_bmc_ip(1);
+    let machine_id = mh.host.id;
 
     let snapshots = managed_host::load_all(
         &env.api().database_connection,
@@ -174,11 +174,8 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(row.num_gpus, hardware_info.gpus.len(),);
     assert!(!row.time_in_state_above_sla);
     assert!(!row.time_in_state.is_empty()); // Should match something like "0 seconds"
-    assert_eq!(row.host_bmc_ip, host_bmc_ip.to_string());
-    assert_eq!(
-        row.host_bmc_mac,
-        host.managed_host.bmc_mac_address.to_string()
-    );
+    assert_eq!(row.host_bmc_ip, build_data.host_bmc_ip().to_string());
+    assert_eq!(row.host_bmc_mac, mh.host.bmc_mac.to_string());
     assert_eq!(
         row.vendor,
         hardware_info.dmi_data.as_ref().unwrap().sys_vendor
@@ -191,15 +188,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert!(!row.health_sources.is_empty());
     assert!(row.health_probe_alerts.is_empty());
     assert!(!row.host_admin_ip.is_empty());
-    assert_eq!(
-        row.host_admin_mac,
-        hardware_info
-            .network_interfaces
-            .first()
-            .unwrap()
-            .mac_address
-            .to_string()
-    );
+    assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
     assert!(row.state_reason.is_empty());
 
     assert_eq!(row.dpus.len(), 2);
@@ -208,30 +197,18 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         row.dpus[0].machine_id,
         snapshot.dpu_snapshots[0].id.to_string()
     );
-    assert_eq!(row.dpus[0].bmc_ip, dpu_1_bmc_ip.to_string());
-    assert_eq!(
-        row.dpus[0].bmc_mac,
-        host.managed_host.dpus[0].bmc_mac_address.to_string()
-    );
-    assert_eq!(
-        row.dpus[0].oob_mac,
-        host.managed_host.dpus[0].oob_mac_address.to_string()
-    );
+    assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
+    assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
+    assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
     assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
 
     assert_eq!(
         row.dpus[1].machine_id,
         snapshot.dpu_snapshots[1].id.to_string()
     );
-    assert_eq!(row.dpus[1].bmc_ip, dpu_2_bmc_ip.to_string());
-    assert_eq!(
-        row.dpus[1].bmc_mac,
-        host.managed_host.dpus[1].bmc_mac_address.to_string()
-    );
-    assert_eq!(
-        row.dpus[1].oob_mac,
-        host.managed_host.dpus[1].oob_mac_address.to_string()
-    );
+    assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
+    assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
+    assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
     assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
 
     Ok(())
@@ -240,7 +217,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
 #[crate::sqlx_test]
 async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
-    let host = env.create_ready_managed_host(1).await;
+    let mh = env.create_ready_managed_host(1).await.0;
 
     let assigned_booting_state = ManagedHostState::Assigned {
         instance_state: InstanceState::BootingWithDiscoveryImage {
@@ -254,7 +231,7 @@ async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
             .unwrap();
 
     let mut txn = env.test_harness.db_txn().await;
-    let host_machine = host.host_db_machine(&mut txn).await;
+    let host_machine = mh.host.db_machine(&mut txn).await;
     machine::advance(
         &host_machine,
         &mut txn,

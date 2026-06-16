@@ -25,7 +25,7 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::{Case, check_cases, scenarios};
 use clap::{CommandFactory, Parser};
 
 use super::common::ExtensionServiceType;
@@ -285,17 +285,15 @@ fn parse_show_instances_routes_and_binds_fields() {
 // Every malformed invocation is rejected at parse time.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "create without its required arguments",
-            input: &["extension-service", "create"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "create without its required arguments" {
+            &["extension-service", "create"][..] => Fails,
+        }
     );
 }
 
@@ -314,24 +312,18 @@ fn invalid_invocations_are_rejected() {
 fn extension_service_type_value_enum() {
     use clap::ValueEnum;
 
-    check_cases(
-        [
-            Case {
-                scenario: "canonical kubernetes-pod",
-                input: "kubernetes-pod",
-                expect: Yields(ExtensionServiceType::KubernetesPod),
-            },
-            Case {
-                scenario: "k8s alias maps to KubernetesPod",
-                input: "k8s",
-                expect: Yields(ExtensionServiceType::KubernetesPod),
-            },
-            Case {
-                scenario: "unknown value is rejected",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |s| ExtensionServiceType::from_str(s, false).map_err(drop),
+    scenarios!(
+        run = |s| ExtensionServiceType::from_str(s, false).map_err(drop);
+        "canonical kubernetes-pod" {
+            "kubernetes-pod" => Yields(ExtensionServiceType::KubernetesPod),
+        }
+
+        "k8s alias maps to KubernetesPod" {
+            "k8s" => Yields(ExtensionServiceType::KubernetesPod),
+        }
+
+        "unknown value is rejected" {
+            "invalid" => Fails,
+        }
     );
 }

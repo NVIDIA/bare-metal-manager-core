@@ -288,7 +288,7 @@ impl MlxConfigProfile {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
     use crate::variables::spec::MlxVariableSpec;
@@ -350,30 +350,24 @@ mod coverage_tests {
     // success we project to the configured value name.
     #[test]
     fn with_validates_name_and_value() {
-        check_cases(
-            [
-                Case {
-                    scenario: "known boolean variable, valid value",
-                    input: ("BOOL_VAR", "true"),
-                    expect: Yields("BOOL_VAR".to_string()),
-                },
-                Case {
-                    scenario: "unknown variable name is rejected",
-                    input: ("NOPE", "true"),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "known boolean variable, unparseable value fails validation",
-                    input: ("BOOL_VAR", "maybe"),
-                    expect: Fails,
-                },
-            ],
-            |(name, value)| {
+        scenarios!(
+            run = |(name, value)| {
                 MlxConfigProfile::new("p", test_registry())
                     .with(name, value)
                     .map(|p| p.get_variable(name).unwrap().name().to_string())
                     .map_err(drop)
-            },
+            };
+            "known boolean variable, valid value" {
+                ("BOOL_VAR", "true") => Yields("BOOL_VAR".to_string()),
+            }
+
+            "unknown variable name is rejected" {
+                ("NOPE", "true") => Fails,
+            }
+
+            "known boolean variable, unparseable value fails validation" {
+                ("BOOL_VAR", "maybe") => Fails,
+            }
         );
     }
 
@@ -383,25 +377,20 @@ mod coverage_tests {
     // variables tests.
     #[test]
     fn with_enum_validation_path() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid enum option",
-                    input: "high",
-                    expect: Yields(MlxValueType::Enum("high".to_string())),
-                },
-                Case {
-                    scenario: "invalid enum option fails value validation",
-                    input: "middle",
-                    expect: Fails,
-                },
-            ],
-            |opt| {
+        scenarios!(
+            run = |opt| {
                 MlxConfigProfile::new("p", test_registry())
                     .with("ENUM_VAR", opt)
                     .map(|p| p.get_variable("ENUM_VAR").unwrap().value.clone())
                     .map_err(drop)
-            },
+            };
+            "valid enum option" {
+                "high" => Yields(MlxValueType::Enum("high".to_string())),
+            }
+
+            "invalid enum option fails value validation" {
+                "middle" => Fails,
+            }
         );
     }
 
@@ -425,26 +414,21 @@ mod coverage_tests {
             other.get_variable("FOREIGN").unwrap().with(1i64).unwrap()
         };
 
-        check_cases(
-            [
-                Case {
-                    scenario: "value for a known variable is accepted",
-                    input: known_value,
-                    expect: Yields("INT_VAR".to_string()),
-                },
-                Case {
-                    scenario: "value for a foreign variable is rejected",
-                    input: foreign_value,
-                    expect: Fails,
-                },
-            ],
-            |value| {
+        scenarios!(
+            run = |value| {
                 let name = value.name().to_string();
                 MlxConfigProfile::new("p", test_registry())
                     .with_value(value)
                     .map(|p| p.get_variable(&name).unwrap().name().to_string())
                     .map_err(drop)
-            },
+            };
+            "value for a known variable is accepted" {
+                known_value => Yields("INT_VAR".to_string()),
+            }
+
+            "value for a foreign variable is rejected" {
+                foreign_value => Fails,
+            }
         );
     }
 
@@ -454,25 +438,8 @@ mod coverage_tests {
     // does append. Each row reports (variable_count, INT_VAR value).
     #[test]
     fn adding_same_variable_replaces_in_place() {
-        check_values(
-            [
-                Check {
-                    scenario: "single write",
-                    input: vec![("INT_VAR", 1i64)],
-                    expect: (1usize, Some(MlxValueType::Integer(1))),
-                },
-                Check {
-                    scenario: "re-write same variable replaces, count stays 1",
-                    input: vec![("INT_VAR", 1i64), ("INT_VAR", 2i64)],
-                    expect: (1usize, Some(MlxValueType::Integer(2))),
-                },
-                Check {
-                    scenario: "distinct second variable appends",
-                    input: vec![("INT_VAR", 5i64), ("INT_VAR", 9i64)],
-                    expect: (1usize, Some(MlxValueType::Integer(9))),
-                },
-            ],
-            |writes| {
+        value_scenarios!(
+            run = |writes| {
                 let mut profile = MlxConfigProfile::new("p", test_registry());
                 for (name, value) in writes {
                     profile = profile.with(name, value).unwrap();
@@ -481,7 +448,18 @@ mod coverage_tests {
                     profile.variable_count(),
                     profile.get_variable("INT_VAR").map(|cv| cv.value.clone()),
                 )
-            },
+            };
+            "single write" {
+                vec![("INT_VAR", 1i64)] => (1usize, Some(MlxValueType::Integer(1))),
+            }
+
+            "re-write same variable replaces, count stays 1" {
+                vec![("INT_VAR", 1i64), ("INT_VAR", 2i64)] => (1usize, Some(MlxValueType::Integer(2))),
+            }
+
+            "distinct second variable appends" {
+                vec![("INT_VAR", 5i64), ("INT_VAR", 9i64)] => (1usize, Some(MlxValueType::Integer(9))),
+            }
         );
     }
 
@@ -505,25 +483,19 @@ mod coverage_tests {
         let profile = MlxConfigProfile::new("p", test_registry())
             .with("BOOL_VAR", true)
             .unwrap();
-        check_values(
-            [
-                Check {
-                    scenario: "configured variable is found",
-                    input: "BOOL_VAR",
-                    expect: true,
-                },
-                Check {
-                    scenario: "known-but-unconfigured variable is absent",
-                    input: "INT_VAR",
-                    expect: false,
-                },
-                Check {
-                    scenario: "nonexistent variable is absent",
-                    input: "MISSING",
-                    expect: false,
-                },
-            ],
-            |name| profile.get_variable(name).is_some(),
+        value_scenarios!(
+            run = |name| profile.get_variable(name).is_some();
+            "configured variable is found" {
+                "BOOL_VAR" => true,
+            }
+
+            "known-but-unconfigured variable is absent" {
+                "INT_VAR" => false,
+            }
+
+            "nonexistent variable is absent" {
+                "MISSING" => false,
+            }
         );
     }
 
@@ -531,26 +503,21 @@ mod coverage_tests {
     // whose values were all built through `with` (each validates against its spec).
     #[test]
     fn validate_empty_vs_populated() {
-        check_cases(
-            [
-                Case {
-                    scenario: "empty profile is rejected",
-                    input: false,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "populated profile validates",
-                    input: true,
-                    expect: Yields(()),
-                },
-            ],
-            |populate| {
+        scenarios!(
+            run = |populate| {
                 let mut profile = MlxConfigProfile::new("p", test_registry());
                 if populate {
                     profile = profile.with("BOOL_VAR", true).unwrap();
                 }
                 profile.validate().map_err(drop)
-            },
+            };
+            "empty profile is rejected" {
+                false => Fails,
+            }
+
+            "populated profile validates" {
+                true => Yields(()),
+            }
         );
     }
 
@@ -568,27 +535,22 @@ mod coverage_tests {
     // Both exact strings are derived from the format! literals in `summary`.
     #[test]
     fn summary_formats_with_and_without_description() {
-        check_values(
-            [
-                Check {
-                    scenario: "no description",
-                    input: None,
-                    expect: "Profile 'p': 1 variables for registry 'test_reg'".to_string(),
-                },
-                Check {
-                    scenario: "with description",
-                    input: Some("desc"),
-                    expect: "Profile 'p': desc - 1 variables for registry 'test_reg'".to_string(),
-                },
-            ],
-            |desc: Option<&str>| {
+        value_scenarios!(
+            run = |desc: Option<&str>| {
                 let mut profile = MlxConfigProfile::new("p", test_registry());
                 if let Some(d) = desc {
                     profile = profile.with_description(d);
                 }
                 profile = profile.with("BOOL_VAR", true).unwrap();
                 profile.summary()
-            },
+            };
+            "no description" {
+                None => "Profile 'p': 1 variables for registry 'test_reg'".to_string(),
+            }
+
+            "with description" {
+                Some("desc") => "Profile 'p': desc - 1 variables for registry 'test_reg'".to_string(),
+            }
         );
     }
 
@@ -598,35 +560,25 @@ mod coverage_tests {
     // input fails, since the wrapped parser error isn't PartialEq.
     #[test]
     fn from_yaml_and_json_reject_bad_input() {
-        check_cases(
-            [
-                Case {
-                    scenario: "yaml: unknown registry",
-                    input: "name: p\nregistry_name: does_not_exist\nconfig: {}\n",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "yaml: malformed document",
-                    input: "name: [unterminated",
-                    expect: Fails,
-                },
-            ],
-            |yaml| MlxConfigProfile::from_yaml(yaml).map(|_| ()).map_err(drop),
+        scenarios!(
+            run = |yaml| MlxConfigProfile::from_yaml(yaml).map(|_| ()).map_err(drop);
+            "yaml: unknown registry" {
+                "name: p\nregistry_name: does_not_exist\nconfig: {}\n" => Fails,
+            }
+
+            "yaml: malformed document" {
+                "name: [unterminated" => Fails,
+            }
         );
-        check_cases(
-            [
-                Case {
-                    scenario: "json: unknown registry",
-                    input: r#"{"name":"p","registry_name":"does_not_exist","config":{}}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "json: malformed document",
-                    input: "{not json",
-                    expect: Fails,
-                },
-            ],
-            |json| MlxConfigProfile::from_json(json).map(|_| ()).map_err(drop),
+        scenarios!(
+            run = |json| MlxConfigProfile::from_json(json).map(|_| ()).map_err(drop);
+            "json: unknown registry" {
+                r#"{"name":"p","registry_name":"does_not_exist","config":{}}"# => Fails,
+            }
+
+            "json: malformed document" {
+                "{not json" => Fails,
+            }
         );
     }
 

@@ -34,7 +34,7 @@ use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
 
 mod fixtures;
 mod maintenance;
@@ -55,16 +55,18 @@ async fn build_test_component_manager(
         nv_switch_use_state_controller: true,
         ..Default::default()
     };
-    component_manager::component_manager::build_component_manager(
+    let component_manager = component_manager::component_manager::build_component_manager(
         &config,
+        get_config_with_rack_profiles().rack_profiles,
         rms_client,
         None,
         Some(env.pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new)
+    .expect("test component manager should build");
+
+    Some(Arc::new(component_manager))
 }
 
 #[crate::sqlx_test]

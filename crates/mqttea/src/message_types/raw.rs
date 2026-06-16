@@ -39,7 +39,7 @@ impl RawMessageType for RawMessage {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -66,30 +66,25 @@ mod tests {
 
     #[test]
     fn test_raw_message_bytes() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty payload",
-                    input: vec![],
-                    expect: RawSummary {
-                        payload: vec![],
-                        bytes: vec![],
-                        round_trip: RawMessage { payload: vec![] },
-                    },
+        value_scenarios!(
+            run = summarize;
+            "empty payload" {
+                vec![] => RawSummary {
+                    payload: vec![],
+                    bytes: vec![],
+                    round_trip: RawMessage { payload: vec![] },
                 },
-                Check {
-                    scenario: "binary payload",
-                    input: vec![0, 1, 2, 255],
-                    expect: RawSummary {
+            }
+
+            "binary payload" {
+                vec![0, 1, 2, 255] => RawSummary {
+                    payload: vec![0, 1, 2, 255],
+                    bytes: vec![0, 1, 2, 255],
+                    round_trip: RawMessage {
                         payload: vec![0, 1, 2, 255],
-                        bytes: vec![0, 1, 2, 255],
-                        round_trip: RawMessage {
-                            payload: vec![0, 1, 2, 255],
-                        },
                     },
                 },
-            ],
-            summarize,
+            }
         );
     }
 }

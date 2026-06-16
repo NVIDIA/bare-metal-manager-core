@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -54,32 +54,26 @@ fn verify_cmd_structure() {
 // interface-id cases are all checked against one parse.
 #[test]
 fn parse_show_variants() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments (all interfaces)",
-                input: &["machine-interface", "show"][..],
-                expect: Yields((false, false, false)),
-            },
-            Case {
-                scenario: "--more flag",
-                input: &["machine-interface", "show", "--more"][..],
-                expect: Yields((false, false, true)),
-            },
-            Case {
-                scenario: "with an interface ID",
-                input: &["machine-interface", "show", TEST_INTERFACE_ID][..],
-                expect: Yields((true, false, false)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.interface_id.is_some(), args.all, args.more),
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments (all interfaces)" {
+            &["machine-interface", "show"][..] => Yields((false, false, false)),
+        }
+
+        "--more flag" {
+            &["machine-interface", "show", "--more"][..] => Yields((false, false, true)),
+        }
+
+        "with an interface ID" {
+            &["machine-interface", "show", TEST_INTERFACE_ID][..] => Yields((true, false, false)),
+        }
     );
 }
 
@@ -87,20 +81,18 @@ fn parse_show_variants() {
 // round-tripping the ID through its string form.
 #[test]
 fn parse_delete_variants() {
-    check_cases(
-        [Case {
-            scenario: "with an interface ID",
-            input: &["machine-interface", "delete", TEST_INTERFACE_ID][..],
-            expect: Yields(TEST_INTERFACE_ID.to_string()),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Delete(args) => args.interface_id.to_string(),
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "with an interface ID" {
+            &["machine-interface", "delete", TEST_INTERFACE_ID][..] => Yields(TEST_INTERFACE_ID.to_string()),
+        }
     );
 }
 
@@ -108,16 +100,14 @@ fn parse_delete_variants() {
 // without its required interface ID.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [Case {
-            scenario: "delete without an interface ID",
-            input: &["machine-interface", "delete"][..],
-            expect: Fails,
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "delete without an interface ID" {
+            &["machine-interface", "delete"][..] => Fails,
+        }
     );
 }

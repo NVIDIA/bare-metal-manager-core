@@ -80,7 +80,7 @@ impl HealthReportSources {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, scenarios};
 
     use super::*;
 
@@ -185,46 +185,39 @@ mod tests {
         // `iter` borrows rather than consuming, but yields the same (source, mode)
         // sequence as `into_iter`: merges first in sorted key order, then the
         // replace source. Infallible, so every row `Yields`.
-        check_cases(
-            [
-                Case {
-                    scenario: "empty borrows nothing",
-                    input: sources(None, &[]),
-                    expect: Yields(vec![]),
-                },
-                Case {
-                    scenario: "merges only",
-                    input: sources(None, &["source-b", "source-a"]),
-                    expect: Yields(vec![
-                        ("source-a".to_string(), HealthReportApplyMode::Merge),
-                        ("source-b".to_string(), HealthReportApplyMode::Merge),
-                    ]),
-                },
-                Case {
-                    scenario: "replace only",
-                    input: sources(Some("admin-replace"), &[]),
-                    expect: Yields(vec![(
-                        "admin-replace".to_string(),
-                        HealthReportApplyMode::Replace,
-                    )]),
-                },
-                Case {
-                    scenario: "mixed merge and replace",
-                    input: sources(Some("sre-override"), &["external-monitor"]),
-                    expect: Yields(vec![
-                        ("external-monitor".to_string(), HealthReportApplyMode::Merge),
-                        ("sre-override".to_string(), HealthReportApplyMode::Replace),
-                    ]),
-                },
-            ],
-            |sources: HealthReportSources| {
+        scenarios!(
+            run = |sources: HealthReportSources| {
                 Ok::<_, ()>(
                     sources
                         .iter()
                         .map(|(report, mode)| (report.source.clone(), mode))
                         .collect::<Vec<_>>(),
                 )
-            },
+            };
+            "empty borrows nothing" {
+                sources(None, &[]) => Yields(vec![]),
+            }
+
+            "merges only" {
+                sources(None, &["source-b", "source-a"]) => Yields(vec![
+                    ("source-a".to_string(), HealthReportApplyMode::Merge),
+                    ("source-b".to_string(), HealthReportApplyMode::Merge),
+                ]),
+            }
+
+            "replace only" {
+                sources(Some("admin-replace"), &[]) => Yields(vec![(
+                    "admin-replace".to_string(),
+                    HealthReportApplyMode::Replace,
+                )]),
+            }
+
+            "mixed merge and replace" {
+                sources(Some("sre-override"), &["external-monitor"]) => Yields(vec![
+                    ("external-monitor".to_string(), HealthReportApplyMode::Merge),
+                    ("sre-override".to_string(), HealthReportApplyMode::Replace),
+                ]),
+            }
         );
     }
 
@@ -308,20 +301,15 @@ mod tests {
         let round_trip = sources(Some("admin-replace"), &["external-monitor"]);
         let round_trip_json = serde_json::to_string(&round_trip).unwrap();
 
-        check_cases(
-            [
-                Case {
-                    scenario: "round trips serialized form",
-                    input: round_trip_json.as_str(),
-                    expect: Yields(round_trip),
-                },
-                Case {
-                    scenario: "null replace deserializes to default",
-                    input: r#"{"merges":{}}"#,
-                    expect: Yields(HealthReportSources::default()),
-                },
-            ],
-            |json: &str| serde_json::from_str::<HealthReportSources>(json).map_err(|_| ()),
+        scenarios!(
+            run = |json: &str| serde_json::from_str::<HealthReportSources>(json).map_err(|_| ());
+            "round trips serialized form" {
+                round_trip_json.as_str() => Yields(round_trip),
+            }
+
+            "null replace deserializes to default" {
+                r#"{"merges":{}}"# => Yields(HealthReportSources::default()),
+            }
         );
     }
 }

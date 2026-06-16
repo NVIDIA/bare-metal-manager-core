@@ -182,7 +182,7 @@ impl<'de> Deserialize<'de> for NetworkSecurityGroupId {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -210,61 +210,47 @@ mod tests {
 
     #[test]
     fn test_network_security_group_id_parse_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "arbitrary security group name",
-                    input: "tenant-edge",
-                    expect: Yields("tenant-edge".to_string()),
-                },
-                Case {
-                    scenario: "UUID-backed security group name",
-                    input: "00000000-0000-0000-0000-000000000000",
-                    expect: Yields("00000000-0000-0000-0000-000000000000".to_string()),
-                },
-                Case {
-                    scenario: "empty value",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Empty),
-                },
-            ],
-            parse_network_security_group_id,
+        scenarios!(
+            run = parse_network_security_group_id;
+            "arbitrary security group name" {
+                "tenant-edge" => Yields("tenant-edge".to_string()),
+            }
+
+            "UUID-backed security group name" {
+                "00000000-0000-0000-0000-000000000000" => Yields("00000000-0000-0000-0000-000000000000".to_string()),
+            }
+
+            "empty value" {
+                "" => FailsWith(ParseFailure::Empty),
+            }
         );
     }
 
     #[test]
     fn test_network_security_group_id_from_uuid() {
-        check_values(
-            [Check {
-                scenario: "nil UUID",
-                input: Uuid::nil(),
-                expect: "00000000-0000-0000-0000-000000000000".to_string(),
-            }],
-            |uuid| NetworkSecurityGroupId::from(uuid).to_string(),
+        value_scenarios!(
+            run = |uuid| NetworkSecurityGroupId::from(uuid).to_string();
+            "nil UUID" {
+                Uuid::nil() => "00000000-0000-0000-0000-000000000000".to_string(),
+            }
         );
     }
 
     #[test]
     fn test_network_security_group_id_serde_cases() {
-        check_cases(
-            [
-                Case {
-                    scenario: "valid string",
-                    input: "\"tenant-edge\"",
-                    expect: Yields("tenant-edge".to_string()),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "\"\"",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-string JSON",
-                    input: "42",
-                    expect: Fails,
-                },
-            ],
-            deserialize_network_security_group_id,
+        scenarios!(
+            run = deserialize_network_security_group_id;
+            "valid string" {
+                "\"tenant-edge\"" => Yields("tenant-edge".to_string()),
+            }
+
+            "empty string" {
+                "\"\"" => Fails,
+            }
+
+            "non-string JSON" {
+                "42" => Fails,
+            }
         );
 
         let serialized = serde_json::to_string(
@@ -277,20 +263,15 @@ mod tests {
 
     #[test]
     fn test_network_security_group_id_parse_error_value() {
-        check_values(
-            [
-                Check {
-                    scenario: "invalid",
-                    input: NetworkSecurityGroupIdParseError::Invalid("bad".to_string()),
-                    expect: "bad".to_string(),
-                },
-                Check {
-                    scenario: "empty",
-                    input: NetworkSecurityGroupIdParseError::Empty,
-                    expect: String::new(),
-                },
-            ],
-            NetworkSecurityGroupIdParseError::value,
+        value_scenarios!(
+            run = NetworkSecurityGroupIdParseError::value;
+            "invalid" {
+                NetworkSecurityGroupIdParseError::Invalid("bad".to_string()) => "bad".to_string(),
+            }
+
+            "empty" {
+                NetworkSecurityGroupIdParseError::Empty => String::new(),
+            }
         );
     }
 }

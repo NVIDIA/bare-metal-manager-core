@@ -160,7 +160,7 @@ impl MqttRegistryEntry {
 mod tests {
     use std::any::Any;
 
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
     use rumqttc::QoS;
 
     use super::*;
@@ -252,70 +252,64 @@ mod tests {
 
     #[test]
     fn test_registry_entry_accessors() {
-        check_values(
-            [
-                Check {
-                    scenario: "default JSON entry",
-                    input: EntryBuild::DefaultJson,
-                    expect: EntrySummary {
-                        type_name: "String".to_string(),
-                        patterns: vec!["alpha".to_string(), "beta".to_string()],
-                        publish_options: None,
-                        qos: None,
-                        retain: None,
-                        format: SerializationFormat::Json,
-                        pattern_count: 2,
-                        has_alpha: true,
-                        has_missing: false,
-                        uses_qos_override: false,
-                        effective_qos: QoS::AtMostOnce,
-                        is_json: true,
-                        debug_mentions_type: true,
-                        debug_hides_handlers: true,
-                    },
+        value_scenarios!(
+            run = |build| summarize(entry_from(build));
+            "default JSON entry" {
+                EntryBuild::DefaultJson => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: None,
+                    qos: None,
+                    retain: None,
+                    format: SerializationFormat::Json,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    is_json: true,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
                 },
-                Check {
-                    scenario: "QoS override",
-                    input: EntryBuild::QosOverride,
-                    expect: EntrySummary {
-                        type_name: "String".to_string(),
-                        patterns: vec!["alpha".to_string(), "beta".to_string()],
-                        publish_options: Some((Some(QoS::ExactlyOnce), None)),
-                        qos: Some(QoS::ExactlyOnce),
-                        retain: None,
-                        format: SerializationFormat::Raw,
-                        pattern_count: 2,
-                        has_alpha: true,
-                        has_missing: false,
-                        uses_qos_override: true,
-                        effective_qos: QoS::ExactlyOnce,
-                        is_json: false,
-                        debug_mentions_type: true,
-                        debug_hides_handlers: true,
-                    },
+            }
+
+            "QoS override" {
+                EntryBuild::QosOverride => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: Some((Some(QoS::ExactlyOnce), None)),
+                    qos: Some(QoS::ExactlyOnce),
+                    retain: None,
+                    format: SerializationFormat::Raw,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: true,
+                    effective_qos: QoS::ExactlyOnce,
+                    is_json: false,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
                 },
-                Check {
-                    scenario: "retain override",
-                    input: EntryBuild::RetainOverride,
-                    expect: EntrySummary {
-                        type_name: "String".to_string(),
-                        patterns: vec!["alpha".to_string(), "beta".to_string()],
-                        publish_options: Some((None, Some(true))),
-                        qos: None,
-                        retain: Some(true),
-                        format: SerializationFormat::Yaml,
-                        pattern_count: 2,
-                        has_alpha: true,
-                        has_missing: false,
-                        uses_qos_override: false,
-                        effective_qos: QoS::AtMostOnce,
-                        is_json: false,
-                        debug_mentions_type: true,
-                        debug_hides_handlers: true,
-                    },
+            }
+
+            "retain override" {
+                EntryBuild::RetainOverride => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: Some((None, Some(true))),
+                    qos: None,
+                    retain: Some(true),
+                    format: SerializationFormat::Yaml,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    is_json: false,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
                 },
-            ],
-            |build| summarize(entry_from(build)),
+            }
         );
     }
 

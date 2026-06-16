@@ -480,7 +480,7 @@ mod legacy_rpc {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -506,112 +506,85 @@ mod tests {
         const VALID_POWER_SHELF_ID: &str =
             "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid host TPM power shelf ID",
-                    input: VALID_POWER_SHELF_ID,
-                    expect: Yields(VALID_POWER_SHELF_ID.to_string()),
-                },
-                Case {
-                    scenario: "one character short",
-                    input: "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: FailsWith(ParseFailure::Length),
-                },
-                Case {
-                    scenario: "invalid prefix casing",
-                    input: "PS100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid power shelf type",
-                    input: "ps100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid source",
-                    input: "ps100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Prefix),
-                },
-                Case {
-                    scenario: "invalid base32 payload",
-                    input: "ps100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg",
-                    expect: FailsWith(ParseFailure::Encoding),
-                },
-            ],
-            parse_power_shelf_id,
+        scenarios!(
+            run = parse_power_shelf_id;
+            "valid host TPM power shelf ID" {
+                VALID_POWER_SHELF_ID => Yields(VALID_POWER_SHELF_ID.to_string()),
+            }
+
+            "one character short" {
+                "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc" => FailsWith(ParseFailure::Length),
+            }
+
+            "empty string" {
+                "" => FailsWith(ParseFailure::Length),
+            }
+
+            "invalid prefix casing" {
+                "PS100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid power shelf type" {
+                "ps100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid source" {
+                "ps100dx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid base32 payload" {
+                "ps100ht038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Encoding),
+            }
         );
     }
 
     #[test]
     fn test_power_shelf_type_mappings() {
-        check_values(
-            [
-                Check {
-                    scenario: "rack",
-                    input: PowerShelfType::Rack,
-                    expect: ('r', "Rack".to_string(), true, false),
-                },
-                Check {
-                    scenario: "host",
-                    input: PowerShelfType::Host,
-                    expect: ('h', "Host".to_string(), false, true),
-                },
-            ],
-            |ty| (ty.id_char(), ty.to_string(), ty.is_rack(), ty.is_host()),
+        value_scenarios!(
+            run = |ty| (ty.id_char(), ty.to_string(), ty.is_rack(), ty.is_host());
+            "rack" {
+                PowerShelfType::Rack => ('r', "Rack".to_string(), true, false),
+            }
+
+            "host" {
+                PowerShelfType::Host => ('h', "Host".to_string(), false, true),
+            }
         );
     }
 
     #[test]
     fn test_power_shelf_type_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "rack",
-                    input: 'r',
-                    expect: Some(PowerShelfType::Rack),
-                },
-                Check {
-                    scenario: "host",
-                    input: 'h',
-                    expect: Some(PowerShelfType::Host),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            PowerShelfType::from_id_char,
+        value_scenarios!(
+            run = PowerShelfType::from_id_char;
+            "rack" {
+                'r' => Some(PowerShelfType::Rack),
+            }
+
+            "host" {
+                'h' => Some(PowerShelfType::Host),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 
     #[test]
     fn test_power_shelf_id_source_from_id_char() {
-        check_values(
-            [
-                Check {
-                    scenario: "TPM",
-                    input: 't',
-                    expect: Some(PowerShelfIdSource::Tpm),
-                },
-                Check {
-                    scenario: "product board chassis serial",
-                    input: 's',
-                    expect: Some(PowerShelfIdSource::ProductBoardChassisSerial),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: 'x',
-                    expect: None,
-                },
-            ],
-            PowerShelfIdSource::from_id_char,
+        value_scenarios!(
+            run = PowerShelfIdSource::from_id_char;
+            "TPM" {
+                't' => Some(PowerShelfIdSource::Tpm),
+            }
+
+            "product board chassis serial" {
+                's' => Some(PowerShelfIdSource::ProductBoardChassisSerial),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
         );
     }
 }

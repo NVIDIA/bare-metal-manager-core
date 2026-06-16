@@ -25,6 +25,7 @@ authors.workspace = true
 async-trait = { workspace = true }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model" }
+carbide-rack = { path = "../rack", default-features = false }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
 carbide-uuid = { path = "../uuid" }

@@ -205,6 +205,14 @@ pub fn parse_carbide_config(
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
 
+    if let Some(manager_config) = &config.component_manager {
+        component_manager::rms::validate_rms_backend_rack_profiles(
+            manager_config,
+            &config.rack_profiles,
+        )
+        .map_err(|error| eyre::eyre!(error).wrap_err("Invalid configuration"))?;
+    }
+
     model::tenant::validate_trust_domain_allowlist_patterns(
         &config.machine_identity.trust_domain_allowlist,
     )
@@ -520,12 +528,18 @@ pub async fn start_api(
             join_set,
         )?))
     } else {
+        tracing::warn!(
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
         None
     };
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
         match component_manager::component_manager::build_component_manager(
             cd_config,
+            carbide_config.rack_profiles.clone(),
             rms_client.clone(),
             switch_system_image_rms_api.clone().map(|client| {
                 client as Arc<dyn component_manager::rms::RmsSwitchSystemImageStatusApi>
@@ -1425,6 +1439,7 @@ async fn initialize_and_start_controllers<'a>(
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
+        carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),
     )
@@ -1648,6 +1663,53 @@ mod tests {
             networks: None,
             vpcs: None,
         }
+    }
+
+    #[test]
+    fn parse_rejects_rms_component_manager_missing_vendor() -> eyre::Result<()> {
+        let mut config = tempfile::NamedTempFile::new()?;
+        std::io::Write::write_all(
+            &mut config,
+            br#"
+                database_url = "postgres://test"
+                listen = "[::]:1081"
+                asn = 1
+
+                [component_manager]
+                nv_switch_backend = "rms"
+                power_shelf_backend = "mock"
+                compute_tray_backend = "mock"
+
+                [rack_profiles.NVL72]
+                product_family = "gb200"
+                rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+                [rack_profiles.NVL72.rack_capabilities.compute]
+                name = "GB200"
+                count = 18
+                vendor = "NVIDIA"
+
+                [rack_profiles.NVL72.rack_capabilities.switch]
+                count = 9
+
+                [rack_profiles.NVL72.rack_capabilities.power_shelf]
+                count = 8
+            "#,
+        )?;
+
+        let result = parse_carbide_config(config.path(), None);
+        let Err(error) = result else {
+            panic!("missing RMS vendor should be rejected");
+        };
+
+        let error = format!("{error:?}");
+
+        assert!(
+            error.contains("rack_capabilities.switch.vendor"),
+            "error message should name the missing vendor field: {error}"
+        );
+
+        Ok(())
     }
 
     // neither source declares pools — operator misconfiguration.

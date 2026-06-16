@@ -269,7 +269,7 @@ fn metadata_from_request(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -280,30 +280,23 @@ mod tests {
     /// exactly what `rpc::forge::DpuMode::from(model)` produces.
     #[test]
     fn rpc_dpu_mode_maps_to_model() {
-        check_values(
-            [
-                Check {
-                    scenario: "unspecified maps to default",
-                    input: rpc::forge::DpuMode::Unspecified,
-                    expect: DpuMode::default(),
-                },
-                Check {
-                    scenario: "dpu mode round trips",
-                    input: rpc::forge::DpuMode::DpuMode,
-                    expect: DpuMode::DpuMode,
-                },
-                Check {
-                    scenario: "nic mode round trips",
-                    input: rpc::forge::DpuMode::NicMode,
-                    expect: DpuMode::NicMode,
-                },
-                Check {
-                    scenario: "no dpu round trips",
-                    input: rpc::forge::DpuMode::NoDpu,
-                    expect: DpuMode::NoDpu,
-                },
-            ],
-            DpuMode::from,
+        value_scenarios!(
+            run = DpuMode::from;
+            "unspecified maps to default" {
+                rpc::forge::DpuMode::Unspecified => DpuMode::default(),
+            }
+
+            "dpu mode round trips" {
+                rpc::forge::DpuMode::DpuMode => DpuMode::DpuMode,
+            }
+
+            "nic mode round trips" {
+                rpc::forge::DpuMode::NicMode => DpuMode::NicMode,
+            }
+
+            "no dpu round trips" {
+                rpc::forge::DpuMode::NoDpu => DpuMode::NoDpu,
+            }
         );
     }
 
@@ -363,25 +356,8 @@ mod tests {
     /// back, so the back-side projection is `None` rather than `Some(None)`.
     #[test]
     fn disable_lockdown_round_trips_through_proto() {
-        check_cases(
-            [
-                Case {
-                    scenario: "true",
-                    input: Some(true),
-                    expect: Yields((Some(true), Some(Some(true)))),
-                },
-                Case {
-                    scenario: "false",
-                    input: Some(false),
-                    expect: Yields((Some(false), Some(Some(false)))),
-                },
-                Case {
-                    scenario: "none",
-                    input: None,
-                    expect: Yields((None, None)),
-                },
-            ],
-            |disable_lockdown| {
+        scenarios!(
+            run = |disable_lockdown| {
                 let data =
                     ExpectedMachineData::try_from(make_rpc_expected_machine(disable_lockdown))
                         .map_err(drop)?;
@@ -396,7 +372,18 @@ mod tests {
                 let back_side = back.host_lifecycle_profile.map(|p| p.disable_lockdown);
 
                 Ok::<_, ()>((data_side, back_side))
-            },
+            };
+            "true" {
+                Some(true) => Yields((Some(true), Some(Some(true)))),
+            }
+
+            "false" {
+                Some(false) => Yields((Some(false), Some(Some(false)))),
+            }
+
+            "none" {
+                None => Yields((None, None)),
+            }
         );
     }
 }

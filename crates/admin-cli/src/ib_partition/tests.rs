@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -52,30 +52,24 @@ fn verify_cmd_structure() {
 // originals asserted on.
 #[test]
 fn parse_show_routes_to_show_variant() {
-    check_cases(
-        [
-            Case {
-                scenario: "no args lists all partitions",
-                input: &["ib-partition", "show"][..],
-                expect: Yields((true, None, None)),
-            },
-            Case {
-                scenario: "--tenant-org-id filters by tenant",
-                input: &["ib-partition", "show", "--tenant-org-id", "tenant-123"][..],
-                expect: Yields((true, Some("tenant-123".to_string()), None)),
-            },
-            Case {
-                scenario: "--name filters by partition name",
-                input: &["ib-partition", "show", "--name", "my-partition"][..],
-                expect: Yields((true, None, Some("my-partition".to_string()))),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.id.is_none(), args.tenant_org_id, args.name),
                 })
                 .map_err(drop)
-        },
+        };
+        "no args lists all partitions" {
+            &["ib-partition", "show"][..] => Yields((true, None, None)),
+        }
+
+        "--tenant-org-id filters by tenant" {
+            &["ib-partition", "show", "--tenant-org-id", "tenant-123"][..] => Yields((true, Some("tenant-123".to_string()), None)),
+        }
+
+        "--name filters by partition name" {
+            &["ib-partition", "show", "--name", "my-partition"][..] => Yields((true, None, Some("my-partition".to_string()))),
+        }
     );
 }

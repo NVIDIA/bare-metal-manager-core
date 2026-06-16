@@ -106,7 +106,7 @@ pub struct RedfishCreateAction {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -114,40 +114,31 @@ mod tests {
     /// carry through unchanged.
     #[test]
     fn redfish_action_id_from_i64_carries_the_value() {
-        check_values(
-            [
-                Check {
-                    scenario: "positive",
-                    input: 99i64,
-                    expect: 99i64,
-                },
-                Check {
-                    scenario: "zero",
-                    input: 0,
-                    expect: 0,
-                },
-                Check {
-                    scenario: "one",
-                    input: 1,
-                    expect: 1,
-                },
-                Check {
-                    scenario: "negative",
-                    input: -1,
-                    expect: -1,
-                },
-                Check {
-                    scenario: "i64::MAX",
-                    input: i64::MAX,
-                    expect: i64::MAX,
-                },
-                Check {
-                    scenario: "i64::MIN",
-                    input: i64::MIN,
-                    expect: i64::MIN,
-                },
-            ],
-            |n| RedfishActionId::from(n).request_id,
+        value_scenarios!(
+            run = |n| RedfishActionId::from(n).request_id;
+            "positive" {
+                99i64 => 99i64,
+            }
+
+            "zero" {
+                0 => 0,
+            }
+
+            "one" {
+                1 => 1,
+            }
+
+            "negative" {
+                -1 => -1,
+            }
+
+            "i64::MAX" {
+                i64::MAX => i64::MAX,
+            }
+
+            "i64::MIN" {
+                i64::MIN => i64::MIN,
+            }
         );
     }
 
@@ -160,13 +151,11 @@ mod tests {
 
     #[test]
     fn redfish_list_actions_filter_default_is_empty() {
-        check_values(
-            [Check {
-                scenario: "default leaves machine_ip unset",
-                input: RedfishListActionsFilter::default(),
-                expect: None,
-            }],
-            |filter| filter.machine_ip,
+        value_scenarios!(
+            run = |filter| filter.machine_ip;
+            "default leaves machine_ip unset" {
+                RedfishListActionsFilter::default() => None,
+            }
         );
     }
 
@@ -184,34 +173,27 @@ mod tests {
     /// type (`serde_json::Error`) isn't `PartialEq`, so map it away.
     #[test]
     fn bmc_response_round_trips_through_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "ok with empty body",
-                    input: bmc_response("200 OK", ""),
-                    expect: Yields(("200 OK".to_string(), String::new())),
-                },
-                Case {
-                    scenario: "ok with json body",
-                    input: bmc_response("200 OK", r#"{"k":"v"}"#),
-                    expect: Yields(("200 OK".to_string(), r#"{"k":"v"}"#.to_string())),
-                },
-                Case {
-                    scenario: "error status",
-                    input: bmc_response("500 Internal Server Error", "boom"),
-                    expect: Yields(("500 Internal Server Error".to_string(), "boom".to_string())),
-                },
-                Case {
-                    scenario: "unicode body",
-                    input: bmc_response("202 Accepted", "café ☕"),
-                    expect: Yields(("202 Accepted".to_string(), "café ☕".to_string())),
-                },
-            ],
-            |response| {
+        scenarios!(
+            run = |response| {
                 let json = serde_json::to_string(&response).map_err(drop)?;
                 let back: BMCResponse = serde_json::from_str(&json).map_err(drop)?;
                 Ok::<_, ()>((back.status, back.body))
-            },
+            };
+            "ok with empty body" {
+                bmc_response("200 OK", "") => Yields(("200 OK".to_string(), String::new())),
+            }
+
+            "ok with json body" {
+                bmc_response("200 OK", r#"{"k":"v"}"#) => Yields(("200 OK".to_string(), r#"{"k":"v"}"#.to_string())),
+            }
+
+            "error status" {
+                bmc_response("500 Internal Server Error", "boom") => Yields(("500 Internal Server Error".to_string(), "boom".to_string())),
+            }
+
+            "unicode body" {
+                bmc_response("202 Accepted", "café ☕") => Yields(("202 Accepted".to_string(), "café ☕".to_string())),
+            }
         );
     }
 
@@ -219,25 +201,8 @@ mod tests {
     /// key after the JSON round-trip.
     #[test]
     fn bmc_response_round_trip_preserves_headers() {
-        check_cases(
-            [
-                Case {
-                    scenario: "single header",
-                    input: ("Content-Type", "application/json"),
-                    expect: Yields(Some("application/json".to_string())),
-                },
-                Case {
-                    scenario: "header value with spaces",
-                    input: ("ETag", "W/\"abc 123\""),
-                    expect: Yields(Some("W/\"abc 123\"".to_string())),
-                },
-                Case {
-                    scenario: "empty header value",
-                    input: ("X-Empty", ""),
-                    expect: Yields(Some(String::new())),
-                },
-            ],
-            |(key, value): (&str, &str)| {
+        scenarios!(
+            run = |(key, value): (&str, &str)| {
                 let mut headers = HashMap::new();
                 headers.insert(key.to_string(), value.to_string());
                 let response = BMCResponse {
@@ -249,7 +214,18 @@ mod tests {
                 let json = serde_json::to_string(&response).map_err(drop)?;
                 let back: BMCResponse = serde_json::from_str(&json).map_err(drop)?;
                 Ok::<_, ()>(back.headers.get(key).cloned())
-            },
+            };
+            "single header" {
+                ("Content-Type", "application/json") => Yields(Some("application/json".to_string())),
+            }
+
+            "header value with spaces" {
+                ("ETag", "W/\"abc 123\"") => Yields(Some("W/\"abc 123\"".to_string())),
+            }
+
+            "empty header value" {
+                ("X-Empty", "") => Yields(Some(String::new())),
+            }
         );
     }
 }

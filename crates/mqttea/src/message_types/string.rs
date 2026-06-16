@@ -110,7 +110,7 @@ impl std::fmt::Display for StringMessage {
 mod tests {
     use std::str::FromStr;
 
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -169,35 +169,27 @@ mod tests {
             into_string: "hello".to_string(),
         };
 
-        check_values(
-            [
-                Check {
-                    scenario: "new",
-                    input: StringSource::New,
-                    expect: expected.clone(),
-                },
-                Check {
-                    scenario: "from borrowed",
-                    input: StringSource::FromBorrowed,
-                    expect: expected.clone(),
-                },
-                Check {
-                    scenario: "from owned",
-                    input: StringSource::FromOwned,
-                    expect: expected.clone(),
-                },
-                Check {
-                    scenario: "from bytes",
-                    input: StringSource::FromBytes,
-                    expect: expected.clone(),
-                },
-                Check {
-                    scenario: "from str",
-                    input: StringSource::FromStr,
-                    expect: expected,
-                },
-            ],
-            summarize,
+        value_scenarios!(
+            run = summarize;
+            "new" {
+                StringSource::New => expected.clone(),
+            }
+
+            "from borrowed" {
+                StringSource::FromBorrowed => expected.clone(),
+            }
+
+            "from owned" {
+                StringSource::FromOwned => expected.clone(),
+            }
+
+            "from bytes" {
+                StringSource::FromBytes => expected.clone(),
+            }
+
+            "from str" {
+                StringSource::FromStr => expected,
+            }
         );
     }
 

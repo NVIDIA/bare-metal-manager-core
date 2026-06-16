@@ -133,7 +133,7 @@ mod tests {
     use std::collections::HashMap;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_values};
+    use carbide_test_support::{Case, value_scenarios};
     use config_version::ConfigVersion;
     use model::machine::capabilities;
     use model::metadata::Metadata;
@@ -319,60 +319,78 @@ mod tests {
     // sets against the full set) into one table over (InstanceType, set).
     #[test]
     fn instance_type_matches_capability_set() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty machine fails to match a typed filter",
-                    input: (
-                        inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
+        value_scenarios!(
+            run = |(inst_type, machine_cap_set)| inst_type.matches_capability_set(&machine_cap_set);
+            "empty machine fails to match a typed filter" {
+                (
+                    inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
+                        capability_type: rpc::MachineCapabilityType::CapTypeCpu
+                            .try_into()
+                            .unwrap(),
+                        ..Default::default()
+                    }]),
+                    empty_cap_set(),
+                ) => false,
+            }
+
+            "loose match on just the type" {
+                (
+                    inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
+                        capability_type: rpc::MachineCapabilityType::CapTypeCpu
+                            .try_into()
+                            .unwrap(),
+                        ..Default::default()
+                    }]),
+                    cpu_only_cap_set(),
+                ) => true,
+            }
+
+            "zero-count filter for an absent type still matches" {
+                (
+                    inst_type_with(vec![
+                        InstanceTypeMachineCapabilityFilter {
                             capability_type: rpc::MachineCapabilityType::CapTypeCpu
                                 .try_into()
                                 .unwrap(),
                             ..Default::default()
-                        }]),
-                        empty_cap_set(),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "loose match on just the type",
-                    input: (
-                        inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
-                            capability_type: rpc::MachineCapabilityType::CapTypeCpu
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeDpu
                                 .try_into()
                                 .unwrap(),
+                            count: Some(0),
                             ..Default::default()
-                        }]),
-                        cpu_only_cap_set(),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "zero-count filter for an absent type still matches",
-                    input: (
-                        inst_type_with(vec![
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeCpu
-                                    .try_into()
-                                    .unwrap(),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeDpu
-                                    .try_into()
-                                    .unwrap(),
-                                count: Some(0),
-                                ..Default::default()
-                            },
-                        ]),
-                        cpu_only_cap_set(),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "specific single CPU filter matches the full set",
-                    input: (
-                        inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
+                        },
+                    ]),
+                    cpu_only_cap_set(),
+                ) => true,
+            }
+
+            "specific single CPU filter matches the full set" {
+                (
+                    inst_type_with(vec![InstanceTypeMachineCapabilityFilter {
+                        capability_type: rpc::MachineCapabilityType::CapTypeCpu
+                            .try_into()
+                            .unwrap(),
+                        name: Some("pentium 4 HT".to_string()),
+                        frequency: Some("1.3 GHz".to_string()),
+                        capacity: None,
+                        vendor: Some("intel".to_string()),
+                        count: Some(1),
+                        hardware_revision: None,
+                        cores: Some(1),
+                        threads: Some(2),
+                        inactive_devices: None,
+                        device_type: Some(capabilities::MachineCapabilityDeviceType::Unknown),
+                    }]),
+                    full_cap_set(),
+                ) => true,
+            }
+
+            "full multi-category filter set with names matches" {
+                (
+                    inst_type_with(vec![
+                        InstanceTypeMachineCapabilityFilter {
                             capability_type: rpc::MachineCapabilityType::CapTypeCpu
                                 .try_into()
                                 .unwrap(),
@@ -384,177 +402,150 @@ mod tests {
                             hardware_revision: None,
                             cores: Some(1),
                             threads: Some(2),
-                            inactive_devices: None,
-                            device_type: Some(capabilities::MachineCapabilityDeviceType::Unknown),
-                        }]),
-                        full_cap_set(),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "full multi-category filter set with names matches",
-                    input: (
-                        inst_type_with(vec![
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeCpu
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("pentium 4 HT".to_string()),
-                                frequency: Some("1.3 GHz".to_string()),
-                                capacity: None,
-                                vendor: Some("intel".to_string()),
-                                count: Some(1),
-                                hardware_revision: None,
-                                cores: Some(1),
-                                threads: Some(2),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeGpu
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("rtx6000".to_string()),
-                                frequency: None,
-                                vendor: Some("nvidia".to_string()),
-                                count: Some(1),
-                                cores: Some(1),
-                                threads: Some(2),
-                                capacity: Some("12 GB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeMemory
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("ddr4".to_string()),
-                                vendor: Some("micron".to_string()),
-                                count: Some(1),
-                                capacity: Some("16 GB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeStorage
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("HDD".to_string()),
-                                vendor: Some("western digital".to_string()),
-                                count: Some(1),
-                                capacity: Some("2 TB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeNetwork
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("e10000".to_string()),
-                                vendor: Some("intel".to_string()),
-                                count: Some(1),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("connectx7".to_string()),
-                                vendor: Some("nvidia".to_string()),
-                                count: Some(1),
-                                inactive_devices: Some(vec![2, 4]),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeDpu
-                                    .try_into()
-                                    .unwrap(),
-                                name: Some("bluefield3".to_string()),
-                                hardware_revision: Some("abc123".to_string()),
-                                count: Some(1),
-                                ..Default::default()
-                            },
-                        ]),
-                        full_cap_set(),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "full filter set without names/models matches by type/vendor",
-                    input: (
-                        inst_type_with(vec![
-                            InstanceTypeMachineCapabilityFilter {
-                                name: None,
-                                capability_type: rpc::MachineCapabilityType::CapTypeCpu
-                                    .try_into()
-                                    .unwrap(),
-                                frequency: Some("1.3 GHz".to_string()),
-                                capacity: None,
-                                vendor: Some("intel".to_string()),
-                                count: Some(1),
-                                hardware_revision: None,
-                                cores: Some(1),
-                                threads: Some(2),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeGpu
-                                    .try_into()
-                                    .unwrap(),
-                                frequency: None,
-                                vendor: Some("nvidia".to_string()),
-                                count: Some(1),
-                                cores: Some(1),
-                                threads: Some(2),
-                                capacity: Some("12 GB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeMemory
-                                    .try_into()
-                                    .unwrap(),
-                                vendor: Some("micron".to_string()),
-                                count: Some(1),
-                                capacity: Some("16 GB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeStorage
-                                    .try_into()
-                                    .unwrap(),
-                                vendor: Some("western digital".to_string()),
-                                count: Some(1),
-                                capacity: Some("2 TB".to_string()),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeNetwork
-                                    .try_into()
-                                    .unwrap(),
-                                vendor: Some("intel".to_string()),
-                                count: Some(3), // Two intel nics of different speeds: 2x one and 1x the other.
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
-                                    .try_into()
-                                    .unwrap(),
-                                vendor: Some("nvidia".to_string()),
-                                count: Some(1),
-                                inactive_devices: Some(vec![2, 4]),
-                                ..Default::default()
-                            },
-                            InstanceTypeMachineCapabilityFilter {
-                                capability_type: rpc::MachineCapabilityType::CapTypeDpu
-                                    .try_into()
-                                    .unwrap(),
-                                hardware_revision: Some("abc123".to_string()),
-                                count: Some(1),
-                                ..Default::default()
-                            },
-                        ]),
-                        full_cap_set(),
-                    ),
-                    expect: true,
-                },
-            ],
-            |(inst_type, machine_cap_set)| inst_type.matches_capability_set(&machine_cap_set),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeGpu
+                                .try_into()
+                                .unwrap(),
+                            name: Some("rtx6000".to_string()),
+                            frequency: None,
+                            vendor: Some("nvidia".to_string()),
+                            count: Some(1),
+                            cores: Some(1),
+                            threads: Some(2),
+                            capacity: Some("12 GB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeMemory
+                                .try_into()
+                                .unwrap(),
+                            name: Some("ddr4".to_string()),
+                            vendor: Some("micron".to_string()),
+                            count: Some(1),
+                            capacity: Some("16 GB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeStorage
+                                .try_into()
+                                .unwrap(),
+                            name: Some("HDD".to_string()),
+                            vendor: Some("western digital".to_string()),
+                            count: Some(1),
+                            capacity: Some("2 TB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeNetwork
+                                .try_into()
+                                .unwrap(),
+                            name: Some("e10000".to_string()),
+                            vendor: Some("intel".to_string()),
+                            count: Some(1),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
+                                .try_into()
+                                .unwrap(),
+                            name: Some("connectx7".to_string()),
+                            vendor: Some("nvidia".to_string()),
+                            count: Some(1),
+                            inactive_devices: Some(vec![2, 4]),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeDpu
+                                .try_into()
+                                .unwrap(),
+                            name: Some("bluefield3".to_string()),
+                            hardware_revision: Some("abc123".to_string()),
+                            count: Some(1),
+                            ..Default::default()
+                        },
+                    ]),
+                    full_cap_set(),
+                ) => true,
+            }
+
+            "full filter set without names/models matches by type/vendor" {
+                (
+                    inst_type_with(vec![
+                        InstanceTypeMachineCapabilityFilter {
+                            name: None,
+                            capability_type: rpc::MachineCapabilityType::CapTypeCpu
+                                .try_into()
+                                .unwrap(),
+                            frequency: Some("1.3 GHz".to_string()),
+                            capacity: None,
+                            vendor: Some("intel".to_string()),
+                            count: Some(1),
+                            hardware_revision: None,
+                            cores: Some(1),
+                            threads: Some(2),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeGpu
+                                .try_into()
+                                .unwrap(),
+                            frequency: None,
+                            vendor: Some("nvidia".to_string()),
+                            count: Some(1),
+                            cores: Some(1),
+                            threads: Some(2),
+                            capacity: Some("12 GB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeMemory
+                                .try_into()
+                                .unwrap(),
+                            vendor: Some("micron".to_string()),
+                            count: Some(1),
+                            capacity: Some("16 GB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeStorage
+                                .try_into()
+                                .unwrap(),
+                            vendor: Some("western digital".to_string()),
+                            count: Some(1),
+                            capacity: Some("2 TB".to_string()),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeNetwork
+                                .try_into()
+                                .unwrap(),
+                            vendor: Some("intel".to_string()),
+                            count: Some(3), // Two intel nics of different speeds: 2x one and 1x the other.
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
+                                .try_into()
+                                .unwrap(),
+                            vendor: Some("nvidia".to_string()),
+                            count: Some(1),
+                            inactive_devices: Some(vec![2, 4]),
+                            ..Default::default()
+                        },
+                        InstanceTypeMachineCapabilityFilter {
+                            capability_type: rpc::MachineCapabilityType::CapTypeDpu
+                                .try_into()
+                                .unwrap(),
+                            hardware_revision: Some("abc123".to_string()),
+                            count: Some(1),
+                            ..Default::default()
+                        },
+                    ]),
+                    full_cap_set(),
+                ) => true,
+            }
         );
     }
 }

@@ -18,7 +18,7 @@ use std::str::FromStr;
 
 use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, Check, check_cases, check_values};
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 
 // A single filter against the fully-populated test device should match across
@@ -29,66 +29,53 @@ use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchM
 fn filter_matches_complete_device() {
     let device = MlxDeviceInfo::create_test_device();
 
-    check_values(
-        [
-            Check {
-                scenario: "device_type exact \"ConnectX-6 Dx\"",
-                input: DeviceFilter::device_type(
-                    vec!["ConnectX-6 Dx".to_string()],
-                    MatchMode::Exact,
-                ),
-                expect: true,
-            },
-            Check {
-                scenario: "device_type prefix \"ConnectX\"",
-                input: DeviceFilter::device_type(vec!["ConnectX".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "device_type regex \"Connect.*\"",
-                input: DeviceFilter::device_type(vec!["Connect.*".to_string()], MatchMode::Regex),
-                expect: true,
-            },
-            Check {
-                scenario: "device_type complex regex \".*X-6.*\"",
-                input: DeviceFilter::device_type(vec![".*X-6.*".to_string()], MatchMode::Regex),
-                expect: true,
-            },
-            Check {
-                scenario: "part_number prefix \"MCX623\"",
-                input: DeviceFilter::part_number(vec!["MCX623".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "firmware_version prefix \"22.32\"",
-                input: DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "mac_address prefix \"b8:3f:d2\"",
-                input: DeviceFilter::mac_address(vec!["b8:3f:d2".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "description regex substring \".*100GbE.*\"",
-                input: DeviceFilter::description(vec![".*100GbE.*".to_string()], MatchMode::Regex),
-                expect: true,
-            },
-            Check {
-                scenario: "description case-insensitive prefix \"mellanox\"",
-                input: DeviceFilter::description(vec!["mellanox".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "multiple values, OR logic (one value matches)",
-                input: DeviceFilter::device_type(
-                    vec!["ConnectX-7".to_string(), "ConnectX-6 Dx".to_string()],
-                    MatchMode::Exact,
-                ),
-                expect: true,
-            },
-        ],
-        |filter| filter.matches(&device),
+    value_scenarios!(
+        run = |filter| filter.matches(&device);
+        "device_type exact \"ConnectX-6 Dx\"" {
+            DeviceFilter::device_type(
+                vec!["ConnectX-6 Dx".to_string()],
+                MatchMode::Exact,
+            ) => true,
+        }
+
+        "device_type prefix \"ConnectX\"" {
+            DeviceFilter::device_type(vec!["ConnectX".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "device_type regex \"Connect.*\"" {
+            DeviceFilter::device_type(vec!["Connect.*".to_string()], MatchMode::Regex) => true,
+        }
+
+        "device_type complex regex \".*X-6.*\"" {
+            DeviceFilter::device_type(vec![".*X-6.*".to_string()], MatchMode::Regex) => true,
+        }
+
+        "part_number prefix \"MCX623\"" {
+            DeviceFilter::part_number(vec!["MCX623".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "firmware_version prefix \"22.32\"" {
+            DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "mac_address prefix \"b8:3f:d2\"" {
+            DeviceFilter::mac_address(vec!["b8:3f:d2".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "description regex substring \".*100GbE.*\"" {
+            DeviceFilter::description(vec![".*100GbE.*".to_string()], MatchMode::Regex) => true,
+        }
+
+        "description case-insensitive prefix \"mellanox\"" {
+            DeviceFilter::description(vec!["mellanox".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "multiple values, OR logic (one value matches)" {
+            DeviceFilter::device_type(
+                vec!["ConnectX-7".to_string(), "ConnectX-6 Dx".to_string()],
+                MatchMode::Exact,
+            ) => true,
+        }
     );
 }
 
@@ -99,43 +86,34 @@ fn filter_matches_complete_device() {
 fn filter_matches_device_with_missing_data() {
     let device = MlxDeviceInfo::create_test_device_with_missing_data();
 
-    check_values(
-        [
-            Check {
-                scenario: "status exact \"Failed to open device\" present",
-                input: DeviceFilter::status(
-                    vec!["Failed to open device".to_string()],
-                    MatchMode::Exact,
-                ),
-                expect: true,
-            },
-            Check {
-                scenario: "status prefix \"Failed\" present",
-                input: DeviceFilter::status(vec!["Failed".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "device_type prefix \"BlueField\" present",
-                input: DeviceFilter::device_type(vec!["BlueField".to_string()], MatchMode::Prefix),
-                expect: true,
-            },
-            Check {
-                scenario: "part_number prefix \"MCX\" absent",
-                input: DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix),
-                expect: false,
-            },
-            Check {
-                scenario: "firmware_version prefix \"22.32\" absent",
-                input: DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix),
-                expect: false,
-            },
-            Check {
-                scenario: "mac_address prefix \"b8:3f\" absent",
-                input: DeviceFilter::mac_address(vec!["b8:3f".to_string()], MatchMode::Prefix),
-                expect: false,
-            },
-        ],
-        |filter| filter.matches(&device),
+    value_scenarios!(
+        run = |filter| filter.matches(&device);
+        "status exact \"Failed to open device\" present" {
+            DeviceFilter::status(
+                vec!["Failed to open device".to_string()],
+                MatchMode::Exact,
+            ) => true,
+        }
+
+        "status prefix \"Failed\" present" {
+            DeviceFilter::status(vec!["Failed".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "device_type prefix \"BlueField\" present" {
+            DeviceFilter::device_type(vec!["BlueField".to_string()], MatchMode::Prefix) => true,
+        }
+
+        "part_number prefix \"MCX\" absent" {
+            DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix) => false,
+        }
+
+        "firmware_version prefix \"22.32\" absent" {
+            DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix) => false,
+        }
+
+        "mac_address prefix \"b8:3f\" absent" {
+            DeviceFilter::mac_address(vec!["b8:3f".to_string()], MatchMode::Prefix) => false,
+        }
     );
 }
 
@@ -220,41 +198,35 @@ fn test_device_filter_set_summary_with_filters() {
 // Each row pins the full parsed triple (field, values, match_mode).
 #[test]
 fn device_filter_from_str_parses_field_values_and_mode() {
-    check_cases(
-        [
-            Case {
-                scenario: "\"device_type:ConnectX\" defaults to regex",
-                input: "device_type:ConnectX",
-                expect: Yields((
-                    DeviceField::DeviceType,
-                    vec!["ConnectX".to_string()],
-                    MatchMode::Regex,
-                )),
-            },
-            Case {
-                scenario: "\"part_number:MCX623:exact\" with explicit mode",
-                input: "part_number:MCX623:exact",
-                expect: Yields((
-                    DeviceField::PartNumber,
-                    vec!["MCX623".to_string()],
-                    MatchMode::Exact,
-                )),
-            },
-            Case {
-                scenario: "\"device_type:ConnectX-6,ConnectX-7:prefix\" splits values",
-                input: "device_type:ConnectX-6,ConnectX-7:prefix",
-                expect: Yields((
-                    DeviceField::DeviceType,
-                    vec!["ConnectX-6".to_string(), "ConnectX-7".to_string()],
-                    MatchMode::Prefix,
-                )),
-            },
-        ],
-        |s| {
+    scenarios!(
+        run = |s| {
             DeviceFilter::from_str(s)
                 .map(|f| (f.field, f.values, f.match_mode))
                 .map_err(drop)
-        },
+        };
+        "\"device_type:ConnectX\" defaults to regex" {
+            "device_type:ConnectX" => Yields((
+                DeviceField::DeviceType,
+                vec!["ConnectX".to_string()],
+                MatchMode::Regex,
+            )),
+        }
+
+        "\"part_number:MCX623:exact\" with explicit mode" {
+            "part_number:MCX623:exact" => Yields((
+                DeviceField::PartNumber,
+                vec!["MCX623".to_string()],
+                MatchMode::Exact,
+            )),
+        }
+
+        "\"device_type:ConnectX-6,ConnectX-7:prefix\" splits values" {
+            "device_type:ConnectX-6,ConnectX-7:prefix" => Yields((
+                DeviceField::DeviceType,
+                vec!["ConnectX-6".to_string(), "ConnectX-7".to_string()],
+                MatchMode::Prefix,
+            )),
+        }
     );
 }
 
@@ -262,35 +234,27 @@ fn device_filter_from_str_parses_field_values_and_mode() {
 // rejects anything else.
 #[test]
 fn match_mode_from_str_parses_known_modes() {
-    check_cases(
-        [
-            Case {
-                scenario: "\"regex\"",
-                input: "regex",
-                expect: Yields(MatchMode::Regex),
-            },
-            Case {
-                scenario: "\"exact\"",
-                input: "exact",
-                expect: Yields(MatchMode::Exact),
-            },
-            Case {
-                scenario: "\"prefix\"",
-                input: "prefix",
-                expect: Yields(MatchMode::Prefix),
-            },
-            Case {
-                scenario: "\"REGEX\" is case-insensitive",
-                input: "REGEX",
-                expect: Yields(MatchMode::Regex),
-            },
-            Case {
-                scenario: "\"invalid\" is rejected",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |s| MatchMode::from_str(s).map_err(drop),
+    scenarios!(
+        run = |s| MatchMode::from_str(s).map_err(drop);
+        "\"regex\"" {
+            "regex" => Yields(MatchMode::Regex),
+        }
+
+        "\"exact\"" {
+            "exact" => Yields(MatchMode::Exact),
+        }
+
+        "\"prefix\"" {
+            "prefix" => Yields(MatchMode::Prefix),
+        }
+
+        "\"REGEX\" is case-insensitive" {
+            "REGEX" => Yields(MatchMode::Regex),
+        }
+
+        "\"invalid\" is rejected" {
+            "invalid" => Fails,
+        }
     );
 }
 
@@ -298,50 +262,39 @@ fn match_mode_from_str_parses_known_modes() {
 // rejects anything else.
 #[test]
 fn device_field_from_str_parses_names_and_aliases() {
-    check_cases(
-        [
-            Case {
-                scenario: "\"device_type\"",
-                input: "device_type",
-                expect: Yields(DeviceField::DeviceType),
-            },
-            Case {
-                scenario: "\"type\" alias",
-                input: "type",
-                expect: Yields(DeviceField::DeviceType),
-            },
-            Case {
-                scenario: "\"part_number\"",
-                input: "part_number",
-                expect: Yields(DeviceField::PartNumber),
-            },
-            Case {
-                scenario: "\"part\" alias",
-                input: "part",
-                expect: Yields(DeviceField::PartNumber),
-            },
-            Case {
-                scenario: "\"firmware_version\"",
-                input: "firmware_version",
-                expect: Yields(DeviceField::FirmwareVersion),
-            },
-            Case {
-                scenario: "\"fw\" alias",
-                input: "fw",
-                expect: Yields(DeviceField::FirmwareVersion),
-            },
-            Case {
-                scenario: "\"status\"",
-                input: "status",
-                expect: Yields(DeviceField::Status),
-            },
-            Case {
-                scenario: "\"invalid\" is rejected",
-                input: "invalid",
-                expect: Fails,
-            },
-        ],
-        |s| DeviceField::from_str(s).map_err(drop),
+    scenarios!(
+        run = |s| DeviceField::from_str(s).map_err(drop);
+        "\"device_type\"" {
+            "device_type" => Yields(DeviceField::DeviceType),
+        }
+
+        "\"type\" alias" {
+            "type" => Yields(DeviceField::DeviceType),
+        }
+
+        "\"part_number\"" {
+            "part_number" => Yields(DeviceField::PartNumber),
+        }
+
+        "\"part\" alias" {
+            "part" => Yields(DeviceField::PartNumber),
+        }
+
+        "\"firmware_version\"" {
+            "firmware_version" => Yields(DeviceField::FirmwareVersion),
+        }
+
+        "\"fw\" alias" {
+            "fw" => Yields(DeviceField::FirmwareVersion),
+        }
+
+        "\"status\"" {
+            "status" => Yields(DeviceField::Status),
+        }
+
+        "\"invalid\" is rejected" {
+            "invalid" => Fails,
+        }
     );
 }
 

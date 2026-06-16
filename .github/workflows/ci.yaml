@@ -61,6 +61,8 @@ jobs:
               - '!rest-api/**'
               - '!.github/workflows/rest-*.yml'
               - '!helm/rest/**'
+              - '!docs/**'
+              - '!fern/**'
 
       - name: Decide whether Core CI should run
         id: gate
@@ -483,6 +485,7 @@ jobs:
       runner: linux-amd64-cpu16
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
+      scan: true
       tag_latest: false
       timeout_minutes: 120
     secrets: inherit
@@ -575,6 +578,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
+      scan: true
     secrets: inherit
 
   build-forge-cli-aarch64:
@@ -734,6 +738,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
+      scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
@@ -759,6 +764,7 @@ jobs:
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
+      scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
@@ -840,7 +846,8 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: false
+      load: true  # load to daemon so the Grype scan can read it on PR builds
+      scan: true
     secrets: inherit
 
   build-release-machine-validation-artifacts-x86-host:
@@ -857,7 +864,8 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: false
+      load: true  # load to daemon so the Grype scan can read it on PR builds
+      scan: true
     secrets: inherit
 
   proto-police:
@@ -1366,6 +1374,33 @@ jobs:
       SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
       DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # CONTAINER SCAN SUMMARY
+  # ============================================================================
+  # Aggregates the per-image `grype-*` artifacts produced by the `scan: true`
+  # docker-build jobs into a single sticky comment on copy-pr-bot
+  # `pull-request/N` PRs. Inline Grype only runs on PRs (images are loaded, not
+  # pushed), so this job is PR-only. Advisory only — intentionally NOT wired
+  # into `core-ci-pass` so a scan/aggregation hiccup never blocks a merge.
+  security-container-scan-summary:
+    name: Container Scan Summary
+    runs-on: linux-amd64-cpu4
+    needs:
+      - build-release-container-x86_64
+      - build-forge-cli-x86_64
+      - build-release-artifacts-x86-host
+      - build-release-artifacts-arm-host
+      - build-release-machine-validation-runner
+      - build-release-machine-validation-artifacts-x86-host
+    if: ${{ always() && contains(github.ref, 'pull-request/') }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan-aggregate@739847ddf00fda38916504ef84e1f504eac3158f
+        with:
+          post-pr-comment: 'true'
 
   # ============================================================================
   # NOTIFICATION STAGE

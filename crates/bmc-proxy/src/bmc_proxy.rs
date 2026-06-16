@@ -1012,7 +1012,7 @@ mod tests {
     use bytes::Bytes;
     use carbide_authn::middleware::{AuthContext, ExternalUserInfo, Principal};
     use carbide_test_support::Outcome::{Fails, Yields};
-    use carbide_test_support::{Case, Check, check_cases, check_cases_async, check_values};
+    use carbide_test_support::{Case, check_cases_async, scenarios, value_scenarios};
     use carbide_utils::HostPortPair;
     use http_body_util::BodyExt;
     use mac_address::MacAddress;
@@ -1293,98 +1293,77 @@ mod tests {
 
     #[test]
     fn forwarded_host_value_parsing() {
-        check_values(
-            [
-                Check {
-                    scenario: "IPv4",
-                    input: "10.0.0.5",
-                    expect: Some("10.0.0.5".to_string()),
-                },
-                Check {
-                    scenario: "raw IPv6",
-                    input: "2001:db8::1",
-                    expect: Some("2001:db8::1".to_string()),
-                },
-                Check {
-                    scenario: "quoted bracketed IPv6 with port",
-                    input: "\"[2001:db8::1]:443\"",
-                    expect: Some("2001:db8::1".to_string()),
-                },
-                Check {
-                    scenario: "bracketed IPv6 without port",
-                    input: "[2001:db8::2]",
-                    expect: Some("2001:db8::2".to_string()),
-                },
-                Check {
-                    scenario: "hostname rejected",
-                    input: "bmc.example.com",
-                    expect: None,
-                },
-                Check {
-                    scenario: "IPv4 with port rejected",
-                    input: "10.0.0.5:443",
-                    expect: None,
-                },
-            ],
-            |value| {
+        value_scenarios!(
+            run = |value| {
                 parse_forwarded_host_value(value)
                     .ok()
                     .map(|ip| ip.to_string())
-            },
+            };
+            "IPv4" {
+                "10.0.0.5" => Some("10.0.0.5".to_string()),
+            }
+
+            "raw IPv6" {
+                "2001:db8::1" => Some("2001:db8::1".to_string()),
+            }
+
+            "quoted bracketed IPv6 with port" {
+                "\"[2001:db8::1]:443\"" => Some("2001:db8::1".to_string()),
+            }
+
+            "bracketed IPv6 without port" {
+                "[2001:db8::2]" => Some("2001:db8::2".to_string()),
+            }
+
+            "hostname rejected" {
+                "bmc.example.com" => None,
+            }
+
+            "IPv4 with port rejected" {
+                "10.0.0.5:443" => None,
+            }
         );
     }
 
     #[test]
     fn forwarded_header_targets() {
-        check_values(
-            [
-                Check {
-                    scenario: "missing forwarded header",
-                    input: ForwardedHeaderCase::Missing,
-                    expect: ForwardedTargetSummary::None,
-                },
-                Check {
-                    scenario: "invalid UTF-8 value skipped",
-                    input: ForwardedHeaderCase::InvalidUtf8ThenHost,
-                    expect: ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
-                },
-                Check {
-                    scenario: "host among parameters",
-                    input: ForwardedHeaderCase::HostAmongParameters,
-                    expect: ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
-                },
-                Check {
-                    scenario: "host in later element",
-                    input: ForwardedHeaderCase::HostInLaterElement,
-                    expect: ForwardedTargetSummary::Ip("10.2.3.4".to_string()),
-                },
-                Check {
-                    scenario: "quoted IPv4 host",
-                    input: ForwardedHeaderCase::QuotedIpv4Host,
-                    expect: ForwardedTargetSummary::Ip("10.3.4.5".to_string()),
-                },
-                Check {
-                    scenario: "MAC target",
-                    input: ForwardedHeaderCase::Mac,
-                    expect: ForwardedTargetSummary::Mac("00:11:22:33:44:55".to_string()),
-                },
-                Check {
-                    scenario: "serial target",
-                    input: ForwardedHeaderCase::Serial,
-                    expect: ForwardedTargetSummary::Serial("DGX-A100-0001".to_string()),
-                },
-                Check {
-                    scenario: "invalid host",
-                    input: ForwardedHeaderCase::InvalidHost,
-                    expect: ForwardedTargetSummary::Error("ip"),
-                },
-                Check {
-                    scenario: "invalid MAC",
-                    input: ForwardedHeaderCase::InvalidMac,
-                    expect: ForwardedTargetSummary::Error("mac"),
-                },
-            ],
-            summarize_forwarded_header,
+        value_scenarios!(
+            run = summarize_forwarded_header;
+            "missing forwarded header" {
+                ForwardedHeaderCase::Missing => ForwardedTargetSummary::None,
+            }
+
+            "invalid UTF-8 value skipped" {
+                ForwardedHeaderCase::InvalidUtf8ThenHost => ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
+            }
+
+            "host among parameters" {
+                ForwardedHeaderCase::HostAmongParameters => ForwardedTargetSummary::Ip("10.1.2.3".to_string()),
+            }
+
+            "host in later element" {
+                ForwardedHeaderCase::HostInLaterElement => ForwardedTargetSummary::Ip("10.2.3.4".to_string()),
+            }
+
+            "quoted IPv4 host" {
+                ForwardedHeaderCase::QuotedIpv4Host => ForwardedTargetSummary::Ip("10.3.4.5".to_string()),
+            }
+
+            "MAC target" {
+                ForwardedHeaderCase::Mac => ForwardedTargetSummary::Mac("00:11:22:33:44:55".to_string()),
+            }
+
+            "serial target" {
+                ForwardedHeaderCase::Serial => ForwardedTargetSummary::Serial("DGX-A100-0001".to_string()),
+            }
+
+            "invalid host" {
+                ForwardedHeaderCase::InvalidHost => ForwardedTargetSummary::Error("ip"),
+            }
+
+            "invalid MAC" {
+                ForwardedHeaderCase::InvalidMac => ForwardedTargetSummary::Error("mac"),
+            }
         );
     }
 
@@ -1445,190 +1424,152 @@ mod tests {
 
     #[test]
     fn body_method_support() {
-        check_values(
-            [
-                Check {
-                    scenario: "GET has no upstream body",
-                    input: Method::GET,
-                    expect: false,
-                },
-                Check {
-                    scenario: "HEAD has no upstream body",
-                    input: Method::HEAD,
-                    expect: false,
-                },
-                Check {
-                    scenario: "POST supports body",
-                    input: Method::POST,
-                    expect: true,
-                },
-                Check {
-                    scenario: "PUT supports body",
-                    input: Method::PUT,
-                    expect: true,
-                },
-                Check {
-                    scenario: "PATCH supports body",
-                    input: Method::PATCH,
-                    expect: true,
-                },
-                Check {
-                    scenario: "DELETE supports body for Redfish compatibility",
-                    input: Method::DELETE,
-                    expect: true,
-                },
-            ],
-            |method| method_supports_body(&method),
+        value_scenarios!(
+            run = |method| method_supports_body(&method);
+            "GET has no upstream body" {
+                Method::GET => false,
+            }
+
+            "HEAD has no upstream body" {
+                Method::HEAD => false,
+            }
+
+            "POST supports body" {
+                Method::POST => true,
+            }
+
+            "PUT supports body" {
+                Method::PUT => true,
+            }
+
+            "PATCH supports body" {
+                Method::PATCH => true,
+            }
+
+            "DELETE supports body for Redfish compatibility" {
+                Method::DELETE => true,
+            }
         );
     }
 
     #[test]
     fn hop_by_hop_header_detection() {
-        check_values(
-            [
-                Check {
-                    scenario: "connection",
-                    input: "connection",
-                    expect: true,
-                },
-                Check {
-                    scenario: "case-insensitive keep-alive",
-                    input: "Keep-Alive",
-                    expect: true,
-                },
-                Check {
-                    scenario: "proxy authenticate",
-                    input: "proxy-authenticate",
-                    expect: true,
-                },
-                Check {
-                    scenario: "proxy authorization",
-                    input: "proxy-authorization",
-                    expect: true,
-                },
-                Check {
-                    scenario: "te",
-                    input: "te",
-                    expect: true,
-                },
-                Check {
-                    scenario: "trailer",
-                    input: "trailer",
-                    expect: true,
-                },
-                Check {
-                    scenario: "transfer encoding",
-                    input: "transfer-encoding",
-                    expect: true,
-                },
-                Check {
-                    scenario: "upgrade",
-                    input: "upgrade",
-                    expect: true,
-                },
-                Check {
-                    scenario: "content type is safe",
-                    input: "content-type",
-                    expect: false,
-                },
-            ],
-            is_hop_by_hop_header,
+        value_scenarios!(
+            run = is_hop_by_hop_header;
+            "connection" {
+                "connection" => true,
+            }
+
+            "case-insensitive keep-alive" {
+                "Keep-Alive" => true,
+            }
+
+            "proxy authenticate" {
+                "proxy-authenticate" => true,
+            }
+
+            "proxy authorization" {
+                "proxy-authorization" => true,
+            }
+
+            "te" {
+                "te" => true,
+            }
+
+            "trailer" {
+                "trailer" => true,
+            }
+
+            "transfer encoding" {
+                "transfer-encoding" => true,
+            }
+
+            "upgrade" {
+                "upgrade" => true,
+            }
+
+            "content type is safe" {
+                "content-type" => false,
+            }
         );
     }
 
     #[test]
     fn request_header_copying_filters_proxy_owned_headers() {
-        check_values(
-            [
-                Check {
-                    scenario: "content type copied",
-                    input: HeaderCopyCase::ContentType,
-                    expect: vec!["content-type".to_string()],
-                },
-                Check {
-                    scenario: "custom header copied",
-                    input: HeaderCopyCase::Custom,
-                    expect: vec!["x-request-id".to_string()],
-                },
-                Check {
-                    scenario: "host filtered",
-                    input: HeaderCopyCase::Host,
-                    expect: vec![],
-                },
-                Check {
-                    scenario: "authorization filtered",
-                    input: HeaderCopyCase::Authorization,
-                    expect: vec![],
-                },
-                Check {
-                    scenario: "forwarded filtered",
-                    input: HeaderCopyCase::Forwarded,
-                    expect: vec![],
-                },
-                Check {
-                    scenario: "content length filtered",
-                    input: HeaderCopyCase::ContentLength,
-                    expect: vec![],
-                },
-                Check {
-                    scenario: "connection filtered",
-                    input: HeaderCopyCase::Connection,
-                    expect: vec![],
-                },
-                Check {
-                    scenario: "upgrade filtered",
-                    input: HeaderCopyCase::Upgrade,
-                    expect: vec![],
-                },
-            ],
-            copied_header_names,
+        value_scenarios!(
+            run = copied_header_names;
+            "content type copied" {
+                HeaderCopyCase::ContentType => vec!["content-type".to_string()],
+            }
+
+            "custom header copied" {
+                HeaderCopyCase::Custom => vec!["x-request-id".to_string()],
+            }
+
+            "host filtered" {
+                HeaderCopyCase::Host => vec![],
+            }
+
+            "authorization filtered" {
+                HeaderCopyCase::Authorization => vec![],
+            }
+
+            "forwarded filtered" {
+                HeaderCopyCase::Forwarded => vec![],
+            }
+
+            "content length filtered" {
+                HeaderCopyCase::ContentLength => vec![],
+            }
+
+            "connection filtered" {
+                HeaderCopyCase::Connection => vec![],
+            }
+
+            "upgrade filtered" {
+                HeaderCopyCase::Upgrade => vec![],
+            }
         );
     }
 
     #[test]
     fn request_principal_identifiers_include_anonymous_fallback() {
-        check_values(
-            [
-                Check {
-                    scenario: "no authenticated principals",
-                    input: vec![],
-                    expect: vec!["anonymous".to_string()],
-                },
-                Check {
-                    scenario: "service principal",
-                    input: vec![Principal::SpiffeServiceIdentifier(
-                        "forge-system/carbide-api".to_string(),
-                    )],
-                    expect: vec![
-                        "spiffe-service-id/forge-system/carbide-api".to_string(),
-                        "anonymous".to_string(),
-                    ],
-                },
-                Check {
-                    scenario: "machine and external user principals",
-                    input: vec![
-                        // Machine identities currently authorize by type token;
-                        // the concrete machine id is intentionally not included.
-                        Principal::SpiffeMachineIdentifier("machine-1".to_string()),
-                        Principal::ExternalUser(ExternalUserInfo::new(
-                            Some("nvidia".to_string()),
-                            "admin".to_string(),
-                            Some("chet".to_string()),
-                        )),
-                    ],
-                    expect: vec![
-                        "spiffe-machine-id".to_string(),
-                        "external-role/admin".to_string(),
-                        "anonymous".to_string(),
-                    ],
-                },
-            ],
-            |principals| {
+        value_scenarios!(
+            run = |principals| {
                 request_principal_ids(&AuthContext {
                     principals,
                     authorization: None,
                 })
-            },
+            };
+            "no authenticated principals" {
+                vec![] => vec!["anonymous".to_string()],
+            }
+
+            "service principal" {
+                vec![Principal::SpiffeServiceIdentifier(
+                    "forge-system/carbide-api".to_string(),
+                )] => vec![
+                    "spiffe-service-id/forge-system/carbide-api".to_string(),
+                    "anonymous".to_string(),
+                ],
+            }
+
+            "machine and external user principals" {
+                vec![
+                    // Machine identities currently authorize by type token;
+                    // the concrete machine id is intentionally not included.
+                    Principal::SpiffeMachineIdentifier("machine-1".to_string()),
+                    Principal::ExternalUser(ExternalUserInfo::new(
+                        Some("nvidia".to_string()),
+                        "admin".to_string(),
+                        Some("chet".to_string()),
+                    )),
+                ] => vec![
+                    "spiffe-machine-id".to_string(),
+                    "external-role/admin".to_string(),
+                    "anonymous".to_string(),
+                ],
+            }
         );
     }
 
@@ -1677,47 +1618,41 @@ mod tests {
 
     #[test]
     fn bmc_credentials_convert_from_api_response() {
-        check_cases(
-            [
-                Case {
-                    scenario: "username and password",
-                    input: forge::BmcCredentials {
-                        r#type: Some(forge::bmc_credentials::Type::UsernamePassword(
-                            forge::UsernamePassword {
-                                username: "admin".to_string(),
-                                password: "secret".to_string(),
-                            },
-                        )),
-                    },
-                    expect: Yields(CredentialSummary::UsernamePassword {
-                        username: "admin".to_string(),
-                        password: "secret".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "session token",
-                    input: forge::BmcCredentials {
-                        r#type: Some(forge::bmc_credentials::Type::SessionToken(
-                            forge::SessionToken {
-                                token: "token-123".to_string(),
-                            },
-                        )),
-                    },
-                    expect: Yields(CredentialSummary::SessionToken {
-                        token: "token-123".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "missing credential type",
-                    input: forge::BmcCredentials { r#type: None },
-                    expect: Fails,
-                },
-            ],
-            |credentials| {
+        scenarios!(
+            run = |credentials| {
                 BmcCredentials::try_from(credentials)
                     .map(summarize_credentials)
                     .map_err(|error| error.to_string())
-            },
+            };
+            "username and password" {
+                forge::BmcCredentials {
+                    r#type: Some(forge::bmc_credentials::Type::UsernamePassword(
+                        forge::UsernamePassword {
+                            username: "admin".to_string(),
+                            password: "secret".to_string(),
+                        },
+                    )),
+                } => Yields(CredentialSummary::UsernamePassword {
+                    username: "admin".to_string(),
+                    password: "secret".to_string(),
+                }),
+            }
+
+            "session token" {
+                forge::BmcCredentials {
+                    r#type: Some(forge::bmc_credentials::Type::SessionToken(
+                        forge::SessionToken {
+                            token: "token-123".to_string(),
+                        },
+                    )),
+                } => Yields(CredentialSummary::SessionToken {
+                    token: "token-123".to_string(),
+                }),
+            }
+
+            "missing credential type" {
+                forge::BmcCredentials { r#type: None } => Fails,
+            }
         );
     }
 

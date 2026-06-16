@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,31 +50,25 @@ fn verify_cmd_structure() {
 // through verbatim: a typical count, zero, and a large value all parse.
 #[test]
 fn parse_measured_boot_keep_entries() {
-    check_cases(
-        [
-            Case {
-                scenario: "typical count",
-                input: &["trim-table", "measured-boot", "--keep-entries", "100"][..],
-                expect: Yields(100),
-            },
-            Case {
-                scenario: "zero entries",
-                input: &["trim-table", "measured-boot", "--keep-entries", "0"][..],
-                expect: Yields(0),
-            },
-            Case {
-                scenario: "large value",
-                input: &["trim-table", "measured-boot", "--keep-entries", "1000000"][..],
-                expect: Yields(1000000),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::MeasuredBoot(args) => args.keep_entries,
                 })
                 .map_err(drop)
-        },
+        };
+        "typical count" {
+            &["trim-table", "measured-boot", "--keep-entries", "100"][..] => Yields(100),
+        }
+
+        "zero entries" {
+            &["trim-table", "measured-boot", "--keep-entries", "0"][..] => Yields(0),
+        }
+
+        "large value" {
+            &["trim-table", "measured-boot", "--keep-entries", "1000000"][..] => Yields(1000000),
+        }
     );
 }
 
@@ -82,28 +76,22 @@ fn parse_measured_boot_keep_entries() {
 // required --keep-entries, a non-numeric value, and a negative value.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "missing --keep-entries",
-                input: &["trim-table", "measured-boot"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "non-numeric value",
-                input: &["trim-table", "measured-boot", "--keep-entries", "abc"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "negative value",
-                input: &["trim-table", "measured-boot", "--keep-entries", "-1"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "missing --keep-entries" {
+            &["trim-table", "measured-boot"][..] => Fails,
+        }
+
+        "non-numeric value" {
+            &["trim-table", "measured-boot", "--keep-entries", "abc"][..] => Fails,
+        }
+
+        "negative value" {
+            &["trim-table", "measured-boot", "--keep-entries", "-1"][..] => Fails,
+        }
     );
 }

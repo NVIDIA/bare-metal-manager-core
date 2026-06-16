@@ -172,10 +172,11 @@ async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let sku_id = "sku id".to_string();
-    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        sku_id: Some(sku_id.clone()),
-        ..Default::default()
-    });
+    let host_config =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            sku_id: Some(sku_id.clone()),
+            ..Default::default()
+        });
     let mh = create_managed_host_with_config(&env, host_config).await;
 
     let machine = mh.host().rpc_machine().await;
@@ -216,10 +217,11 @@ async fn test_find_machine_by_rack_id(pool: sqlx::PgPool) {
         .unwrap();
     drop(txn);
 
-    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: rack_id.clone().into(),
-        ..Default::default()
-    });
+    let host_config =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: rack_id.clone().into(),
+            ..Default::default()
+        });
     let mh = create_managed_host_with_config(&env, host_config).await;
 
     let machine = mh.host().rpc_machine().await;

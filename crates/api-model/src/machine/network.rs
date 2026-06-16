@@ -202,7 +202,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Check, scenarios, value_scenarios};
     use chrono::TimeZone;
     use config_version::ConfigVersion;
 
@@ -276,51 +276,46 @@ mod tests {
     // rows would use `Fails`; all rows here round-trip cleanly.
     #[test]
     fn test_managed_host_network_config_json_roundtrip() {
-        check_cases(
-            [
-                Case {
-                    scenario: "ipv4 round-trip",
-                    input: ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
-                        use_admin_network: Some(true),
-                        quarantine_state: None,
-                    },
-                    expect: Yields(ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
-                        use_admin_network: Some(true),
-                        quarantine_state: None,
-                    }),
-                },
-                Case {
-                    scenario: "ipv6 round-trip",
-                    input: ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                        ))),
-                        secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                            0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
-                        ))),
-                        use_admin_network: Some(false),
-                        quarantine_state: None,
-                    },
-                    expect: Yields(ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                        ))),
-                        secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                            0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
-                        ))),
-                        use_admin_network: Some(false),
-                        quarantine_state: None,
-                    }),
-                },
-            ],
-            |config| {
+        scenarios!(
+            run = |config| {
                 let json = serde_json::to_string(&config).map_err(drop)?;
                 serde_json::from_str::<ManagedHostNetworkConfig>(&json).map_err(drop)
-            },
+            };
+            "ipv4 round-trip" {
+                ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    use_admin_network: Some(true),
+                    quarantine_state: None,
+                } => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    use_admin_network: Some(true),
+                    quarantine_state: None,
+                }),
+            }
+
+            "ipv6 round-trip" {
+                ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                    ))),
+                    secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                        0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
+                    ))),
+                    use_admin_network: Some(false),
+                    quarantine_state: None,
+                } => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                    ))),
+                    secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                        0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
+                    ))),
+                    use_admin_network: Some(false),
+                    quarantine_state: None,
+                }),
+            }
         );
     }
 
@@ -329,40 +324,35 @@ mod tests {
     // pair the original tests asserted. Covers legacy IPv4 JSON and IPv6 JSON.
     #[test]
     fn test_managed_host_network_config_deserialize_json() {
-        check_cases(
-            [
-                Case {
-                    scenario: "legacy ipv4 json",
-                    input: r#"{
-                        "loopback_ip": "10.0.0.1",
-                        "secondary_overlay_vtep_ip": "172.16.0.5",
-                        "use_admin_network": true,
-                        "quarantine_state": null
-                    }"#,
-                    expect: Yields((
-                        Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
-                    )),
-                },
-                Case {
-                    scenario: "ipv6 json",
-                    input: r#"{
-                        "loopback_ip": "2001:db8::1",
-                        "secondary_overlay_vtep_ip": null,
-                        "use_admin_network": true,
-                        "quarantine_state": null
-                    }"#,
-                    expect: Yields((
-                        Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
-                        None,
-                    )),
-                },
-            ],
-            |json| {
+        scenarios!(
+            run = |json| {
                 serde_json::from_str::<ManagedHostNetworkConfig>(json)
                     .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip))
                     .map_err(drop)
-            },
+            };
+            "legacy ipv4 json" {
+                r#"{
+                            "loopback_ip": "10.0.0.1",
+                            "secondary_overlay_vtep_ip": "172.16.0.5",
+                            "use_admin_network": true,
+                            "quarantine_state": null
+                        }"# => Yields((
+                    Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                )),
+            }
+
+            "ipv6 json" {
+                r#"{
+                            "loopback_ip": "2001:db8::1",
+                            "secondary_overlay_vtep_ip": null,
+                            "use_admin_network": true,
+                            "quarantine_state": null
+                        }"# => Yields((
+                    Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+                    None,
+                )),
+            }
         );
     }
 
@@ -391,28 +381,21 @@ mod tests {
     #[test]
     fn test_managed_host_network_config_default() {
         let default = ManagedHostNetworkConfig::default();
-        check_values(
-            [
-                Check {
-                    scenario: "loopback_ip defaults to None",
-                    input: default.loopback_ip,
-                    expect: None,
-                },
-                Check {
-                    scenario: "secondary_overlay_vtep_ip defaults to None",
-                    input: default.secondary_overlay_vtep_ip,
-                    expect: None,
-                },
-            ],
-            |ip| ip,
+        value_scenarios!(
+            run = |ip| ip;
+            "loopback_ip defaults to None" {
+                default.loopback_ip => None,
+            }
+
+            "secondary_overlay_vtep_ip defaults to None" {
+                default.secondary_overlay_vtep_ip => None,
+            }
         );
-        check_values(
-            [Check {
-                scenario: "use_admin_network defaults to Some(true)",
-                input: default.use_admin_network,
-                expect: Some(true),
-            }],
-            |flag| flag,
+        value_scenarios!(
+            run = |flag| flag;
+            "use_admin_network defaults to Some(true)" {
+                default.use_admin_network => Some(true),
+            }
         );
         Check {
             scenario: "quarantine_state defaults to None",
@@ -430,50 +413,39 @@ mod tests {
     // loopback, embedded-IPv4) where formatting can surprise.
     #[test]
     fn test_ip_addr_to_string_format() {
-        check_values(
-            [
-                Check {
-                    scenario: "ipv4",
-                    input: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    expect: "10.0.0.1".to_string(),
-                },
-                Check {
-                    scenario: "ipv4 unspecified",
-                    input: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                    expect: "0.0.0.0".to_string(),
-                },
-                Check {
-                    scenario: "ipv4 broadcast",
-                    input: IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
-                    expect: "255.255.255.255".to_string(),
-                },
-                Check {
-                    scenario: "ipv4 loopback",
-                    input: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    expect: "127.0.0.1".to_string(),
-                },
-                Check {
-                    scenario: "ipv6 compressed",
-                    input: IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
-                    expect: "2001:db8::1".to_string(),
-                },
-                Check {
-                    scenario: "ipv6 unspecified collapses to ::",
-                    input: IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)),
-                    expect: "::".to_string(),
-                },
-                Check {
-                    scenario: "ipv6 loopback collapses to ::1",
-                    input: IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
-                    expect: "::1".to_string(),
-                },
-                Check {
-                    scenario: "ipv6 full (no run to compress)",
-                    input: IpAddr::V6(Ipv6Addr::new(0xfd00, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x42)),
-                    expect: "fd00:1:2:3:4:5:6:42".to_string(),
-                },
-            ],
-            |ip| ip.to_string(),
+        value_scenarios!(
+            run = |ip| ip.to_string();
+            "ipv4" {
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)) => "10.0.0.1".to_string(),
+            }
+
+            "ipv4 unspecified" {
+                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) => "0.0.0.0".to_string(),
+            }
+
+            "ipv4 broadcast" {
+                IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)) => "255.255.255.255".to_string(),
+            }
+
+            "ipv4 loopback" {
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)) => "127.0.0.1".to_string(),
+            }
+
+            "ipv6 compressed" {
+                IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)) => "2001:db8::1".to_string(),
+            }
+
+            "ipv6 unspecified collapses to ::" {
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)) => "::".to_string(),
+            }
+
+            "ipv6 loopback collapses to ::1" {
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)) => "::1".to_string(),
+            }
+
+            "ipv6 full (no run to compress)" {
+                IpAddr::V6(Ipv6Addr::new(0xfd00, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x42)) => "fd00:1:2:3:4:5:6:42".to_string(),
+            }
         );
     }
 
@@ -483,50 +455,42 @@ mod tests {
     // stable.
     #[test]
     fn test_quarantine_reason_str() {
-        check_values(
-            [
-                Check {
-                    scenario: "present reason passes through",
-                    input: ManagedHostQuarantineState {
-                        reason: Some("flooding the fabric".to_string()),
-                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                    },
-                    expect: "flooding the fabric".to_string(),
-                },
-                Check {
-                    scenario: "empty reason stays empty",
-                    input: ManagedHostQuarantineState {
-                        reason: Some(String::new()),
-                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                    },
-                    expect: String::new(),
-                },
-                Check {
-                    scenario: "missing reason yields empty string",
-                    input: ManagedHostQuarantineState {
-                        reason: None,
-                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                    },
-                    expect: String::new(),
-                },
-            ],
-            |state| state.reason_str().to_string(),
+        value_scenarios!(
+            run = |state| state.reason_str().to_string();
+            "present reason passes through" {
+                ManagedHostQuarantineState {
+                    reason: Some("flooding the fabric".to_string()),
+                    mode: ManagedHostQuarantineMode::BlockAllTraffic,
+                } => "flooding the fabric".to_string(),
+            }
+
+            "empty reason stays empty" {
+                ManagedHostQuarantineState {
+                    reason: Some(String::new()),
+                    mode: ManagedHostQuarantineMode::BlockAllTraffic,
+                } => String::new(),
+            }
+
+            "missing reason yields empty string" {
+                ManagedHostQuarantineState {
+                    reason: None,
+                    mode: ManagedHostQuarantineMode::BlockAllTraffic,
+                } => String::new(),
+            }
         );
     }
 
     #[test]
     fn test_quarantine_mode_str() {
-        check_values(
-            [Check {
-                scenario: "block-all-traffic renders its name",
-                input: ManagedHostQuarantineMode::BlockAllTraffic,
-                expect: "BlockAllTraffic".to_string(),
-            }],
-            |mode| {
+        value_scenarios!(
+            run = |mode| {
                 ManagedHostQuarantineState { reason: None, mode }
                     .mode_str()
                     .to_string()
-            },
+            };
+            "block-all-traffic renders its name" {
+                ManagedHostQuarantineMode::BlockAllTraffic => "BlockAllTraffic".to_string(),
+            }
         );
     }
 
@@ -540,130 +504,112 @@ mod tests {
         let v1 = config_version(1);
         let v2 = config_version(2);
 
-        check_values(
-            [
-                Check {
-                    scenario: "identical observations -> unchanged",
-                    input: (
-                        network_status(Some(v1), None, None),
-                        network_status(Some(v1), None, None),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "both network config versions None -> unchanged",
-                    input: (
-                        network_status(None, None, None),
-                        network_status(None, None, None),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "network config version differs -> changed",
-                    input: (
-                        network_status(Some(v1), None, None),
-                        network_status(Some(v2), None, None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "network config version None vs Some -> changed",
-                    input: (
-                        network_status(None, None, None),
-                        network_status(Some(v1), None, None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "network config version Some vs None -> changed",
-                    input: (
-                        network_status(Some(v1), None, None),
-                        network_status(None, None, None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "instance observation None vs Some -> changed",
-                    input: (
-                        network_status(Some(v1), None, None),
-                        network_status(Some(v1), Some(network_observation(v1, None)), None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "instance observation Some vs None -> changed",
-                    input: (
-                        network_status(Some(v1), Some(network_observation(v1, None)), None),
-                        network_status(Some(v1), None, None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "instance observation Some/Some identical -> unchanged",
-                    input: (
-                        network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
-                        network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "instance observation inner config version differs -> changed",
-                    input: (
-                        network_status(Some(v1), Some(network_observation(v1, None)), None),
-                        network_status(Some(v1), Some(network_observation(v2, None)), None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "instance observation inner instance-config version differs -> changed",
-                    input: (
-                        network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
-                        network_status(Some(v1), Some(network_observation(v1, Some(v2))), None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "extension observation None vs Some -> changed",
-                    input: (
-                        network_status(Some(v1), None, None),
-                        network_status(Some(v1), None, Some(extension_observation(v1, None))),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "extension observation Some vs None -> changed",
-                    input: (
-                        network_status(Some(v1), None, Some(extension_observation(v1, None))),
-                        network_status(Some(v1), None, None),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "extension observation Some/Some identical -> unchanged",
-                    input: (
-                        network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
-                        network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
-                    ),
-                    expect: false,
-                },
-                Check {
-                    scenario: "extension observation inner config version differs -> changed",
-                    input: (
-                        network_status(Some(v1), None, Some(extension_observation(v1, None))),
-                        network_status(Some(v1), None, Some(extension_observation(v2, None))),
-                    ),
-                    expect: true,
-                },
-                Check {
-                    scenario: "extension observation inner instance-config version differs -> changed",
-                    input: (
-                        network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
-                        network_status(Some(v1), None, Some(extension_observation(v1, Some(v2)))),
-                    ),
-                    expect: true,
-                },
-            ],
-            |(a, b)| a.any_observed_version_changed(&b),
+        value_scenarios!(
+            run = |(a, b)| a.any_observed_version_changed(&b);
+            "identical observations -> unchanged" {
+                (
+                    network_status(Some(v1), None, None),
+                    network_status(Some(v1), None, None),
+                ) => false,
+            }
+
+            "both network config versions None -> unchanged" {
+                (
+                    network_status(None, None, None),
+                    network_status(None, None, None),
+                ) => false,
+            }
+
+            "network config version differs -> changed" {
+                (
+                    network_status(Some(v1), None, None),
+                    network_status(Some(v2), None, None),
+                ) => true,
+            }
+
+            "network config version None vs Some -> changed" {
+                (
+                    network_status(None, None, None),
+                    network_status(Some(v1), None, None),
+                ) => true,
+            }
+
+            "network config version Some vs None -> changed" {
+                (
+                    network_status(Some(v1), None, None),
+                    network_status(None, None, None),
+                ) => true,
+            }
+
+            "instance observation None vs Some -> changed" {
+                (
+                    network_status(Some(v1), None, None),
+                    network_status(Some(v1), Some(network_observation(v1, None)), None),
+                ) => true,
+            }
+
+            "instance observation Some vs None -> changed" {
+                (
+                    network_status(Some(v1), Some(network_observation(v1, None)), None),
+                    network_status(Some(v1), None, None),
+                ) => true,
+            }
+
+            "instance observation Some/Some identical -> unchanged" {
+                (
+                    network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
+                    network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
+                ) => false,
+            }
+
+            "instance observation inner config version differs -> changed" {
+                (
+                    network_status(Some(v1), Some(network_observation(v1, None)), None),
+                    network_status(Some(v1), Some(network_observation(v2, None)), None),
+                ) => true,
+            }
+
+            "instance observation inner instance-config version differs -> changed" {
+                (
+                    network_status(Some(v1), Some(network_observation(v1, Some(v1))), None),
+                    network_status(Some(v1), Some(network_observation(v1, Some(v2))), None),
+                ) => true,
+            }
+
+            "extension observation None vs Some -> changed" {
+                (
+                    network_status(Some(v1), None, None),
+                    network_status(Some(v1), None, Some(extension_observation(v1, None))),
+                ) => true,
+            }
+
+            "extension observation Some vs None -> changed" {
+                (
+                    network_status(Some(v1), None, Some(extension_observation(v1, None))),
+                    network_status(Some(v1), None, None),
+                ) => true,
+            }
+
+            "extension observation Some/Some identical -> unchanged" {
+                (
+                    network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
+                    network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
+                ) => false,
+            }
+
+            "extension observation inner config version differs -> changed" {
+                (
+                    network_status(Some(v1), None, Some(extension_observation(v1, None))),
+                    network_status(Some(v1), None, Some(extension_observation(v2, None))),
+                ) => true,
+            }
+
+            "extension observation inner instance-config version differs -> changed" {
+                (
+                    network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
+                    network_status(Some(v1), None, Some(extension_observation(v1, Some(v2)))),
+                ) => true,
+            }
         );
     }
 
@@ -673,75 +619,59 @@ mod tests {
     // is not PartialEq, so failing rows would use `Fails`; both rows parse.
     #[test]
     fn test_ip_addr_parse_from_pool_strings() {
-        check_cases(
-            [
-                Case {
-                    scenario: "ipv4 string",
-                    input: "10.0.0.1",
-                    expect: Yields(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                },
-                Case {
-                    scenario: "ipv6 string",
-                    input: "2001:db8::1",
-                    expect: Yields(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
-                },
-                Case {
-                    scenario: "ipv4 unspecified",
-                    input: "0.0.0.0",
-                    expect: Yields(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-                },
-                Case {
-                    scenario: "ipv4 broadcast",
-                    input: "255.255.255.255",
-                    expect: Yields(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))),
-                },
-                Case {
-                    scenario: "ipv6 unspecified",
-                    input: "::",
-                    expect: Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))),
-                },
-                Case {
-                    scenario: "ipv6 loopback",
-                    input: "::1",
-                    expect: Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
-                },
-                Case {
-                    scenario: "empty string is rejected",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-address text is rejected",
-                    input: "not-an-ip",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "ipv4 octet out of range is rejected",
-                    input: "256.0.0.1",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "ipv4 with too few octets is rejected",
-                    input: "10.0.0",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "ipv4 with trailing whitespace is rejected",
-                    input: "10.0.0.1 ",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "ipv6 with double :: is rejected",
-                    input: "2001::db8::1",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "cidr suffix is not an address",
-                    input: "10.0.0.0/24",
-                    expect: Fails,
-                },
-            ],
-            |s| s.parse::<IpAddr>().map_err(drop),
+        scenarios!(
+            run = |s| s.parse::<IpAddr>().map_err(drop);
+            "ipv4 string" {
+                "10.0.0.1" => Yields(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            }
+
+            "ipv6 string" {
+                "2001:db8::1" => Yields(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+            }
+
+            "ipv4 unspecified" {
+                "0.0.0.0" => Yields(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
+            }
+
+            "ipv4 broadcast" {
+                "255.255.255.255" => Yields(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))),
+            }
+
+            "ipv6 unspecified" {
+                "::" => Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))),
+            }
+
+            "ipv6 loopback" {
+                "::1" => Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
+            }
+
+            "empty string is rejected" {
+                "" => Fails,
+            }
+
+            "non-address text is rejected" {
+                "not-an-ip" => Fails,
+            }
+
+            "ipv4 octet out of range is rejected" {
+                "256.0.0.1" => Fails,
+            }
+
+            "ipv4 with too few octets is rejected" {
+                "10.0.0" => Fails,
+            }
+
+            "ipv4 with trailing whitespace is rejected" {
+                "10.0.0.1 " => Fails,
+            }
+
+            "ipv6 with double :: is rejected" {
+                "2001::db8::1" => Fails,
+            }
+
+            "cidr suffix is not an address" {
+                "10.0.0.0/24" => Fails,
+            }
         );
     }
 
@@ -751,66 +681,56 @@ mod tests {
     // table left null.
     #[test]
     fn test_managed_host_network_config_deserialize_errors() {
-        check_cases(
-            [
-                Case {
-                    scenario: "well-formed with quarantine state",
-                    input: r#"{
-                        "loopback_ip": "10.0.0.1",
-                        "secondary_overlay_vtep_ip": null,
-                        "use_admin_network": false,
-                        "quarantine_state": {
-                            "reason": "noisy",
-                            "mode": "BlockAllTraffic"
-                        }
-                    }"#,
-                    expect: Yields(ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        secondary_overlay_vtep_ip: None,
-                        use_admin_network: Some(false),
-                        quarantine_state: Some(ManagedHostQuarantineState {
-                            reason: Some("noisy".to_string()),
-                            mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                        }),
+        scenarios!(
+            run = |json| serde_json::from_str::<ManagedHostNetworkConfig>(json).map_err(drop);
+            "well-formed with quarantine state" {
+                r#"{
+                            "loopback_ip": "10.0.0.1",
+                            "secondary_overlay_vtep_ip": null,
+                            "use_admin_network": false,
+                            "quarantine_state": {
+                                "reason": "noisy",
+                                "mode": "BlockAllTraffic"
+                            }
+                        }"# => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    secondary_overlay_vtep_ip: None,
+                    use_admin_network: Some(false),
+                    quarantine_state: Some(ManagedHostQuarantineState {
+                        reason: Some("noisy".to_string()),
+                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
                     }),
-                },
-                Case {
-                    scenario: "empty object defaults all optional fields",
-                    input: "{}",
-                    expect: Yields(ManagedHostNetworkConfig {
-                        loopback_ip: None,
-                        secondary_overlay_vtep_ip: None,
-                        use_admin_network: None,
-                        quarantine_state: None,
-                    }),
-                },
-                Case {
-                    scenario: "invalid loopback ip string is rejected",
-                    input: r#"{"loopback_ip": "not-an-ip"}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unknown quarantine mode is rejected",
-                    input: r#"{"quarantine_state": {"mode": "Nope"}}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "wrong type for use_admin_network is rejected",
-                    input: r#"{"use_admin_network": "true"}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "truncated json is rejected",
-                    input: r#"{"loopback_ip": "10.0.0.1""#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "non-object json is rejected",
-                    input: "[]",
-                    expect: Fails,
-                },
-            ],
-            |json| serde_json::from_str::<ManagedHostNetworkConfig>(json).map_err(drop),
+                }),
+            }
+
+            "empty object defaults all optional fields" {
+                "{}" => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: None,
+                    secondary_overlay_vtep_ip: None,
+                    use_admin_network: None,
+                    quarantine_state: None,
+                }),
+            }
+
+            "invalid loopback ip string is rejected" {
+                r#"{"loopback_ip": "not-an-ip"}"# => Fails,
+            }
+
+            "unknown quarantine mode is rejected" {
+                r#"{"quarantine_state": {"mode": "Nope"}}"# => Fails,
+            }
+
+            "wrong type for use_admin_network is rejected" {
+                r#"{"use_admin_network": "true"}"# => Fails,
+            }
+
+            "truncated json is rejected" {
+                r#"{"loopback_ip": "10.0.0.1""# => Fails,
+            }
+
+            "non-object json is rejected" {
+                "[]" => Fails,
+            }
         );
     }
 
@@ -821,39 +741,34 @@ mod tests {
     // would use `Fails`.
     #[test]
     fn test_managed_host_network_config_default_and_quarantine_roundtrip() {
-        check_cases(
-            [
-                Case {
-                    scenario: "default round-trips",
-                    input: ManagedHostNetworkConfig::default(),
-                    expect: Yields(ManagedHostNetworkConfig::default()),
-                },
-                Case {
-                    scenario: "quarantine state round-trips",
-                    input: ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        secondary_overlay_vtep_ip: None,
-                        use_admin_network: Some(true),
-                        quarantine_state: Some(ManagedHostQuarantineState {
-                            reason: Some("flooded".to_string()),
-                            mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                        }),
-                    },
-                    expect: Yields(ManagedHostNetworkConfig {
-                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                        secondary_overlay_vtep_ip: None,
-                        use_admin_network: Some(true),
-                        quarantine_state: Some(ManagedHostQuarantineState {
-                            reason: Some("flooded".to_string()),
-                            mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                        }),
-                    }),
-                },
-            ],
-            |config| {
+        scenarios!(
+            run = |config| {
                 let json = serde_json::to_string(&config).map_err(drop)?;
                 serde_json::from_str::<ManagedHostNetworkConfig>(&json).map_err(drop)
-            },
+            };
+            "default round-trips" {
+                ManagedHostNetworkConfig::default() => Yields(ManagedHostNetworkConfig::default()),
+            }
+
+            "quarantine state round-trips" {
+                ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    secondary_overlay_vtep_ip: None,
+                    use_admin_network: Some(true),
+                    quarantine_state: Some(ManagedHostQuarantineState {
+                        reason: Some("flooded".to_string()),
+                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
+                    }),
+                } => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    secondary_overlay_vtep_ip: None,
+                    use_admin_network: Some(true),
+                    quarantine_state: Some(ManagedHostQuarantineState {
+                        reason: Some("flooded".to_string()),
+                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
+                    }),
+                }),
+            }
         );
     }
 }

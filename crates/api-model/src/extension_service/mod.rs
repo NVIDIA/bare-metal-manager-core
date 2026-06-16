@@ -242,7 +242,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -250,38 +250,30 @@ mod tests {
     // unknown string is rejected.
     #[test]
     fn extension_service_type_from_str() {
-        check_cases(
-            [
-                Case {
-                    scenario: "canonical kubernetes_pod",
-                    input: "kubernetes_pod",
-                    expect: Yields(ExtensionServiceType::KubernetesPod),
-                },
-                Case {
-                    scenario: "mixed case is normalized",
-                    input: "Kubernetes_Pod",
-                    expect: Yields(ExtensionServiceType::KubernetesPod),
-                },
-                Case {
-                    scenario: "unknown type is rejected",
-                    input: "virtual_machine",
-                    expect: Fails,
-                },
-            ],
-            |s| ExtensionServiceType::from_str(s).map_err(drop),
+        scenarios!(
+            run = |s| ExtensionServiceType::from_str(s).map_err(drop);
+            "canonical kubernetes_pod" {
+                "kubernetes_pod" => Yields(ExtensionServiceType::KubernetesPod),
+            }
+
+            "mixed case is normalized" {
+                "Kubernetes_Pod" => Yields(ExtensionServiceType::KubernetesPod),
+            }
+
+            "unknown type is rejected" {
+                "virtual_machine" => Fails,
+            }
         );
     }
 
     // Display is the inverse of from_str: each variant's wire form parses back to it.
     #[test]
     fn extension_service_type_display_round_trips() {
-        check_cases(
-            [Case {
-                scenario: "kubernetes_pod",
-                input: ExtensionServiceType::KubernetesPod,
-                expect: Yields(ExtensionServiceType::KubernetesPod),
-            }],
-            |t| ExtensionServiceType::from_str(&t.to_string()).map_err(drop),
+        scenarios!(
+            run = |t| ExtensionServiceType::from_str(&t.to_string()).map_err(drop);
+            "kubernetes_pod" {
+                ExtensionServiceType::KubernetesPod => Yields(ExtensionServiceType::KubernetesPod),
+            }
         );
     }
 
@@ -310,23 +302,18 @@ mod tests {
                 ),
             }],
         };
-        check_cases(
-            [
-                Case {
-                    scenario: "prometheus config",
-                    input: prometheus.clone(),
-                    expect: Yields(prometheus),
-                },
-                Case {
-                    scenario: "logging config",
-                    input: logging.clone(),
-                    expect: Yields(logging),
-                },
-            ],
-            |obs| {
+        scenarios!(
+            run = |obs| {
                 let json = serde_json::to_string(&obs).map_err(drop)?;
                 serde_json::from_str::<ExtensionServiceObservability>(&json).map_err(drop)
-            },
+            };
+            "prometheus config" {
+                prometheus.clone() => Yields(prometheus),
+            }
+
+            "logging config" {
+                logging.clone() => Yields(logging),
+            }
         );
     }
 }

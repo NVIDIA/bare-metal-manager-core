@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::lockdown::error::{MlxError, MlxResult};
 
 // Every MlxError variant renders to an exact, contract-bearing string via its
@@ -29,68 +29,54 @@ use libmlx::lockdown::error::{MlxError, MlxResult};
 // inline is awkward and the old loop didn't cover it either.)
 #[test]
 fn error_variants_display_their_contract_strings() {
-    check_values(
-        [
-            Check {
-                scenario: "CommandFailed",
-                input: MlxError::CommandFailed("test".to_string()),
-                expect: "Command execution failed: test".to_string(),
-            },
-            Check {
-                scenario: "DeviceNotFound",
-                input: MlxError::DeviceNotFound("test_device".to_string()),
-                expect: "Device not found: test_device".to_string(),
-            },
-            Check {
-                scenario: "InvalidDeviceId",
-                input: MlxError::InvalidDeviceId("invalid".to_string()),
-                expect: "Invalid device ID format: invalid".to_string(),
-            },
-            Check {
-                scenario: "AlreadyLocked",
-                input: MlxError::AlreadyLocked,
-                expect: "Hardware access is already disabled".to_string(),
-            },
-            Check {
-                scenario: "AlreadyUnlocked",
-                input: MlxError::AlreadyUnlocked,
-                expect: "Hardware access is already enabled".to_string(),
-            },
-            Check {
-                scenario: "InvalidKey",
-                input: MlxError::InvalidKey,
-                expect: "Invalid key format or length".to_string(),
-            },
-            Check {
-                scenario: "PermissionDenied",
-                input: MlxError::PermissionDenied,
-                expect: "Permission denied - requires root privileges".to_string(),
-            },
-            Check {
-                scenario: "FlintNotFound",
-                input: MlxError::FlintNotFound,
-                expect: "flint tool not found or not executable".to_string(),
-            },
-            Check {
-                scenario: "ParseError",
-                input: MlxError::ParseError("parse error".to_string()),
-                expect: "Failed to parse command output: parse error".to_string(),
-            },
-            Check {
-                scenario: "DryRun",
-                input: MlxError::DryRun("flint -d 04:00.0 q".to_string()),
-                expect: "Dry run - would have executed: flint -d 04:00.0 q".to_string(),
-            },
-            Check {
-                scenario: "IoError wraps the inner message",
-                input: MlxError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "file not found",
-                )),
-                expect: "I/O error: file not found".to_string(),
-            },
-        ],
-        |error| error.to_string(),
+    value_scenarios!(
+        run = |error| error.to_string();
+        "CommandFailed" {
+            MlxError::CommandFailed("test".to_string()) => "Command execution failed: test".to_string(),
+        }
+
+        "DeviceNotFound" {
+            MlxError::DeviceNotFound("test_device".to_string()) => "Device not found: test_device".to_string(),
+        }
+
+        "InvalidDeviceId" {
+            MlxError::InvalidDeviceId("invalid".to_string()) => "Invalid device ID format: invalid".to_string(),
+        }
+
+        "AlreadyLocked" {
+            MlxError::AlreadyLocked => "Hardware access is already disabled".to_string(),
+        }
+
+        "AlreadyUnlocked" {
+            MlxError::AlreadyUnlocked => "Hardware access is already enabled".to_string(),
+        }
+
+        "InvalidKey" {
+            MlxError::InvalidKey => "Invalid key format or length".to_string(),
+        }
+
+        "PermissionDenied" {
+            MlxError::PermissionDenied => "Permission denied - requires root privileges".to_string(),
+        }
+
+        "FlintNotFound" {
+            MlxError::FlintNotFound => "flint tool not found or not executable".to_string(),
+        }
+
+        "ParseError" {
+            MlxError::ParseError("parse error".to_string()) => "Failed to parse command output: parse error".to_string(),
+        }
+
+        "DryRun" {
+            MlxError::DryRun("flint -d 04:00.0 q".to_string()) => "Dry run - would have executed: flint -d 04:00.0 q".to_string(),
+        }
+
+        "IoError wraps the inner message" {
+            MlxError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "file not found",
+            )) => "I/O error: file not found".to_string(),
+        }
     );
 }
 

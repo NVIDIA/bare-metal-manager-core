@@ -21,6 +21,7 @@ carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
 carbide-ipmi = { path = "../ipmi" }
 carbide-network = { path = "../network" }
+carbide-rack = { path = "../rack", default-features = false }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils" }

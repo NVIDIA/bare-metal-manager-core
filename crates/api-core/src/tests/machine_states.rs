@@ -437,6 +437,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         env.pool.clone(),
         explorer_config,
         env.common_pools.clone(),
+        Arc::new(env.config.rack_profiles.clone()),
         None,
         env.test_credential_manager.clone(),
     );
@@ -461,7 +462,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
 
     assert!(!response.address.is_empty());
 
-    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
+    let mock_host = ManagedHostConfig::default().with_dpus(vec![mock_dpu.clone()]);
     let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
     dpu_report.generate_machine_id(false)?;
 
@@ -3337,7 +3338,7 @@ async fn zero_dpu_host_with_instance(pool: sqlx::PgPool) -> (TestEnv, TestManage
     .await;
     create_host_inband_network_segment(&env.api, None).await;
 
-    let mh = create_managed_host_with_config(&env, ManagedHostConfig::with_dpus(Vec::new())).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
     assert!(
         mh.dpu_ids.is_empty(),
         "zero-DPU fixture should produce no DPU machines"

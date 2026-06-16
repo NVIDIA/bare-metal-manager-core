@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -50,28 +50,22 @@ fn verify_cmd_structure() {
 // its short `-s` or long form -- each invocation parses and yields the flag.
 #[test]
 fn parse_show_runtime_config_flag() {
-    check_cases(
-        [
-            Case {
-                scenario: "no args defaults the flag off",
-                input: &["version"][..],
-                expect: Yields(false),
-            },
-            Case {
-                scenario: "-s turns the flag on",
-                input: &["version", "-s"][..],
-                expect: Yields(true),
-            },
-            Case {
-                scenario: "--show-runtime-config turns the flag on",
-                input: &["version", "--show-runtime-config"][..],
-                expect: Yields(true),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Opts::try_parse_from(argv.iter().copied())
                 .map(|opts| opts.show_runtime_config)
                 .map_err(drop)
-        },
+        };
+        "no args defaults the flag off" {
+            &["version"][..] => Yields(false),
+        }
+
+        "-s turns the flag on" {
+            &["version", "-s"][..] => Yields(true),
+        }
+
+        "--show-runtime-config turns the flag on" {
+            &["version", "--show-runtime-config"][..] => Yields(true),
+        }
     );
 }

@@ -29,6 +29,7 @@ tracing = { workspace = true }
 
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 carbide-macros = { path = "../macros" }
 carbide-api-db = { path = "../api-db", default-features = false }
 sqlx = { workspace = true }

@@ -464,7 +464,7 @@ mod tests {
     use std::fs;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
 
@@ -686,43 +686,32 @@ mod tests {
     // `is_default` predicates (total ops).
     #[test]
     fn config_is_default_predicates() {
-        check_values(
-            [
-                Check {
-                    scenario: "machine-identity default is default",
-                    input: MachineIdentityConfig::default(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "machine-identity with changed rps is not default",
-                    input: mid(7, 8, 2, 5, None, None),
-                    expect: false,
-                },
-                Check {
-                    scenario: "machine-identity with proxy url is not default",
-                    input: mid(3, 8, 2, 5, Some("https://x"), None),
-                    expect: false,
-                },
-            ],
-            |c| c.is_default(),
+        value_scenarios!(
+            run = |c| c.is_default();
+            "machine-identity default is default" {
+                MachineIdentityConfig::default() => true,
+            }
+
+            "machine-identity with changed rps is not default" {
+                mid(7, 8, 2, 5, None, None) => false,
+            }
+
+            "machine-identity with proxy url is not default" {
+                mid(3, 8, 2, 5, Some("https://x"), None) => false,
+            }
         );
 
-        check_values(
-            [
-                Check {
-                    scenario: "update default is default",
-                    input: UpdateConfig::default(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "update with override cmd is not default",
-                    input: UpdateConfig {
-                        override_upgrade_cmd: Some("update".to_string()),
-                    },
-                    expect: false,
-                },
-            ],
-            |c| c.is_default(),
+        value_scenarios!(
+            run = |c| c.is_default();
+            "update default is default" {
+                UpdateConfig::default() => true,
+            }
+
+            "update with override cmd is not default" {
+                UpdateConfig {
+                    override_upgrade_cmd: Some("update".to_string()),
+                } => false,
+            }
         );
     }
 
@@ -786,60 +775,47 @@ wait-timeout-secs = 4
 sign-timeout-secs = 9
 "#;
 
-        check_cases(
-            [
-                Case {
-                    scenario: "full config parses",
-                    input: FULL,
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "minimal config without optional service sections parses",
-                    input: MIN_NO_SERVICES,
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "machine-identity section parses",
-                    input: MID_SECTION,
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "completely empty config is rejected (a required field is missing)",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "unknown top-level key is rejected (deny_unknown_fields)",
-                    input: "totally-unknown-key = 5\n",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "interface-id not a uuid fails",
-                    input: "[machine]\ninterface-id = \"not-a-uuid\"\n",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "machine-identity rps wrong type fails",
-                    input: "[machine-identity]\nrequests-per-second = \"seven\"\n",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "rps that overflows u8 fails",
-                    input: "[machine-identity]\nrequests-per-second = 999\n",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "syntactically invalid toml fails",
-                    input: "this is not = = toml",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "fmds addresses with bad cidr fails",
-                    input: "[fmds-armos-networking.config]\naddresses = [\"not-a-cidr\"]\n",
-                    expect: Fails,
-                },
-            ],
-            |raw| toml::from_str::<AgentConfig>(raw).map(drop).map_err(drop),
+        scenarios!(
+            run = |raw| toml::from_str::<AgentConfig>(raw).map(drop).map_err(drop);
+            "full config parses" {
+                FULL => Yields(()),
+            }
+
+            "minimal config without optional service sections parses" {
+                MIN_NO_SERVICES => Yields(()),
+            }
+
+            "machine-identity section parses" {
+                MID_SECTION => Yields(()),
+            }
+
+            "completely empty config is rejected (a required field is missing)" {
+                "" => Fails,
+            }
+
+            "unknown top-level key is rejected (deny_unknown_fields)" {
+                "totally-unknown-key = 5\n" => Fails,
+            }
+
+            "interface-id not a uuid fails" {
+                "[machine]\ninterface-id = \"not-a-uuid\"\n" => Fails,
+            }
+
+            "machine-identity rps wrong type fails" {
+                "[machine-identity]\nrequests-per-second = \"seven\"\n" => Fails,
+            }
+
+            "rps that overflows u8 fails" {
+                "[machine-identity]\nrequests-per-second = 999\n" => Fails,
+            }
+
+            "syntactically invalid toml fails" {
+                "this is not = = toml" => Fails,
+            }
+
+            "fmds addresses with bad cidr fails" {
+                "[fmds-armos-networking.config]\naddresses = [\"not-a-cidr\"]\n" => Fails,
+            }
         );
     }
 
@@ -883,50 +859,39 @@ addresses = ["168.254.169.254/30"]
         let c: AgentConfig = toml::from_str(FULL).unwrap();
         let expected_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 
-        check_values(
-            [
-                Check {
-                    scenario: "api-server",
-                    input: c.forge_system.api_server == "https://127.0.0.1:1234",
-                    expect: true,
-                },
-                Check {
-                    scenario: "interface-id",
-                    input: c.machine.interface_id == Some(expected_id),
-                    expect: true,
-                },
-                Check {
-                    scenario: "is-fake-dpu",
-                    input: c.machine.is_fake_dpu,
-                    expect: true,
-                },
-                Check {
-                    scenario: "metadata-service address",
-                    input: c.metadata_service.address == "0.0.0.0:7777",
-                    expect: true,
-                },
-                Check {
-                    scenario: "telemetry metrics-address",
-                    input: c.telemetry.metrics_address == "0.0.0.0:8888",
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn root-dir",
-                    input: c.hbn.root_dir == Path::new("/tmp/hbn-root"),
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn skip-reload",
-                    input: c.hbn.skip_reload,
-                    expect: true,
-                },
-                Check {
-                    scenario: "updates override-upgrade-cmd",
-                    input: c.updates.override_upgrade_cmd == Some("update".to_string()),
-                    expect: true,
-                },
-            ],
-            |b| b,
+        value_scenarios!(
+            run = |b| b;
+            "api-server" {
+                c.forge_system.api_server == "https://127.0.0.1:1234" => true,
+            }
+
+            "interface-id" {
+                c.machine.interface_id == Some(expected_id) => true,
+            }
+
+            "is-fake-dpu" {
+                c.machine.is_fake_dpu => true,
+            }
+
+            "metadata-service address" {
+                c.metadata_service.address == "0.0.0.0:7777" => true,
+            }
+
+            "telemetry metrics-address" {
+                c.telemetry.metrics_address == "0.0.0.0:8888" => true,
+            }
+
+            "hbn root-dir" {
+                c.hbn.root_dir == Path::new("/tmp/hbn-root") => true,
+            }
+
+            "hbn skip-reload" {
+                c.hbn.skip_reload => true,
+            }
+
+            "updates override-upgrade-cmd" {
+                c.updates.override_upgrade_cmd == Some("update".to_string()) => true,
+            }
         );
     }
 
@@ -950,40 +915,31 @@ sign-timeout-secs = 9
         let c: AgentConfig = toml::from_str(MID_SECTION).unwrap();
         let m = &c.machine_identity;
 
-        check_values(
-            [
-                Check {
-                    scenario: "requests-per-second",
-                    input: m.requests_per_second == 7,
-                    expect: true,
-                },
-                Check {
-                    scenario: "burst",
-                    input: m.burst == 12,
-                    expect: true,
-                },
-                Check {
-                    scenario: "wait-timeout-secs",
-                    input: m.wait_timeout_secs == 4,
-                    expect: true,
-                },
-                Check {
-                    scenario: "sign-timeout-secs",
-                    input: m.sign_timeout_secs == 9,
-                    expect: true,
-                },
-                Check {
-                    scenario: "sign-proxy-url unset",
-                    input: m.sign_proxy_url.is_none(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "sign-proxy-tls-root-ca unset",
-                    input: m.sign_proxy_tls_root_ca.is_none(),
-                    expect: true,
-                },
-            ],
-            |b| b,
+        value_scenarios!(
+            run = |b| b;
+            "requests-per-second" {
+                m.requests_per_second == 7 => true,
+            }
+
+            "burst" {
+                m.burst == 12 => true,
+            }
+
+            "wait-timeout-secs" {
+                m.wait_timeout_secs == 4 => true,
+            }
+
+            "sign-timeout-secs" {
+                m.sign_timeout_secs == 9 => true,
+            }
+
+            "sign-proxy-url unset" {
+                m.sign_proxy_url.is_none() => true,
+            }
+
+            "sign-proxy-tls-root-ca unset" {
+                m.sign_proxy_tls_root_ca.is_none() => true,
+            }
         );
 
         // The parsed section validates.
@@ -1004,128 +960,101 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
         let c: AgentConfig = toml::from_str(MIN_NO_SERVICES).unwrap();
         let expected_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
 
-        check_values(
-            [
-                Check {
-                    scenario: "api-server preserved",
-                    input: c.forge_system.api_server == "https://127.0.0.1:1234",
-                    expect: true,
-                },
-                Check {
-                    scenario: "interface-id preserved",
-                    input: c.machine.interface_id == Some(expected_id),
-                    expect: true,
-                },
-                Check {
-                    scenario: "is-fake-dpu defaults false",
-                    input: c.machine.is_fake_dpu,
-                    expect: false,
-                },
-                Check {
-                    scenario: "metadata-service defaults",
-                    input: c.metadata_service == MetadataServiceConfig::default(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "telemetry defaults",
-                    input: c.telemetry == TelemetryConfig::default(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "machine-identity defaults",
-                    input: c.machine_identity == MachineIdentityConfig::default(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn root-dir defaults",
-                    input: c.hbn.root_dir == Path::new(HBN_DEFAULT_ROOT),
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn skip-reload defaults false",
-                    input: c.hbn.skip_reload,
-                    expect: false,
-                },
-                Check {
-                    scenario: "updates override-upgrade-cmd defaults unset",
-                    input: c.updates.override_upgrade_cmd.is_none(),
-                    expect: true,
-                },
-            ],
-            |b| b,
+        value_scenarios!(
+            run = |b| b;
+            "api-server preserved" {
+                c.forge_system.api_server == "https://127.0.0.1:1234" => true,
+            }
+
+            "interface-id preserved" {
+                c.machine.interface_id == Some(expected_id) => true,
+            }
+
+            "is-fake-dpu defaults false" {
+                c.machine.is_fake_dpu => false,
+            }
+
+            "metadata-service defaults" {
+                c.metadata_service == MetadataServiceConfig::default() => true,
+            }
+
+            "telemetry defaults" {
+                c.telemetry == TelemetryConfig::default() => true,
+            }
+
+            "machine-identity defaults" {
+                c.machine_identity == MachineIdentityConfig::default() => true,
+            }
+
+            "hbn root-dir defaults" {
+                c.hbn.root_dir == Path::new(HBN_DEFAULT_ROOT) => true,
+            }
+
+            "hbn skip-reload defaults false" {
+                c.hbn.skip_reload => false,
+            }
+
+            "updates override-upgrade-cmd defaults unset" {
+                c.updates.override_upgrade_cmd.is_none() => true,
+            }
         );
     }
 
     // Default constructors expose the documented default values.
     #[test]
     fn config_defaults() {
-        check_values(
-            [
-                Check {
-                    scenario: "forge-system api-server",
-                    input: ForgeSystemConfig::default().api_server == DEFAULT_API_SERVER,
-                    expect: true,
-                },
-                Check {
-                    scenario: "metadata-service address",
-                    input: MetadataServiceConfig::default().address
-                        == INSTANCE_METADATA_SERVICE_ADDRESS,
-                    expect: true,
-                },
-                Check {
-                    scenario: "telemetry metrics-address",
-                    input: TelemetryConfig::default().metrics_address
-                        == TELEMETRY_METRICS_SERVICE_ADDRESS,
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn root-dir",
-                    input: HBNConfig::default().root_dir == Path::new(HBN_DEFAULT_ROOT),
-                    expect: true,
-                },
-                Check {
-                    scenario: "hbn skip-reload",
-                    input: HBNConfig::default().skip_reload,
-                    expect: false,
-                },
-                Check {
-                    scenario: "machine-identity requests-per-second",
-                    input: MachineIdentityConfig::default().requests_per_second
-                        == REQUESTS_PER_SECOND,
-                    expect: true,
-                },
-                Check {
-                    scenario: "machine-identity burst",
-                    input: MachineIdentityConfig::default().burst == BURST,
-                    expect: true,
-                },
-                Check {
-                    scenario: "machine-identity wait-timeout-secs",
-                    input: MachineIdentityConfig::default().wait_timeout_secs == WAIT_TIMEOUT_SECS,
-                    expect: true,
-                },
-                Check {
-                    scenario: "machine-identity sign-timeout-secs",
-                    input: MachineIdentityConfig::default().sign_timeout_secs == SIGN_TIMEOUT_SECS,
-                    expect: true,
-                },
-                Check {
-                    scenario: "iteration-time inventory-update-secs",
-                    input: IterationTime::default().inventory_update_secs == 3600,
-                    expect: true,
-                },
-                Check {
-                    scenario: "iteration-time discovery-retry-secs",
-                    input: IterationTime::default().discovery_retry_secs == 60,
-                    expect: true,
-                },
-                Check {
-                    scenario: "iteration-time discovery-retries-max",
-                    input: IterationTime::default().discovery_retries_max == 10080,
-                    expect: true,
-                },
-            ],
-            |b| b,
+        value_scenarios!(
+            run = |b| b;
+            "forge-system api-server" {
+                ForgeSystemConfig::default().api_server == DEFAULT_API_SERVER => true,
+            }
+
+            "metadata-service address" {
+                MetadataServiceConfig::default().address
+                == INSTANCE_METADATA_SERVICE_ADDRESS => true,
+            }
+
+            "telemetry metrics-address" {
+                TelemetryConfig::default().metrics_address
+                == TELEMETRY_METRICS_SERVICE_ADDRESS => true,
+            }
+
+            "hbn root-dir" {
+                HBNConfig::default().root_dir == Path::new(HBN_DEFAULT_ROOT) => true,
+            }
+
+            "hbn skip-reload" {
+                HBNConfig::default().skip_reload => false,
+            }
+
+            "machine-identity requests-per-second" {
+                MachineIdentityConfig::default().requests_per_second
+                == REQUESTS_PER_SECOND => true,
+            }
+
+            "machine-identity burst" {
+                MachineIdentityConfig::default().burst == BURST => true,
+            }
+
+            "machine-identity wait-timeout-secs" {
+                MachineIdentityConfig::default().wait_timeout_secs == WAIT_TIMEOUT_SECS => true,
+            }
+
+            "machine-identity sign-timeout-secs" {
+                MachineIdentityConfig::default().sign_timeout_secs == SIGN_TIMEOUT_SECS => true,
+            }
+
+            "iteration-time inventory-update-secs" {
+                IterationTime::default().inventory_update_secs == 3600 => true,
+            }
+
+            "iteration-time discovery-retry-secs" {
+                IterationTime::default().discovery_retry_secs == 60 => true,
+            }
+
+            "iteration-time discovery-retries-max" {
+                IterationTime::default().discovery_retries_max == 10080 => true,
+            }
         );
     }
 

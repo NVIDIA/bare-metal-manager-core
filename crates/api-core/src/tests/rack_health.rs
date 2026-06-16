@@ -27,7 +27,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as rpc_forge};
 use tonic::Request;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_managed_host_with_config,
@@ -229,10 +229,11 @@ async fn test_propagation_to_host_aggregate_health(
         .await?;
     drop(txn);
 
-    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: Some(rack_id.clone()),
-        ..Default::default()
-    });
+    let host_config =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
     let mh = create_managed_host_with_config(&env, host_config).await;
     let host_machine_id = mh.id;
 
@@ -289,10 +290,11 @@ async fn test_host_allocatability_blocked_by_rack_override(
         .await?;
     drop(txn);
 
-    let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
-        rack_id: Some(rack_id.clone()),
-        ..Default::default()
-    });
+    let host_config =
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        });
     let mh = create_managed_host_with_config(&env, host_config).await;
     let host_machine_id = mh.id;
 

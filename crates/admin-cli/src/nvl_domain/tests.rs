@@ -16,7 +16,7 @@
  */
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::health_report::args::Args as HealthReportCommand;
@@ -35,29 +35,8 @@ fn verify_cmd_structure() {
 // the originals asserted.
 #[test]
 fn parse_health_report_subcommands() {
-    check_cases(
-        [
-            Case {
-                scenario: "show routes to HealthReport Show with the domain id",
-                input: &["nvl-domain", "health-report", "show", TEST_DOMAIN_ID][..],
-                expect: Yields((TEST_DOMAIN_ID.to_string(), None)),
-            },
-            Case {
-                scenario: "remove routes to HealthReport Remove with domain id and source",
-                input: &[
-                    "nvl-domain",
-                    "health-report",
-                    "remove",
-                    TEST_DOMAIN_ID,
-                    "haas-log-analyzer",
-                ][..],
-                expect: Yields((
-                    TEST_DOMAIN_ID.to_string(),
-                    Some("haas-log-analyzer".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| {
                     let Cmd::HealthReport(command) = cmd;
@@ -71,6 +50,22 @@ fn parse_health_report_subcommands() {
                     }
                 })
                 .map_err(drop)
-        },
+        };
+        "show routes to HealthReport Show with the domain id" {
+            &["nvl-domain", "health-report", "show", TEST_DOMAIN_ID][..] => Yields((TEST_DOMAIN_ID.to_string(), None)),
+        }
+
+        "remove routes to HealthReport Remove with domain id and source" {
+            &[
+                "nvl-domain",
+                "health-report",
+                "remove",
+                TEST_DOMAIN_ID,
+                "haas-log-analyzer",
+            ][..] => Yields((
+                TEST_DOMAIN_ID.to_string(),
+                Some("haas-log-analyzer".to_string()),
+            )),
+        }
     );
 }

@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
@@ -250,25 +250,19 @@ fn test_try_from_protobuf_basic() {
             _ => "other",
         }
     }
-    check_values(
-        [
-            Check {
-                scenario: "BOOL_VAR parses to a bool",
-                input: "BOOL_VAR",
-                expect: "bool",
-            },
-            Check {
-                scenario: "INT_VAR parses to a number",
-                input: "INT_VAR",
-                expect: "number",
-            },
-            Check {
-                scenario: "STRING_VAR parses to a string",
-                input: "STRING_VAR",
-                expect: "string",
-            },
-        ],
-        |key| variant(profile.config.get(key)),
+    value_scenarios!(
+        run = |key| variant(profile.config.get(key));
+        "BOOL_VAR parses to a bool" {
+            "BOOL_VAR" => "bool",
+        }
+
+        "INT_VAR parses to a number" {
+            "INT_VAR" => "number",
+        }
+
+        "STRING_VAR parses to a string" {
+            "STRING_VAR" => "string",
+        }
     );
 }
 

@@ -55,6 +55,72 @@ grpcurl -insecure localhost:1079 list
 open https://localhost:1079/admin
 ```
 
+### RMS node type resolution
+
+When testing RMS component-manager backends, configure the local rack profile so
+`product_family` is set to `gb200` or `gb300`. This field is required for
+RMS-backed operations and must exactly match the lowercase value; it is not
+normalized. The component-manager backend fields default to `rms`, so set any
+role you are not testing to a non-RMS backend. When a backend is set to `rms`,
+the matching vendor field in each configured profile is required for startup
+validation.
+
+Recommended vendor values are `NVIDIA` or `Lenovo` for compute, `NVIDIA` for
+switches, and `LiteOn` or `Delta` for power shelves. Vendor matching is
+case-insensitive and ignores spaces, hyphens, and underscores, so values like
+`nvidia`, `Lite-On`, and `lite_on` are accepted. The rack's `rack_profile_id`
+must match a key in `[rack_profiles]`.
+
+The examples below only show the component-manager and rack-profile fields.
+Configure local `[rms]` settings separately when NICo needs to call RMS.
+
+Example: GB200 rack with all component-manager roles using RMS:
+
+```toml
+[component_manager]
+compute_tray_backend = "rms"
+nv_switch_backend = "rms"
+power_shelf_backend = "rms"
+
+[rack_profiles.NVL72]
+product_family = "gb200"
+rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+vendor = "NVIDIA"
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+vendor = "NVIDIA"
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+```
+
+Example: only the component-manager power shelf backend uses RMS in local dev.
+The compute backend uses `mock` here because this file is for local testing; the
+switch backend uses the local NSM endpoint:
+
+```toml
+[component_manager]
+compute_tray_backend = "mock"
+nv_switch_backend = "nsm"
+power_shelf_backend = "rms"
+
+[component_manager.nsm]
+url = "http://localhost:50052"
+
+[rack_profiles.NVL72_POWER]
+product_family = "gb200"
+rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72_POWER.rack_capabilities.power_shelf]
+vendor = "Lite-On"
+```
+
+If site-explorer machine ingestion is also using the configured RMS client for
+slot/tray lookup, include the compute vendor fields too even when
+`compute_tray_backend` is not `rms`.
+
 ### Resetting state
 
 ```bash

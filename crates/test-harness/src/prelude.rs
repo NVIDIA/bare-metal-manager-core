@@ -22,4 +22,7 @@ pub use sqlx_testing;
 
 pub use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
 pub use crate::resource_pool::ResourcePoolBuilder;
-pub use crate::{Api, TestHarness, TestManagedHost, TestManagedHostBuilder, TestSiteExplorer, rpc};
+pub use crate::{
+    Api, TestDpuMachine, TestHarness, TestHostMachine, TestMachine, TestManagedHost,
+    TestManagedHostBuildData, TestManagedHostBuilder, TestSiteExplorer, rpc,
+};

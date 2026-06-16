@@ -736,7 +736,7 @@ where
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::scenarios;
 
     use super::*;
 
@@ -764,28 +764,23 @@ mod tests {
     // round-trips back equal before yielding that string.
     #[test]
     fn serialize_function_id() {
-        check_cases(
-            [
-                Case {
-                    scenario: "physical",
-                    input: InterfaceFunctionId::Physical {},
-                    expect: Yields(r#"{"type":"physical"}"#.to_string()),
-                },
-                Case {
-                    scenario: "virtual",
-                    input: InterfaceFunctionId::Virtual { id: 24 },
-                    expect: Yields(r#"{"type":"virtual","id":24}"#.to_string()),
-                },
-            ],
+        scenarios!(
             // Serialize, confirm it round-trips back equal, then yield the JSON.
             // serde_json::Error is not PartialEq, so collapse failures to ().
-            |function_id| {
+            run = |function_id| {
                 let serialized = serde_json::to_string(&function_id).map_err(|_| ())?;
                 let round_tripped =
                     serde_json::from_str::<InterfaceFunctionId>(&serialized).map_err(|_| ())?;
                 assert_eq!(round_tripped, function_id);
                 Ok::<_, ()>(serialized)
-            },
+            };
+            "physical" {
+                InterfaceFunctionId::Physical {} => Yields(r#"{"type":"physical"}"#.to_string()),
+            }
+
+            "virtual" {
+                InterfaceFunctionId::Virtual { id: 24 } => Yields(r#"{"type":"virtual","id":24}"#.to_string()),
+            }
         );
     }
 
@@ -899,45 +894,35 @@ mod tests {
         duplicate_network_segment.interfaces[1].network_segment_id =
             Some(DUPLICATE_SEGMENT_ID.into());
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid config with virtual functions allowed",
-                    input: (valid, true),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "virtual functions disabled by site configuration",
-                    input: (virtual_functions_disabled, false),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "duplicate virtual function id",
-                    input: (duplicate_virtual_function, true),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "out of bounds virtual function id",
-                    input: (out_of_bounds_virtual_function, true),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "no physical function",
-                    input: (no_physical_function, true),
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "missing middle virtual function id is allowed",
-                    input: (missing_middle_virtual_function, true),
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "duplicate network segment",
-                    input: (duplicate_network_segment, true),
-                    expect: Fails,
-                },
-            ],
-            |(config, allow_instance_vf)| config.validate(allow_instance_vf).map_err(drop),
+        scenarios!(
+            run = |(config, allow_instance_vf)| config.validate(allow_instance_vf).map_err(drop);
+            "valid config with virtual functions allowed" {
+                (valid, true) => Yields(()),
+            }
+
+            "virtual functions disabled by site configuration" {
+                (virtual_functions_disabled, false) => Fails,
+            }
+
+            "duplicate virtual function id" {
+                (duplicate_virtual_function, true) => Fails,
+            }
+
+            "out of bounds virtual function id" {
+                (out_of_bounds_virtual_function, true) => Fails,
+            }
+
+            "no physical function" {
+                (no_physical_function, true) => Fails,
+            }
+
+            "missing middle virtual function id is allowed" {
+                (missing_middle_virtual_function, true) => Yields(()),
+            }
+
+            "duplicate network segment" {
+                (duplicate_network_segment, true) => Fails,
+            }
         );
     }
 }

@@ -35,3 +35,22 @@ pub const CLIENT_KEY: &str = "/opt/forge/machine_cert.key";
 pub fn default_client_key() -> &'static str {
     CLIENT_KEY
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn returns_baked_in_default_paths() {
+        value_scenarios!(
+            run = |getter: fn() -> &'static str| getter();
+            "defaults" {
+                default_root_ca as fn() -> &'static str => ROOT_CA,
+                default_client_cert as fn() -> &'static str => CLIENT_CERT,
+                default_client_key as fn() -> &'static str => CLIENT_KEY,
+            }
+        );
+    }
+}

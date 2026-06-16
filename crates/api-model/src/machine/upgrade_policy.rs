@@ -463,120 +463,94 @@ mod tests {
     use std::cmp::Ordering;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::{AgentUpgradePolicy, BuildVersion};
     use crate::firmware::AgentUpgradePolicyChoice;
 
     #[test]
     fn agent_upgrade_policy_display() {
-        check_values(
-            [
-                Check {
-                    scenario: "off",
-                    input: AgentUpgradePolicy::Off,
-                    expect: "Off".to_string(),
-                },
-                Check {
-                    scenario: "up-only",
-                    input: AgentUpgradePolicy::UpOnly,
-                    expect: "UpOnly".to_string(),
-                },
-                Check {
-                    scenario: "up-down",
-                    input: AgentUpgradePolicy::UpDown,
-                    expect: "UpDown".to_string(),
-                },
-            ],
-            |p| p.to_string(),
+        value_scenarios!(
+            run = |p| p.to_string();
+            "off" {
+                AgentUpgradePolicy::Off => "Off".to_string(),
+            }
+
+            "up-only" {
+                AgentUpgradePolicy::UpOnly => "UpOnly".to_string(),
+            }
+
+            "up-down" {
+                AgentUpgradePolicy::UpDown => "UpDown".to_string(),
+            }
         );
     }
 
     #[test]
     fn agent_upgrade_policy_from_str() {
-        check_values(
-            [
-                Check {
-                    scenario: "canonical Off",
-                    input: "Off",
-                    expect: AgentUpgradePolicy::Off,
-                },
-                Check {
-                    scenario: "lowercase off",
-                    input: "off",
-                    expect: AgentUpgradePolicy::Off,
-                },
-                Check {
-                    scenario: "canonical UpOnly",
-                    input: "UpOnly",
-                    expect: AgentUpgradePolicy::UpOnly,
-                },
-                Check {
-                    scenario: "lowercase uponly",
-                    input: "uponly",
-                    expect: AgentUpgradePolicy::UpOnly,
-                },
-                Check {
-                    scenario: "snake_case up_only",
-                    input: "up_only",
-                    expect: AgentUpgradePolicy::UpOnly,
-                },
-                Check {
-                    scenario: "canonical UpDown",
-                    input: "UpDown",
-                    expect: AgentUpgradePolicy::UpDown,
-                },
-                Check {
-                    scenario: "lowercase updown",
-                    input: "updown",
-                    expect: AgentUpgradePolicy::UpDown,
-                },
-                Check {
-                    scenario: "snake_case up_down",
-                    input: "up_down",
-                    expect: AgentUpgradePolicy::UpDown,
-                },
-                Check {
-                    scenario: "unknown string falls back to Off",
-                    input: "nonsense",
-                    expect: AgentUpgradePolicy::Off,
-                },
-                Check {
-                    scenario: "empty string falls back to Off",
-                    input: "",
-                    expect: AgentUpgradePolicy::Off,
-                },
-                Check {
-                    scenario: "wrong casing falls back to Off",
-                    input: "OFF",
-                    expect: AgentUpgradePolicy::Off,
-                },
-            ],
-            AgentUpgradePolicy::from,
+        value_scenarios!(
+            run = AgentUpgradePolicy::from;
+            "canonical Off" {
+                "Off" => AgentUpgradePolicy::Off,
+            }
+
+            "lowercase off" {
+                "off" => AgentUpgradePolicy::Off,
+            }
+
+            "canonical UpOnly" {
+                "UpOnly" => AgentUpgradePolicy::UpOnly,
+            }
+
+            "lowercase uponly" {
+                "uponly" => AgentUpgradePolicy::UpOnly,
+            }
+
+            "snake_case up_only" {
+                "up_only" => AgentUpgradePolicy::UpOnly,
+            }
+
+            "canonical UpDown" {
+                "UpDown" => AgentUpgradePolicy::UpDown,
+            }
+
+            "lowercase updown" {
+                "updown" => AgentUpgradePolicy::UpDown,
+            }
+
+            "snake_case up_down" {
+                "up_down" => AgentUpgradePolicy::UpDown,
+            }
+
+            "unknown string falls back to Off" {
+                "nonsense" => AgentUpgradePolicy::Off,
+            }
+
+            "empty string falls back to Off" {
+                "" => AgentUpgradePolicy::Off,
+            }
+
+            "wrong casing falls back to Off" {
+                "OFF" => AgentUpgradePolicy::Off,
+            }
         );
     }
 
     #[test]
     fn agent_upgrade_policy_from_choice() {
-        check_values(
-            [
-                Check {
-                    scenario: "off",
-                    input: AgentUpgradePolicyChoice::Off,
-                    expect: AgentUpgradePolicy::Off,
-                },
-                Check {
-                    scenario: "up-only",
-                    input: AgentUpgradePolicyChoice::UpOnly,
-                    expect: AgentUpgradePolicy::UpOnly,
-                },
-                Check {
-                    scenario: "up-down",
-                    input: AgentUpgradePolicyChoice::UpDown,
-                    expect: AgentUpgradePolicy::UpDown,
-                },
-            ],
-            AgentUpgradePolicy::from,
+        value_scenarios!(
+            run = AgentUpgradePolicy::from;
+            "off" {
+                AgentUpgradePolicyChoice::Off => AgentUpgradePolicy::Off,
+            }
+
+            "up-only" {
+                AgentUpgradePolicyChoice::UpOnly => AgentUpgradePolicy::UpOnly,
+            }
+
+            "up-down" {
+                AgentUpgradePolicyChoice::UpDown => AgentUpgradePolicy::UpDown,
+            }
         );
     }
 
@@ -738,44 +712,35 @@ mod tests {
 
     #[test]
     fn build_version_display_round_trips() {
-        check_cases(
-            [
-                Case {
-                    scenario: "bare date tag",
-                    input: "v2023.08",
-                    expect: Yields("v2023.08".to_string()),
-                },
-                Case {
-                    scenario: "bare semver tag",
-                    input: "v1.2.3",
-                    expect: Yields("v1.2.3".to_string()),
-                },
-                Case {
-                    scenario: "date tag with commits and hash",
-                    input: "v2023.08-92-g1b48e8b6",
-                    expect: Yields("v2023.08-92-g1b48e8b6".to_string()),
-                },
-                Case {
-                    scenario: "rc and hotfix both render",
-                    input: "v2024.05.02-rc3-0",
-                    expect: Yields("v2024.05.02-rc3-0".to_string()),
-                },
-                Case {
-                    scenario: "full version with rc, hotfix, commits and hash",
-                    input: "v2024.05.02-rc4-0-27-gc3ce4d5d",
-                    expect: Yields("v2024.05.02-rc4-0-27-gc3ce4d5d".to_string()),
-                },
-                Case {
-                    scenario: "two-part input normalizes hotfix to 0",
-                    input: "v2023.09-rc1",
-                    expect: Yields("v2023.09-rc1-0".to_string()),
-                },
-            ],
-            |s| {
+        scenarios!(
+            run = |s| {
                 BuildVersion::try_from(s)
                     .map(|bv| bv.to_string())
                     .map_err(drop)
-            },
+            };
+            "bare date tag" {
+                "v2023.08" => Yields("v2023.08".to_string()),
+            }
+
+            "bare semver tag" {
+                "v1.2.3" => Yields("v1.2.3".to_string()),
+            }
+
+            "date tag with commits and hash" {
+                "v2023.08-92-g1b48e8b6" => Yields("v2023.08-92-g1b48e8b6".to_string()),
+            }
+
+            "rc and hotfix both render" {
+                "v2024.05.02-rc3-0" => Yields("v2024.05.02-rc3-0".to_string()),
+            }
+
+            "full version with rc, hotfix, commits and hash" {
+                "v2024.05.02-rc4-0-27-gc3ce4d5d" => Yields("v2024.05.02-rc4-0-27-gc3ce4d5d".to_string()),
+            }
+
+            "two-part input normalizes hotfix to 0" {
+                "v2023.09-rc1" => Yields("v2023.09-rc1-0".to_string()),
+            }
         );
     }
 
@@ -785,122 +750,103 @@ mod tests {
             left: &'static str,
             right: &'static str,
         }
-        check_values(
-            [
-                Check {
-                    scenario: "older date less than newer date",
-                    input: Pair {
-                        left: "v2023.08",
-                        right: "v2023.09",
-                    },
-                    expect: Ordering::Less,
-                },
-                Check {
-                    scenario: "equal date tags",
-                    input: Pair {
-                        left: "v2023.08",
-                        right: "v2023.08",
-                    },
-                    expect: Ordering::Equal,
-                },
-                Check {
-                    scenario: "newer date greater than older date",
-                    input: Pair {
-                        left: "v2023.09",
-                        right: "v2023.08",
-                    },
-                    expect: Ordering::Greater,
-                },
-                Check {
-                    scenario: "more commits is greater",
-                    input: Pair {
-                        left: "v2023.08-92-g1b48e8b6",
-                        right: "v2023.08-14-gbc549a66",
-                    },
-                    expect: Ordering::Greater,
-                },
-                Check {
-                    scenario: "date is always less than semver",
-                    input: Pair {
-                        left: "v2024.05.10-rc1-3",
-                        right: "v0.0.1",
-                    },
-                    expect: Ordering::Less,
-                },
-                Check {
-                    scenario: "semver is always greater than date",
-                    input: Pair {
-                        left: "v0.0.1",
-                        right: "v2024.05.10-rc1-3",
-                    },
-                    expect: Ordering::Greater,
-                },
-                Check {
-                    scenario: "lower semver less than higher semver",
-                    input: Pair {
-                        left: "v0.0.1",
-                        right: "v0.0.4-rc4-0-g2a3c98cac",
-                    },
-                    expect: Ordering::Less,
-                },
-                Check {
-                    scenario: "semver major dominates",
-                    input: Pair {
-                        left: "v0.0.4-rc4-0-g2a3c98cac",
-                        right: "v1.0.0",
-                    },
-                    expect: Ordering::Less,
-                },
-                Check {
-                    scenario: "equal semver tags",
-                    input: Pair {
-                        left: "v1.2.3",
-                        right: "v1.2.3",
-                    },
-                    expect: Ordering::Equal,
-                },
-                Check {
-                    scenario: "semver patch difference",
-                    input: Pair {
-                        left: "v0.0.4",
-                        right: "v0.0.5",
-                    },
-                    expect: Ordering::Less,
-                },
-            ],
-            |Pair { left, right }| {
+        value_scenarios!(
+            run = |Pair { left, right }| {
                 let l = BuildVersion::try_from(left).unwrap();
                 let r = BuildVersion::try_from(right).unwrap();
                 l.cmp(&r)
-            },
+            };
+            "older date less than newer date" {
+                Pair {
+                    left: "v2023.08",
+                    right: "v2023.09",
+                } => Ordering::Less,
+            }
+
+            "equal date tags" {
+                Pair {
+                    left: "v2023.08",
+                    right: "v2023.08",
+                } => Ordering::Equal,
+            }
+
+            "newer date greater than older date" {
+                Pair {
+                    left: "v2023.09",
+                    right: "v2023.08",
+                } => Ordering::Greater,
+            }
+
+            "more commits is greater" {
+                Pair {
+                    left: "v2023.08-92-g1b48e8b6",
+                    right: "v2023.08-14-gbc549a66",
+                } => Ordering::Greater,
+            }
+
+            "date is always less than semver" {
+                Pair {
+                    left: "v2024.05.10-rc1-3",
+                    right: "v0.0.1",
+                } => Ordering::Less,
+            }
+
+            "semver is always greater than date" {
+                Pair {
+                    left: "v0.0.1",
+                    right: "v2024.05.10-rc1-3",
+                } => Ordering::Greater,
+            }
+
+            "lower semver less than higher semver" {
+                Pair {
+                    left: "v0.0.1",
+                    right: "v0.0.4-rc4-0-g2a3c98cac",
+                } => Ordering::Less,
+            }
+
+            "semver major dominates" {
+                Pair {
+                    left: "v0.0.4-rc4-0-g2a3c98cac",
+                    right: "v1.0.0",
+                } => Ordering::Less,
+            }
+
+            "equal semver tags" {
+                Pair {
+                    left: "v1.2.3",
+                    right: "v1.2.3",
+                } => Ordering::Equal,
+            }
+
+            "semver patch difference" {
+                Pair {
+                    left: "v0.0.4",
+                    right: "v0.0.5",
+                } => Ordering::Less,
+            }
         );
     }
 
     #[test]
     fn build_version_partial_cmp_matches_cmp() {
-        check_values(
-            [
-                Check {
-                    scenario: "less",
-                    input: ("v0.0.1", "v1.0.0"),
-                    expect: Some(Ordering::Less),
-                },
-                Check {
-                    scenario: "greater",
-                    input: ("v1.0.0", "v0.0.1"),
-                    expect: Some(Ordering::Greater),
-                },
-                Check {
-                    scenario: "equal",
-                    input: ("v1.0.0", "v1.0.0"),
-                    expect: Some(Ordering::Equal),
-                },
-            ],
-            |(l, r)| {
+        value_scenarios!(
+            run = |(l, r)| {
                 BuildVersion::try_from(l)
                     .unwrap()
                     .partial_cmp(&BuildVersion::try_from(r).unwrap())
-            },
+            };
+            "less" {
+                ("v0.0.1", "v1.0.0") => Some(Ordering::Less),
+            }
+
+            "greater" {
+                ("v1.0.0", "v0.0.1") => Some(Ordering::Greater),
+            }
+
+            "equal" {
+                ("v1.0.0", "v1.0.0") => Some(Ordering::Equal),
+            }
         );
     }
 

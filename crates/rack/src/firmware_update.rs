@@ -28,6 +28,8 @@ use model::rack::FirmwareUpgradeDeviceInfo;
 use model::rack_type::{RackHardwareClass, RackProfile};
 use sqlx::PgPool;
 
+use crate::rms_node_type::is_switch_node_type;
+
 #[derive(Debug, Clone)]
 pub struct RackFirmwareInventory {
     pub machine_ids: Vec<carbide_uuid::machine::MachineId>,
@@ -226,7 +228,7 @@ pub fn build_new_node_info(
         })
     };
 
-    let host_endpoint = if matches!(node_type, rms::NodeType::Switch) {
+    let host_endpoint = if is_switch_node_type(node_type) {
         Some(rms::Endpoint {
             interface: build_host_interface(device),
             port: 0,

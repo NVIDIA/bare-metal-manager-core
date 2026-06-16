@@ -16,7 +16,7 @@
  */
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, Check, check_cases, check_values};
+use carbide_test_support::{scenarios, value_scenarios};
 use clap::Parser;
 use libmlx::lockdown::cmd::args::{Cli, Commands, LockdownAction, OutputFormat};
 use libmlx::lockdown::cmd::cmds::run_cli;
@@ -61,48 +61,41 @@ fn test_cli_help() {
 // per-subcommand parse-and-`matches!` blocks into one table over `action_kind`.
 #[test]
 fn lockdown_subcommands_parse_to_their_action_variant() {
-    check_values(
-        [
-            Check {
-                scenario: "lock",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "lock",
-                    "04:00.0",
-                    "12345678",
-                ],
-                expect: "lock",
-            },
-            Check {
-                scenario: "unlock",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "unlock",
-                    "04:00.0",
-                    "12345678",
-                ],
-                expect: "unlock",
-            },
-            Check {
-                scenario: "set-key",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "set-key",
-                    "04:00.0",
-                    "12345678",
-                ],
-                expect: "set-key",
-            },
-            Check {
-                scenario: "status",
-                input: vec!["mlxconfig-lockdown", "lockdown", "status", "04:00.0"],
-                expect: "status",
-            },
-        ],
-        |args| action_kind(&action_of(&args)),
+    value_scenarios!(
+        run = |args| action_kind(&action_of(&args));
+        "lock" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "lock",
+                "04:00.0",
+                "12345678",
+            ] => "lock",
+        }
+
+        "unlock" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "unlock",
+                "04:00.0",
+                "12345678",
+            ] => "unlock",
+        }
+
+        "set-key" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "set-key",
+                "04:00.0",
+                "12345678",
+            ] => "set-key",
+        }
+
+        "status" {
+            vec!["mlxconfig-lockdown", "lockdown", "status", "04:00.0"] => "status",
+        }
     );
 }
 
@@ -136,34 +129,29 @@ fn output_format_flag_parses_to_the_named_format() {
         }
     }
 
-    check_values(
-        [
-            Check {
-                scenario: "--format json",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "status",
-                    "04:00.0",
-                    "--format",
-                    "json",
-                ],
-                expect: "json",
-            },
-            Check {
-                scenario: "--format yaml",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "status",
-                    "04:00.0",
-                    "--format",
-                    "yaml",
-                ],
-                expect: "yaml",
-            },
-        ],
-        |args| status_format(&args),
+    value_scenarios!(
+        run = |args| status_format(&args);
+        "--format json" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "status",
+                "04:00.0",
+                "--format",
+                "json",
+            ] => "json",
+        }
+
+        "--format yaml" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "status",
+                "04:00.0",
+                "--format",
+                "yaml",
+            ] => "yaml",
+        }
     );
 }
 
@@ -180,32 +168,27 @@ fn positional_arguments_become_device_id_and_key() {
         }
     }
 
-    check_values(
-        [
-            Check {
-                scenario: "lock keeps an mst-style device id",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "lock",
-                    "test:device:id",
-                    "12345678",
-                ],
-                expect: ("test:device:id".to_string(), "12345678".to_string()),
-            },
-            Check {
-                scenario: "unlock keeps a PCI device id",
-                input: vec![
-                    "mlxconfig-lockdown",
-                    "lockdown",
-                    "unlock",
-                    "04:00.0",
-                    "abcdef01",
-                ],
-                expect: ("04:00.0".to_string(), "abcdef01".to_string()),
-            },
-        ],
-        |args| device_and_key(&args),
+    value_scenarios!(
+        run = |args| device_and_key(&args);
+        "lock keeps an mst-style device id" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "lock",
+                "test:device:id",
+                "12345678",
+            ] => ("test:device:id".to_string(), "12345678".to_string()),
+        }
+
+        "unlock keeps a PCI device id" {
+            vec![
+                "mlxconfig-lockdown",
+                "lockdown",
+                "unlock",
+                "04:00.0",
+                "abcdef01",
+            ] => ("04:00.0".to_string(), "abcdef01".to_string()),
+        }
     );
 }
 
@@ -225,62 +208,54 @@ mod integration_tests {
     // into one outcome table.
     #[test]
     fn run_cli_dry_runs_succeed_and_real_lookups_fail() {
-        check_cases(
-            [
-                Case {
-                    scenario: "status dry-run prints and succeeds",
-                    input: vec![
-                        "mlxconfig-lockdown",
-                        "lockdown",
-                        "status",
-                        "fake_device",
-                        "--dry-run",
-                    ],
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "lock dry-run prints and succeeds",
-                    input: vec![
-                        "mlxconfig-lockdown",
-                        "lockdown",
-                        "lock",
-                        "fake_device",
-                        "12345678",
-                        "--dry-run",
-                    ],
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "unlock dry-run prints and succeeds",
-                    input: vec![
-                        "mlxconfig-lockdown",
-                        "lockdown",
-                        "unlock",
-                        "fake_device",
-                        "12345678",
-                        "--dry-run",
-                    ],
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "set-key dry-run prints and succeeds",
-                    input: vec![
-                        "mlxconfig-lockdown",
-                        "lockdown",
-                        "set-key",
-                        "fake_device",
-                        "12345678",
-                        "--dry-run",
-                    ],
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "real status against a fake device fails (no flint)",
-                    input: vec!["mlxconfig-lockdown", "lockdown", "status", "fake_device"],
-                    expect: Fails,
-                },
-            ],
-            |args| run(&args),
+        scenarios!(
+            run = |args| run(&args);
+            "status dry-run prints and succeeds" {
+                vec![
+                    "mlxconfig-lockdown",
+                    "lockdown",
+                    "status",
+                    "fake_device",
+                    "--dry-run",
+                ] => Yields(()),
+            }
+
+            "lock dry-run prints and succeeds" {
+                vec![
+                    "mlxconfig-lockdown",
+                    "lockdown",
+                    "lock",
+                    "fake_device",
+                    "12345678",
+                    "--dry-run",
+                ] => Yields(()),
+            }
+
+            "unlock dry-run prints and succeeds" {
+                vec![
+                    "mlxconfig-lockdown",
+                    "lockdown",
+                    "unlock",
+                    "fake_device",
+                    "12345678",
+                    "--dry-run",
+                ] => Yields(()),
+            }
+
+            "set-key dry-run prints and succeeds" {
+                vec![
+                    "mlxconfig-lockdown",
+                    "lockdown",
+                    "set-key",
+                    "fake_device",
+                    "12345678",
+                    "--dry-run",
+                ] => Yields(()),
+            }
+
+            "real status against a fake device fails (no flint)" {
+                vec!["mlxconfig-lockdown", "lockdown", "status", "fake_device"] => Fails,
+            }
         );
     }
 }

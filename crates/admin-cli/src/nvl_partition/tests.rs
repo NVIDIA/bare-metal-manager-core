@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -58,29 +58,22 @@ fn show_parses_filters() {
         }
     }
 
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments (all partitions)",
-                input: &["nvl-partition", "show"][..],
-                expect: Yields((String::new(), None, None)),
-            },
-            Case {
-                scenario: "with --tenant-org-id",
-                input: &["nvl-partition", "show", "--tenant-org-id", "tenant-123"][..],
-                expect: Yields((String::new(), Some("tenant-123".to_string()), None)),
-            },
-            Case {
-                scenario: "with --name",
-                input: &["nvl-partition", "show", "--name", "my-partition"][..],
-                expect: Yields((String::new(), None, Some("my-partition".to_string()))),
-            },
-            Case {
-                scenario: "with positional id",
-                input: &["nvl-partition", "show", "partition-123"][..],
-                expect: Yields(("partition-123".to_string(), None, None)),
-            },
-        ],
-        show_filters,
+    scenarios!(
+        run = show_filters;
+        "no arguments (all partitions)" {
+            &["nvl-partition", "show"][..] => Yields((String::new(), None, None)),
+        }
+
+        "with --tenant-org-id" {
+            &["nvl-partition", "show", "--tenant-org-id", "tenant-123"][..] => Yields((String::new(), Some("tenant-123".to_string()), None)),
+        }
+
+        "with --name" {
+            &["nvl-partition", "show", "--name", "my-partition"][..] => Yields((String::new(), None, Some("my-partition".to_string()))),
+        }
+
+        "with positional id" {
+            &["nvl-partition", "show", "partition-123"][..] => Yields(("partition-123".to_string(), None, None)),
+        }
     );
 }

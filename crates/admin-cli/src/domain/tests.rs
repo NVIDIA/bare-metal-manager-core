@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -51,25 +51,20 @@ fn verify_cmd_structure() {
 // row yields the `(all, domain.is_some())` pair the originals asserted.
 #[test]
 fn parse_show_variants() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments (all domains)",
-                input: &["domain", "show"][..],
-                expect: Yields((false, false)),
-            },
-            Case {
-                scenario: "--all flag (deprecated)",
-                input: &["domain", "show", "--all"][..],
-                expect: Yields((true, false)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.all, args.domain.is_some()),
                 })
                 .map_err(drop)
-        },
+        };
+        "no arguments (all domains)" {
+            &["domain", "show"][..] => Yields((false, false)),
+        }
+
+        "--all flag (deprecated)" {
+            &["domain", "show", "--all"][..] => Yields((true, false)),
+        }
     );
 }

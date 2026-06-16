@@ -338,7 +338,7 @@ impl Default for FlintRunner {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -368,55 +368,43 @@ mod coverage_tests {
     // chars, empty, and embedded whitespace.
     #[test]
     fn is_valid_key_requires_eight_hex_digits() {
-        check_values(
-            [
-                Check {
-                    scenario: "eight lowercase hex digits",
-                    input: "0a1b2c3d",
-                    expect: true,
-                },
-                Check {
-                    scenario: "eight uppercase hex digits",
-                    input: "ABCDEF01",
-                    expect: true,
-                },
-                Check {
-                    scenario: "eight digits, all numeric",
-                    input: "12345678",
-                    expect: true,
-                },
-                Check {
-                    scenario: "seven digits is too short",
-                    input: "1234567",
-                    expect: false,
-                },
-                Check {
-                    scenario: "nine digits is too long",
-                    input: "123456789",
-                    expect: false,
-                },
-                Check {
-                    scenario: "empty string",
-                    input: "",
-                    expect: false,
-                },
-                Check {
-                    scenario: "right length but non-hex char 'g'",
-                    input: "1234567g",
-                    expect: false,
-                },
-                Check {
-                    scenario: "right length but contains a space",
-                    input: "1234 678",
-                    expect: false,
-                },
-                Check {
-                    scenario: "0x-prefixed is not bare hex of length 8",
-                    input: "0x123456",
-                    expect: false,
-                },
-            ],
-            FlintRunner::is_valid_key,
+        value_scenarios!(
+            run = FlintRunner::is_valid_key;
+            "eight lowercase hex digits" {
+                "0a1b2c3d" => true,
+            }
+
+            "eight uppercase hex digits" {
+                "ABCDEF01" => true,
+            }
+
+            "eight digits, all numeric" {
+                "12345678" => true,
+            }
+
+            "seven digits is too short" {
+                "1234567" => false,
+            }
+
+            "nine digits is too long" {
+                "123456789" => false,
+            }
+
+            "empty string" {
+                "" => false,
+            }
+
+            "right length but non-hex char 'g'" {
+                "1234567g" => false,
+            }
+
+            "right length but contains a space" {
+                "1234 678" => false,
+            }
+
+            "0x-prefixed is not bare hex of length 8" {
+                "0x123456" => false,
+            }
         );
     }
 
@@ -424,40 +412,31 @@ mod coverage_tests {
     // Errors aren't PartialEq, so the rejection rows use Fails + map_err(drop).
     #[test]
     fn validate_device_id_rejects_empty_and_spaces() {
-        check_cases(
-            [
-                Case {
-                    scenario: "a PCI-style address is accepted",
-                    input: "0000:01:00.0",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "a simple device name is accepted",
-                    input: "mlx5_0",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "a device path is accepted",
-                    input: "/dev/mst/mt4119_pciconf0",
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "empty is rejected",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "a leading space is rejected",
-                    input: " 01:00.0",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "an interior space is rejected",
-                    input: "01:00 .0",
-                    expect: Fails,
-                },
-            ],
-            |id| FlintRunner::validate_device_id(id).map_err(drop),
+        scenarios!(
+            run = |id| FlintRunner::validate_device_id(id).map_err(drop);
+            "a PCI-style address is accepted" {
+                "0000:01:00.0" => Yields(()),
+            }
+
+            "a simple device name is accepted" {
+                "mlx5_0" => Yields(()),
+            }
+
+            "a device path is accepted" {
+                "/dev/mst/mt4119_pciconf0" => Yields(()),
+            }
+
+            "empty is rejected" {
+                "" => Fails,
+            }
+
+            "a leading space is rejected" {
+                " 01:00.0" => Fails,
+            }
+
+            "an interior space is rejected" {
+                "01:00 .0" => Fails,
+            }
         );
     }
 
@@ -485,25 +464,19 @@ mod coverage_tests {
     #[test]
     fn build_command_formats_path_and_args() {
         let runner = FlintRunner::with_path("/opt/mellanox/mft/bin/flint");
-        check_values(
-            [
-                Check {
-                    scenario: "typical query args",
-                    input: &["-d", "dev0", "q"][..],
-                    expect: "/opt/mellanox/mft/bin/flint -d dev0 q".to_string(),
-                },
-                Check {
-                    scenario: "empty args leaves a trailing space",
-                    input: &[][..],
-                    expect: "/opt/mellanox/mft/bin/flint ".to_string(),
-                },
-                Check {
-                    scenario: "a single arg",
-                    input: &["burn"][..],
-                    expect: "/opt/mellanox/mft/bin/flint burn".to_string(),
-                },
-            ],
-            |args| runner.build_command(args),
+        value_scenarios!(
+            run = |args| runner.build_command(args);
+            "typical query args" {
+                &["-d", "dev0", "q"][..] => "/opt/mellanox/mft/bin/flint -d dev0 q".to_string(),
+            }
+
+            "empty args leaves a trailing space" {
+                &[][..] => "/opt/mellanox/mft/bin/flint ".to_string(),
+            }
+
+            "a single arg" {
+                &["burn"][..] => "/opt/mellanox/mft/bin/flint burn".to_string(),
+            }
         );
     }
 
@@ -572,25 +545,8 @@ mod coverage_tests {
         let runner = FlintRunner::with_path("flint").with_dry_run(true);
 
         // Each key-taking method, fed a too-short key, must report InvalidKey.
-        check_values(
-            [
-                Check {
-                    scenario: "enable_hw_access rejects a bad key",
-                    input: "enable",
-                    expect: "InvalidKey",
-                },
-                Check {
-                    scenario: "disable_hw_access rejects a bad key",
-                    input: "disable",
-                    expect: "InvalidKey",
-                },
-                Check {
-                    scenario: "set_key rejects a bad key",
-                    input: "set_key",
-                    expect: "InvalidKey",
-                },
-            ],
-            |which| {
+        value_scenarios!(
+            run = |which| {
                 let bad = "xyz"; // not 8 hex digits
                 let e = match which {
                     "enable" => runner.enable_hw_access("dev0", bad).unwrap_err(),
@@ -599,7 +555,18 @@ mod coverage_tests {
                     _ => unreachable!(),
                 };
                 err_kind(&e)
-            },
+            };
+            "enable_hw_access rejects a bad key" {
+                "enable" => "InvalidKey",
+            }
+
+            "disable_hw_access rejects a bad key" {
+                "disable" => "InvalidKey",
+            }
+
+            "set_key rejects a bad key" {
+                "set_key" => "InvalidKey",
+            }
         );
     }
 

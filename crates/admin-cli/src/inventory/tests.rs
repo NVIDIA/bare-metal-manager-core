@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -51,38 +51,30 @@ fn verify_cmd_structure() {
 // invocation lands in `cmd.filename`.
 #[test]
 fn parses_optional_filename() {
-    check_cases(
-        [
-            Case {
-                scenario: "no arguments leaves filename unset",
-                input: &["inventory"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "--filename long flag",
-                input: &["inventory", "--filename", "output.json"][..],
-                expect: Yields(Some("output.json".to_string())),
-            },
-            Case {
-                scenario: "-f short flag",
-                input: &["inventory", "-f", "output.json"][..],
-                expect: Yields(Some("output.json".to_string())),
-            },
-            Case {
-                scenario: "absolute path",
-                input: &["inventory", "-f", "/tmp/inventory.json"][..],
-                expect: Yields(Some("/tmp/inventory.json".to_string())),
-            },
-            Case {
-                scenario: "relative path",
-                input: &["inventory", "-f", "./relative/path.csv"][..],
-                expect: Yields(Some("./relative/path.csv".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| cmd.filename)
                 .map_err(drop)
-        },
+        };
+        "no arguments leaves filename unset" {
+            &["inventory"][..] => Yields(None),
+        }
+
+        "--filename long flag" {
+            &["inventory", "--filename", "output.json"][..] => Yields(Some("output.json".to_string())),
+        }
+
+        "-f short flag" {
+            &["inventory", "-f", "output.json"][..] => Yields(Some("output.json".to_string())),
+        }
+
+        "absolute path" {
+            &["inventory", "-f", "/tmp/inventory.json"][..] => Yields(Some("/tmp/inventory.json".to_string())),
+        }
+
+        "relative path" {
+            &["inventory", "-f", "./relative/path.csv"][..] => Yields(Some("./relative/path.csv".to_string())),
+        }
     );
 }

@@ -379,7 +379,7 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
 
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::value_scenarios;
     use carbide_uuid::machine::MachineId;
     use carbide_uuid::nvlink::NvLinkDomainId;
     use carbide_uuid::power_shelf::PowerShelfId;
@@ -634,360 +634,310 @@ mod tests {
 
     #[test]
     fn report_source_strings() {
-        check_values(
-            [
-                Check {
-                    scenario: "BMC sensors",
-                    input: ReportSource::BmcSensors,
-                    expect: "bmc-sensors",
-                },
-                Check {
-                    scenario: "BMC leak detectors",
-                    input: ReportSource::BmcLeakDetectors,
-                    expect: "bmc-leak-detectors",
-                },
-                Check {
-                    scenario: "tray leak detection",
-                    input: ReportSource::TrayLeakDetection,
-                    expect: "tray-leak-detection",
-                },
-                Check {
-                    scenario: "rack leak detection",
-                    input: ReportSource::RackLeakDetection,
-                    expect: "rack-leak-detection",
-                },
-            ],
-            ReportSource::as_str,
+        value_scenarios!(
+            run = ReportSource::as_str;
+            "BMC sensors" {
+                ReportSource::BmcSensors => "bmc-sensors",
+            }
+
+            "BMC leak detectors" {
+                ReportSource::BmcLeakDetectors => "bmc-leak-detectors",
+            }
+
+            "tray leak detection" {
+                ReportSource::TrayLeakDetection => "tray-leak-detection",
+            }
+
+            "rack leak detection" {
+                ReportSource::RackLeakDetection => "rack-leak-detection",
+            }
         );
     }
 
     #[test]
     fn probe_conversions() {
-        check_values(
-            [
-                Check {
-                    scenario: "sensor",
-                    input: Probe::Sensor,
-                    expect: ProbeSummary {
-                        as_str: "BmcSensor",
-                        health_report_id: "BmcSensor".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "leak detection",
-                    input: Probe::LeakDetection,
-                    expect: ProbeSummary {
-                        as_str: "BmcLeakDetection",
-                        health_report_id: "BmcLeakDetection".to_string(),
-                    },
-                },
-            ],
-            |probe| {
+        value_scenarios!(
+            run = |probe| {
                 let id: HealthProbeId = probe.try_into().expect("convert probe id");
                 ProbeSummary {
                     as_str: probe.as_str(),
                     health_report_id: id.to_string(),
                 }
-            },
+            };
+            "sensor" {
+                Probe::Sensor => ProbeSummary {
+                    as_str: "BmcSensor",
+                    health_report_id: "BmcSensor".to_string(),
+                },
+            }
+
+            "leak detection" {
+                Probe::LeakDetection => ProbeSummary {
+                    as_str: "BmcLeakDetection",
+                    health_report_id: "BmcLeakDetection".to_string(),
+                },
+            }
         );
     }
 
     #[test]
     fn classification_conversions() {
-        check_values(
-            [
-                Check {
-                    scenario: "sensor ok",
-                    input: Classification::SensorOk,
-                    expect: ClassificationSummary {
-                        as_str: "SensorOk",
-                        health_report_classification: "SensorOk".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "sensor warning",
-                    input: Classification::SensorWarning,
-                    expect: ClassificationSummary {
-                        as_str: "SensorWarning",
-                        health_report_classification: "SensorWarning".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "sensor critical",
-                    input: Classification::SensorCritical,
-                    expect: ClassificationSummary {
-                        as_str: "SensorCritical",
-                        health_report_classification: "SensorCritical".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "sensor fatal",
-                    input: Classification::SensorFatal,
-                    expect: ClassificationSummary {
-                        as_str: "SensorFatal",
-                        health_report_classification: "SensorFatal".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "sensor failure",
-                    input: Classification::SensorFailure,
-                    expect: ClassificationSummary {
-                        as_str: "SensorFailure",
-                        health_report_classification: "SensorFailure".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "leak",
-                    input: Classification::Leak,
-                    expect: ClassificationSummary {
-                        as_str: "Leak",
-                        health_report_classification: "Leak".to_string(),
-                    },
-                },
-                Check {
-                    scenario: "leak detector",
-                    input: Classification::LeakDetector,
-                    expect: ClassificationSummary {
-                        as_str: "LeakDetector",
-                        health_report_classification: "LeakDetector".to_string(),
-                    },
-                },
-            ],
-            |classification| {
+        value_scenarios!(
+            run = |classification| {
                 let converted: HealthAlertClassification =
                     classification.try_into().expect("convert classification");
                 ClassificationSummary {
                     as_str: classification.as_str(),
                     health_report_classification: converted.to_string(),
                 }
-            },
+            };
+            "sensor ok" {
+                Classification::SensorOk => ClassificationSummary {
+                    as_str: "SensorOk",
+                    health_report_classification: "SensorOk".to_string(),
+                },
+            }
+
+            "sensor warning" {
+                Classification::SensorWarning => ClassificationSummary {
+                    as_str: "SensorWarning",
+                    health_report_classification: "SensorWarning".to_string(),
+                },
+            }
+
+            "sensor critical" {
+                Classification::SensorCritical => ClassificationSummary {
+                    as_str: "SensorCritical",
+                    health_report_classification: "SensorCritical".to_string(),
+                },
+            }
+
+            "sensor fatal" {
+                Classification::SensorFatal => ClassificationSummary {
+                    as_str: "SensorFatal",
+                    health_report_classification: "SensorFatal".to_string(),
+                },
+            }
+
+            "sensor failure" {
+                Classification::SensorFailure => ClassificationSummary {
+                    as_str: "SensorFailure",
+                    health_report_classification: "SensorFailure".to_string(),
+                },
+            }
+
+            "leak" {
+                Classification::Leak => ClassificationSummary {
+                    as_str: "Leak",
+                    health_report_classification: "Leak".to_string(),
+                },
+            }
+
+            "leak detector" {
+                Classification::LeakDetector => ClassificationSummary {
+                    as_str: "LeakDetector",
+                    health_report_classification: "LeakDetector".to_string(),
+                },
+            }
         );
     }
 
     #[test]
     fn health_report_is_empty_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty report",
-                    input: HealthReport {
-                        source: ReportSource::BmcSensors,
-                        target: Some(HealthReportTarget::Machine),
-                        observed_at: None,
-                        successes: vec![],
-                        alerts: vec![],
-                    },
-                    expect: true,
-                },
-                Check {
-                    scenario: "success report",
-                    input: HealthReport {
-                        source: ReportSource::BmcSensors,
-                        target: Some(HealthReportTarget::Machine),
-                        observed_at: None,
-                        successes: vec![HealthReportSuccess {
-                            probe_id: Probe::Sensor,
-                            target: None,
-                        }],
-                        alerts: vec![],
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "alert report",
-                    input: HealthReport {
-                        source: ReportSource::BmcSensors,
-                        target: Some(HealthReportTarget::Machine),
-                        observed_at: None,
-                        successes: vec![],
-                        alerts: vec![HealthReportAlert {
-                            probe_id: Probe::Sensor,
-                            target: None,
-                            message: "alert".to_string(),
-                            classifications: vec![],
-                        }],
-                    },
-                    expect: false,
-                },
-            ],
-            |report| report.is_empty(),
+        value_scenarios!(
+            run = |report| report.is_empty();
+            "empty report" {
+                HealthReport {
+                    source: ReportSource::BmcSensors,
+                    target: Some(HealthReportTarget::Machine),
+                    observed_at: None,
+                    successes: vec![],
+                    alerts: vec![],
+                } => true,
+            }
+
+            "success report" {
+                HealthReport {
+                    source: ReportSource::BmcSensors,
+                    target: Some(HealthReportTarget::Machine),
+                    observed_at: None,
+                    successes: vec![HealthReportSuccess {
+                        probe_id: Probe::Sensor,
+                        target: None,
+                    }],
+                    alerts: vec![],
+                } => false,
+            }
+
+            "alert report" {
+                HealthReport {
+                    source: ReportSource::BmcSensors,
+                    target: Some(HealthReportTarget::Machine),
+                    observed_at: None,
+                    successes: vec![],
+                    alerts: vec![HealthReportAlert {
+                        probe_id: Probe::Sensor,
+                        target: None,
+                        message: "alert".to_string(),
+                        classifications: vec![],
+                    }],
+                } => false,
+            }
         );
     }
 
     #[test]
     fn health_report_success_conversion() {
-        check_values(
-            [
-                Check {
-                    scenario: "success with target",
-                    input: HealthReportSuccess {
-                        probe_id: Probe::Sensor,
-                        target: Some("fan0".to_string()),
-                    },
-                    expect: ("BmcSensor".to_string(), Some("fan0".to_string())),
-                },
-                Check {
-                    scenario: "success without target",
-                    input: HealthReportSuccess {
-                        probe_id: Probe::LeakDetection,
-                        target: None,
-                    },
-                    expect: ("BmcLeakDetection".to_string(), None),
-                },
-            ],
-            |success| {
+        value_scenarios!(
+            run = |success| {
                 let converted: HealthProbeSuccess = (&success).try_into().expect("convert success");
                 (converted.id.to_string(), converted.target)
-            },
+            };
+            "success with target" {
+                HealthReportSuccess {
+                    probe_id: Probe::Sensor,
+                    target: Some("fan0".to_string()),
+                } => ("BmcSensor".to_string(), Some("fan0".to_string())),
+            }
+
+            "success without target" {
+                HealthReportSuccess {
+                    probe_id: Probe::LeakDetection,
+                    target: None,
+                } => ("BmcLeakDetection".to_string(), None),
+            }
         );
     }
 
     #[test]
     fn health_report_alert_conversion() {
-        check_values(
-            [
-                Check {
-                    scenario: "alert with target",
-                    input: AlertCase::WithTarget,
-                    expect: AlertSummary {
-                        id: "BmcSensor".to_string(),
-                        target: Some("fan0".to_string()),
-                        message: "fan warning".to_string(),
-                        tenant_message: None,
-                        in_alert_since: false,
-                        classifications: vec![
-                            "SensorWarning".to_string(),
-                            "SensorFailure".to_string(),
-                            "Hardware".to_string(),
-                        ],
-                    },
+        value_scenarios!(
+            run = convert_alert;
+            "alert with target" {
+                AlertCase::WithTarget => AlertSummary {
+                    id: "BmcSensor".to_string(),
+                    target: Some("fan0".to_string()),
+                    message: "fan warning".to_string(),
+                    tenant_message: None,
+                    in_alert_since: false,
+                    classifications: vec![
+                        "SensorWarning".to_string(),
+                        "SensorFailure".to_string(),
+                        "Hardware".to_string(),
+                    ],
                 },
-                Check {
-                    scenario: "alert without classifications",
-                    input: AlertCase::WithoutClassifications,
-                    expect: AlertSummary {
-                        id: "BmcLeakDetection".to_string(),
-                        target: None,
-                        message: "rack leak".to_string(),
-                        tenant_message: None,
-                        in_alert_since: false,
-                        classifications: vec!["Hardware".to_string()],
-                    },
+            }
+
+            "alert without classifications" {
+                AlertCase::WithoutClassifications => AlertSummary {
+                    id: "BmcLeakDetection".to_string(),
+                    target: None,
+                    message: "rack leak".to_string(),
+                    tenant_message: None,
+                    in_alert_since: false,
+                    classifications: vec!["Hardware".to_string()],
                 },
-            ],
-            convert_alert,
+            }
         );
     }
 
     #[test]
     fn health_report_conversion() {
-        check_values(
-            [
-                Check {
-                    scenario: "report with success, alert, and rack target",
-                    input: ReportCase::Rack,
-                    expect: expected_converted_report(),
-                },
-                Check {
-                    scenario: "report with success and alert but no report target",
-                    input: ReportCase::Untargeted,
-                    expect: expected_converted_report(),
-                },
-            ],
-            convert_report,
+        value_scenarios!(
+            run = convert_report;
+            "report with success, alert, and rack target" {
+                ReportCase::Rack => expected_converted_report(),
+            }
+
+            "report with success and alert but no report target" {
+                ReportCase::Untargeted => expected_converted_report(),
+            }
         );
     }
 
     #[test]
     fn event_context_accessors() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty metadata",
-                    input: ContextKind::Empty,
-                    expect: ContextSummary {
-                        endpoint_key: "00:11:22:33:44:55".to_string(),
-                        machine_id: None,
-                        slot_number: None,
-                        tray_index: None,
-                        nvlink_domain_uuid: None,
-                        switch_id: None,
-                        switch_serial: None,
-                        switch_endpoint_role: None,
-                        switch_is_primary: None,
-                        switch_slot_number: None,
-                        switch_tray_index: None,
-                        power_shelf_id: None,
-                        health_report_target: None,
-                        serial_number: None,
-                        rack_id: Some("rack-1".to_string()),
-                    },
+        value_scenarios!(
+            run = |kind| summarize_context(context(kind));
+            "empty metadata" {
+                ContextKind::Empty => ContextSummary {
+                    endpoint_key: "00:11:22:33:44:55".to_string(),
+                    machine_id: None,
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
+                    switch_id: None,
+                    switch_serial: None,
+                    switch_endpoint_role: None,
+                    switch_is_primary: None,
+                    switch_slot_number: None,
+                    switch_tray_index: None,
+                    power_shelf_id: None,
+                    health_report_target: None,
+                    serial_number: None,
+                    rack_id: Some("rack-1".to_string()),
                 },
-                Check {
-                    scenario: "machine metadata",
-                    input: ContextKind::Machine,
-                    expect: ContextSummary {
-                        endpoint_key: "00:11:22:33:44:55".to_string(),
-                        machine_id: Some(machine_id().to_string()),
-                        slot_number: Some(7),
-                        tray_index: Some(3),
-                        nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
-                        switch_id: None,
-                        switch_serial: None,
-                        switch_endpoint_role: None,
-                        switch_is_primary: None,
-                        switch_slot_number: None,
-                        switch_tray_index: None,
-                        power_shelf_id: None,
-                        health_report_target: Some(HealthReportTarget::Machine),
-                        serial_number: Some("MN-001".to_string()),
-                        rack_id: Some("rack-1".to_string()),
-                    },
+            }
+
+            "machine metadata" {
+                ContextKind::Machine => ContextSummary {
+                    endpoint_key: "00:11:22:33:44:55".to_string(),
+                    machine_id: Some(machine_id().to_string()),
+                    slot_number: Some(7),
+                    tray_index: Some(3),
+                    nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
+                    switch_id: None,
+                    switch_serial: None,
+                    switch_endpoint_role: None,
+                    switch_is_primary: None,
+                    switch_slot_number: None,
+                    switch_tray_index: None,
+                    power_shelf_id: None,
+                    health_report_target: Some(HealthReportTarget::Machine),
+                    serial_number: Some("MN-001".to_string()),
+                    rack_id: Some("rack-1".to_string()),
                 },
-                Check {
-                    scenario: "switch metadata",
-                    input: ContextKind::Switch,
-                    expect: ContextSummary {
-                        endpoint_key: "00:11:22:33:44:55".to_string(),
-                        machine_id: None,
-                        slot_number: None,
-                        tray_index: None,
-                        nvlink_domain_uuid: None,
-                        switch_id: Some(switch_id().to_string()),
-                        switch_serial: Some("SW-001".to_string()),
-                        switch_endpoint_role: Some(SwitchEndpointRole::Host),
-                        switch_is_primary: Some(true),
-                        switch_slot_number: Some(9),
-                        switch_tray_index: Some(4),
-                        power_shelf_id: None,
-                        health_report_target: Some(HealthReportTarget::Switch),
-                        serial_number: Some("SW-001".to_string()),
-                        rack_id: Some("rack-1".to_string()),
-                    },
+            }
+
+            "switch metadata" {
+                ContextKind::Switch => ContextSummary {
+                    endpoint_key: "00:11:22:33:44:55".to_string(),
+                    machine_id: None,
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
+                    switch_id: Some(switch_id().to_string()),
+                    switch_serial: Some("SW-001".to_string()),
+                    switch_endpoint_role: Some(SwitchEndpointRole::Host),
+                    switch_is_primary: Some(true),
+                    switch_slot_number: Some(9),
+                    switch_tray_index: Some(4),
+                    power_shelf_id: None,
+                    health_report_target: Some(HealthReportTarget::Switch),
+                    serial_number: Some("SW-001".to_string()),
+                    rack_id: Some("rack-1".to_string()),
                 },
-                Check {
-                    scenario: "power shelf metadata",
-                    input: ContextKind::PowerShelf,
-                    expect: ContextSummary {
-                        endpoint_key: "00:11:22:33:44:55".to_string(),
-                        machine_id: None,
-                        slot_number: None,
-                        tray_index: None,
-                        nvlink_domain_uuid: None,
-                        switch_id: None,
-                        switch_serial: None,
-                        switch_endpoint_role: None,
-                        switch_is_primary: None,
-                        switch_slot_number: None,
-                        switch_tray_index: None,
-                        power_shelf_id: Some(power_shelf_id().to_string()),
-                        health_report_target: Some(HealthReportTarget::PowerShelf),
-                        serial_number: Some("PS-001".to_string()),
-                        rack_id: Some("rack-1".to_string()),
-                    },
+            }
+
+            "power shelf metadata" {
+                ContextKind::PowerShelf => ContextSummary {
+                    endpoint_key: "00:11:22:33:44:55".to_string(),
+                    machine_id: None,
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
+                    switch_id: None,
+                    switch_serial: None,
+                    switch_endpoint_role: None,
+                    switch_is_primary: None,
+                    switch_slot_number: None,
+                    switch_tray_index: None,
+                    power_shelf_id: Some(power_shelf_id().to_string()),
+                    health_report_target: Some(HealthReportTarget::PowerShelf),
+                    serial_number: Some("PS-001".to_string()),
+                    rack_id: Some("rack-1".to_string()),
                 },
-            ],
-            |kind| summarize_context(context(kind)),
+            }
         );
     }
 }

@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -56,33 +56,8 @@ fn verify_cmd_structure() {
 // the tuple is (id.is_empty(), tenant_org_id, vpc_id, extrainfo).
 #[test]
 fn parse_show_routes_and_carries_filters() {
-    check_cases(
-        [
-            Case {
-                scenario: "show with no arguments",
-                input: &["instance", "show"][..],
-                expect: Yields((true, None, None, false)),
-            },
-            Case {
-                scenario: "show with filter options",
-                input: &[
-                    "instance",
-                    "show",
-                    "--tenant-org-id",
-                    "tenant-123",
-                    "--vpc-id",
-                    "vpc-456",
-                    "--extrainfo",
-                ][..],
-                expect: Yields((
-                    true,
-                    Some("tenant-123".to_string()),
-                    Some("vpc-456".to_string()),
-                    true,
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (
@@ -94,7 +69,27 @@ fn parse_show_routes_and_carries_filters() {
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "show with no arguments" {
+            &["instance", "show"][..] => Yields((true, None, None, false)),
+        }
+
+        "show with filter options" {
+            &[
+                "instance",
+                "show",
+                "--tenant-org-id",
+                "tenant-123",
+                "--vpc-id",
+                "vpc-456",
+                "--extrainfo",
+            ][..] => Yields((
+                true,
+                Some("tenant-123".to_string()),
+                Some("vpc-456".to_string()),
+                true,
+            )),
+        }
     );
 }
 
@@ -102,27 +97,8 @@ fn parse_show_routes_and_carries_filters() {
 // the tuple is (instance, custom_pxe, apply_updates_on_reboot).
 #[test]
 fn parse_reboot_routes_and_carries_options() {
-    check_cases(
-        [
-            Case {
-                scenario: "reboot with instance only",
-                input: &["instance", "reboot", "--instance", TEST_INSTANCE_ID][..],
-                expect: Yields((TEST_INSTANCE_ID.to_string(), false, false)),
-            },
-            Case {
-                scenario: "reboot with all options",
-                input: &[
-                    "instance",
-                    "reboot",
-                    "--instance",
-                    TEST_INSTANCE_ID,
-                    "--custom-pxe",
-                    "--apply-updates-on-reboot",
-                ][..],
-                expect: Yields((TEST_INSTANCE_ID.to_string(), true, true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Reboot(args) => (
@@ -133,7 +109,21 @@ fn parse_reboot_routes_and_carries_options() {
                     _ => panic!("expected Reboot variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "reboot with instance only" {
+            &["instance", "reboot", "--instance", TEST_INSTANCE_ID][..] => Yields((TEST_INSTANCE_ID.to_string(), false, false)),
+        }
+
+        "reboot with all options" {
+            &[
+                "instance",
+                "reboot",
+                "--instance",
+                TEST_INSTANCE_ID,
+                "--custom-pxe",
+                "--apply-updates-on-reboot",
+            ][..] => Yields((TEST_INSTANCE_ID.to_string(), true, true)),
+        }
     );
 }
 
@@ -141,27 +131,22 @@ fn parse_reboot_routes_and_carries_options() {
 // (instance, machine.is_some()).
 #[test]
 fn parse_release_routes_by_target() {
-    check_cases(
-        [
-            Case {
-                scenario: "release by --instance",
-                input: &["instance", "release", "--instance", TEST_INSTANCE_ID][..],
-                expect: Yields((Some(TEST_INSTANCE_ID.to_string()), false)),
-            },
-            Case {
-                scenario: "release by --machine",
-                input: &["instance", "release", "--machine", TEST_MACHINE_ID][..],
-                expect: Yields((None, true)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Release(args) => (args.instance, args.machine.is_some()),
                     _ => panic!("expected Release variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "release by --instance" {
+            &["instance", "release", "--instance", TEST_INSTANCE_ID][..] => Yields((Some(TEST_INSTANCE_ID.to_string()), false)),
+        }
+
+        "release by --machine" {
+            &["instance", "release", "--machine", TEST_MACHINE_ID][..] => Yields((None, true)),
+        }
     );
 }
 
@@ -169,51 +154,8 @@ fn parse_release_routes_by_target() {
 // the tuple is (subnet, prefix_name, number, tenant_org, transactional).
 #[test]
 fn parse_allocate_routes_and_carries_options() {
-    check_cases(
-        [
-            Case {
-                scenario: "allocate with required arguments",
-                input: &[
-                    "instance",
-                    "allocate",
-                    "--subnet",
-                    "10.0.0.0/24",
-                    "--prefix-name",
-                    "my-prefix",
-                ][..],
-                expect: Yields((
-                    vec!["10.0.0.0/24".to_string()],
-                    "my-prefix".to_string(),
-                    None,
-                    None,
-                    false,
-                )),
-            },
-            Case {
-                scenario: "allocate with all options",
-                input: &[
-                    "instance",
-                    "allocate",
-                    "--subnet",
-                    "10.0.0.0/24",
-                    "--prefix-name",
-                    "my-prefix",
-                    "--number",
-                    "5",
-                    "--tenant-org",
-                    "tenant-123",
-                    "--transactional",
-                ][..],
-                expect: Yields((
-                    vec!["10.0.0.0/24".to_string()],
-                    "my-prefix".to_string(),
-                    Some(5),
-                    Some("tenant-123".to_string()),
-                    true,
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Allocate(args) => (
@@ -226,7 +168,45 @@ fn parse_allocate_routes_and_carries_options() {
                     _ => panic!("expected Allocate variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "allocate with required arguments" {
+            &[
+                "instance",
+                "allocate",
+                "--subnet",
+                "10.0.0.0/24",
+                "--prefix-name",
+                "my-prefix",
+            ][..] => Yields((
+                vec!["10.0.0.0/24".to_string()],
+                "my-prefix".to_string(),
+                None,
+                None,
+                false,
+            )),
+        }
+
+        "allocate with all options" {
+            &[
+                "instance",
+                "allocate",
+                "--subnet",
+                "10.0.0.0/24",
+                "--prefix-name",
+                "my-prefix",
+                "--number",
+                "5",
+                "--tenant-org",
+                "tenant-123",
+                "--transactional",
+            ][..] => Yields((
+                vec!["10.0.0.0/24".to_string()],
+                "my-prefix".to_string(),
+                Some(5),
+                Some("tenant-123".to_string()),
+                true,
+            )),
+        }
     );
 }
 
@@ -234,23 +214,18 @@ fn parse_allocate_routes_and_carries_options() {
 // invoked without the required arguments it needs to act on.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "release without instance/machine/label",
-                input: &["instance", "release"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "allocate without subnet/vpc_prefix and prefix-name",
-                input: &["instance", "allocate"][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "release without instance/machine/label" {
+            &["instance", "release"][..] => Fails,
+        }
+
+        "allocate without subnet/vpc_prefix and prefix-name" {
+            &["instance", "allocate"][..] => Fails,
+        }
     );
 }

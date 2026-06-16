@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::value_scenarios;
 use libmlx::runner::exec_options::{ExecOptions, is_destructive_variable};
 
 // Assert `options` holds the documented default configuration. `new()` is meant to
@@ -229,45 +229,35 @@ fn test_backoff_edge_cases() {
 // everything else (other variables, the empty string, mismatched casing) is not.
 #[test]
 fn test_is_destructive_variable() {
-    check_values(
-        [
-            Check {
-                scenario: "the predefined destructive variable",
-                input: "OH_MY_DPU",
-                expect: true,
-            },
-            Check {
-                scenario: "SRIOV_EN is not destructive",
-                input: "SRIOV_EN",
-                expect: false,
-            },
-            Check {
-                scenario: "NUM_OF_VFS is not destructive",
-                input: "NUM_OF_VFS",
-                expect: false,
-            },
-            Check {
-                scenario: "POWER_MODE is not destructive",
-                input: "POWER_MODE",
-                expect: false,
-            },
-            Check {
-                scenario: "the empty string is not destructive",
-                input: "",
-                expect: false,
-            },
-            Check {
-                scenario: "lowercase does not match",
-                input: "oh_my_dpu",
-                expect: false,
-            },
-            Check {
-                scenario: "mixed case does not match",
-                input: "Oh_My_Dpu",
-                expect: false,
-            },
-        ],
-        is_destructive_variable,
+    value_scenarios!(
+        run = is_destructive_variable;
+        "the predefined destructive variable" {
+            "OH_MY_DPU" => true,
+        }
+
+        "SRIOV_EN is not destructive" {
+            "SRIOV_EN" => false,
+        }
+
+        "NUM_OF_VFS is not destructive" {
+            "NUM_OF_VFS" => false,
+        }
+
+        "POWER_MODE is not destructive" {
+            "POWER_MODE" => false,
+        }
+
+        "the empty string is not destructive" {
+            "" => false,
+        }
+
+        "lowercase does not match" {
+            "oh_my_dpu" => false,
+        }
+
+        "mixed case does not match" {
+            "Oh_My_Dpu" => false,
+        }
     );
 }
 

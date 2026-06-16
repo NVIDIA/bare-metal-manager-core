@@ -170,7 +170,7 @@ mod coverage_tests {
     };
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
     use crate::device::filters::{DeviceField, MatchMode};
@@ -215,46 +215,36 @@ mod coverage_tests {
     // single field the setter touches so the non-PartialEq registry stays usable.
     #[test]
     fn builder_name_overwrites() {
-        check_values(
-            [
-                Check {
-                    scenario: "name() replaces the constructor name",
-                    input: "renamed",
-                    expect: "renamed".to_string(),
-                },
-                Check {
-                    scenario: "name() accepts an empty string",
-                    input: "",
-                    expect: String::new(),
-                },
-            ],
-            |new_name| MlxVariableRegistry::new("orig").name(new_name).name,
+        value_scenarios!(
+            run = |new_name| MlxVariableRegistry::new("orig").name(new_name).name;
+            "name() replaces the constructor name" {
+                "renamed" => "renamed".to_string(),
+            }
+
+            "name() accepts an empty string" {
+                "" => String::new(),
+            }
         );
     }
 
     // variables() replaces the whole list; the projected length proves the swap.
     #[test]
     fn builder_variables_replaces_list() {
-        check_values(
-            [
-                Check {
-                    scenario: "empty replacement",
-                    input: vec![],
-                    expect: 0usize,
-                },
-                Check {
-                    scenario: "two-element replacement",
-                    input: vec![var("a"), var("b")],
-                    expect: 2usize,
-                },
-            ],
-            |vars| {
+        value_scenarios!(
+            run = |vars| {
                 MlxVariableRegistry::new("r")
                     .add_variable(var("preexisting"))
                     .variables(vars)
                     .variables
                     .len()
-            },
+            };
+            "empty replacement" {
+                vec![] => 0usize,
+            }
+
+            "two-element replacement" {
+                vec![var("a"), var("b")] => 2usize,
+            }
         );
     }
 
@@ -278,34 +268,27 @@ mod coverage_tests {
             .add_variable(var("alpha"))
             .add_variable(var("beta"));
 
-        check_values(
-            [
-                Check {
-                    scenario: "first variable",
-                    input: "alpha",
-                    expect: "alpha".to_string(),
-                },
-                Check {
-                    scenario: "later variable",
-                    input: "beta",
-                    expect: "beta".to_string(),
-                },
-                Check {
-                    scenario: "missing variable yields None",
-                    input: "gamma",
-                    expect: "<none>".to_string(),
-                },
-                Check {
-                    scenario: "name match is case-sensitive",
-                    input: "ALPHA",
-                    expect: "<none>".to_string(),
-                },
-            ],
-            |name| {
+        value_scenarios!(
+            run = |name| {
                 reg.get_variable(name)
                     .map(|v| v.name.clone())
                     .unwrap_or_else(|| "<none>".to_string())
-            },
+            };
+            "first variable" {
+                "alpha" => "alpha".to_string(),
+            }
+
+            "later variable" {
+                "beta" => "beta".to_string(),
+            }
+
+            "missing variable yields None" {
+                "gamma" => "<none>".to_string(),
+            }
+
+            "name match is case-sensitive" {
+                "ALPHA" => "<none>".to_string(),
+            }
         );
     }
 
@@ -331,26 +314,20 @@ mod coverage_tests {
     // true only once a set holds at least one filter.
     #[test]
     fn has_filters_distinguishes_none_empty_and_nonempty() {
-        check_values(
-            [
-                Check {
-                    scenario: "no filter set",
-                    input: MlxVariableRegistry::new("r"),
-                    expect: false,
-                },
-                Check {
-                    scenario: "present but empty filter set",
-                    input: MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()),
-                    expect: false,
-                },
-                Check {
-                    scenario: "non-empty filter set",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx")),
-                    expect: true,
-                },
-            ],
-            |reg| reg.has_filters(),
+        value_scenarios!(
+            run = |reg| reg.has_filters();
+            "no filter set" {
+                MlxVariableRegistry::new("r") => false,
+            }
+
+            "present but empty filter set" {
+                MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()) => false,
+            }
+
+            "non-empty filter set" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx")) => true,
+            }
         );
     }
 
@@ -361,26 +338,21 @@ mod coverage_tests {
     // filter count distinguishes the two arms.
     #[test]
     fn with_filter_creates_then_extends() {
-        check_values(
-            [
-                Check {
-                    scenario: "first filter creates the set (None arm)",
-                    input: 1usize,
-                    expect: 1usize,
-                },
-                Check {
-                    scenario: "second filter extends the set (Some arm)",
-                    input: 2usize,
-                    expect: 2usize,
-                },
-            ],
-            |count| {
+        value_scenarios!(
+            run = |count| {
                 let mut reg = MlxVariableRegistry::new("r");
                 for i in 0..count {
                     reg = reg.with_filter(exact_filter(DeviceField::DeviceType, &format!("v{i}")));
                 }
                 reg.filters.map(|f| f.filters.len()).unwrap_or(0)
-            },
+            };
+            "first filter creates the set (None arm)" {
+                1usize => 1usize,
+            }
+
+            "second filter extends the set (Some arm)" {
+                2usize => 2usize,
+            }
         );
     }
 
@@ -399,26 +371,20 @@ mod coverage_tests {
     // the DeviceFilterSet Display. An empty set also Displays as "No filters".
     #[test]
     fn filter_summary_reports_none_and_delegates() {
-        check_values(
-            [
-                Check {
-                    scenario: "no filter set",
-                    input: MlxVariableRegistry::new("r"),
-                    expect: "No filters".to_string(),
-                },
-                Check {
-                    scenario: "empty set Displays as No filters",
-                    input: MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()),
-                    expect: "No filters".to_string(),
-                },
-                Check {
-                    scenario: "one exact filter renders field:value:mode",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX")),
-                    expect: "device_type:ConnectX:exact".to_string(),
-                },
-            ],
-            |reg| reg.filter_summary(),
+        value_scenarios!(
+            run = |reg| reg.filter_summary();
+            "no filter set" {
+                MlxVariableRegistry::new("r") => "No filters".to_string(),
+            }
+
+            "empty set Displays as No filters" {
+                MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()) => "No filters".to_string(),
+            }
+
+            "one exact filter renders field:value:mode" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX")) => "device_type:ConnectX:exact".to_string(),
+            }
         );
     }
 
@@ -432,45 +398,36 @@ mod coverage_tests {
     fn matches_device_respects_filters() {
         let device = MlxDeviceInfo::create_test_device();
 
-        check_values(
-            [
-                Check {
-                    scenario: "no filters allows all",
-                    input: MlxVariableRegistry::new("r"),
-                    expect: true,
-                },
-                Check {
-                    scenario: "empty filter set allows all",
-                    input: MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()),
-                    expect: true,
-                },
-                Check {
-                    scenario: "matching exact device_type filter",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx")),
-                    expect: true,
-                },
-                Check {
-                    scenario: "exact filter is case-insensitive",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "connectx-6 dx")),
-                    expect: true,
-                },
-                Check {
-                    scenario: "non-matching device_type filter",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "BlueField3")),
-                    expect: false,
-                },
-                Check {
-                    scenario: "all filters must match (one fails)",
-                    input: MlxVariableRegistry::new("r")
-                        .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx"))
-                        .with_filter(exact_filter(DeviceField::PartNumber, "WRONG-PART")),
-                    expect: false,
-                },
-            ],
-            |reg| reg.matches_device(&device),
+        value_scenarios!(
+            run = |reg| reg.matches_device(&device);
+            "no filters allows all" {
+                MlxVariableRegistry::new("r") => true,
+            }
+
+            "empty filter set allows all" {
+                MlxVariableRegistry::new("r").with_filters(DeviceFilterSet::new()) => true,
+            }
+
+            "matching exact device_type filter" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx")) => true,
+            }
+
+            "exact filter is case-insensitive" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "connectx-6 dx")) => true,
+            }
+
+            "non-matching device_type filter" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "BlueField3")) => false,
+            }
+
+            "all filters must match (one fails)" {
+                MlxVariableRegistry::new("r")
+                .with_filter(exact_filter(DeviceField::DeviceType, "ConnectX-6 Dx"))
+                .with_filter(exact_filter(DeviceField::PartNumber, "WRONG-PART")) => false,
+            }
         );
     }
 
@@ -503,33 +460,8 @@ mod coverage_tests {
     // the projected pieces instead of the whole value.
     #[test]
     fn registry_round_trips_through_pb() {
-        check_cases(
-            [
-                Case {
-                    scenario: "no filters, no variables",
-                    input: MlxVariableRegistry::new("empty"),
-                    expect: Yields(("empty".to_string(), Vec::<String>::new(), false)),
-                },
-                Case {
-                    scenario: "variables only",
-                    input: MlxVariableRegistry::new("vars")
-                        .add_variable(var("a"))
-                        .add_variable(var("b")),
-                    expect: Yields((
-                        "vars".to_string(),
-                        vec!["a".to_string(), "b".to_string()],
-                        false,
-                    )),
-                },
-                Case {
-                    scenario: "variables and a filter",
-                    input: MlxVariableRegistry::new("full")
-                        .add_variable(var("only"))
-                        .with_filter(exact_filter(DeviceField::PartNumber, "MCX")),
-                    expect: Yields(("full".to_string(), vec!["only".to_string()], true)),
-                },
-            ],
-            |reg: MlxVariableRegistry| {
+        scenarios!(
+            run = |reg: MlxVariableRegistry| {
                 let pb: MlxVariableRegistryPb = reg.into();
                 let back: MlxVariableRegistry = pb.try_into().map_err(drop)?;
                 let names: Vec<String> = back
@@ -539,7 +471,26 @@ mod coverage_tests {
                     .collect();
                 let has_filters = back.has_filters();
                 Ok::<_, ()>((back.name, names, has_filters))
-            },
+            };
+            "no filters, no variables" {
+                MlxVariableRegistry::new("empty") => Yields(("empty".to_string(), Vec::<String>::new(), false)),
+            }
+
+            "variables only" {
+                MlxVariableRegistry::new("vars")
+                .add_variable(var("a"))
+                .add_variable(var("b")) => Yields((
+                    "vars".to_string(),
+                    vec!["a".to_string(), "b".to_string()],
+                    false,
+                )),
+            }
+
+            "variables and a filter" {
+                MlxVariableRegistry::new("full")
+                .add_variable(var("only"))
+                .with_filter(exact_filter(DeviceField::PartNumber, "MCX")) => Yields(("full".to_string(), vec!["only".to_string()], true)),
+            }
         );
     }
 
@@ -557,86 +508,78 @@ mod coverage_tests {
             }
         }
 
-        check_cases(
-            [
-                Case {
-                    scenario: "valid filter converts",
-                    input: MlxVariableRegistryPb {
-                        name: "ok".to_string(),
-                        variables: vec![],
-                        filters: Some(DeviceFilterSetPb {
-                            filters: vec![DeviceFilterPb {
-                                // 1 == DEVICE_FIELD_DEVICE_TYPE
-                                field: 1,
-                                values: vec!["x".to_string()],
-                                // 2 == MATCH_MODE_EXACT
-                                match_mode: 2,
-                            }],
-                        }),
-                    },
-                    expect: Yields(()),
-                },
-                Case {
-                    scenario: "unspecified device field rejected",
-                    input: MlxVariableRegistryPb {
-                        name: "bad-field".to_string(),
-                        variables: vec![],
-                        filters: Some(DeviceFilterSetPb {
-                            filters: vec![DeviceFilterPb {
-                                // 0 == DEVICE_FIELD_UNSPECIFIED -> conversion error
-                                field: 0,
-                                values: vec!["x".to_string()],
-                                match_mode: 2,
-                            }],
-                        }),
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "out-of-range device field rejected",
-                    input: MlxVariableRegistryPb {
-                        name: "bad-field-range".to_string(),
-                        variables: vec![],
-                        filters: Some(DeviceFilterSetPb {
-                            filters: vec![DeviceFilterPb {
-                                field: 999,
-                                values: vec!["x".to_string()],
-                                match_mode: 2,
-                            }],
-                        }),
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "variable missing its spec rejected",
-                    input: MlxVariableRegistryPb {
-                        name: "bad-var".to_string(),
-                        variables: vec![MlxConfigVariablePb {
-                            name: "v".to_string(),
-                            description: "d".to_string(),
-                            read_only: false,
-                            spec: None,
+        scenarios!(
+            run = |pb: MlxVariableRegistryPb| MlxVariableRegistry::try_from(pb).map(drop).map_err(drop);
+            "valid filter converts" {
+                MlxVariableRegistryPb {
+                    name: "ok".to_string(),
+                    variables: vec![],
+                    filters: Some(DeviceFilterSetPb {
+                        filters: vec![DeviceFilterPb {
+                            // 1 == DEVICE_FIELD_DEVICE_TYPE
+                            field: 1,
+                            values: vec!["x".to_string()],
+                            // 2 == MATCH_MODE_EXACT
+                            match_mode: 2,
                         }],
-                        filters: None,
-                    },
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "no filters, valid variable converts",
-                    input: MlxVariableRegistryPb {
-                        name: "plain".to_string(),
-                        variables: vec![MlxConfigVariablePb {
-                            name: "v".to_string(),
-                            description: "d".to_string(),
-                            read_only: true,
-                            spec: Some(bool_spec_pb()),
+                    }),
+                } => Yields(()),
+            }
+
+            "unspecified device field rejected" {
+                MlxVariableRegistryPb {
+                    name: "bad-field".to_string(),
+                    variables: vec![],
+                    filters: Some(DeviceFilterSetPb {
+                        filters: vec![DeviceFilterPb {
+                            // 0 == DEVICE_FIELD_UNSPECIFIED -> conversion error
+                            field: 0,
+                            values: vec!["x".to_string()],
+                            match_mode: 2,
                         }],
-                        filters: None,
-                    },
-                    expect: Yields(()),
-                },
-            ],
-            |pb: MlxVariableRegistryPb| MlxVariableRegistry::try_from(pb).map(drop).map_err(drop),
+                    }),
+                } => Fails,
+            }
+
+            "out-of-range device field rejected" {
+                MlxVariableRegistryPb {
+                    name: "bad-field-range".to_string(),
+                    variables: vec![],
+                    filters: Some(DeviceFilterSetPb {
+                        filters: vec![DeviceFilterPb {
+                            field: 999,
+                            values: vec!["x".to_string()],
+                            match_mode: 2,
+                        }],
+                    }),
+                } => Fails,
+            }
+
+            "variable missing its spec rejected" {
+                MlxVariableRegistryPb {
+                    name: "bad-var".to_string(),
+                    variables: vec![MlxConfigVariablePb {
+                        name: "v".to_string(),
+                        description: "d".to_string(),
+                        read_only: false,
+                        spec: None,
+                    }],
+                    filters: None,
+                } => Fails,
+            }
+
+            "no filters, valid variable converts" {
+                MlxVariableRegistryPb {
+                    name: "plain".to_string(),
+                    variables: vec![MlxConfigVariablePb {
+                        name: "v".to_string(),
+                        description: "d".to_string(),
+                        read_only: true,
+                        spec: Some(bool_spec_pb()),
+                    }],
+                    filters: None,
+                } => Yields(()),
+            }
         );
     }
 }

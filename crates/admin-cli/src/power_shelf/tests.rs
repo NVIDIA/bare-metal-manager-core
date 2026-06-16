@@ -24,7 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use carbide_test_support::Outcome::*;
-use carbide_test_support::{Case, check_cases};
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -50,27 +50,22 @@ fn verify_cmd_structure() {
 // supplied value or `None` when omitted (all shelves).
 #[test]
 fn parse_show_identifier() {
-    check_cases(
-        [
-            Case {
-                scenario: "no identifier (all shelves)",
-                input: &["power-shelf", "show"][..],
-                expect: Yields(None),
-            },
-            Case {
-                scenario: "with identifier",
-                input: &["power-shelf", "show", "shelf-123"][..],
-                expect: Yields(Some("shelf-123".to_string())),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => args.identifier,
                     _ => panic!("expected Show variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "no identifier (all shelves)" {
+            &["power-shelf", "show"][..] => Yields(None),
+        }
+
+        "with identifier" {
+            &["power-shelf", "show", "shelf-123"][..] => Yields(Some("shelf-123".to_string())),
+        }
     );
 }
 
@@ -86,22 +81,8 @@ fn parse_list() {
 // the controller-state string, and a parsed `--bmc-mac`.
 #[test]
 fn parse_list_with_filters() {
-    check_cases(
-        [Case {
-            scenario: "deleted + controller-state + bmc-mac",
-            input: &[
-                "power-shelf",
-                "list",
-                "--deleted",
-                "only",
-                "--controller-state",
-                "ready",
-                "--bmc-mac",
-                "AA:BB:CC:DD:EE:FF",
-            ][..],
-            expect: Yields((true, Some("ready".to_string()), true)),
-        }],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::List(args) => (
@@ -112,7 +93,19 @@ fn parse_list_with_filters() {
                     _ => panic!("expected List variant"),
                 })
                 .map_err(drop)
-        },
+        };
+        "deleted + controller-state + bmc-mac" {
+            &[
+                "power-shelf",
+                "list",
+                "--deleted",
+                "only",
+                "--controller-state",
+                "ready",
+                "--bmc-mac",
+                "AA:BB:CC:DD:EE:FF",
+            ][..] => Yields((true, Some("ready".to_string()), true)),
+        }
     );
 }
 
@@ -121,40 +114,33 @@ fn parse_list_with_filters() {
 // id, and an unknown maintenance subcommand.
 #[test]
 fn invalid_invocations_are_rejected() {
-    check_cases(
-        [
-            Case {
-                scenario: "list with an invalid --deleted value",
-                input: &["power-shelf", "list", "--deleted", "bogus"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "list with an invalid --bmc-mac",
-                input: &["power-shelf", "list", "--bmc-mac", "not-a-mac"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "maintenance power-on missing required --power-shelf-id",
-                input: &["power-shelf", "maintenance", "power-on"][..],
-                expect: Fails,
-            },
-            Case {
-                scenario: "maintenance unknown subcommand power-cycle",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-cycle",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                ][..],
-                expect: Fails,
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|_| ())
                 .map_err(drop)
-        },
+        };
+        "list with an invalid --deleted value" {
+            &["power-shelf", "list", "--deleted", "bogus"][..] => Fails,
+        }
+
+        "list with an invalid --bmc-mac" {
+            &["power-shelf", "list", "--bmc-mac", "not-a-mac"][..] => Fails,
+        }
+
+        "maintenance power-on missing required --power-shelf-id" {
+            &["power-shelf", "maintenance", "power-on"][..] => Fails,
+        }
+
+        "maintenance unknown subcommand power-cycle" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-cycle",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+            ][..] => Fails,
+        }
     );
 }
 
@@ -189,63 +175,8 @@ fn parse_ps_id(id: &str) -> PowerShelfId {
 /// row yields the parsed `(power_shelf_ids, reference)`.
 #[test]
 fn parse_maintenance_power_on() {
-    check_cases(
-        [
-            Case {
-                scenario: "single id",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-on",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                ][..],
-                expect: Yields((vec![parse_ps_id(SAMPLE_PS_ID_1)], None)),
-            },
-            Case {
-                scenario: "two ids on a single flag occurrence (num_args = 1..)",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-on",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                    SAMPLE_PS_ID_2,
-                ][..],
-                expect: Yields((
-                    vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
-                    None,
-                )),
-            },
-            Case {
-                scenario: "--reference is captured",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-on",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                    "--reference",
-                    "https://issues.example.com/TICKET-1",
-                ][..],
-                expect: Yields((
-                    vec![parse_ps_id(SAMPLE_PS_ID_1)],
-                    Some("https://issues.example.com/TICKET-1".to_string()),
-                )),
-            },
-            Case {
-                scenario: "--id alias captures the power-shelf id",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-on",
-                    "--id",
-                    SAMPLE_PS_ID_1,
-                ][..],
-                expect: Yields((vec![parse_ps_id(SAMPLE_PS_ID_1)], None)),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
@@ -254,7 +185,55 @@ fn parse_maintenance_power_on() {
                     other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
                 })
                 .map_err(drop)
-        },
+        };
+        "single id" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-on",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+            ][..] => Yields((vec![parse_ps_id(SAMPLE_PS_ID_1)], None)),
+        }
+
+        "two ids on a single flag occurrence (num_args = 1..)" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-on",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+                SAMPLE_PS_ID_2,
+            ][..] => Yields((
+                vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+                None,
+            )),
+        }
+
+        "--reference is captured" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-on",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+                "--reference",
+                "https://issues.example.com/TICKET-1",
+            ][..] => Yields((
+                vec![parse_ps_id(SAMPLE_PS_ID_1)],
+                Some("https://issues.example.com/TICKET-1".to_string()),
+            )),
+        }
+
+        "--id alias captures the power-shelf id" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-on",
+                "--id",
+                SAMPLE_PS_ID_1,
+            ][..] => Yields((vec![parse_ps_id(SAMPLE_PS_ID_1)], None)),
+        }
     );
 }
 
@@ -263,42 +242,8 @@ fn parse_maintenance_power_on() {
 /// `--reference`. Each row yields the parsed `(power_shelf_ids, reference)`.
 #[test]
 fn parse_maintenance_power_off() {
-    check_cases(
-        [
-            Case {
-                scenario: "two ids via repeated --power-shelf-id flags",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-off",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_2,
-                ][..],
-                expect: Yields((
-                    vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
-                    None,
-                )),
-            },
-            Case {
-                scenario: "--ref alias captures the reference",
-                input: &[
-                    "power-shelf",
-                    "maintenance",
-                    "power-off",
-                    "--power-shelf-id",
-                    SAMPLE_PS_ID_1,
-                    "--ref",
-                    "TICKET-2",
-                ][..],
-                expect: Yields((
-                    vec![parse_ps_id(SAMPLE_PS_ID_1)],
-                    Some("TICKET-2".to_string()),
-                )),
-            },
-        ],
-        |argv| {
+    scenarios!(
+        run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Maintenance(maintenance::Args::PowerOff(args)) => {
@@ -307,7 +252,36 @@ fn parse_maintenance_power_off() {
                     other => panic!("expected Maintenance(PowerOff(_)), got: {other:?}"),
                 })
                 .map_err(drop)
-        },
+        };
+        "two ids via repeated --power-shelf-id flags" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-off",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+                "--power-shelf-id",
+                SAMPLE_PS_ID_2,
+            ][..] => Yields((
+                vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+                None,
+            )),
+        }
+
+        "--ref alias captures the reference" {
+            &[
+                "power-shelf",
+                "maintenance",
+                "power-off",
+                "--power-shelf-id",
+                SAMPLE_PS_ID_1,
+                "--ref",
+                "TICKET-2",
+            ][..] => Yields((
+                vec![parse_ps_id(SAMPLE_PS_ID_1)],
+                Some("TICKET-2".to_string()),
+            )),
+        }
     );
 }
 

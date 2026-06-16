@@ -235,7 +235,7 @@ pub enum ResourcePoolError {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
 
@@ -243,35 +243,8 @@ mod tests {
     fn serialize_resource_pool_entry_state() {
         // Each row carries the state and its canonical JSON; the operation
         // serializes the state and confirms it round-trips back unchanged.
-        check_cases(
-            [
-                Case {
-                    scenario: "free",
-                    input: ResourcePoolEntryState::Free,
-                    expect: Yields(r#"{"state":"free"}"#.to_string()),
-                },
-                Case {
-                    scenario: "allocated",
-                    input: ResourcePoolEntryState::Allocated {
-                        owner: "me".to_string(),
-                        owner_type: "my_stuff".to_string(),
-                    },
-                    expect: Yields(
-                        r#"{"state":"allocated","owner":"me","owner_type":"my_stuff"}"#.to_string(),
-                    ),
-                },
-                Case {
-                    scenario: "allocated with empty owner fields",
-                    input: ResourcePoolEntryState::Allocated {
-                        owner: String::new(),
-                        owner_type: String::new(),
-                    },
-                    expect: Yields(
-                        r#"{"state":"allocated","owner":"","owner_type":""}"#.to_string(),
-                    ),
-                },
-            ],
-            |state| {
+        scenarios!(
+            run = |state| {
                 let serialized = serde_json::to_string(&state).map_err(drop)?;
                 let parsed: ResourcePoolEntryState =
                     serde_json::from_str(&serialized).map_err(drop)?;
@@ -279,44 +252,57 @@ mod tests {
                     return Err(());
                 }
                 Ok::<_, ()>(serialized)
-            },
+            };
+            "free" {
+                ResourcePoolEntryState::Free => Yields(r#"{"state":"free"}"#.to_string()),
+            }
+
+            "allocated" {
+                ResourcePoolEntryState::Allocated {
+                    owner: "me".to_string(),
+                    owner_type: "my_stuff".to_string(),
+                } => Yields(
+                    r#"{"state":"allocated","owner":"me","owner_type":"my_stuff"}"#.to_string(),
+                ),
+            }
+
+            "allocated with empty owner fields" {
+                ResourcePoolEntryState::Allocated {
+                    owner: String::new(),
+                    owner_type: String::new(),
+                } => Yields(
+                    r#"{"state":"allocated","owner":"","owner_type":""}"#.to_string(),
+                ),
+            }
         );
     }
 
     #[test]
     fn deserialize_resource_pool_entry_state() {
-        check_cases(
-            [
-                Case {
-                    scenario: "free",
-                    input: r#"{"state":"free"}"#,
-                    expect: Yields(ResourcePoolEntryState::Free),
-                },
-                Case {
-                    scenario: "allocated",
-                    input: r#"{"state":"allocated","owner":"me","owner_type":"vpc"}"#,
-                    expect: Yields(ResourcePoolEntryState::Allocated {
-                        owner: "me".to_string(),
-                        owner_type: "vpc".to_string(),
-                    }),
-                },
-                Case {
-                    scenario: "unknown tag is rejected",
-                    input: r#"{"state":"borrowed"}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "allocated missing owner_type is rejected",
-                    input: r#"{"state":"allocated","owner":"me"}"#,
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "not an object is rejected",
-                    input: r#"42"#,
-                    expect: Fails,
-                },
-            ],
-            |json| serde_json::from_str::<ResourcePoolEntryState>(json).map_err(drop),
+        scenarios!(
+            run = |json| serde_json::from_str::<ResourcePoolEntryState>(json).map_err(drop);
+            "free" {
+                r#"{"state":"free"}"# => Yields(ResourcePoolEntryState::Free),
+            }
+
+            "allocated" {
+                r#"{"state":"allocated","owner":"me","owner_type":"vpc"}"# => Yields(ResourcePoolEntryState::Allocated {
+                    owner: "me".to_string(),
+                    owner_type: "vpc".to_string(),
+                }),
+            }
+
+            "unknown tag is rejected" {
+                r#"{"state":"borrowed"}"# => Fails,
+            }
+
+            "allocated missing owner_type is rejected" {
+                r#"{"state":"allocated","owner":"me"}"# => Fails,
+            }
+
+            "not an object is rejected" {
+                r#"42"# => Fails,
+            }
         );
     }
 
@@ -324,55 +310,43 @@ mod tests {
     fn owner_type_from_str() {
         // `ModelError` has no `PartialEq`, so error rows use `Fails` and the run
         // closure drops the error to settle on `()`.
-        check_cases(
-            [
-                Case {
-                    scenario: "machine",
-                    input: "machine",
-                    expect: Yields(OwnerType::Machine),
-                },
-                Case {
-                    scenario: "network_segment",
-                    input: "network_segment",
-                    expect: Yields(OwnerType::NetworkSegment),
-                },
-                Case {
-                    scenario: "ib_partition",
-                    input: "ib_partition",
-                    expect: Yields(OwnerType::IBPartition),
-                },
-                Case {
-                    scenario: "vpc",
-                    input: "vpc",
-                    expect: Yields(OwnerType::Vpc),
-                },
-                Case {
-                    scenario: "spx_partition round-trips through Display/FromStr",
-                    input: "spx_partition",
-                    expect: Yields(OwnerType::SpxPartition),
-                },
-                Case {
-                    scenario: "unknown string",
-                    input: "nonsense",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "empty string",
-                    input: "",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "wrong case is rejected",
-                    input: "Machine",
-                    expect: Fails,
-                },
-                Case {
-                    scenario: "leading whitespace is rejected",
-                    input: " machine",
-                    expect: Fails,
-                },
-            ],
-            |s| OwnerType::from_str(s).map_err(drop),
+        scenarios!(
+            run = |s| OwnerType::from_str(s).map_err(drop);
+            "machine" {
+                "machine" => Yields(OwnerType::Machine),
+            }
+
+            "network_segment" {
+                "network_segment" => Yields(OwnerType::NetworkSegment),
+            }
+
+            "ib_partition" {
+                "ib_partition" => Yields(OwnerType::IBPartition),
+            }
+
+            "vpc" {
+                "vpc" => Yields(OwnerType::Vpc),
+            }
+
+            "spx_partition round-trips through Display/FromStr" {
+                "spx_partition" => Yields(OwnerType::SpxPartition),
+            }
+
+            "unknown string" {
+                "nonsense" => Fails,
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "wrong case is rejected" {
+                "Machine" => Fails,
+            }
+
+            "leading whitespace is rejected" {
+                " machine" => Fails,
+            }
         );
     }
 
@@ -380,93 +354,71 @@ mod tests {
     fn owner_type_display_round_trips_via_from_str() {
         // Every variant that `from_str` accepts must display to a string that
         // `from_str` accepts back as the same variant.
-        check_cases(
-            [
-                Case {
-                    scenario: "machine",
-                    input: OwnerType::Machine,
-                    expect: Yields(OwnerType::Machine),
-                },
-                Case {
-                    scenario: "network_segment",
-                    input: OwnerType::NetworkSegment,
-                    expect: Yields(OwnerType::NetworkSegment),
-                },
-                Case {
-                    scenario: "ib_partition",
-                    input: OwnerType::IBPartition,
-                    expect: Yields(OwnerType::IBPartition),
-                },
-                Case {
-                    scenario: "vpc",
-                    input: OwnerType::Vpc,
-                    expect: Yields(OwnerType::Vpc),
-                },
-            ],
-            |owner| OwnerType::from_str(&owner.to_string()).map_err(drop),
+        scenarios!(
+            run = |owner| OwnerType::from_str(&owner.to_string()).map_err(drop);
+            "machine" {
+                OwnerType::Machine => Yields(OwnerType::Machine),
+            }
+
+            "network_segment" {
+                OwnerType::NetworkSegment => Yields(OwnerType::NetworkSegment),
+            }
+
+            "ib_partition" {
+                OwnerType::IBPartition => Yields(OwnerType::IBPartition),
+            }
+
+            "vpc" {
+                OwnerType::Vpc => Yields(OwnerType::Vpc),
+            }
         );
     }
 
     #[test]
     fn owner_type_display() {
-        check_values(
-            [
-                Check {
-                    scenario: "machine",
-                    input: OwnerType::Machine,
-                    expect: "machine".to_string(),
-                },
-                Check {
-                    scenario: "network_segment",
-                    input: OwnerType::NetworkSegment,
-                    expect: "network_segment".to_string(),
-                },
-                Check {
-                    scenario: "ib_partition",
-                    input: OwnerType::IBPartition,
-                    expect: "ib_partition".to_string(),
-                },
-                Check {
-                    scenario: "vpc",
-                    input: OwnerType::Vpc,
-                    expect: "vpc".to_string(),
-                },
-                Check {
-                    scenario: "spx_partition",
-                    input: OwnerType::SpxPartition,
-                    expect: "spx_partition".to_string(),
-                },
-            ],
-            |owner| owner.to_string(),
+        value_scenarios!(
+            run = |owner| owner.to_string();
+            "machine" {
+                OwnerType::Machine => "machine".to_string(),
+            }
+
+            "network_segment" {
+                OwnerType::NetworkSegment => "network_segment".to_string(),
+            }
+
+            "ib_partition" {
+                OwnerType::IBPartition => "ib_partition".to_string(),
+            }
+
+            "vpc" {
+                OwnerType::Vpc => "vpc".to_string(),
+            }
+
+            "spx_partition" {
+                OwnerType::SpxPartition => "spx_partition".to_string(),
+            }
         );
     }
 
     #[test]
     fn value_type_display() {
-        check_values(
-            [
-                Check {
-                    scenario: "integer",
-                    input: ValueType::Integer,
-                    expect: "Integer".to_string(),
-                },
-                Check {
-                    scenario: "ipv4",
-                    input: ValueType::Ipv4,
-                    expect: "Ipv4".to_string(),
-                },
-                Check {
-                    scenario: "ipv6",
-                    input: ValueType::Ipv6,
-                    expect: "Ipv6".to_string(),
-                },
-                Check {
-                    scenario: "ipv6_prefix",
-                    input: ValueType::Ipv6Prefix,
-                    expect: "Ipv6Prefix".to_string(),
-                },
-            ],
-            |value_type| value_type.to_string(),
+        value_scenarios!(
+            run = |value_type| value_type.to_string();
+            "integer" {
+                ValueType::Integer => "Integer".to_string(),
+            }
+
+            "ipv4" {
+                ValueType::Ipv4 => "Ipv4".to_string(),
+            }
+
+            "ipv6" {
+                ValueType::Ipv6 => "Ipv6".to_string(),
+            }
+
+            "ipv6_prefix" {
+                ValueType::Ipv6Prefix => "Ipv6Prefix".to_string(),
+            }
         );
     }
 }

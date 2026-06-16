@@ -1872,6 +1872,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-macros",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "eyre",
  "futures-util",
  "hex",
@@ -2064,6 +2065,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2521,6 +2523,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -2565,6 +2568,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-controller",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tonic",
@@ -2692,6 +2696,7 @@ dependencies = [
  "byte-unit",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "config-version",
@@ -2820,6 +2825,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-ipmi",
  "carbide-network",
+ "carbide-rack",
  "carbide-redfish",
  "carbide-rpc",
  "carbide-secrets",
@@ -3043,6 +3049,7 @@ version = "0.0.0"
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "rustls",
  "serde",
  "serde_json",
@@ -3475,6 +3482,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-rack",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -6550,8 +6558,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.13"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+version = "0.0.14"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
 dependencies = [
  "async-trait",
  "chrono",
@@ -8560,6 +8568,7 @@ dependencies = [
 name = "prometheus-text-parser"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "thiserror 2.0.18",
 ]
 
@@ -11512,7 +11521,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
 dependencies = [
  "async-trait",
  "heck",

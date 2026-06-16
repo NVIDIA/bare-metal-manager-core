@@ -206,6 +206,8 @@ DevicesandIOPorts_IOMMU = "Disabled"
 OperatingModes_ChooseOperatingMode = "MinimalPower"
 
 [rack_profiles.NVL72]
+product_family = "gb200"
+
 [rack_profiles.NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
@@ -218,6 +220,8 @@ count = 9
 count = 8
 
 [rack_profiles.NVL36]
+product_family = "gb200"
+
 [rack_profiles.NVL36.rack_capabilities.compute]
 count = 9
 
