@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 use std::process::Command;
 
 use tss_esapi::handles::AuthHandle;
 use tss_esapi::interface_types::session_handles::AuthSession;
 
 use crate::{CarbideClientError, attestation as attest};
+
+pub(crate) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/tmp/tpm_recovery_reboot_attempted";
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
 pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
@@ -80,4 +85,64 @@ pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     ctx.clear_sessions();
     tracing::info!("TPM lockout hierarchy clear completed");
     Ok(())
+}
+
+pub(crate) fn is_recoverable_tpm_client_error(error: &CarbideClientError) -> bool {
+    match error {
+        CarbideClientError::TpmError(message) => {
+            message.contains("Could not create AttestKeyInfo")
+                || message.contains("Could not create context")
+                || message.contains("TPM2_Clear")
+        }
+        _ => false,
+    }
+}
+
+/// Clears the TPM and reboots the host once per boot cycle to recover from missing TPM material.
+pub(crate) fn recover_tpm_and_reboot(tpm_path: &str) -> Result<(), CarbideClientError> {
+    if Path::new(TPM_RECOVERY_ATTEMPTED_PATH).exists() {
+        return Err(CarbideClientError::TpmError(
+            "TPM recovery was already attempted this boot cycle; refusing to loop".to_string(),
+        ));
+    }
+
+    tracing::warn!("Attempting automated TPM clear and reboot to recover attestation state");
+    clear_tpm(tpm_path)?;
+
+    let mut marker =
+        File::create(TPM_RECOVERY_ATTEMPTED_PATH).map_err(CarbideClientError::StdIo)?;
+    marker
+        .write_all(b"tpm recovery reboot requested\n")
+        .map_err(CarbideClientError::StdIo)?;
+
+    let output = Command::new("systemctl")
+        .arg("reboot")
+        .output()
+        .map_err(CarbideClientError::StdIo)?;
+    if !output.status.success() {
+        return Err(CarbideClientError::GenericError(format!(
+            "systemctl reboot failed with status {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recoverable_tpm_errors_include_attest_key_info_failures() {
+        let err = CarbideClientError::TpmError("Could not create AttestKeyInfo: test".to_string());
+        assert!(is_recoverable_tpm_client_error(&err));
+    }
+
+    #[test]
+    fn non_tpm_client_errors_are_not_recoverable() {
+        let err = CarbideClientError::GenericError("transport failed".to_string());
+        assert!(!is_recoverable_tpm_client_error(&err));
+    }
 }
