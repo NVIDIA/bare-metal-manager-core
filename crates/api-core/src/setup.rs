@@ -39,7 +39,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::NvLinkManager;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -1378,7 +1378,7 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvlPartitionMonitor::new(
+    NvLinkManager::new(
         db_pool.clone(),
         api_service.nmxc_client_pool.clone(),
         meter.clone(),

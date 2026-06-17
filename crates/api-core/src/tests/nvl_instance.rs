@@ -43,6 +43,7 @@ use model::switch::{
     SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -2035,10 +2036,10 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
 // Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
 const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
 
-const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/ytl-jhb01-ca.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_CERT: &str = "/etc/nmx-controller/ytl-jhb01-tls.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/ytl-jhb01-tls.key";
-const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "ytl-jhb01";
+const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/nmxc-simulator-test-ca.crt";
+const NMXC_SIMULATOR_TLS_CERT: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.crt";
+const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.key";
+const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "nmxc-simulator.test";
 
 fn nmxc_simulator_tests_enabled() -> bool {
     std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
@@ -2117,8 +2118,7 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
         nvlink_config.enabled = true;
         if with_mtls {
             nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
-            nvlink_config.nmx_c_tls_client_cert_path =
-                Some(NMXC_SIMULATOR_TLS_CLIENT_CERT.to_string());
+            nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
             nvlink_config.nmx_c_tls_client_key_path =
                 Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
             nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
@@ -2561,12 +2561,12 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
 }
 
 // mTLS scenario. For this test, the simulator needs to be configured with mTLS.
-// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/ytl-jhb01-tls.crt -k /etc/nmx-controller/ytl-jhb01-tls.key -a /etc/nmx-controller/ytl-jhb01-ca.crt -e mtls"
+// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/nmxc-simulator-test-tls.crt -k /etc/nmx-controller/nmxc-simulator-test-tls.key -a /etc/nmx-controller/nmxc-simulator-test-ca.crt -e mtls"
 // This test uses the following harcoded mtls config:
-// ytl-jhb01-ca.crt is the CA certificate
-// ytl-jhb01-tls.crt is the client certificate
-// ytl-jhb01-tls.key is the client key
-// ytl-jhb01 is the authority
+// nmxc-simulator-test-ca.crt is the CA certificate
+// nmxc-simulator-test-tls.crt is the leaf certificate
+// nmxc-simulator-test-tls.key is the client key
+// nmxc-simulator.test is the authority
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx::PgPool) {
     if !nmxc_simulator_tests_enabled() {
@@ -2576,6 +2576,86 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
         return;
     }
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, true).await;
+}
+
+async fn assert_switch_cert_monitor_nmxc_simulator_probe(
+    pool: sqlx::PgPool,
+    desired_server_cert_path: &std::path::Path,
+    expected_fingerprint_mismatches: usize,
+) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+        nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
+        nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
+        nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
+        nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
+        nvlink_config.nmx_c_certificate_rotation.enabled = true;
+        nvlink_config.nmx_c_certificate_rotation.server_cert_path =
+            Some(desired_server_cert_path.to_string_lossy().into_owned());
+    }
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxc_simulator = Some(true);
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    let rack_id: RackId = "rack-cert-monitor".parse().expect("rack id");
+    let mut txn = pool.begin().await.expect("begin txn");
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .expect("create rack");
+    txn.commit().await.expect("commit rack");
+
+    create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
+
+    let result = env.run_switch_cert_monitor_iteration().await;
+    assert_eq!(result.observed_endpoints, 1);
+    assert_eq!(result.successful_probes, 1);
+    assert_eq!(
+        result.fingerprint_mismatches,
+        expected_fingerprint_mismatches
+    );
+    assert_eq!(result.desired_cert_errors, 0);
+    assert_eq!(result.probe_errors, 0);
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let CertifiedKey {
+        cert: desired_cert, ..
+    } = generate_simple_self_signed(vec!["desired-nmxc-cert.example.test".to_string()]).unwrap();
+    let desired_cert_file = tempfile::NamedTempFile::new().unwrap();
+    tokio::fs::write(desired_cert_file.path(), desired_cert.pem())
+        .await
+        .unwrap();
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(pool, desired_cert_file.path(), 1).await;
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(
+        pool,
+        std::path::Path::new(NMXC_SIMULATOR_TLS_CERT),
+        0,
+    )
+    .await;
 }
 
 // This test creates two instances in the same logical partition but on different domains.
