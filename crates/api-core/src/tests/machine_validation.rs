@@ -1512,6 +1512,25 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
     .await;
     let validation_id = on_demand_response.validation_id.unwrap();
 
+    let mismatch = env
+        .api
+        .update_machine_validation_run(tonic::Request::new(
+            rpc::forge::MachineValidationRunRequest {
+                validation_id: Some(validation_id),
+                duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(
+                    selected_test.timeout.unwrap_or(7200).try_into().unwrap(),
+                ))),
+                total: 2,
+                selected_tests: vec![selected_test.clone()],
+            },
+        ))
+        .await;
+    let Err(status) = mismatch else {
+        panic!("update_machine_validation_run should reject mismatched total");
+    };
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("selected_tests"));
+
     env.api
         .update_machine_validation_run(tonic::Request::new(
             rpc::forge::MachineValidationRunRequest {
@@ -1525,12 +1544,22 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
         ))
         .await?;
 
-    let run_items = env
+    let run_item_ids = env
         .api
-        .list_machine_validation_run_items(tonic::Request::new(
-            rpc::forge::MachineValidationRunItemListGetRequest {
+        .find_machine_validation_run_item_ids(tonic::Request::new(
+            rpc::forge::MachineValidationRunItemSearchFilter {
                 validation_id: Some(validation_id),
             },
+        ))
+        .await?
+        .into_inner()
+        .run_item_ids;
+    assert_eq!(run_item_ids.len(), 1);
+
+    let run_items = env
+        .api
+        .find_machine_validation_run_items_by_ids(tonic::Request::new(
+            rpc::forge::MachineValidationRunItemsByIdsRequest { run_item_ids },
         ))
         .await?
         .into_inner()
@@ -1640,9 +1669,9 @@ async fn test_machine_validation_m1_persists_selected_test_and_idempotent_result
 
     let terminal_run_items = env
         .api
-        .list_machine_validation_run_items(tonic::Request::new(
-            rpc::forge::MachineValidationRunItemListGetRequest {
-                validation_id: Some(validation_id),
+        .find_machine_validation_run_items_by_ids(tonic::Request::new(
+            rpc::forge::MachineValidationRunItemsByIdsRequest {
+                run_item_ids: vec![run_items[0].run_item_id.clone().unwrap()],
             },
         ))
         .await?

@@ -79,6 +79,53 @@ pub async fn find_run_items_by_run_id(
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
+pub async fn find_run_item_ids_by_run_id(
+    txn: impl DbReader<'_>,
+    run_id: &MachineValidationId,
+) -> DatabaseResult<Vec<MachineValidationRunItemId>> {
+    const QUERY: &str = "
+        SELECT id
+        FROM machine_validation_run_items
+        WHERE run_id=$1
+        ORDER BY order_index, display_name";
+
+    sqlx::query_scalar::<_, MachineValidationRunItemId>(QUERY)
+        .bind(run_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+pub async fn find_run_items_by_ids(
+    txn: impl DbReader<'_>,
+    ids: &[MachineValidationRunItemId],
+) -> DatabaseResult<Vec<MachineValidationRunItem>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    const QUERY: &str = "
+        SELECT
+            run_item.*,
+            current_attempt.id AS current_attempt_id
+        FROM machine_validation_run_items run_item
+        LEFT JOIN LATERAL (
+            SELECT id
+            FROM machine_validation_attempts attempt
+            WHERE attempt.run_item_id=run_item.id
+            ORDER BY attempt.attempt_number DESC
+            LIMIT 1
+        ) current_attempt ON true
+        WHERE run_item.id=ANY($1)
+        ORDER BY run_item.order_index, run_item.display_name";
+
+    sqlx::query_as::<_, MachineValidationRunItem>(QUERY)
+        .bind(ids)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
 pub async fn find_attempt_by_id(
     txn: impl DbReader<'_>,
     id: &MachineValidationAttemptId,

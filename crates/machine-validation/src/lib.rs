@@ -161,7 +161,7 @@ impl MachineValidationManager {
         };
         let mut expected_time_duration = 0;
         let mut selected_tests = Vec::new();
-        for test in tests.clone() {
+        for test in &tests {
             if !machine_validation_filter.allowed_tests.is_empty()
                 && !machine_validation_filter
                     .allowed_tests
@@ -172,7 +172,7 @@ impl MachineValidationManager {
             }
             run_request.total += 1;
             expected_time_duration += test.timeout.unwrap_or(7200);
-            selected_tests.push(test);
+            selected_tests.push(test.clone());
         }
         run_request.selected_tests = selected_tests;
         run_request.duration_to_complete = Some(rpc::Duration::from(

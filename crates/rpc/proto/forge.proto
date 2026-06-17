@@ -605,8 +605,11 @@ service Forge {
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
 
-  // Machine-Validation run item list
-  rpc ListMachineValidationRunItems(MachineValidationRunItemListGetRequest) returns (MachineValidationRunItemList);
+  // Machine-Validation run item IDs
+  rpc FindMachineValidationRunItemIds(MachineValidationRunItemSearchFilter) returns (MachineValidationRunItemIdList);
+
+  // Machine-Validation run items by IDs
+  rpc FindMachineValidationRunItemsByIds(MachineValidationRunItemsByIdsRequest) returns (MachineValidationRunItemList);
 
   // Machine-Validation attempt detail
   rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
@@ -6147,8 +6150,16 @@ message MachineValidationRunListGetRequest {
   bool include_history = 2;
 }
 
-message MachineValidationRunItemListGetRequest {
+message MachineValidationRunItemSearchFilter {
   common.MachineValidationId validation_id = 1;
+}
+
+message MachineValidationRunItemIdList {
+  repeated common.UUID run_item_ids = 1;
+}
+
+message MachineValidationRunItemsByIdsRequest {
+  repeated common.UUID run_item_ids = 1;
 }
 
 message MachineValidationRunItemList {

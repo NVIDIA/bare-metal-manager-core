@@ -18,7 +18,7 @@ use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use carbide_machine_controller::config::machine_validation::{
     MachineValidationConfig, MachineValidationTestSelectionMode,
 };
-use carbide_uuid::machine_validation::MachineValidationAttemptId;
+use carbide_uuid::machine_validation::{MachineValidationAttemptId, MachineValidationRunItemId};
 use config_version::ConfigVersion;
 use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -450,10 +450,10 @@ pub(crate) async fn get_machine_validation_runs(
     Ok(ret)
 }
 
-pub(crate) async fn list_machine_validation_run_items(
+pub(crate) async fn find_machine_validation_run_item_ids(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationRunItemListGetRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationRunItemList>, Status> {
+    request: tonic::Request<rpc::MachineValidationRunItemSearchFilter>,
+) -> Result<tonic::Response<rpc::MachineValidationRunItemIdList>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let validation_id = req
@@ -462,8 +462,55 @@ pub(crate) async fn list_machine_validation_run_items(
         .ok_or(CarbideError::MissingArgument("validation id"))?;
 
     let mut db_reader = api.db_reader();
+    let run_item_ids = db::machine_validation_execution::find_run_item_ids_by_run_id(
+        &mut db_reader,
+        validation_id,
+    )
+    .await?
+    .into_iter()
+    .map(|id| ::rpc::common::Uuid {
+        value: id.to_string(),
+    })
+    .collect();
+
+    Ok(tonic::Response::new(rpc::MachineValidationRunItemIdList {
+        run_item_ids,
+    }))
+}
+
+pub(crate) async fn find_machine_validation_run_items_by_ids(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationRunItemsByIdsRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationRunItemList>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if req.run_item_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} run_item_ids can be accepted"
+        ))
+        .into());
+    } else if req.run_item_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one run_item_id must be provided".to_string(),
+        )
+        .into());
+    }
+
+    let run_item_ids = req
+        .run_item_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id)
+                .map(MachineValidationRunItemId::from)
+                .map_err(CarbideError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut db_reader = api.db_reader();
     let run_items =
-        db::machine_validation_execution::find_run_items_by_run_id(&mut db_reader, validation_id)
+        db::machine_validation_execution::find_run_items_by_ids(&mut db_reader, &run_item_ids)
             .await?
             .into_iter()
             .map(rpc::MachineValidationRunItem::from)
@@ -831,13 +878,24 @@ pub(crate) async fn update_machine_validation_run(
         .into_iter()
         .map(ModelMachineValidationTest::try_from)
         .collect::<Result<Vec<_>, _>>()?;
+    let total = req
+        .total
+        .try_into()
+        .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?;
+    let total_len =
+        usize::try_from(total).map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?;
+
+    if !selected_tests.is_empty() && total_len != selected_tests.len() {
+        return Err(CarbideError::InvalidArgument(
+            "total must match selected_tests length".to_string(),
+        )
+        .into());
+    }
 
     db::machine_validation::update_run(
         &mut txn,
         &validation_id,
-        req.total
-            .try_into()
-            .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?,
+        total,
         req.duration_to_complete.unwrap_or_default().seconds,
     )
     .await?;

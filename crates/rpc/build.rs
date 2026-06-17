@@ -545,6 +545,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "MachineValidationRunItemList",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "MachineValidationRunItemIdList",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("MachineValidationRunItem", "#[derive(serde::Serialize)]")
         .type_attribute(
             "MachineValidationAttempt",
