@@ -26,12 +26,15 @@ use crate::address_selection_strategy::AddressSelectionStrategy;
 ///   or a DHCP service that integrates directly with carbide-api.
 /// - `Static`: These addresses are assigned and managed explicitly by
 ///   an operator or operator-provided configuration.
+/// - `Slaac`: These IPv6 addresses are client-derived and observed through
+///   DHCPv6 information-request or stateless flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum AllocationType {
     Dhcp,
     Static,
+    Slaac,
 }
 
 impl From<AddressSelectionStrategy> for AllocationType {
@@ -176,6 +179,10 @@ mod tests {
             "static" {
                 AllocationType::Static => r#""static""#.to_string(),
             }
+
+            "slaac" {
+                AllocationType::Slaac => r#""slaac""#.to_string(),
+            }
         );
     }
 
@@ -198,6 +205,10 @@ mod tests {
             "static" {
                 AllocationType::Static => Yields((r#""static""#.to_string(), AllocationType::Static)),
             }
+
+            "slaac" {
+                AllocationType::Slaac => Yields((r#""slaac""#.to_string(), AllocationType::Slaac)),
+            }
         );
     }
 
@@ -215,6 +226,10 @@ mod tests {
 
             "static" {
                 r#""static""# => Yields(AllocationType::Static),
+            }
+
+            "slaac" {
+                r#""slaac""# => Yields(AllocationType::Slaac),
             }
 
             "wrong case rejected" {
@@ -270,8 +285,20 @@ mod tests {
                 (AllocationType::Static, AllocationType::Static) => true,
             }
 
+            "slaac == slaac" {
+                (AllocationType::Slaac, AllocationType::Slaac) => true,
+            }
+
             "dhcp != static" {
                 (AllocationType::Dhcp, AllocationType::Static) => false,
+            }
+
+            "dhcp != slaac" {
+                (AllocationType::Dhcp, AllocationType::Slaac) => false,
+            }
+
+            "static != slaac" {
+                (AllocationType::Static, AllocationType::Slaac) => false,
             }
         );
 

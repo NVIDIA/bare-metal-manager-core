@@ -46,6 +46,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         prefixes: vec![NewNetworkPrefix {
             prefix: IpNetwork::V4("192.168.0.0/24".parse().unwrap()),
             gateway: Some(IpAddr::V4("192.168.0.1".parse().unwrap())),
+            dhcpv6_link_address: None,
             num_reserved: 14,
         }],
         vlan_id: None,

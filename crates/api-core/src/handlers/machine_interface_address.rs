@@ -218,6 +218,7 @@ pub async fn find_interface_addresses(
             allocation_type: match a.allocation_type {
                 AllocationType::Dhcp => "dhcp".to_string(),
                 AllocationType::Static => "static".to_string(),
+                AllocationType::Slaac => "slaac".to_string(),
             },
         })
         .collect();

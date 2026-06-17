@@ -1590,8 +1590,10 @@ mod tests {
         NetworkDefinition {
             segment_type,
             prefix,
+            prefix_v6: None,
             // Test helper placeholder; callers under test do not use this as a routable gateway.
             gateway: prefix.network(),
+            dhcpv6_link_address: None,
             mtu: 0,
             reserve_first: 0,
             allocation_strategy: Default::default(),

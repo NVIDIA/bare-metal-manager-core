@@ -34,7 +34,7 @@ applicable.
 | `listen_mode` | `ListenMode` | `Tls` | Transport mode: `plaintext_http1`, `plaintext_http2`, or `tls`. |
 | `auth` | `Option<AuthConfig>` | — | Authentication/authorization settings (see [AuthConfig](#authconfig)). |
 | `pools` | `Option<HashMap<String, ResourcePoolDef>>` | — | Resource pools that allocate IPs, VNIs, etc. Required but `Option` for partial-config merging. |
-| `networks` | `Option<HashMap<String, NetworkDefinition>>` | — | Networks created at startup. Alternative: `CreateNetworkSegment` gRPC. |
+| `networks` | `Option<HashMap<String, NetworkDefinition>>` | — | Networks created at startup. Alternative: `CreateNetworkSegment` gRPC. `NetworkDefinition` supports dual-stack seed-time segments with optional `prefix_v6` and `dhcpv6_link_address`; config edits do not retrofit prefixes onto an already-seeded segment because seed definitions are snapshotted on first create. |
 | `dpu_ipmi_tool_impl` | `Option<String>` | — | IPMI tool implementation for DPU power control (`"prod"` or `"fake"`). |
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | Retry count when IPMI errors during DPU reboot. |
 | `bmc_session_lockout_threshold` | `u32` | `3` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |

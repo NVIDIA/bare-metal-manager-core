@@ -627,6 +627,9 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             circuit_id: None,
             remote_id: None,
             desired_address: None,
+            address_family: None,
+            message_kind: None,
+            duid: None,
         }))
         .await
         .unwrap()
@@ -677,6 +680,9 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
             circuit_id: None,
             remote_id: None,
             desired_address: None,
+            address_family: None,
+            message_kind: None,
+            duid: None,
         }))
         .await
         .unwrap()

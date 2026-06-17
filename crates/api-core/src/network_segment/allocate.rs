@@ -182,6 +182,7 @@ impl PrefixAllocator {
             prefixes: vec![NewNetworkPrefix {
                 prefix,
                 gateway,
+                dhcpv6_link_address: None,
                 num_reserved: 0,
             }],
             vlan_id: None,
@@ -240,6 +241,7 @@ impl PrefixAllocator {
             &[NewNetworkPrefix {
                 prefix,
                 gateway,
+                dhcpv6_link_address: None,
                 num_reserved: 0,
             }],
         )

@@ -3830,7 +3830,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3843,7 +3845,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3856,7 +3860,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
                 prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),

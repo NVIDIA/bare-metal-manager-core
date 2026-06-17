@@ -972,7 +972,9 @@ mod tests {
         let def = NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::Admin,
             prefix: "192.168.1.0/24".parse().unwrap(),
+            prefix_v6: None,
             gateway: "192.168.1.1".parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
@@ -1009,7 +1011,9 @@ mod tests {
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::Admin,
             prefix: prefix.parse().unwrap(),
+            prefix_v6: None,
             gateway: gateway.parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 3,
             allocation_strategy: Default::default(),
