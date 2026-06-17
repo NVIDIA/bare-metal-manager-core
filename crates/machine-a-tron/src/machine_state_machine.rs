@@ -23,9 +23,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostMachineInfo,
-    HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
-    SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
+    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -219,28 +219,26 @@ impl MachineStateMachine {
     ) -> MachineStateMachine {
         let (initial_os_image, tpm_ek_certificate, bmc_dhcp_id, machine_dhcp_id, machine_info) =
             match persisted_machine {
-                PersistedMachine::Host(h) => (
-                    h.installed_os,
-                    h.tpm_ek_certificate,
-                    h.bmc_dhcp_id,
-                    h.machine_dhcp_id,
-                    MachineInfo::Host(HostMachineInfo {
-                        hw_type: h.hw_type.unwrap_or_default(),
-                        bmc_mac_address: h.bmc_mac_address,
-                        serial: h.serial,
-                        dpus: h.dpus.into_iter().map(Into::into).collect(),
-                        non_dpu_mac_address: h.non_dpu_mac_address,
-                        nvos_mac_addresses: h.nvos_mac_addresses,
-                        switch_serial_number: h.switch_serial_number,
-                    }),
-                ),
-                PersistedMachine::Dpu(d) => (
-                    d.installed_os,
-                    None,
-                    d.bmc_dhcp_id,
-                    d.machine_dhcp_id,
-                    MachineInfo::Dpu(d.into()),
-                ),
+                PersistedMachine::Host(h) => {
+                    let host_info = h.clone().into_host_info(&app_context.mock_mac_pool);
+                    (
+                        h.installed_os,
+                        h.tpm_ek_certificate,
+                        h.bmc_dhcp_id,
+                        h.machine_dhcp_id,
+                        MachineInfo::Host(host_info),
+                    )
+                }
+                PersistedMachine::Dpu(d) => {
+                    let dpu_info = d.clone().into();
+                    (
+                        d.installed_os,
+                        None,
+                        d.bmc_dhcp_id,
+                        d.machine_dhcp_id,
+                        MachineInfo::Dpu(dpu_info),
+                    )
+                }
             };
         let (fsm, actions) = MachineFsm::init(true, Self::is_bmc_only(&machine_info, &config));
         MachineStateMachine {

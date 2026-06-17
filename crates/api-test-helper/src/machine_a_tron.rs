@@ -75,6 +75,7 @@ pub async fn run_local(
         desired_firmware
     );
 
+    let mock_mac_pool = Arc::new(app_config.mock_mac_pool());
     let app_context = Arc::new(MachineATronContext {
         bmc_registration_mode: if let Some(bmc_address_registry) = bmc_address_registry.as_ref() {
             BmcRegistrationMode::BackingInstance(bmc_address_registry.clone())
@@ -87,6 +88,7 @@ pub async fn run_local(
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,
+        mock_mac_pool,
     });
 
     let mat = MachineATron::new(app_context.clone());

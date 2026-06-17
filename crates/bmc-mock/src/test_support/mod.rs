@@ -22,8 +22,9 @@ use url::Url;
 
 use crate::machine_info::DpuSettings;
 use crate::{
-    BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
-    MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
+    BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MacAddressPool,
+    MachineInfo, MockMacAddressPoolConfig, MockPowerState, SetSystemPowerError, SystemPowerControl,
+    machine_router,
 };
 pub mod axum_http_client;
 
@@ -71,15 +72,40 @@ async fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
     }
 }
 
+fn default_mock_mac_pool() -> MacAddressPool {
+    MacAddressPool::new(DEFAULT_MOCK_MAC_POOL_CONFIG)
+}
+
+const DEFAULT_MOCK_MAC_POOL_CONFIG: MockMacAddressPoolConfig = MockMacAddressPoolConfig {
+    start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+    length: u32::MAX as usize,
+};
+
 pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            vec![
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-            ],
-        )),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(
+                HostHardwareType::WiwynnGB200Nvl,
+                vec![
+                    DpuMachineInfo::allocate(
+                        HostHardwareType::WiwynnGB200Nvl,
+                        DpuSettings::default(),
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have DPU addresses"),
+                    DpuMachineInfo::allocate(
+                        HostHardwareType::WiwynnGB200Nvl,
+                        DpuSettings::default(),
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have DPU addresses"),
+                ],
+                &mac_pool,
+            )
+            .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -88,14 +114,24 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
 }
 
 pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LenovoGB300Nvl,
-            vec![DpuMachineInfo::new(
+        MachineInfo::Host(
+            HostMachineInfo::allocate(
                 HostHardwareType::LenovoGB300Nvl,
-                DpuSettings::default(),
-            )],
-        )),
+                vec![
+                    DpuMachineInfo::allocate(
+                        HostHardwareType::LenovoGB300Nvl,
+                        DpuSettings::default(),
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have DPU addresses"),
+                ],
+                &mac_pool,
+            )
+            .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -104,14 +140,24 @@ pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
 }
 
 pub async fn dgx_gb300_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::NvidiaDgxGb300,
-            vec![DpuMachineInfo::new(
+        MachineInfo::Host(
+            HostMachineInfo::allocate(
                 HostHardwareType::NvidiaDgxGb300,
-                DpuSettings::default(),
-            )],
-        )),
+                vec![
+                    DpuMachineInfo::allocate(
+                        HostHardwareType::NvidiaDgxGb300,
+                        DpuSettings::default(),
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have DPU addresses"),
+                ],
+                &mac_pool,
+            )
+            .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -120,14 +166,24 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
 }
 
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::SupermicroGb300Nvl,
-            vec![DpuMachineInfo::new(
+        MachineInfo::Host(
+            HostMachineInfo::allocate(
                 HostHardwareType::SupermicroGb300Nvl,
-                DpuSettings::default(),
-            )],
-        )),
+                vec![
+                    DpuMachineInfo::allocate(
+                        HostHardwareType::SupermicroGb300Nvl,
+                        DpuSettings::default(),
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have DPU addresses"),
+                ],
+                &mac_pool,
+            )
+            .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -136,11 +192,13 @@ pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
 }
 
 pub async fn generic_supermicro_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::GenericSupermicro,
-            vec![],
-        )),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::GenericSupermicro, vec![], &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -149,11 +207,13 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
 }
 
 pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LiteOnPowerShelf,
-            vec![],
-        )),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::LiteOnPowerShelf, vec![], &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -162,11 +222,13 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
 }
 
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::NvidiaSwitchNd5200Ld,
-            vec![],
-        )),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::NvidiaSwitchNd5200Ld, vec![], &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -175,11 +237,13 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
 }
 
 pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            vec![],
-        )),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::DellPowerEdgeR750, vec![], &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -188,11 +252,13 @@ pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
 }
 
 pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Dpu(DpuMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            settings,
-        )),
+        MachineInfo::Dpu(
+            DpuMachineInfo::allocate(HostHardwareType::DellPowerEdgeR750, settings, &mac_pool)
+                .expect("default mock MAC address pool must have DPU addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
         false,
@@ -201,8 +267,13 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
 }
 
 pub async fn generic_ami_bmc() -> TestBmcHandle {
+    let mac_pool = default_mock_mac_pool();
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(HostHardwareType::GenericAmi, vec![])),
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::GenericAmi, vec![], &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -222,12 +293,18 @@ mod test {
 
     #[tokio::test]
     async fn transport_supports_expand_query_through_mock_expander() {
+        let mac_pool = default_mock_mac_pool();
         let client = AxumRouterHttpClient::new(
             machine_router(
-                MachineInfo::Host(HostMachineInfo::new(
-                    HostHardwareType::DellPowerEdgeR750,
-                    vec![],
-                )),
+                MachineInfo::Host(
+                    HostMachineInfo::allocate(
+                        HostHardwareType::DellPowerEdgeR750,
+                        vec![],
+                        &mac_pool,
+                    )
+                    .expect("default mock MAC address pool must have host addresses"),
+                ),
+                &mac_pool,
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
                 false,

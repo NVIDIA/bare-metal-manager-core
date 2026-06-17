@@ -51,8 +51,13 @@ impl BmcMockWrapper {
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
     ) -> Self {
-        let (bmc_mock_router, bmc_mock_state) =
-            bmc_mock::machine_router(machine_info.clone(), callbacks, host_id.to_string(), true);
+        let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router(
+            machine_info.clone(),
+            &app_context.mock_mac_pool,
+            callbacks,
+            host_id.to_string(),
+            true,
+        );
 
         BmcMockWrapper {
             machine_info,

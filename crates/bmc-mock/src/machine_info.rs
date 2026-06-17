@@ -16,16 +16,15 @@
  */
 use std::borrow::Cow;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 
+use carbide_utils::test_support::mac_address_pool::{MacAddressPool, MacAddressPoolError};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::redfish::update_service::UpdateServiceConfig;
-use crate::{hw, redfish};
-static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 use crate::{
     DUMMY_FACTORY_DPU_PASSWORD, DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HostHardwareType,
+    hw, redfish,
 };
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
@@ -48,6 +47,8 @@ pub struct HostMachineInfo {
     pub nvos_mac_addresses: Vec<MacAddress>,
     #[serde(default)]
     pub switch_serial_number: Option<String>,
+    #[serde(skip)]
+    pub discovery_info: Option<rpc::machine_discovery::DiscoveryInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +60,23 @@ pub struct DpuMachineInfo {
     pub serial: String,
     #[serde(flatten)]
     pub settings: DpuSettings,
+    #[serde(skip)]
+    pub discovery_info: Option<rpc::machine_discovery::DiscoveryInfo>,
+}
+
+fn allocate_hardware_mac(mac_pool: &MacAddressPool) -> MacAddress {
+    mac_pool
+        .allocate()
+        .expect("mock MAC address pool must have host hardware addresses")
+}
+
+fn allocate_hardware_mac_array<const N: usize>(mac_pool: &MacAddressPool) -> [MacAddress; N] {
+    let addresses = (0..N)
+        .map(|_| allocate_hardware_mac(mac_pool))
+        .collect::<Vec<_>>();
+    addresses
+        .try_into()
+        .expect("fixed-size MAC allocation must match requested length")
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -91,25 +109,59 @@ impl Default for DpuSettings {
     }
 }
 
-impl Default for DpuMachineInfo {
-    fn default() -> Self {
-        Self::new(HostHardwareType::DellPowerEdgeR750, DpuSettings::default())
-    }
+pub(crate) struct MachineRedfishConfig {
+    pub manager_config: redfish::manager::Config,
+    pub system_config: redfish::computer_system::Config,
+    pub chassis_config: redfish::chassis::ChassisConfig,
+    pub update_service_config: UpdateServiceConfig,
 }
 
 impl DpuMachineInfo {
-    pub fn new(hw_type: HostHardwareType, settings: DpuSettings) -> Self {
-        let bmc_mac_address = next_mac();
-        let host_mac_address = next_mac();
-        let oob_mac_address = next_mac();
-        Self {
+    pub fn allocate(
+        hw_type: HostHardwareType,
+        settings: DpuSettings,
+        mac_pool: &MacAddressPool,
+    ) -> Result<Self, MacAddressPoolError> {
+        let bmc_mac_address = mac_pool.allocate()?;
+        let host_mac_address = mac_pool.allocate()?;
+        let oob_mac_address = mac_pool.allocate()?;
+        Ok(Self::from_known_macs(
+            hw_type,
+            bmc_mac_address,
+            host_mac_address,
+            oob_mac_address,
+            format!("MT{}", oob_mac_address.to_string().replace(':', "")),
+            settings,
+        ))
+    }
+
+    pub fn from_known_macs(
+        hw_type: HostHardwareType,
+        bmc_mac_address: MacAddress,
+        host_mac_address: MacAddress,
+        oob_mac_address: MacAddress,
+        serial: String,
+        settings: DpuSettings,
+    ) -> Self {
+        let info = Self {
             hw_type,
             bmc_mac_address,
             host_mac_address,
             oob_mac_address,
             settings,
-            serial: format!("MT{}", oob_mac_address.to_string().replace(':', "")),
+            serial,
+            discovery_info: None,
+        };
+        Self {
+            discovery_info: Some(info.bluefield3().discovery_info()),
+            ..info
         }
+    }
+
+    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
+        self.discovery_info
+            .clone()
+            .unwrap_or_else(|| self.bluefield3().discovery_info())
     }
 
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
@@ -148,32 +200,63 @@ impl DpuMachineInfo {
 }
 
 impl HostMachineInfo {
-    pub fn new(hw_type: HostHardwareType, dpus: Vec<DpuMachineInfo>) -> Self {
-        let bmc_mac_address = next_mac();
-        let nvos_mac_addresses = if matches!(hw_type, HostHardwareType::NvidiaSwitchNd5200Ld) {
-            vec![next_mac()]
-        } else {
-            vec![]
-        };
+    pub fn allocate(
+        hw_type: HostHardwareType,
+        dpus: Vec<DpuMachineInfo>,
+        mac_pool: &MacAddressPool,
+    ) -> Result<Self, MacAddressPoolError> {
+        let include_non_dpu_mac_address = dpus.is_empty()
+            && !matches!(
+                hw_type,
+                HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld
+            );
+        let nvos_mac_address_count =
+            usize::from(matches!(hw_type, HostHardwareType::NvidiaSwitchNd5200Ld));
+        let bmc_mac_address = mac_pool.allocate()?;
+        let non_dpu_mac_address = include_non_dpu_mac_address
+            .then(|| mac_pool.allocate())
+            .transpose()?;
+        let nvos_mac_addresses = (0..nvos_mac_address_count)
+            .map(|_| mac_pool.allocate())
+            .collect::<Result<Vec<_>, _>>()?;
         let switch_serial_number = nvos_mac_addresses
             .first()
             .map(|mac| format!("MT{}", mac.to_string().replace(':', "")));
-        Self {
+        Ok(Self::from_known_macs(
             hw_type,
             bmc_mac_address,
-            serial: bmc_mac_address.to_string().replace(':', ""),
-            non_dpu_mac_address: if dpus.is_empty()
-                && !matches!(
-                    hw_type,
-                    HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld
-                ) {
-                Some(next_mac())
-            } else {
-                None
-            },
+            bmc_mac_address.to_string().replace(':', ""),
+            dpus,
+            non_dpu_mac_address,
             nvos_mac_addresses,
             switch_serial_number,
+            mac_pool,
+        ))
+    }
+
+    pub fn from_known_macs(
+        hw_type: HostHardwareType,
+        bmc_mac_address: MacAddress,
+        serial: String,
+        dpus: Vec<DpuMachineInfo>,
+        non_dpu_mac_address: Option<MacAddress>,
+        nvos_mac_addresses: Vec<MacAddress>,
+        switch_serial_number: Option<String>,
+        mac_pool: &MacAddressPool,
+    ) -> Self {
+        let info = Self {
+            hw_type,
+            bmc_mac_address,
+            serial,
             dpus,
+            non_dpu_mac_address,
+            nvos_mac_addresses,
+            switch_serial_number,
+            discovery_info: None,
+        };
+        Self {
+            discovery_info: info.build_discovery_info(mac_pool),
+            ..info
         }
     }
 
@@ -253,104 +336,126 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn manager_config(&self) -> redfish::manager::Config {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().manager_config(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().manager_config(),
-            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().manager_config(),
-            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
-            HostHardwareType::NvidiaSwitchNd5200Ld => {
-                self.nvidia_switch_nd5200_ld().manager_config()
-            }
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
-            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().manager_config()
-            }
-        }
-    }
-
-    pub fn system_config(
+    pub(crate) fn redfish_config(
         &self,
         callbacks: Arc<dyn crate::Callbacks>,
-    ) -> redfish::computer_system::Config {
+        mac_pool: &MacAddressPool,
+    ) -> MachineRedfishConfig {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => {
-                self.dell_poweredge_r750().system_config(callbacks)
+                let hardware = self.dell_poweredge_r750(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
             }
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().system_config(callbacks),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().system_config(callbacks),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().system_config(callbacks),
+            HostHardwareType::WiwynnGB200Nvl => {
+                let hardware = self.wiwynn_gb200_nvl();
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
+            HostHardwareType::LenovoGB300Nvl => {
+                let hardware = self.lenovo_gb300_nvl(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
+            HostHardwareType::NvidiaDgxGb300 => {
+                let hardware = self.dgx_gb300_nvl(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
             HostHardwareType::SupermicroGb300Nvl => {
-                self.supermicro_gb300_nvl().system_config(callbacks)
+                let hardware = self.supermicro_gb300_nvl(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
             }
-            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
+            HostHardwareType::LiteOnPowerShelf => {
+                let hardware = self.liteon_power_shelf();
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
             HostHardwareType::NvidiaSwitchNd5200Ld => {
-                self.nvidia_switch_nd5200_ld().system_config()
+                let hardware = self.nvidia_switch_nd5200_ld(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
             }
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
+            HostHardwareType::NvidiaDgxH100 => {
+                let hardware = self.nvidia_dgx_h100(mac_pool);
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().system_config(callbacks)
+                let hardware = self.generic_server();
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
             }
         }
     }
 
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().chassis_config(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().chassis_config(),
-            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().chassis_config(),
-            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
-            HostHardwareType::NvidiaSwitchNd5200Ld => {
-                self.nvidia_switch_nd5200_ld().chassis_config()
-            }
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
-            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().chassis_config()
-            }
-        }
-    }
-
-    pub fn update_service_config(&self) -> UpdateServiceConfig {
+    fn build_discovery_info(
+        &self,
+        mac_pool: &MacAddressPool,
+    ) -> Option<rpc::machine_discovery::DiscoveryInfo> {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => {
-                self.dell_poweredge_r750().update_service_config()
+                Some(self.dell_poweredge_r750(mac_pool).discovery_info())
             }
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().update_service_config(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().update_service_config(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().update_service_config(),
+            HostHardwareType::WiwynnGB200Nvl => Some(self.wiwynn_gb200_nvl().discovery_info()),
+            HostHardwareType::LenovoGB300Nvl => {
+                Some(self.lenovo_gb300_nvl(mac_pool).discovery_info())
+            }
+            HostHardwareType::NvidiaDgxGb300 => Some(self.dgx_gb300_nvl(mac_pool).discovery_info()),
             HostHardwareType::SupermicroGb300Nvl => {
-                self.supermicro_gb300_nvl().update_service_config()
+                Some(self.supermicro_gb300_nvl(mac_pool).discovery_info())
             }
-            HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().update_service_config(),
-            HostHardwareType::NvidiaSwitchNd5200Ld => {
-                self.nvidia_switch_nd5200_ld().update_service_config()
+            HostHardwareType::NvidiaDgxH100 => {
+                Some(self.nvidia_dgx_h100(mac_pool).discovery_info())
             }
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().update_service_config()
+                Some(self.generic_server().discovery_info())
             }
+            HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => None,
         }
     }
 
     pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
-            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
-            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().discovery_info()
-            }
-            HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
-                panic!("discovery_info requested for {}", self.hw_type)
-            }
-        }
+        self.discovery_info
+            .clone()
+            .unwrap_or_else(|| panic!("discovery_info requested for {}", self.hw_type))
     }
 
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
@@ -366,7 +471,10 @@ impl HostMachineInfo {
         )
     }
 
-    fn dell_poweredge_r750(&self) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
+    fn dell_poweredge_r750(
+        &self,
+        mac_pool: &MacAddressPool,
+    ) -> hw::dell_poweredge_r750::DellPowerEdgeR750<'_> {
         let nics = if self.dpus.is_empty() {
             self.non_dpu_mac_address
                 .iter()
@@ -385,8 +493,8 @@ impl HostMachineInfo {
             product_serial_number: Cow::Borrowed(&self.serial),
             nics,
             embedded_nic: hw::dell_poweredge_r750::EmbeddedNic {
-                port_1: next_mac(),
-                port_2: next_mac(),
+                port_1: allocate_hardware_mac(mac_pool),
+                port_2: allocate_hardware_mac(mac_pool),
             },
         }
     }
@@ -435,7 +543,7 @@ impl HostMachineInfo {
         }
     }
 
-    fn dgx_gb300_nvl(&self) -> hw::dgx_gb300_nvl::DgxGB300Nvl<'_> {
+    fn dgx_gb300_nvl(&self, mac_pool: &MacAddressPool) -> hw::dgx_gb300_nvl::DgxGB300Nvl<'_> {
         let mut dpus = self.dpus.iter();
         // Serials are from the DGX GB300 scrape.
         // GPU_0/1 and GPU_2/3 share a superchip serial; the HGX baseboard
@@ -459,12 +567,12 @@ impl HostMachineInfo {
                 .expect("One DPU must present for DGX GB300 NVL")
                 .bluefield3(),
             embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
-                mac_address: next_mac(),
+                mac_address: allocate_hardware_mac(mac_pool),
             },
-            bmc_mac_address_eth0: next_mac(),
-            bmc_mac_address_eth1: next_mac(),
-            bmc_mac_address_usb0: next_mac(),
-            hgx_bmc_mac_address_usb0: next_mac(),
+            bmc_mac_address_eth0: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_eth1: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
+            hgx_bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
             hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
@@ -478,7 +586,10 @@ impl HostMachineInfo {
         }
     }
 
-    fn supermicro_gb300_nvl(&self) -> hw::supermicro_gb300_nvl::SupermicroGB300Nvl<'_> {
+    fn supermicro_gb300_nvl(
+        &self,
+        mac_pool: &MacAddressPool,
+    ) -> hw::supermicro_gb300_nvl::SupermicroGB300Nvl<'_> {
         let mut dpus = self.dpus.iter();
         // Serials are from the SMC GB300 tray scrape.
         // GPU_0/1 and GPU_2/3 share a superchip serial; the HGX baseboard
@@ -500,12 +611,12 @@ impl HostMachineInfo {
                 .expect("One DPU must present for SMC GB300 NVL")
                 .bluefield3(),
             embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
-                mac_address: next_mac(),
+                mac_address: allocate_hardware_mac(mac_pool),
             },
-            bmc_mac_address_eth0: next_mac(),
-            bmc_mac_address_eth1: next_mac(),
-            bmc_mac_address_usb0: next_mac(),
-            hgx_bmc_mac_address_usb0: next_mac(),
+            bmc_mac_address_eth0: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_eth1: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
+            hgx_bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
             hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
@@ -519,7 +630,10 @@ impl HostMachineInfo {
         }
     }
 
-    fn lenovo_gb300_nvl(&self) -> hw::lenovo_gb300_nvl::LenovoGB300Nvl<'_> {
+    fn lenovo_gb300_nvl(
+        &self,
+        mac_pool: &MacAddressPool,
+    ) -> hw::lenovo_gb300_nvl::LenovoGB300Nvl<'_> {
         let mut dpus = self.dpus.iter();
         let cpu0_sn = "0x000000017FFFFFFFFF00000000000001";
         let cpu1_sn = "0x000000017FFFFFFFFF00000000000002";
@@ -535,12 +649,12 @@ impl HostMachineInfo {
                 .expect("One DPU must present for GB300 NVL")
                 .bluefield3(),
             embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
-                mac_address: next_mac(),
+                mac_address: allocate_hardware_mac(mac_pool),
             },
-            bmc_mac_address_eth0: next_mac(),
-            bmc_mac_address_eth1: next_mac(),
-            bmc_mac_address_usb0: next_mac(),
-            hgx_bmc_mac_address_usb0: next_mac(),
+            bmc_mac_address_eth0: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_eth1: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
+            hgx_bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
             hgx_serial_number: "012345678901234567890123".into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
@@ -588,11 +702,14 @@ impl HostMachineInfo {
         }
     }
 
-    fn nvidia_switch_nd5200_ld(&self) -> hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld<'_> {
+    fn nvidia_switch_nd5200_ld(
+        &self,
+        mac_pool: &MacAddressPool,
+    ) -> hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld<'_> {
         hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld {
             bmc_mac_address_eth0: self.bmc_mac_address,
-            bmc_mac_address_eth1: next_mac(),
-            bmc_mac_address_usb0: next_mac(),
+            bmc_mac_address_eth1: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
             bmc_serial_number: Cow::Borrowed(&self.serial),
             switch_serial_number: self
                 .switch_serial_number
@@ -602,31 +719,37 @@ impl HostMachineInfo {
         }
     }
 
-    fn nvidia_dgx_h100(&self) -> hw::nvidia_dgx_h100::NvidiaDgxH100<'_> {
-        let storage_nic0_p0_mac = next_mac();
-        let storage_nic0_serial = format!("MT{}", storage_nic0_p0_mac.to_string().replace(":", ""));
+    fn nvidia_dgx_h100(&self, mac_pool: &MacAddressPool) -> hw::nvidia_dgx_h100::NvidiaDgxH100<'_> {
+        let ib_nics = [
+            allocate_hardware_mac_array(mac_pool),
+            allocate_hardware_mac_array(mac_pool),
+        ];
+        let mgmt_nic = allocate_hardware_mac(mac_pool);
+        let storage_nic0 = allocate_hardware_mac_array(mac_pool);
+        let storage_nic1 = allocate_hardware_mac_array(mac_pool);
+        let storage_nic0_serial = format!("MT{}", storage_nic0[0].to_string().replace(":", ""));
         hw::nvidia_dgx_h100::NvidiaDgxH100 {
             dgx_system_serial_number: Cow::Borrowed(&self.serial),
             dgx_chassis_serial_number: Cow::Borrowed("1663223000002"),
             ib_nics: [
                 hw::nic_nvidia_cx7::NicNvidiaCx7B {
                     serial_number: "MT2307X00001".into(),
-                    mac_addresses: [(); _].map(|_| next_mac()),
+                    mac_addresses: ib_nics[0],
                 },
                 hw::nic_nvidia_cx7::NicNvidiaCx7B {
                     serial_number: "MT2307X00002".into(),
-                    mac_addresses: [(); _].map(|_| next_mac()),
+                    mac_addresses: ib_nics[1],
                 },
             ],
             mgmt_nic: hw::nic_intel_x550::NicIntelX550 {
-                mac_address: next_mac(),
+                mac_address: mgmt_nic,
             },
             storage_nic0: hw::nic_nvidia_cx7::NicNvidiaCx7A {
                 serial_number: storage_nic0_serial.into(),
-                mac_addresses: [(); _].map(|_| next_mac()),
+                mac_addresses: storage_nic0,
             },
             storage_nic1: hw::nic_intel_e810::NicIntelE810 {
-                mac_addresses: [(); _].map(|_| next_mac()),
+                mac_addresses: storage_nic1,
             },
             dpu: self
                 .dpus
@@ -643,9 +766,9 @@ impl HostMachineInfo {
                 "1652900000007".into(),
                 "1652900000008".into(),
             ],
-            bmc_mac_address_eth0: next_mac(),
-            bmc_mac_address_usb0: next_mac(),
-            hgx_bmc_mac_address_usb0: next_mac(),
+            bmc_mac_address_eth0: allocate_hardware_mac(mac_pool),
+            bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
+            hgx_bmc_mac_address_usb0: allocate_hardware_mac(mac_pool),
         }
     }
 
@@ -665,6 +788,25 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
+    pub(crate) fn redfish_config(
+        &self,
+        callbacks: Arc<dyn crate::Callbacks>,
+        mac_pool: &MacAddressPool,
+    ) -> MachineRedfishConfig {
+        match self {
+            MachineInfo::Host(host) => host.redfish_config(callbacks, mac_pool),
+            MachineInfo::Dpu(dpu) => {
+                let hardware = dpu.bluefield3();
+                MachineRedfishConfig {
+                    manager_config: hardware.manager_config(),
+                    system_config: hardware.system_config(callbacks),
+                    chassis_config: hardware.chassis_config(),
+                    update_service_config: hardware.update_service_config(),
+                }
+            }
+        }
+    }
+
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
@@ -674,13 +816,6 @@ impl MachineInfo {
                     dpu.host_mac_address,
                 ),
             ),
-        }
-    }
-
-    pub fn manager_config(&self) -> redfish::manager::Config {
-        match self {
-            MachineInfo::Host(host) => host.manager_config(),
-            MachineInfo::Dpu(dpu) => dpu.bluefield3().manager_config(),
         }
     }
 
@@ -704,30 +839,6 @@ impl MachineInfo {
         match self {
             MachineInfo::Host(h) => h.bmc_product(),
             MachineInfo::Dpu(_) => Some("BlueField-3 DPU"),
-        }
-    }
-
-    pub fn system_config(
-        &self,
-        callbacks: Arc<dyn crate::Callbacks>,
-    ) -> redfish::computer_system::Config {
-        match self {
-            MachineInfo::Host(host) => host.system_config(callbacks),
-            MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(callbacks),
-        }
-    }
-
-    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
-        match self {
-            Self::Host(h) => h.chassis_config(),
-            Self::Dpu(dpu) => dpu.bluefield3().chassis_config(),
-        }
-    }
-
-    pub fn update_service_config(&self) -> UpdateServiceConfig {
-        match self {
-            Self::Host(h) => h.update_service_config(),
-            Self::Dpu(dpu) => dpu.bluefield3().update_service_config(),
         }
     }
 
@@ -771,7 +882,7 @@ impl MachineInfo {
     pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
         match self {
             Self::Host(h) => h.discovery_info(),
-            Self::Dpu(dpu) => dpu.bluefield3().discovery_info(),
+            Self::Dpu(dpu) => dpu.discovery_info(),
         }
     }
 
@@ -785,19 +896,6 @@ impl MachineInfo {
             ),
         }
     }
-}
-
-fn next_mac() -> MacAddress {
-    let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
-
-    let bytes: Vec<u8> = [0x02u8, 0x01]
-        .into_iter()
-        .chain(next_mac_num.to_be_bytes())
-        .collect();
-
-    let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
-
-    MacAddress::from(mac_bytes)
 }
 
 /// CPU / GPU / IO-board chassis common to every GB300 tray: NVIDIA HGX reference
@@ -848,5 +946,78 @@ fn gb300_boards<'a>(
                 serial_number: io1.into(),
             },
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_utils::test_support::mac_address_pool::MacAddressPoolConfig;
+
+    use super::*;
+
+    #[test]
+    fn dpu_allocate_allocates_unique_macs_from_pool() {
+        let mac_pool = MacAddressPool::new(MacAddressPoolConfig {
+            start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+            length: 8,
+        });
+        let first = DpuMachineInfo::allocate(
+            HostHardwareType::DellPowerEdgeR750,
+            Default::default(),
+            &mac_pool,
+        )
+        .unwrap();
+        let second = DpuMachineInfo::allocate(
+            HostHardwareType::DellPowerEdgeR750,
+            Default::default(),
+            &mac_pool,
+        )
+        .unwrap();
+
+        assert_ne!(first.bmc_mac_address, second.bmc_mac_address);
+        assert_ne!(first.host_mac_address, second.host_mac_address);
+        assert_ne!(first.oob_mac_address, second.oob_mac_address);
+    }
+
+    #[test]
+    fn host_allocate_allocates_unique_macs_from_pool() {
+        let mac_pool = MacAddressPool::new(MacAddressPoolConfig {
+            start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+            length: 8,
+        });
+        let first =
+            HostMachineInfo::allocate(HostHardwareType::GenericAmi, vec![], &mac_pool).unwrap();
+        let second =
+            HostMachineInfo::allocate(HostHardwareType::GenericAmi, vec![], &mac_pool).unwrap();
+
+        assert_ne!(first.bmc_mac_address, second.bmc_mac_address);
+        assert_ne!(first.non_dpu_mac_address, second.non_dpu_mac_address);
+    }
+
+    #[test]
+    fn machine_info_discovery_info_is_cached() {
+        let mac_pool = MacAddressPool::new(MacAddressPoolConfig {
+            start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+            length: 5,
+        });
+        let host =
+            HostMachineInfo::allocate(HostHardwareType::DellPowerEdgeR750, vec![], &mac_pool)
+                .unwrap();
+        let machine_info = MachineInfo::Host(host);
+
+        let _ = machine_info.discovery_info();
+        let _ = machine_info.discovery_info();
+
+        assert_eq!(
+            mac_pool.allocate().unwrap(),
+            MacAddress::new([0x02, 0x01, 0x0, 0x0, 0x0, 0x5])
+        );
+        assert!(matches!(
+            mac_pool.allocate(),
+            Err(MacAddressPoolError::Depleted {
+                attempted_offset: 5,
+                ..
+            })
+        ));
     }
 }

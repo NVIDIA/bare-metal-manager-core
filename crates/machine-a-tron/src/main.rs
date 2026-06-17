@@ -136,6 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
+    let mock_mac_pool = Arc::new(app_config.mock_mac_pool());
 
     let app_context = Arc::new(MachineATronContext {
         app_config,
@@ -145,6 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         api_throttler,
         desired_firmware_versions,
         forge_api_client,
+        mock_mac_pool,
     });
 
     let info = app_context.forge_api_client.version(false).await?;

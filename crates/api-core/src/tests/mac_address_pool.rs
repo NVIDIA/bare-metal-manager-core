@@ -20,7 +20,13 @@
 
 use mac_address::MacAddress;
 
-use crate::test_support::mac_address_pool::{MacAddressPool, MacAddressPoolConfig};
+use crate::test_support::mac_address_pool::{
+    DPU_BMC_MAC_ADDRESS_POOL_CONFIG, DPU_OOB_MAC_ADDRESS_POOL_CONFIG,
+    EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL_CONFIG, EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL_CONFIG,
+    EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL_CONFIG, HOST_BMC_MAC_ADDRESS_POOL_CONFIG,
+    HOST_MAC_ADDRESS_POOL_CONFIG, HOST_NON_DPU_MAC_ADDRESS_POOL_CONFIG, MacAddressPool,
+    MacAddressPoolConfig,
+};
 
 #[test]
 fn allocate_addresses() {
@@ -63,4 +69,53 @@ fn depleted_pool_panics() {
         MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x16, 0x00])
     );
     pool.allocate();
+}
+
+#[test]
+fn configured_ranges_do_not_overlap() {
+    for (left_index, (left_name, left_config)) in pool_configs().iter().enumerate() {
+        for (right_name, right_config) in pool_configs().iter().skip(left_index + 1) {
+            assert!(
+                !ranges_overlap(*left_config, *right_config),
+                "{left_name} overlaps {right_name}"
+            );
+        }
+    }
+}
+
+fn pool_configs() -> [(&'static str, MacAddressPoolConfig); 8] {
+    [
+        ("dpu_oob", DPU_OOB_MAC_ADDRESS_POOL_CONFIG),
+        ("dpu_bmc", DPU_BMC_MAC_ADDRESS_POOL_CONFIG),
+        ("host", HOST_MAC_ADDRESS_POOL_CONFIG),
+        ("host_bmc", HOST_BMC_MAC_ADDRESS_POOL_CONFIG),
+        ("host_non_dpu", HOST_NON_DPU_MAC_ADDRESS_POOL_CONFIG),
+        (
+            "expected_switch_bmc",
+            EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL_CONFIG,
+        ),
+        (
+            "expected_power_shelf_bmc",
+            EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL_CONFIG,
+        ),
+        (
+            "expected_switch_nvos",
+            EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL_CONFIG,
+        ),
+    ]
+}
+
+fn ranges_overlap(left: MacAddressPoolConfig, right: MacAddressPoolConfig) -> bool {
+    let left_start = to_u64_be(left.start);
+    let left_end = left_start + left.length as u64;
+    let right_start = to_u64_be(right.start);
+    let right_end = right_start + right.length as u64;
+
+    left_start < right_end && right_start < left_end
+}
+
+fn to_u64_be(bytes: [u8; 6]) -> u64 {
+    u64::from_be_bytes([
+        0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+    ])
 }

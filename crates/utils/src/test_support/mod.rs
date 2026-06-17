@@ -16,4 +16,5 @@
  */
 
 pub mod certs;
+pub mod mac_address_pool;
 pub mod test_meter;

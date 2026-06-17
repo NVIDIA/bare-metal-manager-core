@@ -46,7 +46,7 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 crossterm = { features = ["event-stream"], workspace = true }
 ratatui = { workspace = true }
-mac_address = { workspace = true }
+mac_address = { features = ["serde"], workspace = true }
 futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }
 reqwest = { default-features = false, features = [
@@ -63,8 +63,8 @@ rand = { workspace = true }
 russh = { workspace = true }
 
 # [local-dependencies]
-carbide-rpc = { path = "../rpc" }
 bmc-mock = { path = "../bmc-mock" }
+carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }

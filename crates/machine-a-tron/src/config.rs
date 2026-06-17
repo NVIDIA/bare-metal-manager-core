@@ -20,7 +20,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo};
+use bmc_mock::{
+    DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MacAddressPool,
+    MockMacAddressPoolConfig as BmcMockMacAddressPoolConfig,
+};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
@@ -191,6 +194,9 @@ pub struct MachineATronConfig {
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
 
+    #[serde(default = "default_mock_mac_address_pool_config")]
+    pub mock_mac_address_pool: MockMacAddressPoolConfig,
+
     /// Set this to true if you want each mock machine to run a mock BMC ssh server. This is useful
     /// for testing things like ssh-console.
     #[serde(default = "default_false")]
@@ -249,7 +255,26 @@ pub struct MachineATronConfig {
     pub api_refresh_interval: Duration,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct MockMacAddressPoolConfig {
+    pub base_mac_address: MacAddress,
+    pub length: usize,
+}
+
+impl From<MockMacAddressPoolConfig> for BmcMockMacAddressPoolConfig {
+    fn from(value: MockMacAddressPoolConfig) -> Self {
+        Self {
+            start: value.base_mac_address.bytes(),
+            length: value.length,
+        }
+    }
+}
+
 impl MachineATronConfig {
+    pub fn mock_mac_pool(&self) -> MacAddressPool {
+        MacAddressPool::new(self.mock_mac_address_pool.into())
+    }
+
     pub fn read_persisted_machines(
         &self,
     ) -> eyre::Result<Option<HashMap<String, Vec<PersistedHostMachine>>>> {
@@ -337,17 +362,18 @@ pub struct PersistedHostMachine {
     pub bmc_dhcp_id: Uuid,
 }
 
-impl From<PersistedHostMachine> for HostMachineInfo {
-    fn from(value: PersistedHostMachine) -> Self {
-        Self {
-            hw_type: value.hw_type.unwrap_or_default(),
-            bmc_mac_address: value.bmc_mac_address,
-            serial: value.serial,
-            dpus: value.dpus.into_iter().map(Into::into).collect(),
-            non_dpu_mac_address: value.non_dpu_mac_address,
-            nvos_mac_addresses: value.nvos_mac_addresses,
-            switch_serial_number: value.switch_serial_number,
-        }
+impl PersistedHostMachine {
+    pub fn into_host_info(self, mac_pool: &MacAddressPool) -> HostMachineInfo {
+        HostMachineInfo::from_known_macs(
+            self.hw_type.unwrap_or_default(),
+            self.bmc_mac_address,
+            self.serial,
+            self.dpus.into_iter().map(Into::into).collect(),
+            self.non_dpu_mac_address,
+            self.nvos_mac_addresses,
+            self.switch_serial_number,
+            mac_pool,
+        )
     }
 }
 
@@ -369,19 +395,26 @@ pub struct PersistedDpuMachine {
 
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
-        Self {
-            hw_type: value.hw_type.unwrap_or_default(),
-            bmc_mac_address: value.bmc_mac_address,
-            host_mac_address: value.host_mac_address,
-            oob_mac_address: value.oob_mac_address,
-            serial: value.serial,
-            settings: value.settings,
-        }
+        DpuMachineInfo::from_known_macs(
+            value.hw_type.unwrap_or_default(),
+            value.bmc_mac_address,
+            value.host_mac_address,
+            value.oob_mac_address,
+            value.serial,
+            value.settings,
+        )
     }
 }
 
 fn default_bmc_mock_port() -> u16 {
     2000
+}
+
+fn default_mock_mac_address_pool_config() -> MockMacAddressPoolConfig {
+    MockMacAddressPoolConfig {
+        base_mac_address: MacAddress::new([0x02, 0xaa, 0x0, 0x0, 0x0, 0x1]),
+        length: u32::MAX as usize,
+    }
 }
 
 fn default_template_dir() -> String {
@@ -433,6 +466,7 @@ pub struct MachineATronContext {
     /// firmware, DPU's can mock that they already have this installed.
     pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
     pub forge_api_client: ForgeApiClient,
+    pub mock_mac_pool: Arc<MacAddressPool>,
 }
 
 impl MachineATronContext {
@@ -515,5 +549,44 @@ scout_run_interval = "5s"
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+        assert_eq!(
+            cfg.mock_mac_address_pool,
+            default_mock_mac_address_pool_config()
+        );
+    }
+
+    #[test]
+    fn test_configures_mock_mac_address_pool() {
+        let cfg_str = r#"
+carbide_api_url = "https://carbide-api.forge:443"
+log_file = "mat.log"
+interface = "br-77cbb29de011"
+bmc_mock_port = 1266
+mock_mac_address_pool = { base_mac_address = "02:aa:00:00:00:10", length = 32 }
+configure_carbide_bmc_proxy_host = "192.168.1.20"
+
+[machines.config]
+host_count = 1
+dpu_per_host_count = 1
+dpu_reboot_delay = 1
+host_reboot_delay = 1
+vpc_count = 0
+admin_dhcp_relay_address = "192.168.176.1"
+oob_dhcp_relay_address = "192.168.192.1"
+subnets_per_vpc = 0
+    "#;
+
+        let cfg = toml::from_str::<MachineATronConfig>(cfg_str).expect("Could not parse config");
+        assert_eq!(
+            cfg.mock_mac_address_pool,
+            MockMacAddressPoolConfig {
+                base_mac_address: "02:aa:00:00:00:10".parse().unwrap(),
+                length: 32,
+            }
+        );
+        assert_eq!(
+            cfg.mock_mac_pool().allocate().unwrap(),
+            "02:aa:00:00:00:10".parse().unwrap()
+        );
     }
 }

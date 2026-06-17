@@ -22,7 +22,9 @@ use std::sync::Arc;
 use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
-use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{
+    BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig, MockMacAddressPoolConfig,
+};
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -914,6 +916,10 @@ where
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,
+        mock_mac_address_pool: MockMacAddressPoolConfig {
+            base_mac_address: "02:ff:00:00:00:10".parse().unwrap(),
+            length: 65536,
+        },
     };
 
     let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(

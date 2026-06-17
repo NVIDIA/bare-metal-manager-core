@@ -90,20 +90,9 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo {
-            hw_type: persisted_host_machine.hw_type.unwrap_or_default(),
-            bmc_mac_address: persisted_host_machine.bmc_mac_address,
-            serial: persisted_host_machine.serial.clone(),
-            dpus: persisted_host_machine
-                .dpus
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect(),
-            non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
-            nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
-            switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
-        };
+        let host_info = persisted_host_machine
+            .clone()
+            .into_host_info(&app_context.mock_mac_pool);
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))
@@ -175,10 +164,12 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo::new(
+        let host_info = HostMachineInfo::allocate(
             config.hw_type,
             dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
-        );
+            &app_context.mock_mac_pool,
+        )
+        .expect("machine-a-tron mock MAC address pool must have host addresses");
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))

@@ -256,17 +256,36 @@ mod tests {
 
     fn test_host_mock() -> Router {
         let callbacks = Arc::new(TestCallbacks {});
-        crate::machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
+        let mac_pool = default_mock_mac_pool();
+        let dpus = vec![
+            DpuMachineInfo::allocate(
                 HostHardwareType::DellPowerEdgeR750,
-                vec![DpuMachineInfo::default()],
-            )),
+                Default::default(),
+                &mac_pool,
+            )
+            .expect("default mock MAC address pool must have DPU addresses"),
+        ];
+        crate::machine_router(
+            MachineInfo::Host(
+                HostMachineInfo::allocate(HostHardwareType::DellPowerEdgeR750, dpus, &mac_pool)
+                    .expect("default mock MAC address pool must have host addresses"),
+            ),
+            &mac_pool,
             callbacks,
             String::default(),
             false,
         )
         .0
     }
+
+    fn default_mock_mac_pool() -> MacAddressPool {
+        MacAddressPool::new(DEFAULT_MOCK_MAC_POOL_CONFIG)
+    }
+
+    const DEFAULT_MOCK_MAC_POOL_CONFIG: MockMacAddressPoolConfig = MockMacAddressPoolConfig {
+        start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+        length: u32::MAX as usize,
+    };
 
     #[tokio::test]
     async fn test_expand() {

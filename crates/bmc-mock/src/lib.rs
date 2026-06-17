@@ -38,6 +38,9 @@ pub mod test_support;
 pub mod tls;
 
 pub use bmc_state::{BmcEvent, BmcState};
+pub use carbide_utils::test_support::mac_address_pool::{
+    MacAddressPool, MacAddressPoolConfig as MockMacAddressPoolConfig, MacAddressPoolError,
+};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,

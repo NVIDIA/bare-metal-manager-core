@@ -26,7 +26,8 @@ use std::sync::Arc;
 use axum::Router;
 use bmc_mock::{
     BmcCommand, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, ListenerOrAddress,
-    MachineInfo, MockPowerState, SetSystemPowerError, SystemPowerControl,
+    MacAddressPool, MachineInfo, MockMacAddressPoolConfig, MockPowerState, SetSystemPowerError,
+    SystemPowerControl,
 };
 use tar_router::TarGzOption;
 use tokio::sync::{RwLock, mpsc};
@@ -155,17 +156,42 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
 fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
     let callbacks = Arc::new(ChannelCallbacks::new(command_channel));
-    bmc_mock::machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+    let mac_pool = default_mock_mac_pool();
+    let dpus = vec![
+        DpuMachineInfo::allocate(
             HostHardwareType::WiwynnGB200Nvl,
-            vec![DpuMachineInfo::default(), DpuMachineInfo::default()],
-        )),
+            Default::default(),
+            &mac_pool,
+        )
+        .expect("default mock MAC address pool must have DPU addresses"),
+        DpuMachineInfo::allocate(
+            HostHardwareType::WiwynnGB200Nvl,
+            Default::default(),
+            &mac_pool,
+        )
+        .expect("default mock MAC address pool must have DPU addresses"),
+    ];
+    bmc_mock::machine_router(
+        MachineInfo::Host(
+            HostMachineInfo::allocate(HostHardwareType::WiwynnGB200Nvl, dpus, &mac_pool)
+                .expect("default mock MAC address pool must have host addresses"),
+        ),
+        &mac_pool,
         callbacks,
         String::default(),
         false,
     )
     .0
 }
+
+fn default_mock_mac_pool() -> MacAddressPool {
+    MacAddressPool::new(DEFAULT_MOCK_MAC_POOL_CONFIG)
+}
+
+const DEFAULT_MOCK_MAC_POOL_CONFIG: MockMacAddressPoolConfig = MockMacAddressPoolConfig {
+    start: [0x02, 0x01, 0x0, 0x0, 0x0, 0x1],
+    length: u32::MAX as usize,
+};
 
 #[derive(Debug)]
 struct ChannelCallbacks {

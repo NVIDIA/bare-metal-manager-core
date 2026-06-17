@@ -25,7 +25,9 @@ authors.workspace = true
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-rpc = { path = "../rpc", default-features = false }
-carbide-utils = { path = "../utils", default-features = false }
+carbide-utils = { path = "../utils", default-features = false, features = [
+  "test-support",
+] }
 
 arc-swap = { workspace = true }
 axum = { workspace = true }

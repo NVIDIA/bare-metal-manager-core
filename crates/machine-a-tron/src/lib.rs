@@ -36,8 +36,8 @@ use std::time::{Duration, Instant};
 
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
-    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
-    PersistedHostMachine,
+    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig,
+    MockMacAddressPoolConfig, PersistedDpuMachine, PersistedHostMachine,
 };
 pub use dpu_machine::DpuMachineHandle;
 pub use host_machine::HostMachineHandle;

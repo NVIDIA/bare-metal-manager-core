@@ -24,8 +24,8 @@ use crate::bmc_state::BmcState;
 use crate::injection::InjectionStore;
 use crate::redfish::manager::ManagerState;
 use crate::{
-    Callbacks, HostHardwareType, MachineInfo, SystemPowerControl, auth_router, middleware_router,
-    redfish,
+    Callbacks, HostHardwareType, MacAddressPool, MachineInfo, SystemPowerControl, auth_router,
+    middleware_router, redfish,
 };
 
 #[derive(Debug)]
@@ -63,13 +63,12 @@ impl AddRoutes for Router<BmcState> {
 /// the provided MachineInfo.
 pub fn machine_router(
     machine_info: MachineInfo,
+    mac_pool: &MacAddressPool,
     callbacks: Arc<dyn Callbacks>,
     mat_host_id: String,
     redfish_auth: bool,
 ) -> (Router, BmcState) {
-    let system_config = machine_info.system_config(callbacks.clone());
-    let chassis_config = machine_info.chassis_config();
-    let update_service_config = machine_info.update_service_config();
+    let redfish_config = machine_info.redfish_config(callbacks.clone(), mac_pool);
     let bmc_vendor = machine_info.bmc_vendor();
     let bmc_product = machine_info.bmc_product();
     let bmc_redfish_version = machine_info.bmc_redfish_version();
@@ -92,15 +91,17 @@ pub fn machine_router(
         }
         MachineInfo::Host(_) => router.add_routes(crate::redfish::oem::dell::idrac::add_routes),
     };
-    let manager = Arc::new(ManagerState::new(&machine_info.manager_config()));
+    let manager = Arc::new(ManagerState::new(&redfish_config.manager_config));
     let system_state = Arc::new(crate::redfish::computer_system::SystemState::from_config(
-        system_config,
+        redfish_config.system_config,
     ));
     let chassis_state = Arc::new(crate::redfish::chassis::ChassisState::from_config(
-        chassis_config,
+        redfish_config.chassis_config,
     ));
     let update_service_state = Arc::new(
-        crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
+        crate::redfish::update_service::UpdateServiceState::from_config(
+            redfish_config.update_service_config,
+        ),
     );
     let account_service_state = Arc::new(
         crate::redfish::account_service::AccountServiceState::new(factory_default_account),

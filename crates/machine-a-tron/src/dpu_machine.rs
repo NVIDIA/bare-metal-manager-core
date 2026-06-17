@@ -70,14 +70,7 @@ impl DpuMachine {
         let dpu_index = persisted_dpu_machine.dpu_index;
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
-        let dpu_info = DpuMachineInfo {
-            hw_type: persisted_dpu_machine.hw_type.unwrap_or_default(),
-            bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
-            host_mac_address: persisted_dpu_machine.host_mac_address,
-            oob_mac_address: persisted_dpu_machine.oob_mac_address,
-            serial: persisted_dpu_machine.serial.clone(),
-            settings: persisted_dpu_machine.settings.clone(),
-        };
+        let dpu_info = persisted_dpu_machine.clone().into();
         let state_machine = MachineStateMachine::from_persisted(
             PersistedMachine::Dpu(persisted_dpu_machine),
             config,
@@ -127,14 +120,16 @@ impl DpuMachine {
             .unwrap_or_default()
             .fill_missing_from_desired_firmware(&app_context.desired_firmware_versions);
 
-        let dpu_info = DpuMachineInfo::new(
+        let dpu_info = DpuMachineInfo::allocate(
             hw_type,
             DpuSettings {
                 nic_mode: config.dpus_in_nic_mode,
                 firmware_versions: firmware_versions.into(),
                 ..Default::default()
             },
-        );
+            &app_context.mock_mac_pool,
+        )
+        .expect("machine-a-tron mock MAC address pool must have DPU addresses");
         let state_machine = MachineStateMachine::new(
             MachineInfo::Dpu(dpu_info.clone()),
             config,
