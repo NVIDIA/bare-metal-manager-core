@@ -796,7 +796,7 @@ _CONNECTED=false
 for _i in $(seq 1 24); do
     _POD="$(kubectl get pods -n nico-rest \
         -l "app.kubernetes.io/name=nico-rest-site-agent" \
-        -o name 2>/dev/null | head -1)"
+        -o name 2>/dev/null | head -1 || true)"
     if [ -n "${_POD}" ] && \
        kubectl logs -n nico-rest "${_POD}" --since=5m 2>/dev/null \
            | grep -q "NicoClient: successfully connected to server"; then
