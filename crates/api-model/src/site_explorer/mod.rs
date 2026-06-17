@@ -407,6 +407,14 @@ pub enum PreingestionState {
     InitialBMCReset {
         phase: InitialBmcResetPhase,
     },
+    /// Configure site NTP servers on the BMC before checking whether its clock
+    /// is synchronized. `set_at` records a successful Redfish update so the
+    /// state machine can wait for the setting to take effect before checking.
+    SetNtpServers {
+        set_at: Option<DateTime<Utc>>,
+        #[serde(default)]
+        attempts: u32,
+    },
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,

@@ -20,6 +20,8 @@ use db::{DatabaseError, switch as db_switch};
 use model::metadata::Metadata;
 use model::switch::{NewSwitch, SwitchConfig};
 
+use crate as db;
+
 #[crate::sqlx_test]
 async fn test_switch_metadata_defaults(
     pool: sqlx::PgPool,

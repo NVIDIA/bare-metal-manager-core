@@ -20,6 +20,7 @@ applicable.
 | `ib_config` | `Option<IBFabricConfig>` | — | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | DHCP server addresses announced to DPUs during network provisioning. |
+| `ntp_servers` | `Vec<Ipv4Addr>` | `[]` | Site-level NTP server IPs used for BMC time configuration and DHCP NTP Server configuration. |
 | `route_servers` | `Vec<String>` | `[]` | Route server IPs for L2VPN Ethernet Virtual network support. |
 | `enable_route_servers` | `bool` | `false` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<Ipv4Network>` | `[]` | IPv4 CIDR prefixes that tenant instances are blocked from reaching. Generates iptables DROP rules and nvue ACL policies. |

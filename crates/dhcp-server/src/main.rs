@@ -553,6 +553,7 @@ impl Test {
             gateway: Some("10.217.132.193".to_string()),
             booturl: None,
             last_invalidation_time: None,
+            ntp_servers: vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()],
         })
     }
 }

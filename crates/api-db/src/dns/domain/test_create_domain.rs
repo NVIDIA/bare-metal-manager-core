@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use db::ObjectColumnFilter;
 use model::dns::NewDomain;
 
+use crate as db;
 use crate::DatabaseError;
 
 #[crate::sqlx_test]

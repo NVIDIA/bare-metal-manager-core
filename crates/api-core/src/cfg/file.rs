@@ -128,6 +128,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dhcp_servers: Vec<Ipv4Addr>,
 
+    /// NTP server IP addresses for the site.
+    #[serde(default)]
+    pub ntp_servers: Vec<Ipv4Addr>,
+
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
@@ -2862,6 +2866,10 @@ mod tests {
         assert_eq!(
             config.dhcp_servers,
             vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
+        );
+        assert_eq!(
+            config.ntp_servers,
+            vec![Ipv4Addr::new(10, 20, 30, 40), Ipv4Addr::new(50, 60, 70, 80)]
         );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
