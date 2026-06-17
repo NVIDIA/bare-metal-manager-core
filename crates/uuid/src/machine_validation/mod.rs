@@ -48,17 +48,29 @@ impl UuidSubtype for MachineValidationAttemptIdMarker {
 pub type MachineValidationAttemptId = TypedUuid<MachineValidationAttemptIdMarker>;
 
 #[cfg(test)]
-mod tests {
+mod machine_validation_id_tests {
     use super::*;
     use crate::typed_uuid_tests;
     // Run all boilerplate TypedUuid tests for this type, also
     // ensuring TYPE_NAME and DB_COLUMN_NAME test correctly.
     typed_uuid_tests!(MachineValidationId, "MachineValidationId", "id");
+}
+
+#[cfg(test)]
+mod machine_validation_run_item_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
     typed_uuid_tests!(
         MachineValidationRunItemId,
         "MachineValidationRunItemId",
         "id"
     );
+}
+
+#[cfg(test)]
+mod machine_validation_attempt_id_tests {
+    use super::*;
+    use crate::typed_uuid_tests;
     typed_uuid_tests!(
         MachineValidationAttemptId,
         "MachineValidationAttemptId",
