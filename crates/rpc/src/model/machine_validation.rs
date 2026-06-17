@@ -369,11 +369,12 @@ impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use carbide_uuid::machine_validation::{
         MachineValidationAttemptId, MachineValidationId, MachineValidationRunItemId,
     };
     use model::machine_validation::{MachineValidationAttemptState, MachineValidationRunItemState};
+
+    use super::*;
 
     fn id(value: &str) -> uuid::Uuid {
         uuid::Uuid::parse_str(value).unwrap()
