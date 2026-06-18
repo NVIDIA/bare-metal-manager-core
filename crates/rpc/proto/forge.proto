@@ -3816,6 +3816,23 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+  optional AddressFamily address_family = 8;
+  optional MessageKind message_kind = 9;
+  optional bytes duid = 10;
+}
+
+enum AddressFamily {
+  ADDRESS_FAMILY_UNSPECIFIED = 0;
+  ADDRESS_FAMILY_V4 = 1;
+  ADDRESS_FAMILY_V6 = 2;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_V4_DISCOVER = 1;
+  MESSAGE_KIND_V6_SOLICIT = 2;
+  MESSAGE_KIND_V6_REQUEST = 3;
+  MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
 
 message ExpireDhcpLeaseRequest {
@@ -3860,6 +3877,9 @@ message DhcpRecord {
 
   // Per site NTP server IPs
   repeated string ntp_servers = 13;
+
+  optional uint32 dhcpv6_preferred_lifetime_secs = 14;
+  optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
 message NetworkSegmentList {
@@ -4061,7 +4081,7 @@ message ManagedHostNetworkConfigResponse {
   // for them.
   bool stateful_acls_enabled = 21;
 
-  // site-level configured NTP server IPs 
+  // site-level configured NTP server IPs
   // If empty, the agent may fall back to resolving carbide-ntp.forge for compatibility.
   repeated string ntp_servers = 22;
 

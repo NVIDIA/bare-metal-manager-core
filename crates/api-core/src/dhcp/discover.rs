@@ -82,6 +82,8 @@ async fn handle_overlay_from_dpa(
         fqdn: String::new(),
         prefix,
         ntp_servers: ntp_servers.iter().map(ToString::to_string).collect(),
+        dhcpv6_preferred_lifetime_secs: None,
+        dhcpv6_valid_lifetime_secs: None,
     })))
 }
 
@@ -123,6 +125,8 @@ async fn handle_underlay_from_dpa(
         fqdn: String::new(),
         prefix,
         ntp_servers: ntp_servers.iter().map(ToString::to_string).collect(),
+        dhcpv6_preferred_lifetime_secs: None,
+        dhcpv6_valid_lifetime_secs: None,
     })))
 }
 

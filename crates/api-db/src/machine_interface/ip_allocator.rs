@@ -192,6 +192,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         prefixes: vec![NewNetworkPrefix {
             prefix: "2001:db8:abcd::0/112".parse().unwrap(),
             gateway: None,
+            dhcpv6_link_address: None,
             num_reserved: 2,
         }],
         vlan_id: None,
@@ -269,11 +270,13 @@ async fn test_machine_interface_create_dual_stack(
             NewNetworkPrefix {
                 prefix: "10.99.1.0/24".parse().unwrap(),
                 gateway: Some("10.99.1.1".parse().unwrap()),
+                dhcpv6_link_address: None,
                 num_reserved: 1,
             },
             NewNetworkPrefix {
                 prefix: "2001:db8:99::0/112".parse().unwrap(),
                 gateway: None,
+                dhcpv6_link_address: None,
                 num_reserved: 1,
             },
         ],

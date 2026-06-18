@@ -3463,6 +3463,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3656,6 +3657,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
         let dhcp_contents = super::read_limited(g.path())?;
         assert!(dhcp_contents.contains("vlan196"));

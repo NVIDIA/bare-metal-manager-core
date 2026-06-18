@@ -32,6 +32,7 @@ pub(crate) fn admin_segment(
         prefixes: vec![NewNetworkPrefix {
             prefix: prefix.parse().unwrap(),
             gateway: Some(gateway.parse().unwrap()),
+            dhcpv6_link_address: None,
             num_reserved,
         }],
         vlan_id: None,

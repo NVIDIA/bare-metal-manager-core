@@ -45,6 +45,8 @@ fn from_host_conf(value: &InterfaceInfo, interface_id: MachineInterfaceId) -> Dh
         booturl: value.booturl.clone(),
         last_invalidation_time: None,
         ntp_servers: vec![],
+        dhcpv6_preferred_lifetime_secs: None,
+        dhcpv6_valid_lifetime_secs: None,
     }
 }
 
