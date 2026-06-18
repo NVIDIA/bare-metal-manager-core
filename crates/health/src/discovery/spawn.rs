@@ -29,7 +29,7 @@ use crate::collectors::{
     LogsCollectorConfig, MetricsCollector, MetricsCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
-    spawn_gnmi_collector,
+    TelemetryServiceCollector, TelemetryServiceCollectorConfig, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -66,6 +66,10 @@ fn spawn_generic_redfish_collectors(
 
     let sensors_enabled = matches!(ctx.sensors_config, Configurable::Enabled(_));
     let metrics_enabled = matches!(ctx.metrics_config, Configurable::Enabled(_));
+    let telemetry_service_enabled = endpoint
+        .switch_data()
+        .is_some_and(|switch| matches!(switch.endpoint_role, SwitchEndpointRole::Bmc))
+        && ctx.telemetry_service_config.is_enabled();
 
     if (sensors_enabled || metrics_enabled)
         && !ctx.collectors.contains(CollectorKind::Discovery, &key)
@@ -190,6 +194,56 @@ fn spawn_generic_redfish_collectors(
                     endpoint.addr
                 );
             }
+        }
+    }
+
+    if telemetry_service_enabled
+        && let Configurable::Enabled(telemetry_service_cfg) = &ctx.telemetry_service_config
+        && !ctx
+            .collectors
+            .contains(CollectorKind::TelemetryService, &key)
+    {
+        if let Some(data_sink) = data_sink.clone() {
+            let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+                format!("telemetry_service_collector_{key}"),
+                metrics_prefix,
+            )?);
+            match Collector::start::<TelemetryServiceCollector<BmcClient>>(
+                endpoint_arc.clone(),
+                bmc.clone(),
+                TelemetryServiceCollectorConfig {
+                    data_sink: Some(data_sink),
+                    options: telemetry_service_cfg.clone(),
+                },
+                CollectorStartContext {
+                    limiter: ctx.limiter.clone(),
+                    iteration_interval: telemetry_service_cfg.poll_interval,
+                    collector_registry,
+                    metrics_manager: ctx.metrics_manager.clone(),
+                },
+            ) {
+                Ok(monitor) => {
+                    ctx.collectors.insert(
+                        CollectorKind::TelemetryService,
+                        key.clone().into(),
+                        monitor,
+                    );
+                    tracing::info!(
+                        endpoint_key = %key,
+                        total_collectors = ctx.collectors.len(CollectorKind::TelemetryService),
+                        "Started Redfish TelemetryService collection for switch BMC endpoint"
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        "Could not start Redfish TelemetryService collector for: {:?}",
+                        endpoint.addr
+                    );
+                }
+            }
+        } else {
+            tracing::warn!("Redfish TelemetryService collector requires a data sink, skipping");
         }
     }
 
@@ -700,6 +754,7 @@ mod tests {
     async fn test_switch_bmc_endpoint_starts_redfish_but_not_switch_host_collectors() {
         let mut config = Config::default();
         config.collectors.sensors = Configurable::Enabled(Default::default());
+        config.collectors.telemetry_service = Configurable::Enabled(Default::default());
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
@@ -721,10 +776,16 @@ mod tests {
             )),
         );
 
-        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test_switch_bmc_redfish_only")
-            .expect("spawn should succeed");
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_bmc_redfish_only",
+        )
+        .expect("spawn should succeed");
 
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::TelemetryService), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0);

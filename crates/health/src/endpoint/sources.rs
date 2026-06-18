@@ -100,7 +100,7 @@ impl StaticEndpointSource {
                     StaticSwitchEndpointRole::Bmc => SwitchEndpointRole::Bmc,
                     StaticSwitchEndpointRole::Host => SwitchEndpointRole::Host,
                 };
-                let nmxt_enabled = switch.nmxt_enabled.unwrap_or(switch.is_primary);
+                let nmxt_enabled = switch.nmxt_enabled.unwrap_or(false);
 
                 Some(EndpointMetadata::Switch(SwitchData {
                     id,
@@ -318,7 +318,7 @@ mod tests {
                 tray_index: Some(3),
                 endpoint_role: StaticSwitchEndpointRole::Host,
                 is_primary: true,
-                nmxt_enabled: None,
+                nmxt_enabled: Some(true),
             }),
             rack_id: None,
         }];

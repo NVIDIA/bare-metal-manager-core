@@ -31,7 +31,7 @@ use crate::HealthError;
 use crate::config::NvueGnmiPaths;
 
 pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
-    let mut paths = Vec::with_capacity(2);
+    let mut paths = Vec::with_capacity(3);
     if paths_config.components_enabled {
         paths.push(Path {
             elem: vec![
@@ -59,6 +59,15 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
                     key: Default::default(),
                 },
             ],
+            ..Default::default()
+        });
+    }
+    if paths_config.platform_general_enabled {
+        paths.push(Path {
+            elem: vec![PathElem {
+                name: "platform-general".into(),
+                key: Default::default(),
+            }],
             ..Default::default()
         });
     }
@@ -439,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nvue_subscribe_paths_all_enabled() {
+    fn test_nvue_subscribe_paths_defaults_do_not_enable_platform_general() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths::default());
         assert_eq!(paths.len(), 2);
 
@@ -453,10 +462,23 @@ mod tests {
     }
 
     #[test]
+    fn test_nvue_subscribe_paths_all_enabled() {
+        let paths = nvue_subscribe_paths(&NvueGnmiPaths {
+            components_enabled: true,
+            interfaces_enabled: true,
+            platform_general_enabled: true,
+        });
+        assert_eq!(paths.len(), 3);
+        assert_eq!(paths[2].elem.len(), 1);
+        assert_eq!(paths[2].elem[0].name, "platform-general");
+    }
+
+    #[test]
     fn test_nvue_subscribe_paths_selective() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: true,
+            platform_general_enabled: false,
         });
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].elem.len(), 2);
@@ -469,6 +491,7 @@ mod tests {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: false,
+            platform_general_enabled: false,
         });
         assert!(paths.is_empty());
     }

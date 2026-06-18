@@ -70,7 +70,9 @@ additional_issuer_cns = []
   "GET /redfish/v1/UpdateService/FirmwareInventory/HGX_FW_BMC_0",
   "GET /redfish/v1/UpdateService/FirmwareInventory/HostBMC_0",
   "GET /redfish/v1/TelemetryService",
+  "GET /redfish/v1/TelemetryService/MetricReportDefinitions",
+  "GET /redfish/v1/TelemetryService/MetricReportDefinitions/*",
   "GET /redfish/v1/TelemetryService/MetricReports",
-  "GET /redfish/v1/TelemetryService/MetricReports/NvidiaNMMetrics_0",
+  "GET /redfish/v1/TelemetryService/MetricReports/*",
   "GET /redfish/v1/TaskService/Tasks/*",
 ]

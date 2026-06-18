@@ -94,10 +94,20 @@ impl GnmiSampleProcessor {
 
             if let Some(iface) = find_elem_key_ref(&combined, "interface", "name") {
                 entities.insert(("interface", iface));
-                self.process_interface_metric(&combined, iface, val);
+                if !self.process_interface_metric(&combined, iface, val) {
+                    self.emit_generic_leaf_metric(&combined, "interface", iface, val);
+                }
             } else if let Some(comp) = find_elem_key_ref(&combined, "component", "name") {
                 entities.insert(("component", comp));
-                self.process_component_metric(&combined, comp, val);
+                if !self.process_component_metric(&combined, comp, val) {
+                    self.emit_generic_leaf_metric(&combined, "component", comp, val);
+                }
+            } else if combined
+                .first()
+                .is_some_and(|elem| elem.name == "platform-general")
+            {
+                entities.insert(("platform", "platform-general"));
+                self.emit_generic_leaf_metric(&combined, "platform", "platform-general", val);
             }
         }
 
@@ -109,7 +119,7 @@ impl GnmiSampleProcessor {
         elems: &[&PathElem],
         iface_name: &str,
         val: &proto::TypedValue,
-    ) {
+    ) -> bool {
         if leaf_matches(elems, &["state", "oper-status"]) {
             let v = oper_status_to_f64(typed_value_to_string(val).as_deref());
             self.emit_data_metric(
@@ -120,63 +130,62 @@ impl GnmiSampleProcessor {
                 "interface_name",
                 iface_name,
             );
-        } else if leaf_matches(elems, &["state", "counters", "in-errors"])
-            && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+            true
+        } else if leaf_matches(elems, &["state", "counters", "in-errors"]) {
+            self.emit_numeric_metric_if_valid(
                 "interface_in_errors",
-                iface_name,
-                v,
                 "count",
                 "interface_name",
                 iface_name,
+                elems,
+                val,
             );
-        } else if leaf_matches(elems, &["state", "counters", "out-errors"])
-            && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+            true
+        } else if leaf_matches(elems, &["state", "counters", "out-errors"]) {
+            self.emit_numeric_metric_if_valid(
                 "interface_out_errors",
-                iface_name,
-                v,
                 "count",
                 "interface_name",
                 iface_name,
+                elems,
+                val,
             );
-        } else if leaf_matches(elems, &["phy-diag", "state", "effective-ber"])
-            && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+            true
+        } else if leaf_matches(elems, &["phy-diag", "state", "effective-ber"]) {
+            self.emit_numeric_metric_if_valid(
                 "interface_effective_ber",
-                iface_name,
-                v,
                 "ratio",
                 "interface_name",
                 iface_name,
+                elems,
+                val,
             );
-        } else if leaf_matches(elems, &["phy-diag", "state", "symbol-ber"])
-            && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+            true
+        } else if leaf_matches(elems, &["phy-diag", "state", "symbol-ber"]) {
+            self.emit_numeric_metric_if_valid(
                 "interface_symbol_ber",
-                iface_name,
-                v,
                 "ratio",
                 "interface_name",
                 iface_name,
+                elems,
+                val,
             );
+            true
         } else if leaf_matches(
             elems,
             &["phy-diag", "state", "unintentional-link-down-events"],
-        ) && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+        ) {
+            self.emit_numeric_metric_if_valid(
                 "interface_link_down_events",
-                iface_name,
-                v,
                 "count",
                 "interface_name",
                 iface_name,
+                elems,
+                val,
             );
+            true
+        } else {
+            false
         }
     }
 
@@ -185,7 +194,7 @@ impl GnmiSampleProcessor {
         elems: &[&PathElem],
         comp_name: &str,
         val: &proto::TypedValue,
-    ) {
+    ) -> bool {
         if leaf_matches(elems, &["healthz", "state", "status"]) {
             let v = component_health_to_f64(typed_value_to_string(val).as_deref());
             self.emit_data_metric(
@@ -196,18 +205,94 @@ impl GnmiSampleProcessor {
                 "component_name",
                 comp_name,
             );
-        } else if leaf_matches(elems, &["state", "temperature", "instant"])
-            && let Some(v) = typed_value_to_f64(val)
-        {
-            self.emit_data_metric(
+            true
+        } else if leaf_matches(elems, &["state", "temperature", "instant"]) {
+            self.emit_numeric_metric_if_valid(
                 "component_temperature_celsius",
-                comp_name,
-                v,
                 "celsius",
                 "component_name",
                 comp_name,
+                elems,
+                val,
             );
+            true
+        } else {
+            false
         }
+    }
+
+    fn emit_generic_leaf_metric(
+        &self,
+        elems: &[&PathElem],
+        entity_label_name: &'static str,
+        entity_label_value: &str,
+        val: &proto::TypedValue,
+    ) {
+        let Some(sink) = &self.data_sink else { return };
+        let Some(leaf_name) = elems.last().map(|elem| elem.name.as_str()) else {
+            return;
+        };
+        let Some((value, unit)) = typed_value_to_metric_value(val) else {
+            return;
+        };
+        let metric_type = catalog_metric_type_for_leaf(leaf_name)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let leaf = sanitize_metric_token(leaf_name);
+                format!("nvswitch_{leaf}")
+            });
+        let path = path_string(elems);
+
+        let key = format!("{metric_type}:{entity_label_value}:{path}");
+        let labels = vec![
+            (
+                Cow::Borrowed(entity_label_name),
+                entity_label_value.to_string(),
+            ),
+            (Cow::Borrowed("source_path"), path),
+        ];
+        sink.handle_event(
+            &self.event_context,
+            &CollectorEvent::Metric(Box::new(MetricSample {
+                key,
+                name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
+                metric_type,
+                unit,
+                value,
+                labels,
+                context: None,
+            })),
+        );
+    }
+
+    fn emit_numeric_metric_if_valid(
+        &self,
+        metric_type: &str,
+        unit: &str,
+        entity_label_name: &'static str,
+        entity_label_value: &str,
+        elems: &[&PathElem],
+        val: &proto::TypedValue,
+    ) {
+        if let Some(value) = typed_value_to_f64(val).filter(|value| value.is_finite()) {
+            self.emit_data_metric(
+                metric_type,
+                entity_label_value,
+                value,
+                unit,
+                entity_label_name,
+                entity_label_value,
+            );
+            return;
+        }
+
+        tracing::warn!(
+            metric_type,
+            source_path = %path_string(elems),
+            entity_label_name,
+            entity_label_value,
+            "nvue_gnmi SAMPLE: skipping known numeric leaf with invalid value"
+        );
     }
 
     fn emit_data_metric(
@@ -246,6 +331,103 @@ impl GnmiSampleProcessor {
             })),
         );
     }
+}
+
+fn typed_value_to_metric_value(value: &proto::TypedValue) -> Option<(f64, String)> {
+    if let Some(value) = typed_value_to_f64(value) {
+        return value.is_finite().then_some((value, "value".to_string()));
+    }
+    let raw = typed_value_to_string(value)?;
+    if raw.eq_ignore_ascii_case("up")
+        || raw.eq_ignore_ascii_case("healthy")
+        || raw.eq_ignore_ascii_case("true")
+    {
+        return Some((1.0, "state".to_string()));
+    }
+    if raw.eq_ignore_ascii_case("down")
+        || raw.eq_ignore_ascii_case("unhealthy")
+        || raw.eq_ignore_ascii_case("false")
+    {
+        return Some((0.0, "state".to_string()));
+    }
+    Some((1.0, "info".to_string()))
+}
+
+fn path_string(elems: &[&PathElem]) -> String {
+    elems
+        .iter()
+        .map(|elem| {
+            if elem.key.is_empty() {
+                elem.name.clone()
+            } else {
+                let mut keys = elem
+                    .key
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>();
+                keys.sort();
+                format!("{}[{}]", elem.name, keys.join(","))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn catalog_metric_type_for_leaf(leaf_name: &str) -> Option<&'static str> {
+    match leaf_name {
+        "link-downed" => Some("nvswitch_link_downed_counter"),
+        "port-malformed-packet-errors" => Some("nvswitch_port_malformed_packet_errors"),
+        "port-neighbor-mtu-discards" => Some("nvswitch_port_neighbor_mtu_discards"),
+        "out-discards" => Some("nvswitch_port_xmit_discards"),
+        "rcv-remote-phy-errors" => Some("nvswitch_port_rcv_remote_physical_errors"),
+        "rcv-switch-relay-errors" => Some("nvswitch_port_rcv_switch_relay_errors"),
+        "qp1-dropped" => Some("nvswitch_qp1dropped"),
+        "vl15-dropped" => Some("nvswitch_vl15_dropped"),
+        "physical-port-state" => Some("nvswitch_nvlink_status"),
+        "link-error-recovery" => Some("nvswitch_link_error_recovery_counter"),
+        "port-multi-cast-rcv-pkts" => Some("nvswitch_port_multicast_rcv_pkts"),
+        "port-multi-cast-xmit-pkts" => Some("nvswitch_port_multicast_xmit_pkts"),
+        "in-octets" => Some("nvswitch_port_rcv_data"),
+        "in-pkts" => Some("nvswitch_port_rcv_pkts"),
+        "port-uni-cast-rcv-pkts" => Some("nvswitch_port_unicast_rcv_pkts"),
+        "port-uni-cast-xmit-pkts" => Some("nvswitch_port_unicast_xmit_pkts"),
+        "out-octets" => Some("nvswitch_port_xmit_data"),
+        "out-pkts" => Some("nvswitch_port_xmit_pkts"),
+        "xmit-wait" => Some("nvswitch_port_xmit_wait"),
+        "raw-ber" => Some("nvswitch_raw_ber"),
+        "zero-hist" => Some("nvswitch_zero_hist"),
+        "raw-errors-ch-1" => Some("nvswitch_phy_raw_errors_lane0"),
+        "raw-errors-ch-2" => Some("nvswitch_phy_raw_errors_lane1"),
+        "raw-ber-ch-1" => Some("nvswitch_raw_ber_lane0"),
+        "raw-ber-ch-2" => Some("nvswitch_raw_ber_lane1"),
+        "effective-errors" => Some("nvswitch_phy_effective_errors"),
+        "time-since-last-clear-min" => Some("nvswitch_time_since_lasts_clear"),
+        "excessive-buffer-overrun" => Some("nvswitch_port_buffer_overrun_errors"),
+        "speed" => Some("nvswitch_link_speed_active"),
+        "width" => Some("nvswitch_link_width_active"),
+        "mtu" => Some("nvswitch_mtu"),
+        "max-supported-mtus" => Some("nvswitch_max_supported_mtu"),
+        "supported-widths" => Some("nvswitch_supported_width"),
+        "vl-capabilities" => Some("nvswitch_vl_capabilities"),
+        "local-link-integrity-errors" => Some("nvswitch_local_link_integrity_errors"),
+        "module-oper-status" => Some("nvswitch_cable_oper_status"),
+        _ => None,
+    }
+}
+
+fn sanitize_metric_token(value: &str) -> String {
+    let mut token = String::with_capacity(value.len());
+    let mut previous_was_separator = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            token.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator {
+            token.push('_');
+            previous_was_separator = true;
+        }
+    }
+    token.trim_matches('_').to_string()
 }
 
 fn find_elem_key_ref<'a>(
@@ -458,6 +640,138 @@ mod tests {
 
         let count = proc.process_notification(&notification);
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn unmapped_interface_leaf_emits_catalog_metric_sample() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: Some(proto::Path {
+                elem: vec![
+                    make_path_elem("interfaces", &[]),
+                    make_path_elem("interface", &[("name", "nvl4")]),
+                ],
+                ..Default::default()
+            }),
+            update: vec![proto::Update {
+                path: Some(proto::Path {
+                    elem: vec![
+                        make_path_elem("phy-diag", &[]),
+                        make_path_elem("state", &[]),
+                        make_path_elem("port-malformed-packet-errors", &[]),
+                    ],
+                    ..Default::default()
+                }),
+                val: Some(make_typed_value_uint(9)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let count = proc.process_notification(&notification);
+        assert_eq!(count, 1);
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 1);
+        let CollectorEvent::Metric(sample) = &events[0].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(sample.metric_type, "nvswitch_port_malformed_packet_errors");
+        assert_eq!(sample.value, 9.0);
+        assert!(
+            sample
+                .labels
+                .iter()
+                .any(|(key, value)| key.as_ref() == "interface" && value == "nvl4")
+        );
+    }
+
+    #[test]
+    fn known_numeric_interface_leaf_with_invalid_value_does_not_emit_generic_info_metric() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: Some(proto::Path {
+                elem: vec![
+                    make_path_elem("interfaces", &[]),
+                    make_path_elem("interface", &[("name", "nvl4")]),
+                ],
+                ..Default::default()
+            }),
+            update: vec![proto::Update {
+                path: Some(proto::Path {
+                    elem: vec![
+                        make_path_elem("state", &[]),
+                        make_path_elem("counters", &[]),
+                        make_path_elem("in-errors", &[]),
+                    ],
+                    ..Default::default()
+                }),
+                val: Some(make_typed_value_string("N/A")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let count = proc.process_notification(&notification);
+        assert_eq!(count, 1);
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert!(
+            events.is_empty(),
+            "known numeric leaf with invalid value must be skipped instead of emitted as generic info"
+        );
+    }
+
+    #[test]
+    fn platform_general_string_leaf_emits_info_metric() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: Some(proto::Path {
+                elem: vec![make_path_elem("platform-general", &[])],
+                ..Default::default()
+            }),
+            update: vec![proto::Update {
+                path: Some(proto::Path {
+                    elem: vec![
+                        make_path_elem("state", &[]),
+                        make_path_elem("platform-name", &[]),
+                    ],
+                    ..Default::default()
+                }),
+                val: Some(make_typed_value_string("gb200-switch-a")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let count = proc.process_notification(&notification);
+        assert_eq!(count, 1);
+
+        let events = sink.events.lock().expect("lock poisoned");
+        let CollectorEvent::Metric(sample) = &events[0].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(sample.metric_type, "nvswitch_platform_name");
+        assert_eq!(sample.unit, "info");
+        assert_eq!(sample.value, 1.0);
+        assert!(
+            sample
+                .labels
+                .iter()
+                .all(|(key, _)| key.as_ref() != "leaf_value")
+        );
+        assert!(sample.labels.iter().any(|(key, value)| {
+            key.as_ref() == "source_path" && value == "platform-general/state/platform-name"
+        }));
     }
 
     #[test]

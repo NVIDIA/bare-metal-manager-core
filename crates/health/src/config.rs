@@ -137,10 +137,6 @@ pub enum StaticSwitchEndpointRole {
     Host,
 }
 
-fn default_static_switch_endpoint_role() -> StaticSwitchEndpointRole {
-    StaticSwitchEndpointRole::Host
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticSwitchEndpoint {
@@ -150,7 +146,6 @@ pub struct StaticSwitchEndpoint {
     pub slot_number: Option<i32>,
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
-    #[serde(default = "default_static_switch_endpoint_role")]
     pub endpoint_role: StaticSwitchEndpointRole,
     #[serde(default)]
     pub is_primary: bool,
@@ -195,13 +190,19 @@ impl StaticBmcEndpoint {
             ));
         }
 
-        if let Some(switch) = &self.switch
-            && switch.id.is_none()
-            && switch.serial.is_none()
-        {
-            return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
-            ));
+        if let Some(switch) = &self.switch {
+            if switch.id.is_none() && switch.serial.is_none() {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
+                ));
+            }
+            if switch.endpoint_role == StaticSwitchEndpointRole::Host
+                && switch.nmxt_enabled.is_none()
+            {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].switch.nmxt_enabled must be explicit for host switch endpoints"
+                ));
+            }
         }
 
         Ok(())
@@ -515,6 +516,9 @@ pub struct CollectorsConfig {
     /// Entity metrics collector configuration (if present, metrics collector is enabled)
     pub metrics: Configurable<MetricsCollectorConfig>,
 
+    /// Redfish TelemetryService MetricReports collector configuration.
+    pub telemetry_service: Configurable<TelemetryServiceCollectorConfig>,
+
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
 
@@ -537,6 +541,7 @@ impl Default for CollectorsConfig {
             discovery: DiscoveryConfig::default(),
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
             metrics: Configurable::Disabled,
+            telemetry_service: Configurable::Disabled,
             firmware: Configurable::Disabled,
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
@@ -578,6 +583,30 @@ impl Default for MetricsCollectorConfig {
         Self {
             fetch_interval: Duration::from_secs(120),
             fetch_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelemetryServiceCollectorConfig {
+    /// Interval between Redfish TelemetryService MetricReport polls.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+
+    /// Maximum number of MetricReports fetched concurrently per endpoint.
+    pub fetch_concurrency: usize,
+
+    /// Optional allow-list of MetricReport resource IDs. Empty means all MetricReports.
+    pub metric_report_ids: Vec<String>,
+}
+
+impl Default for TelemetryServiceCollectorConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(60),
+            fetch_concurrency: 4,
+            metric_report_ids: Vec::new(),
         }
     }
 }
@@ -983,6 +1012,7 @@ impl Default for NvueGnmiConfig {
 pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
+    pub platform_general_enabled: bool,
 }
 
 impl Default for NvueGnmiPaths {
@@ -990,6 +1020,7 @@ impl Default for NvueGnmiPaths {
         Self {
             components_enabled: true,
             interfaces_enabled: true,
+            platform_general_enabled: false,
         }
     }
 }
@@ -1289,6 +1320,7 @@ mod tests {
         assert!(config.collectors.firmware.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(config.collectors.logs.is_enabled());
+        assert!(config.collectors.telemetry_service.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
@@ -1345,6 +1377,14 @@ mod tests {
         assert_eq!(config.cache_size, 100);
         assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(300));
 
+        if let Configurable::Enabled(ref telemetry_service) = config.collectors.telemetry_service {
+            assert_eq!(telemetry_service.poll_interval, Duration::from_secs(60));
+            assert_eq!(telemetry_service.fetch_concurrency, 4);
+            assert!(telemetry_service.metric_report_ids.is_empty());
+        } else {
+            panic!("telemetry service config should be enabled in example config");
+        }
+
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
             if let Configurable::Enabled(ref rest) = nvue.rest {
                 assert_eq!(rest.poll_interval, Duration::from_secs(60));
@@ -1357,6 +1397,7 @@ mod tests {
                 assert_eq!(gnmi.sample_interval, Duration::from_secs(300));
                 assert_eq!(gnmi.request_timeout, Duration::from_secs(30));
                 assert!(gnmi.system_events_enabled);
+                assert!(gnmi.paths.platform_general_enabled);
             } else {
                 panic!("nvue gnmi config should be enabled in example config");
             }
@@ -1707,6 +1748,9 @@ skip_empty_reports = false
             assert!(rest.paths.sdn_partitions_enabled);
             assert!(rest.paths.interfaces_enabled);
         }
+        if let Configurable::Enabled(ref gnmi) = defaults.gnmi {
+            assert!(!gnmi.paths.platform_general_enabled);
+        }
     }
 
     #[test]
@@ -1748,6 +1792,42 @@ request_timeout = "45s"
     fn test_nvue_config_disabled_by_default() {
         let config = Config::default();
         assert!(!config.collectors.nvue.is_enabled());
+    }
+
+    #[test]
+    fn test_telemetry_service_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.telemetry_service]
+poll_interval = "45s"
+fetch_concurrency = 8
+metric_report_ids = ["NvidiaNMMetrics_0"]
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse telemetry service config");
+
+        if let Configurable::Enabled(ref telemetry_service) = config.collectors.telemetry_service {
+            assert_eq!(telemetry_service.poll_interval, Duration::from_secs(45));
+            assert_eq!(telemetry_service.fetch_concurrency, 8);
+            assert_eq!(telemetry_service.metric_report_ids, ["NvidiaNMMetrics_0"]);
+        } else {
+            panic!("telemetry service config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_telemetry_service_config_disabled_by_default() {
+        let config = Config::default();
+        assert!(!config.collectors.telemetry_service.is_enabled());
     }
 
     #[test]
@@ -1894,7 +1974,7 @@ ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "cumulus"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", slot_number = 7, tray_index = 3 }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", endpoint_role = "host", nmxt_enabled = true, slot_number = 7, tray_index = 3 }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.2.1"
@@ -1981,7 +2061,7 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
     }
 
     #[test]
-    fn test_static_switch_host_accepts_primary_without_nmxt_override() {
+    fn test_static_switch_host_accepts_primary_with_explicit_nmxt_enabled() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -1991,7 +2071,7 @@ ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", endpoint_role = "host", is_primary = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-001", endpoint_role = "host", is_primary = true, nmxt_enabled = true }
 "#;
 
         let config: Config = Figment::new()
@@ -2007,7 +2087,7 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(switch.is_primary);
-        assert_eq!(switch.nmxt_enabled, None);
+        assert_eq!(switch.nmxt_enabled, Some(true));
     }
 
     #[test]
@@ -2038,6 +2118,61 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(!switch.is_primary);
         assert_eq!(switch.nmxt_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_static_switch_endpoint_requires_explicit_role() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.3"
+mac = "11:22:33:44:55:88"
+username = "admin"
+password = "pass"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-003" }
+"#;
+
+        let err = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract::<Config>()
+            .expect_err("switch endpoint role must be explicit");
+
+        assert!(
+            err.to_string().contains("endpoint_role"),
+            "error should mention the missing endpoint_role: {err}"
+        );
+    }
+
+    #[test]
+    fn test_static_switch_host_requires_explicit_nmxt_enabled() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.4"
+mac = "11:22:33:44:55:99"
+username = "admin"
+password = "pass"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-004", endpoint_role = "host", is_primary = true }
+"#;
+
+        let config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract::<Config>()
+            .expect("config parses before validation");
+
+        let err = config
+            .validate()
+            .expect_err("host nmxt_enabled must be explicit");
+        assert!(
+            err.contains("nmxt_enabled"),
+            "error should mention missing nmxt_enabled: {err}"
+        );
     }
 
     #[test]
@@ -2091,7 +2226,7 @@ ip = "10.0.1.1"
 mac = "11:22:33:44:55:66"
 username = "cumulus"
 password = "pass"
-switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 3 }
+switch = { serial = "SN-SW-001", endpoint_role = "host", nmxt_enabled = false, physical_slot_number = 7, compute_tray_index = 3 }
 "#;
 
         let config: Config = Figment::new()
@@ -2130,7 +2265,7 @@ mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "pass"
 machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" }
-switch = { serial = "SN-SW-001" }
+switch = { serial = "SN-SW-001", endpoint_role = "host", nmxt_enabled = false }
 "#;
 
         let config: Config = Figment::new()

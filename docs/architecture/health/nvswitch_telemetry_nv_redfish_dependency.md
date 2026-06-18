@@ -6,15 +6,15 @@ Generated during the GB200 NVSWITCH telemetry branch setup.
 
 - `Cargo.toml` pins `nv-redfish = { version = "0.10.0" }`.
 - `Cargo.lock` resolves `nv-redfish`, `nv-redfish-bmc-http`, `nv-redfish-core`, `nv-redfish-schema`, and `nv-redfish-csdl-compiler` to `0.10.0` from crates.io.
-- `crates/health/Cargo.toml` enables standard health features but not `telemetry-service`.
+- This branch enables `telemetry-service` in `crates/health/Cargo.toml` for the new Redfish TelemetryService collector.
 - The GB200 branch has a local `nv-redfish` worktree available for companion development only:
-  - `/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps`
+  - `${NV_REDFISH_WORKTREE}`
   - Branch: `nvswitch_telemetry_gaps`
   - Base: `origin/main` at `dbd2789c987fd320d263d87524fc25fde305bc7f`
 
 ## Refreshed upstream state
 
-- Local `/Users/mkoci/Projects/nv-redfish` was fetched from `origin` on 2026-06-18.
+- Local `${NV_REDFISH_SOURCE_CHECKOUT}` was fetched from `origin` on 2026-06-18.
 - Latest observed public tags: `v0.10.2`, `v0.10.1`, `v0.10.0`.
 - `v0.10.2` does not appear to contain Fabric/Switch/Port/NVSwitch changes relevant to this work.
 - `origin/main` includes a `telemetry-service` feature in `redfish/features.toml`.
@@ -33,18 +33,18 @@ During local development, keep user-local absolute paths out of committed manife
 
 ```bash
 cargo test -p carbide-health --lib --no-run \
-  --config 'patch.crates-io.nv-redfish.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/redfish"'
+  --config "patch.crates-io.nv-redfish.path=\"${NV_REDFISH_WORKTREE}/redfish\""
 ```
 
 If companion changes touch internal nv-redfish crates, patch the affected packages too:
 
 ```bash
 cargo test -p carbide-health --lib --no-run \
-  --config 'patch.crates-io.nv-redfish.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/redfish"' \
-  --config 'patch.crates-io.nv-redfish-core.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/core"' \
-  --config 'patch.crates-io.nv-redfish-schema.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/schema"' \
-  --config 'patch.crates-io.nv-redfish-csdl-compiler.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/csdl-compiler"' \
-  --config 'patch.crates-io.nv-redfish-bmc-http.path="/Users/mkoci/.config/superpowers/worktrees/nv-redfish/nvswitch_telemetry_gaps/bmc-http"'
+  --config "patch.crates-io.nv-redfish.path=\"${NV_REDFISH_WORKTREE}/redfish\"" \
+  --config "patch.crates-io.nv-redfish-core.path=\"${NV_REDFISH_WORKTREE}/core\"" \
+  --config "patch.crates-io.nv-redfish-schema.path=\"${NV_REDFISH_WORKTREE}/schema\"" \
+  --config "patch.crates-io.nv-redfish-csdl-compiler.path=\"${NV_REDFISH_WORKTREE}/csdl-compiler\"" \
+  --config "patch.crates-io.nv-redfish-bmc-http.path=\"${NV_REDFISH_WORKTREE}/bmc-http\""
 ```
 
 ## Final MR strategy
@@ -54,3 +54,9 @@ Do not commit local absolute path dependencies. Before final review, use one of 
 1. A released `nv-redfish` version containing companion support, with `Cargo.toml` and `Cargo.lock` updated accordingly.
 2. A reviewer-approved git revision dependency if release timing blocks final integration.
 3. A documented split where infra-controller names the required `nv-redfish` companion MR and keeps local path overrides out of the final diff.
+
+## Branch implementation update
+
+The GB200 branch consumes the typed TelemetryService API already present in `nv-redfish` 0.10.0 (`ServiceRoot::telemetry_service()`, `TelemetryService::metric_report_links()`, and `MetricReportLink::fetch()`). No local `nv-redfish` path dependency is committed.
+
+Direct Fabric/Switch/Port wrappers are still absent from `nv-redfish` 0.10.x and `origin/main` as inspected. The GB200 branch therefore uses Redfish TelemetryService MetricReports for BMC-side switch telemetry now, while keeping the local companion worktree available if live GB200 evidence proves that a required metric is only available from Fabric/Switch/Port resources and not from MetricReports, NMX-T, or gNMI.

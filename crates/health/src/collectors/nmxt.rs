@@ -17,7 +17,8 @@
 
 //! This module collects metrics from NMX-T telemetry endpoints on NVLink switches if the service is enabled.
 //! Scrapes HTTP on 9352 (default for NMX-T) - NOT A Redfish collector!
-//! Currently scraping for Effective BER, Symbol Errors and Link Down counter.
+//! Known switch metrics are emitted with existing canonical names; all other
+//! numeric Prometheus samples are preserved as source-qualified NMX-T metrics.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -223,30 +224,41 @@ impl NmxtCollector {
             let port_num = sample_labels.remove("Port_Number").unwrap_or_default();
             let node_guid = sample_labels.remove("Node_GUID").unwrap_or_default();
 
+            let known_legacy_metric = matches!(
+                name.as_str(),
+                "Effective_BER" | "Symbol_Errors" | "Link_Down"
+            );
             let metric_type = match name.as_str() {
-                "Effective_BER" => "effective_ber",
-                "Symbol_Errors" => "symbol_errors",
-                "Link_Down" => "link_down",
-                _ => continue,
+                "Effective_BER" => "effective_ber".to_string(),
+                "Symbol_Errors" => "symbol_errors".to_string(),
+                "Link_Down" => "link_down".to_string(),
+                _ => sanitize_metric_token(&name),
             };
 
-            let mut metric_key = String::with_capacity(metric_type.len() + 1 + port_num.len());
-            metric_key.push_str(metric_type);
-            metric_key.push(':');
-            metric_key.push_str(&port_num);
+            let metric_key = if known_legacy_metric {
+                legacy_metric_key(&metric_type, &port_num)
+            } else {
+                generic_metric_key(&metric_type, &name, &port_num, &node_guid, &sample_labels)
+            };
 
-            let labels = vec![
+            let mut labels = vec![
                 (Cow::Borrowed("switch_id"), self.switch_id.clone()),
                 (Cow::Borrowed("switch_ip"), switch_ip.clone()),
                 (Cow::Borrowed("node_guid"), node_guid),
                 (Cow::Borrowed("port_num"), port_num),
             ];
+            if !known_legacy_metric {
+                labels.push((Cow::Borrowed("source_metric"), name));
+            }
+            for (label_name, label_value) in sample_labels {
+                labels.push((Cow::Owned(sanitize_label_name(&label_name)), label_value));
+            }
 
             self.emit_event(CollectorEvent::Metric(
                 MetricSample {
                     key: metric_key,
                     name: "switch_nmxt".to_string(),
-                    metric_type: metric_type.to_string(),
+                    metric_type,
                     unit: "count".to_string(),
                     value,
                     labels,
@@ -260,6 +272,122 @@ impl NmxtCollector {
 
         Ok(())
     }
+}
+
+fn legacy_metric_key(metric_type: &str, port_num: &str) -> String {
+    let mut metric_key = String::with_capacity(metric_type.len() + 1 + port_num.len());
+    metric_key.push_str(metric_type);
+    metric_key.push(':');
+    metric_key.push_str(port_num);
+    metric_key
+}
+
+fn generic_metric_key(
+    metric_type: &str,
+    source_metric: &str,
+    port_num: &str,
+    node_guid: &str,
+    sample_labels: &HashMap<String, String>,
+) -> String {
+    let mut metric_key = metric_type.to_string();
+
+    append_metric_key_identity(&mut metric_key, "port_num", port_num);
+    append_metric_key_identity(&mut metric_key, "source_metric", source_metric);
+    append_metric_key_identity(&mut metric_key, "node_guid", node_guid);
+
+    let mut identity_labels = sample_labels
+        .iter()
+        .map(|(label_name, label_value)| (sanitize_label_name(label_name), label_name, label_value))
+        .collect::<Vec<_>>();
+    identity_labels.sort_by(
+        |(left_sanitized, left_name, left_value), (right_sanitized, right_name, right_value)| {
+            left_sanitized
+                .cmp(right_sanitized)
+                .then_with(|| left_name.cmp(right_name))
+                .then_with(|| left_value.cmp(right_value))
+        },
+    );
+
+    for (_, label_name, label_value) in identity_labels {
+        append_metric_key_identity(&mut metric_key, "label_name", label_name);
+        append_metric_key_identity(&mut metric_key, "label_value", label_value);
+    }
+
+    metric_key
+}
+
+fn append_metric_key_identity(
+    metric_key: &mut String,
+    component_name: &str,
+    component_value: &str,
+) {
+    if component_value.is_empty() {
+        return;
+    }
+    metric_key.push(':');
+    metric_key.push_str(&escape_metric_key_component(component_name));
+    metric_key.push('=');
+    metric_key.push_str(&escape_metric_key_component(component_value));
+}
+
+fn escape_metric_key_component(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                escaped.push(byte as char);
+            }
+            _ => {
+                escaped.push('%');
+                escaped.push(hex_digit(byte >> 4));
+                escaped.push(hex_digit(byte & 0x0f));
+            }
+        }
+    }
+    escaped
+}
+
+fn hex_digit(nibble: u8) -> char {
+    match nibble {
+        0..=9 => (b'0' + nibble) as char,
+        10..=15 => (b'A' + nibble - 10) as char,
+        _ => unreachable!("hex nibble is always <= 15"),
+    }
+}
+
+fn sanitize_metric_token(value: &str) -> String {
+    let mut token = String::with_capacity(value.len());
+    let mut previous_was_separator = false;
+    let chars = value.chars().collect::<Vec<_>>();
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if ch.is_ascii_alphanumeric() {
+            let previous = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
+            let next = chars.get(index + 1).copied();
+            let starts_word = ch.is_ascii_uppercase()
+                && !previous_was_separator
+                && previous.is_some_and(|prev| prev.is_ascii_alphanumeric())
+                && (previous
+                    .is_some_and(|prev| prev.is_ascii_lowercase() || prev.is_ascii_digit())
+                    || next.is_some_and(|next| next.is_ascii_lowercase()));
+            if starts_word {
+                token.push('_');
+            }
+            token.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !previous_was_separator {
+            token.push('_');
+            previous_was_separator = true;
+        }
+    }
+    token.trim_matches('_').to_string()
+}
+
+fn sanitize_label_name(value: &str) -> String {
+    let mut label = sanitize_metric_token(value);
+    if label.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        label.insert(0, '_');
+    }
+    label
 }
 
 #[cfg(test)]
@@ -303,5 +431,92 @@ Link_Down{Port_Number="1"} 5
 
         let samples = parse_prometheus_metrics(body);
         assert_eq!(samples.len(), 4);
+    }
+
+    #[test]
+    fn unknown_nmxt_metric_names_are_sanitized_instead_of_dropped() {
+        assert_eq!(
+            sanitize_metric_token("PortMalformedPacketErrors"),
+            "port_malformed_packet_errors"
+        );
+        assert_eq!(sanitize_label_name("Lane-Number"), "lane_number");
+        assert_eq!(sanitize_label_name("8b10b"), "_8b10b");
+    }
+
+    #[test]
+    fn generic_metric_key_includes_sorted_extra_label_identity() {
+        let labels = HashMap::from([
+            ("Lane-Number".to_string(), "3".to_string()),
+            ("Device".to_string(), "nvswitch0".to_string()),
+        ]);
+
+        assert_eq!(
+            generic_metric_key(
+                "port_malformed_packet_errors",
+                "PortMalformedPacketErrors",
+                "4",
+                "0x8e2161c8803caf64",
+                &labels,
+            ),
+            "port_malformed_packet_errors:port_num=4:source_metric=PortMalformedPacketErrors:node_guid=0x8e2161c8803caf64:label_name=Device:label_value=nvswitch0:label_name=Lane-Number:label_value=3"
+        );
+    }
+
+    #[test]
+    fn generic_metric_key_includes_raw_source_metric_to_avoid_sanitized_name_aliasing() {
+        let labels = HashMap::new();
+
+        assert_ne!(
+            generic_metric_key("rx_errors", "RxErrors", "1", "", &labels),
+            generic_metric_key("rx_errors", "rx-errors", "1", "", &labels),
+        );
+    }
+
+    #[test]
+    fn generic_metric_key_escapes_identity_delimiters_to_avoid_aliasing() {
+        let labels_with_delimiter_value = HashMap::from([("b".to_string(), "c:d=e".to_string())]);
+        let labels_split_by_delimiters = HashMap::from([
+            ("b".to_string(), "c".to_string()),
+            ("d".to_string(), "e".to_string()),
+        ]);
+
+        assert_ne!(
+            generic_metric_key(
+                "rx_errors",
+                "RxErrors",
+                "1",
+                "",
+                &labels_with_delimiter_value
+            ),
+            generic_metric_key(
+                "rx_errors",
+                "RxErrors",
+                "1",
+                "",
+                &labels_split_by_delimiters
+            )
+        );
+
+        assert_ne!(
+            generic_metric_key(
+                "rx_errors",
+                "RxErrors:node_guid=x",
+                "1",
+                "",
+                &HashMap::new()
+            ),
+            generic_metric_key("rx_errors", "RxErrors", "1", "x", &HashMap::new())
+        );
+    }
+
+    #[test]
+    fn generic_metric_key_distinguishes_same_port_samples_by_extra_labels() {
+        let first = HashMap::from([("Lane".to_string(), "0".to_string())]);
+        let second = HashMap::from([("Lane".to_string(), "1".to_string())]);
+
+        assert_ne!(
+            generic_metric_key("rx_errors", "RxErrors", "1", "", &first),
+            generic_metric_key("rx_errors", "RxErrors", "1", "", &second)
+        );
     }
 }

@@ -25,6 +25,7 @@ mod nmxt;
 mod nvue;
 mod runtime;
 mod sensors;
+mod telemetry_service;
 
 pub use discovery::{EntityDiscoveryCollector, EntityDiscoveryCollectorConfig};
 pub use entity_metrics::{MetricsCollector, MetricsCollectorConfig};
@@ -45,3 +46,4 @@ pub use runtime::{
     StreamingCollectorStartContext, open_sse_stream,
 };
 pub use sensors::{SensorCollector, SensorCollectorConfig};
+pub use telemetry_service::{TelemetryServiceCollector, TelemetryServiceCollectorConfig};
