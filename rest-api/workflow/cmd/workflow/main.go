@@ -273,7 +273,7 @@ func main() {
 
 		// Site workflows
 		w.RegisterWorkflow(siteWorkflow.UpdateAgentCertExpiry)
-		w.RegisterWorkflow(siteWorkflow.UpdateSiteIPBlockInventory)
+		w.RegisterWorkflow(siteWorkflow.UpdateSiteConfigInventory)
 
 		// SSHKeyGroup workflows
 		w.RegisterWorkflow(sshKeyGroupWorkflow.UpdateSSHKeyGroupInventory)

@@ -14,10 +14,11 @@ import (
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
 )
 
-// UpdateSiteIPBlockInventory creates Site-level IP Blocks from Site fabric
-// prefixes reported by the Site Agent.
-func UpdateSiteIPBlockInventory(ctx workflow.Context, siteIDStr string, siteFabricPrefixes []string) error {
-	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "UpdateSiteIPBlockInventory", "SiteID", siteIDStr)
+// UpdateSiteConfigInventory applies the Site Config inventory reported by the
+// Site Agent. Today that inventory carries the Site fabric prefixes, from which
+// the workflow creates the matching Site-level IP Blocks.
+func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, siteFabricPrefixes []string) error {
+	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "UpdateSiteConfigInventory", "SiteID", siteIDStr)
 	logger.Info("starting workflow")
 
 	siteID, err := uuid.Parse(siteIDStr)
@@ -39,9 +40,9 @@ func UpdateSiteIPBlockInventory(ctx workflow.Context, siteIDStr string, siteFabr
 
 	var manageSite siteActivity.ManageSite
 
-	err = workflow.ExecuteActivity(ctx, manageSite.UpdateSiteIPBlocksInDB, siteID, siteFabricPrefixes).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, manageSite.UpdateIPBlocksInDBFromFabricPrefixes, siteID, siteFabricPrefixes).Get(ctx, nil)
 	if err != nil {
-		logger.Error("failed to execute UpdateSiteIPBlocksInDB activity", "Error", err)
+		logger.Error("failed to execute UpdateIPBlocksInDBFromFabricPrefixes activity", "Error", err)
 		return err
 	}
 
