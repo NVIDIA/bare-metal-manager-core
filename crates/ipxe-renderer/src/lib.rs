@@ -20,6 +20,9 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+const STATIC_IPXE_MENU_TEMPLATE_ID: &str = "c816a939-0993-5ebf-82dd-5227ad215703";
+const STATIC_IPXE_MENU_TEMPLATE: &str = include_str!("../../../pxe/ipxe/local/embed.ipxe");
+
 /// iPXE OS definition with template-based rendering support
 #[derive(Debug, Clone)]
 pub struct IpxeScript {
@@ -64,7 +67,7 @@ pub struct IpxeTemplateArtifact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IpxeTemplateScope {
-    /// Carbide-core usage only.
+    /// NICo Core usage only.
     #[default]
     Internal,
     /// Usable by tenant.
@@ -135,7 +138,7 @@ pub trait IpxeScriptRenderer {
     /// Render generates the final iPXE script from an IpxeScript object.
     /// Artifact URLs are replaced by local cached URLs when available (cached_url).
     /// `reserved_params` must contain exactly the reserved parameters defined
-    /// in the template (provided by carbide-core).
+    /// in the template (provided by NICo Core).
     fn render(
         &self,
         ipxeos: &IpxeScript,
@@ -190,7 +193,13 @@ impl DefaultIpxeScriptRenderer {
         let templates = template_collection
             .templates
             .into_iter()
-            .map(|t| (t.name.clone(), t))
+            .map(|mut t| {
+                if t.id == STATIC_IPXE_MENU_TEMPLATE_ID {
+                    t.template = STATIC_IPXE_MENU_TEMPLATE.to_string();
+                }
+
+                (t.name.clone(), t)
+            })
             .collect();
 
         Self { templates }
@@ -1047,6 +1056,47 @@ mod tests {
         assert!(templates.contains(&"carbide-menu-static-ipxe".to_string()));
         // Only assert minimum count (templates referenced in tests); new entries in templates.yaml are allowed
         assert!(templates.len() >= 11);
+    }
+
+    #[test]
+    fn test_static_ipxe_menu_uses_nico_branding() {
+        const BRANDING_H: &str = include_str!("../../../pxe/ipxe/local/branding.h");
+
+        let renderer = DefaultIpxeScriptRenderer::new();
+        let menu_template = renderer
+            .get_template_by_id(STATIC_IPXE_MENU_TEMPLATE_ID)
+            .expect("static iPXE menu template should exist");
+
+        assert_eq!(menu_template.template, STATIC_IPXE_MENU_TEMPLATE);
+
+        for (name, contents) in [
+            ("embedded iPXE script", STATIC_IPXE_MENU_TEMPLATE),
+            ("iPXE branding header", BRANDING_H),
+            (
+                "renderer static menu description",
+                menu_template.description.as_str(),
+            ),
+        ] {
+            assert!(contents.contains("NICo"), "{name} should mention NICo");
+        }
+
+        for (name, contents) in [
+            ("embedded iPXE script", STATIC_IPXE_MENU_TEMPLATE),
+            ("iPXE branding header", BRANDING_H),
+            (
+                "renderer static menu description",
+                menu_template.description.as_str(),
+            ),
+        ] {
+            assert!(
+                !contents.contains("Carbide") && !contents.contains("carbide"),
+                "{name} should not mention Carbide"
+            );
+            assert!(
+                !contents.contains("Forge") && !contents.contains("forge"),
+                "{name} should not mention Forge"
+            );
+        }
     }
 
     #[test]

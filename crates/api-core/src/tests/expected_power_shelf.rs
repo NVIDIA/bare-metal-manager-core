@@ -19,130 +19,13 @@ use std::default::Default;
 use carbide_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::site_explorer::create_expected_power_shelves;
-use db::DatabaseError;
 use mac_address::MacAddress;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedPowerShelfList, ExpectedPowerShelfRequest};
 use uuid::Uuid;
 
 use crate::tests::common;
 
-#[crate::sqlx_test]
-async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-    let shelves = create_expected_power_shelves(&mut txn).await;
-
-    assert_eq!(shelves[0].serial_number, "PS-SN-001");
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-    let shelves = create_expected_power_shelves(&mut txn).await;
-
-    let power_shelf = &shelves[0];
-
-    let new_power_shelf = db::expected_power_shelf::create(
-        &mut txn,
-        ExpectedPowerShelf {
-            expected_power_shelf_id: None,
-            bmc_mac_address: power_shelf.bmc_mac_address,
-            bmc_username: "ADMIN3".into(),
-            bmc_password: "hmm".into(),
-            serial_number: "DUPLICATE".into(),
-            bmc_ip_address: None,
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-        },
-    )
-    .await;
-
-    assert!(matches!(
-        new_power_shelf,
-        Err(DatabaseError::ExpectedHostDuplicateMacAddress(_))
-    ));
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-    let shelves = create_expected_power_shelves(&mut txn).await;
-    let mut power_shelf = shelves[0].clone();
-
-    assert_eq!(power_shelf.serial_number, "PS-SN-001");
-    assert_eq!(power_shelf.bmc_username, "ADMIN");
-    assert_eq!(power_shelf.bmc_password, "Pwd2023x0x0x0x0x7");
-
-    power_shelf.bmc_username = "ADMIN2".to_string();
-    power_shelf.bmc_password = "wysiwyg".to_string();
-    db::expected_power_shelf::update(&mut txn, &power_shelf)
-        .await
-        .expect("Error updating bmc username/password");
-
-    txn.commit().await.expect("Failed to commit transaction");
-
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    let power_shelf =
-        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .expect("Expected power shelf not found");
-
-    assert_eq!(power_shelf.bmc_username, "ADMIN2");
-    assert_eq!(power_shelf.bmc_password, "wysiwyg");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_delete(pool: sqlx::PgPool) -> () {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-    let shelves = create_expected_power_shelves(&mut txn).await;
-    let power_shelf = &shelves[0];
-
-    assert_eq!(power_shelf.serial_number, "PS-SN-001");
-
-    db::expected_power_shelf::delete_by_mac(&mut txn, power_shelf.bmc_mac_address)
-        .await
-        .expect("Error deleting expected_power_shelf");
-
-    txn.commit().await.expect("Failed to commit transaction");
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    assert!(
-        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .is_none()
-    )
-}
-
-// Test API functionality
 #[crate::sqlx_test()]
 async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;

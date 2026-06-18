@@ -34,6 +34,9 @@ impl From<DhcpRecord> for rpc::forge::DhcpRecord {
             gateway: record.gateway.map(|gw| gw.to_string()),
             booturl: None, // TODO(ajf): extend database, synthesize URL
             last_invalidation_time: Some(record.last_invalidation_time.into()),
+            ntp_servers: vec![],
+            dhcpv6_preferred_lifetime_secs: None,
+            dhcpv6_valid_lifetime_secs: None,
         }
     }
 }

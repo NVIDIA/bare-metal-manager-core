@@ -24,7 +24,7 @@ templates:
       # Safety check:
       iseq ${arch} unknown && echo "Unsupported architecture." && sleep 5 && exit 1 ||
 
-      # 2. Get carbide-core-generated reserved values (base URL for local artifacts and console specific to hardware):
+      # 2. Get NICo Core generated reserved values (base URL for local artifacts and console specific to hardware):
       set base_url {{base_url}}
       set console {{console}}
 
@@ -53,7 +53,7 @@ templates:
       # Safety check:
       iseq ${arch} unknown && echo "Unsupported architecture." && sleep 5 && exit 1 ||
 
-      # 2. Get carbide-core-generated reserved values (base URL for local artifacts and console specific to hardware):
+      # 2. Get NICo Core generated reserved values (base URL for local artifacts and console specific to hardware):
       set base_url {{base_url}}
       set console {{console}}
 
@@ -326,66 +326,7 @@ templates:
 
   - id: c816a939-0993-5ebf-82dd-5227ad215703
     name: carbide-menu-static-ipxe
-    description: Carbide Menu
+    description: NICo Menu
     scope: public
-    template: |
-      #!ipxe
-      
-      set esc:hex 1b
-      set bold ${esc:string}[1m
-      set boldoff ${esc:string}[22m
-      
-      set white ${esc:string}[37m
-      
-      #color --rgb 0x76b900 7
-      #cpair --foreground 7 --background 9 0
-      
-      :start
-      echo ${bold}${white}Carbide${boldoff} - ${version}
-      prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open carbide menu... && goto carbide_menu || goto carbide
-      
-      :whoami
-      ifconf -c dhcp
-      # carbide-pxe identifies the booting machine by its client IP (read from
-      # X-Forwarded-For when proxied, TCP socket peer otherwise) and resolves
-      # to a machine_interface_id via find_by_ip. iPXE doesn't need to encode
-      # anything identity-related in the URL -- the network layer carries it.
-      time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami
-      goto carbide_menu
-
-      :carbide
-      ifconf -c dhcp
-      time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
-      
-      :carbide_menu
-      menu Carbide - ${hostname}
-      item carbide Boot according to Carbide workflow
-      item whoami Print information about this machine
-      item localboot Boot to local drive
-      #item netconfig Manual network configuration
-      #item vlan Manual VLAN configuration
-      item retry Retry boot
-      item debug iPXE Debug Shell
-      item reboot Reboot System
-      choose --default carbide --timeout 5000 target && goto ${target}
-      prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open carbide menu...
-      goto carbide_menu
-      
-      :localboot
-      exit
-      
-      :retry
-      goto start
-      
-      :error_handler
-      prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to continue (4 seconds timeout)...
-      goto carbide_menu
-      
-      :debug
-      echo Type "exit" to return to menu
-      shell
-      goto carbide_menu
-      
-      :reboot
-      reboot
-      goto start
+    # Populated from pxe/ipxe/local/embed.ipxe by DefaultIpxeScriptRenderer::new.
+    template: ""

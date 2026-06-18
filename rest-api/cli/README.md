@@ -333,6 +333,69 @@ To skip the config selector and connect to a specific environment directly:
 nicocli --config ~/.nico/config.prod.yaml tui
 ```
 
+## MCP Server Mode
+
+The NICo MCP server exposes the NICo REST read surface (every `GET` operation in the embedded OpenAPI spec) as Model Context Protocol tools over streamable-HTTP.
+
+The server ships as its own binary, `nico-mcp`, so that neither the MCP server code nor its MCP SDK dependency are linked into `nicocli`. Build and run it directly — `nicocli mcp` prints these same build/run instructions but never launches `nico-mcp` itself.
+
+```bash
+# Build and install nico-mcp (from the rest-api directory):
+make nico-mcp
+
+# Run the standalone server:
+nico-mcp --listen :8080 --path /mcp --base-url https://nico.example.com --org tester
+```
+
+Install the binaries with `make nico-cli` and `make nico-mcp`, run from the `rest-api` directory.
+
+### Properties
+
+- **Read-only.** Only `GET` operations are exposed. Mutating routes (`POST`, `PATCH`, `PUT`, `DELETE`) are intentionally excluded.
+- **Tool naming.** Tools are named `nico_<snake_case(operationId)>` (e.g. `nico_get_all_site`, `nico_validate_rack`).
+- **Stateless and request/response only.** The server sets `Stateless: true` and `JSONResponse: true` on the MCP streamable-HTTP handler -- responses are always `Content-Type: application/json`, never `text/event-stream`, and the server retains no per-session state.
+- **JWT passthrough.** The `Authorization: Bearer <jwt>` header on the inbound MCP request is forwarded unchanged to NICo REST. NICo REST validates the JWT, resolves the caller org, and enforces role-based authorization. The MCP layer never makes the authz decision itself.
+
+### Flags
+
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--listen` | `NICO_MCP_LISTEN` | Listen address (default `:8080`) |
+| `--path` | `NICO_MCP_PATH` | HTTP path the MCP handler is mounted at (default `/mcp`) |
+| `--shutdown-timeout` | `NICO_MCP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (default `10s`) |
+
+`--base-url`, `--org`, `--api-name`, and `--token` are accepted directly by `nico-mcp` and provide optional server-side defaults; each also reads its `NICO_*` environment variable. The MCP server does **not** read `~/.nico/config.yaml`: it is stateless and entirely parameter-driven, so it starts cleanly with no config file present and every connection detail is supplied per tool call (see below), falling back to these flags only when an argument is omitted.
+
+### Per-call config overrides
+
+Every typical config value can also be passed as an argument on each MCP tool call, layered on top of the server defaults:
+
+| Tool arg | Equivalent flag | Config field |
+|----------|-----------------|--------------|
+| `org` | `--org` | `api.org` |
+| `base_url` | `--base-url` | `api.base` |
+| `api_name` | `--api-name` | `api.name` |
+| `token` | `--token` | `auth.token` |
+
+Precedence per tool call (first non-empty wins): tool argument -> inbound `Authorization` header (token only) -> server startup flag/env. The MCP server does not read the on-disk config file. OIDC credentials and NGC api_key settings are NOT exposed as tool arguments -- they are login-flow inputs configured server-side via flags/env.
+
+### Probing the server
+
+```bash
+# List the tool catalogue
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq
+
+# Call a specific tool
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nico_get_all_site","arguments":{}}}' | jq
+```
+
 ## Troubleshooting
 
 If `nicocli` is not found after install, make sure `$(go env GOPATH)/bin` is in your PATH:

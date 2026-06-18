@@ -45,8 +45,9 @@ use model::machine::{
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack::RackConfig;
+use model::site_explorer::{Chassis, EndpointExplorationReport, EndpointType};
 use model::switch::{NewSwitch, SwitchConfig};
-use model::test_support::{DpuConfig, ManagedHostConfig};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self, HealthReportEntry, InsertMachineHealthReportRequest};
 use rpc::forge_agent_control_response::{Action, LegacyAction};
@@ -64,14 +65,28 @@ use crate::test_support::mac_address_pool::EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL
 use crate::tests::common::api_fixtures::host::host_uefi_setup;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
 };
 use crate::tests::common::api_fixtures::{
     TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
-    machine_validation_completed, persist_machine_validation_result, reboot_completed,
-    update_machine_validation_run,
+    machine_validation_completed, persist_machine_validation_result, update_machine_validation_run,
 };
 use crate::tests::common::rpc_builder::DhcpDiscovery;
+
+async fn ensure_admin_interface_primary(
+    env: &TestEnv,
+    mac: mac_address::MacAddress,
+) -> eyre::Result<()> {
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+    if let Some(interface) = interfaces.first()
+        && !interface.primary_interface
+    {
+        db::machine_interface::set_primary_interface(&interface.id, true, txn.as_mut()).await?;
+    }
+    txn.commit().await?;
+    Ok(())
+}
 
 async fn current_host_state_and_cleanup_needed(
     env: &TestEnv,
@@ -311,23 +326,66 @@ impl<'a> MockExploredHost<'a> {
         mut self,
         f: F,
     ) -> eyre::Result<Self> {
-        // Run dhcp from primary interface
-        let relay_address = if self.managed_host.dpus.is_empty() {
-            // zero-DPU machines DHCP from a HostInband segment
-            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip().to_string()
+        let result = if self.managed_host.admin_dhcp_fallback && !self.managed_host.dpus.is_empty()
+        {
+            let mac = self.managed_host.dhcp_mac_address();
+            let env = self.test_env;
+            let dhcp_result = Box::pin(async move {
+                let primary_result = env
+                    .api
+                    .discover_dhcp(
+                        DhcpDiscovery::builder(mac, FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip())
+                            .vendor_string("Bluefield")
+                            .tonic_request(),
+                    )
+                    .await;
+
+                match primary_result {
+                    Ok(response) => Ok(response),
+                    Err(_) => env
+                        .api
+                        .discover_dhcp(
+                            DhcpDiscovery::builder(
+                                mac,
+                                FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.ip(),
+                            )
+                            .vendor_string("Bluefield")
+                            .tonic_request(),
+                        )
+                        .await
+                        .map_err(|status| {
+                            tonic::Status::internal(format!("admin-segment DHCP failed: {status}"))
+                        }),
+                }
+            })
+            .await;
+
+            match dhcp_result {
+                Ok(response) => {
+                    ensure_admin_interface_primary(self.test_env, mac)
+                        .await
+                        .ok();
+                    Ok(response)
+                }
+                Err(status) => Err(status),
+            }
         } else {
-            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string()
+            let relay_address = if self.managed_host.dpus.is_empty() {
+                FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip().to_string()
+            } else {
+                FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.ip().to_string()
+            };
+
+            self.test_env
+                .api
+                .discover_dhcp(
+                    DhcpDiscovery::builder(self.managed_host.dhcp_mac_address(), relay_address)
+                        .vendor_string("Bluefield")
+                        .tonic_request(),
+                )
+                .await
         };
 
-        let result = self
-            .test_env
-            .api
-            .discover_dhcp(
-                DhcpDiscovery::builder(self.managed_host.dhcp_mac_address(), relay_address)
-                    .vendor_string("Bluefield")
-                    .tonic_request(),
-            )
-            .await;
         if let Ok(ref response) = result {
             self.host_dhcp_response = Some(response.get_ref().clone());
         }
@@ -913,6 +971,10 @@ impl<'a> MockExploredHost<'a> {
                                         machine_validation:
                                             MachineValidatingState::MachineValidating { .. },
                                     },
+                                } | ManagedHostState::HostInit {
+                                    machine_state: MachineState::Discovered {
+                                        skip_reboot_wait: true,
+                                    },
                                 }
                             )
                     },
@@ -923,30 +985,43 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        if self.test_env.config.machine_validation_config.enabled {
-            machine_validation_completed(self.test_env, &host_machine_id, None).await;
-        } else {
-            // need to mark as reboot completed to move it to the next state
-            // even if machine validation is disabled
-            reboot_completed(self.test_env, host_machine_id).await;
-        }
-
-        let stop_state = self
-            .test_env
-            .run_machine_state_controller_iteration_until_state_condition(
-                &host_machine_id,
-                10,
-                |machine| {
-                    machine.current_state() == &expected_state
-                        || matches!(
-                            *machine.current_state(),
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::Discovered { .. },
-                            }
-                        )
+        let stop_state = if matches!(
+            stop_state,
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::MachineValidating { .. },
                 },
-            )
-            .await;
+            }
+        ) {
+            machine_validation_completed(self.test_env, &host_machine_id, None).await;
+
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_condition(
+                    &host_machine_id,
+                    10,
+                    |machine| {
+                        machine.current_state() == &expected_state
+                            || matches!(
+                                *machine.current_state(),
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::Discovered { .. },
+                                }
+                            )
+                    },
+                )
+                .await
+        } else if matches!(
+            stop_state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
+            }
+        ) {
+            stop_state
+        } else {
+            panic!("Unexpected state while handling machine validation: {stop_state}");
+        };
 
         if stop_state == expected_state {
             return self;
@@ -1046,26 +1121,48 @@ impl<'a> MockExploredHost<'a> {
         )
         .await;
 
-        self.test_env
-            .run_machine_state_controller_iteration_until_state_matches(
+        let expected_machine_validating_state = ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: MachineValidationId::new(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        };
+        let stop_state = self
+            .test_env
+            .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
                 10,
-                ManagedHostState::Validation {
-                    validation_state: ValidationState::MachineValidation {
-                        machine_validation: MachineValidatingState::MachineValidating {
-                            context: "Discovery".to_string(),
-                            id: MachineValidationId::new(),
-                            completed: 1,
-                            total: 1,
-                            is_enabled: self.test_env.config.machine_validation_config.enabled,
-                        },
-                    },
+                |machine| {
+                    let expected_machine_validating_state = self
+                        .test_env
+                        .fill_machine_information(&expected_machine_validating_state, machine);
+                    machine.current_state() == &expected_machine_validating_state
+                        || matches!(
+                            *machine.current_state(),
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::Discovered {
+                                    skip_reboot_wait: true,
+                                },
+                            }
+                        )
                 },
             )
             .await;
 
-        let response = forge_agent_control(self.test_env, host_machine_id).await;
-        if self.test_env.config.machine_validation_config.enabled {
+        if matches!(
+            stop_state,
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::MachineValidating { .. },
+                },
+            }
+        ) {
+            let response = forge_agent_control(self.test_env, host_machine_id).await;
             let uuid = &response.data.unwrap().pair[1].value;
             let validation_id: MachineValidationId = uuid.parse().unwrap();
             let success = update_machine_validation_run(
@@ -1178,22 +1275,14 @@ impl<'a> MockExploredHost<'a> {
                     )
                     .await;
             }
-        } else {
-            self.test_env
-                .run_machine_state_controller_iteration_until_state_matches(
-                    &host_machine_id,
-                    10,
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::Discovered {
-                            skip_reboot_wait: true,
-                        },
-                    },
-                )
-                .await;
-
-            // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
-            // machine validation and thus not doing an extra reboot.
-
+        } else if matches!(
+            stop_state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
+            }
+        ) {
             self.test_env
                 .run_machine_state_controller_iteration_until_state_matches(
                     &host_machine_id,
@@ -1201,6 +1290,8 @@ impl<'a> MockExploredHost<'a> {
                     ManagedHostState::Ready,
                 )
                 .await;
+        } else {
+            panic!("Unexpected state while handling machine validation: {stop_state}");
         }
 
         self
@@ -1293,6 +1384,93 @@ impl<'a> MockExploredHost<'a> {
             state
         }
     }
+
+    /// Site-explorer ingestion steps shared by [`new_mock_host`].
+    ///
+    /// Each step is awaited separately so the async state machine does not accumulate the full
+    /// chain on the stack (see comment in [`new_mock_host`]).
+    async fn finish_standard_ingestion_flow(mut self) -> eyre::Result<Self> {
+        self = self.discover_dhcp_host_bmc(|_, _| Ok(())).boxed().await?;
+        self = self.insert_site_exploration_results()?;
+        self = self.run_site_explorer_iteration().boxed().await;
+        self = self.mark_preingestion_complete().boxed().await?;
+        self = self.run_site_explorer_iteration().boxed().await;
+        self = self
+            .discover_dhcp_host_primary_iface(|_, _| Ok(()))
+            .boxed()
+            .await?;
+        self = self.dpu_state_controller_iterations().boxed().await;
+        self = self.discover_machine(|_, _| Ok(())).boxed().await?;
+        self = self.run_site_explorer_iteration().boxed().await;
+        self = self.host_state_controller_iterations().boxed().await;
+        Ok(self)
+    }
+}
+
+fn expected_switch_exploration_report() -> EndpointExplorationReport {
+    EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        model: Some("Switch".to_string()),
+        chassis: vec![Chassis {
+            id: "mgx_nvswitch_0".to_string(),
+            manufacturer: Some("NVIDIA".to_string()),
+            model: Some("Switch".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+async fn switch_interface_ip(
+    txn: &mut sqlx::PgConnection,
+    mac: mac_address::MacAddress,
+) -> eyre::Result<Option<IpAddr>> {
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
+    let Some(interface) = interfaces.first() else {
+        return Ok(None);
+    };
+    let addresses =
+        db::machine_interface_address::find_for_interface(&mut *txn, interface.id).await?;
+    Ok(addresses.first().map(|address| address.address))
+}
+
+/// Registers mock endpoint-exploration results for every expected switch BMC and NVOS IP.
+///
+/// Required when switches (and their static interfaces) exist before `new_mock_host` runs,
+/// e.g. rack-switch NMX-C simulator tests that create the switch before host discovery.
+/// NVOS static IPs live on the `static-assignments` segment, which is typed as underlay,
+/// so site-explorer will attempt to explore them too.
+pub async fn register_expected_switch_exploration_results(env: &TestEnv) -> eyre::Result<()> {
+    let mut txn = env.pool.begin().await?;
+    let expected_switches = db::expected_switch::find_all(&mut txn).await?;
+    let mut endpoints = Vec::new();
+    for expected_switch in expected_switches {
+        let report = expected_switch_exploration_report();
+        let bmc_ip = if let Some(ip) = expected_switch.bmc_ip_address {
+            ip
+        } else if let Some(ip) =
+            switch_interface_ip(txn.as_mut(), expected_switch.bmc_mac_address).await?
+        {
+            ip
+        } else {
+            continue;
+        };
+        endpoints.push((bmc_ip, report.clone()));
+
+        if let Some(nvos_ip) = expected_switch.nvos_ip_address {
+            endpoints.push((nvos_ip, report));
+        } else if let [nvos_mac] = expected_switch.nvos_mac_addresses.as_slice()
+            && let Some(nvos_ip) = switch_interface_ip(txn.as_mut(), *nvos_mac).await?
+        {
+            endpoints.push((nvos_ip, report));
+        }
+    }
+    txn.commit().await?;
+    if !endpoints.is_empty() {
+        env.endpoint_explorer.insert_endpoints(endpoints);
+    }
+    Ok(())
 }
 
 pub async fn register_expected_machine(
@@ -1434,41 +1612,10 @@ pub async fn new_mock_host(
             .await;
     }
 
-    // Run through site explorer iterations to get it ready.
-    // NOTE: Calling `.boxed()` on each future here decreases the amount of stack space used by
-    // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
-    // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
-    // default stack size.
-    Ok(mock_explored_host
-        // ...Then run host BMC's DHCP
-        .discover_dhcp_host_bmc(|_, _| Ok(()))
-        .boxed()
-        .await?
-        .insert_site_exploration_results()?
-        .run_site_explorer_iteration()
-        .boxed()
-        .await
-        .mark_preingestion_complete()
-        .boxed()
-        .await?
-        .run_site_explorer_iteration()
-        .boxed()
-        .await
-        .discover_dhcp_host_primary_iface(|_, _| Ok(()))
-        .boxed()
-        .await?
-        .dpu_state_controller_iterations()
-        .boxed()
-        .await
-        .discover_machine(|_, _| Ok(()))
-        .boxed()
-        .await?
-        .run_site_explorer_iteration()
-        .boxed()
-        .await
-        .host_state_controller_iterations()
-        .boxed()
-        .await)
+    // NOTE: Calling `.boxed()` on each future in `finish_standard_ingestion_flow` decreases the
+    // amount of stack space used by these futures. Prior to this we were hitting stack space
+    // limits (going over 2MB in stack) in unit tests.
+    mock_explored_host.finish_standard_ingestion_flow().await
 }
 
 /// Use this function to make a new managed host with a given number of DPUs, using site-explorer
@@ -1499,8 +1646,7 @@ pub async fn new_host_with_machine_validation(
     machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
     error: Option<String>,
 ) -> eyre::Result<ManagedHostStateSnapshot> {
-    let managed_host =
-        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let managed_host = ManagedHostConfig::default().with_dpu_count(dpu_count.into());
     register_expected_machine(env, &managed_host, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, managed_host);
 
@@ -1741,7 +1887,7 @@ impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_profile_id: Some(RackProfileId::new("rack")),
+            rack_profile_id: Some(RackProfileId::new(super::TEST_RMS_RACK_PROFILE_ID)),
         }
     }
 }
@@ -1867,29 +2013,28 @@ pub async fn new_mock_host_with_dpf(
             .await;
     }
 
-    // Run through site explorer iterations to get it ready.
-    // NOTE: Calling `.boxed()` on each future here decreases the amount of stack space used by
-    // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
-    // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
-    // default stack size.
     mock_explored_host = mock_explored_host
-        // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
-        .await?
-        .insert_site_exploration_results()?
+        .await?;
+    mock_explored_host = mock_explored_host.insert_site_exploration_results()?;
+    mock_explored_host = mock_explored_host
         .run_site_explorer_iteration()
         .boxed()
-        .await
+        .await;
+    mock_explored_host = mock_explored_host
         .mark_preingestion_complete()
         .boxed()
-        .await?
+        .await?;
+    mock_explored_host = mock_explored_host
         .run_site_explorer_iteration()
         .boxed()
-        .await
+        .await;
+    mock_explored_host = mock_explored_host
         .discover_dhcp_host_primary_iface(|_, _| Ok(()))
         .boxed()
-        .await?
+        .await?;
+    mock_explored_host = mock_explored_host
         .dpu_state_controller_iterations_with_dpf()
         .boxed()
         .await;
@@ -1901,16 +2046,20 @@ pub async fn new_mock_host_with_dpf(
         .collect();
     network_configured(env, &dpu_ids).await;
 
-    mock_explored_host
+    mock_explored_host = mock_explored_host
         .discover_machine(|_, _| Ok(()))
         .boxed()
-        .await?
+        .await?;
+    mock_explored_host = mock_explored_host
         .run_site_explorer_iteration()
         .boxed()
-        .await
+        .await;
+    mock_explored_host = mock_explored_host
         .host_state_controller_iterations()
         .boxed()
-        .await
+        .await;
+
+    mock_explored_host
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             Ok(db::managed_host::load_snapshot(
@@ -1927,84 +2076,94 @@ pub async fn new_mock_host_with_dpf(
         .await
 }
 
-/// create_expected_switches seeds 6 expected switches into the database,
-/// replacing the create_expected_switch.sql fixture.
-pub async fn create_expected_switches(
+/// Seeds one expected switch (plus BMC/NVOS machine interfaces) into the database.
+pub async fn create_expected_switch(
     txn: &mut sqlx::PgConnection,
-) -> Vec<model::expected_switch::ExpectedSwitch> {
+    index: u32,
+) -> model::expected_switch::ExpectedSwitch {
     use model::expected_switch::ExpectedSwitch;
     use model::metadata::Metadata;
 
     use crate::test_support::mac_address_pool::EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL;
 
-    let mut created = Vec::new();
-    for i in 0..6 {
-        let switch = ExpectedSwitch {
-            expected_switch_id: None,
-            bmc_mac_address: EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL.allocate(),
-            nvos_mac_addresses: vec![EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL.allocate()],
-            serial_number: format!("SW-SN-{:03}", i + 1),
-            bmc_username: "ADMIN".into(),
-            bmc_password: "Pwd2023x0x0x0x7".into(),
-            nvos_username: if (3..=4).contains(&i) {
-                Some(format!("nvos_admin{}", i - 2))
-            } else {
-                None
-            },
-            nvos_password: if (3..=4).contains(&i) {
-                Some(format!("nvos_pass{}", i - 2))
-            } else {
-                None
-            },
-            bmc_ip_address: None,
-            nvos_ip_address: None,
-            metadata: Metadata {
-                name: format!("Switch{}", i + 1),
-                description: format!("Test Switch {}", i + 1),
-                labels: HashMap::new(),
-            },
-            rack_id: None,
-            bmc_retain_credentials: None,
-        };
-        let result = db::expected_switch::create(txn, switch)
-            .await
-            .expect("unable to create expected switch");
+    let i = index as usize;
+    let switch = ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL.allocate(),
+        nvos_mac_addresses: vec![EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL.allocate()],
+        serial_number: format!("SW-SN-{:03}", index + 1),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "Pwd2023x0x0x0x7".into(),
+        nvos_username: if (3..=4).contains(&i) {
+            Some(format!("nvos_admin{}", i - 2))
+        } else {
+            None
+        },
+        nvos_password: if (3..=4).contains(&i) {
+            Some(format!("nvos_pass{}", i - 2))
+        } else {
+            None
+        },
+        bmc_ip_address: None,
+        nvos_ip_address: None,
+        metadata: Metadata {
+            name: format!("Switch{}", index + 1),
+            description: format!("Test Switch {}", index + 1),
+            labels: HashMap::new(),
+        },
+        rack_id: None,
+        bmc_retain_credentials: None,
+    };
+    let result = db::expected_switch::create(txn, switch)
+        .await
+        .expect("unable to create expected switch");
 
-        let network_segments = db::network_segment::admin(txn)
-            .await
-            .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
-            .unwrap();
+    let network_segments = db::network_segment::admin(txn)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
+        .unwrap();
 
-        for nvos_mac in &result.nvos_mac_addresses.clone() {
-            db::machine_interface::create(
-                txn,
-                &network_segments,
-                nvos_mac,
-                false,
-                AddressSelectionStrategy::NextAvailableIp,
-                None,
-            )
-            .await
-            .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
-            .unwrap();
-        }
-        let overlay_network_segment = db::network_segment::find_by_name(txn, "UNDERLAY")
-            .await
-            .map_err(|e| eyre::eyre!("Failed to get overlay network segment: {:?}", e))
-            .unwrap();
-
+    for nvos_mac in &result.nvos_mac_addresses.clone() {
         db::machine_interface::create(
             txn,
-            std::slice::from_ref(&overlay_network_segment),
-            &result.bmc_mac_address.clone(),
+            &network_segments,
+            nvos_mac,
             false,
             AddressSelectionStrategy::NextAvailableIp,
             None,
         )
         .await
-        .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))
+        .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
         .unwrap();
-        created.push(result);
+    }
+    let overlay_network_segment = db::network_segment::find_by_name(txn, "UNDERLAY")
+        .await
+        .map_err(|e| eyre::eyre!("Failed to get overlay network segment: {:?}", e))
+        .unwrap();
+
+    db::machine_interface::create(
+        txn,
+        std::slice::from_ref(&overlay_network_segment),
+        &result.bmc_mac_address.clone(),
+        false,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await
+    .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))
+    .unwrap();
+
+    result
+}
+
+/// create_expected_switches seeds 6 expected switches into the database,
+/// replacing the create_expected_switch.sql fixture.
+pub async fn create_expected_switches(
+    txn: &mut sqlx::PgConnection,
+) -> Vec<model::expected_switch::ExpectedSwitch> {
+    let mut created = Vec::new();
+    for i in 0..6 {
+        created.push(create_expected_switch(txn, i).await);
     }
     created
 }

@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_rack::rms_node_type::compute_node_type_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
@@ -24,6 +25,7 @@ use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
 use itertools::Itertools;
 use librms::RmsApi;
+use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -37,6 +39,7 @@ use model::machine::{
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
+use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use sqlx::{PgConnection, PgPool};
@@ -47,19 +50,23 @@ use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
 use crate::metrics::SiteExplorationMetrics;
 
+/// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
     database_connection: PgPool,
     config: SiteExplorerConfig,
     common_pools: Arc<CommonPools>,
+    rack_profiles: Arc<RackProfileConfig>,
     rms_client: Option<Arc<dyn RmsApi>>,
     credential_manager: Arc<dyn CredentialManager>,
 }
 
 impl MachineCreator {
+    /// Creates a machine creator with site configuration and optional RMS integration.
     pub fn new(
         database_connection: PgPool,
         config: SiteExplorerConfig,
         common_pools: Arc<CommonPools>,
+        rack_profiles: Arc<RackProfileConfig>,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
@@ -67,6 +74,7 @@ impl MachineCreator {
             database_connection,
             config,
             common_pools,
+            rack_profiles,
             rms_client,
             credential_manager,
         }
@@ -229,10 +237,12 @@ impl MachineCreator {
         )
         .await?;
 
+        let mut rack_profile_id = None;
         if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
             tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
             if let Some(rack) = crate::ensure_rack_exists(&mut txn, rack_id).await? {
                 tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
+                rack_profile_id = rack.rack_profile_id;
             }
         }
 
@@ -241,33 +251,53 @@ impl MachineCreator {
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
 
-        txn.commit().await?;
-
-        if let (Some(rack_id), Some(rms_client)) =
+        let rms_node_type = if let (Some(rack_id), Some(_)) =
             (&expected_machine.data.rack_id, &self.rms_client)
         {
-            let request = librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest {
-                nodes: Some(librms::protos::rack_manager::NodeSet {
-                    nodes: vec![librms::protos::rack_manager::NodeInfo {
+            let Some(rack_profile_id) = rack_profile_id.as_ref() else {
+                return Err(SiteExplorerError::InvalidArgument(format!(
+                    "rack {rack_id} has no rack_profile_id for RMS slot and tray lookup for host machine {host_machine_id}"
+                )));
+            };
+
+            let Some(rack_profile) = self.rack_profiles.get(rack_profile_id.as_str()) else {
+                return Err(SiteExplorerError::InvalidArgument(format!(
+                    "rack profile {rack_profile_id} is not configured for RMS slot and tray lookup for host machine {host_machine_id}"
+                )));
+            };
+
+            Some(
+                compute_node_type_for_profile(rack_profile)
+                    .map_err(|error| SiteExplorerError::InvalidArgument(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+
+        txn.commit().await?;
+
+        if let (Some(rack_id), Some(rms_client), Some(node_type)) = (
+            &expected_machine.data.rack_id,
+            &self.rms_client,
+            rms_node_type,
+        ) {
+            let request = rms::BatchGetNodeDeviceInfoRequest {
+                nodes: Some(rms::NodeSet {
+                    nodes: vec![rms::NodeInfo {
                         node_id: host_machine_id.to_string(),
                         rack_id: rack_id.to_string(),
-                        r#type: Some(librms::protos::rack_manager::NodeType::Compute as i32),
-                        bmc_endpoint: Some(librms::protos::rack_manager::Endpoint {
-                            interface: Some(librms::protos::rack_manager::NetworkInterface {
+                        r#type: Some(node_type as i32),
+                        bmc_endpoint: Some(rms::Endpoint {
+                            interface: Some(rms::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
                                 mac_address: expected_machine.bmc_mac_address.to_string(),
                             }),
                             port: 443,
                             credentials: bmc_credentials.map(|(username, password)| {
-                                librms::protos::rack_manager::Credentials {
-                                    auth: Some(
-                                        librms::protos::rack_manager::credentials::Auth::UserPass(
-                                            librms::protos::rack_manager::UsernamePassword {
-                                                username,
-                                                password,
-                                            },
-                                        ),
-                                    ),
+                                rms::Credentials {
+                                    auth: Some(rms::credentials::Auth::UserPass(
+                                        rms::UsernamePassword { username, password },
+                                    )),
                                 }
                             }),
                             dangerously_accept_invalid_certs: true,

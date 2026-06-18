@@ -47,6 +47,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_boot_interface::MachineBootInterface;
 use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
@@ -293,6 +294,7 @@ impl SiteExplorer {
         firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
@@ -308,12 +310,14 @@ impl SiteExplorer {
             hold_period,
             &explorer_config,
         ));
+        let rack_profiles = Arc::new(rack_profiles);
 
         SiteExplorer {
             machine_creator: MachineCreator::new(
                 database_connection.clone(),
                 explorer_config.clone(),
                 common_pools,
+                rack_profiles,
                 rms_client.clone(),
                 credential_manager,
             ),

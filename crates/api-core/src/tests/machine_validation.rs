@@ -21,6 +21,7 @@ use std::time::SystemTime;
 use carbide_machine_controller::config::machine_validation::{
     MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
 };
+use carbide_machine_controller::handler::MachineStateHandlerBuilder;
 use carbide_uuid::machine_validation::MachineValidationId;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
@@ -604,6 +605,15 @@ async fn test_machine_validation_disabled(
 
     let machine = mh.host().rpc_machine().await;
     assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    let reboot_before = {
+        let mut txn = env.pool.begin().await?;
+        let machine = mh.host().db_machine(&mut txn).await;
+        let reboot = machine
+            .last_reboot_requested
+            .map(|last_reboot| (last_reboot.time, last_reboot.mode));
+        txn.commit().await?;
+        reboot
+    };
 
     let on_demand_response = on_demand_machine_validation(
         &env,
@@ -617,25 +627,25 @@ async fn test_machine_validation_disabled(
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         3,
-        ManagedHostState::Validation {
-            validation_state: ValidationState::MachineValidation {
-                machine_validation: MachineValidatingState::MachineValidating {
-                    context: "OnDemand".to_string(),
-                    id: MachineValidationId::new(),
-                    completed: 1,
-                    total: 1,
-                    is_enabled: env.config.machine_validation_config.enabled,
-                },
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: true,
             },
         },
     )
     .await;
-    let _ = mh.host().reboot_completed().await;
+    let reboot_after = {
+        let mut txn = env.pool.begin().await?;
+        let machine = mh.host().db_machine(&mut txn).await;
+        let reboot = machine
+            .last_reboot_requested
+            .map(|last_reboot| (last_reboot.time, last_reboot.mode));
+        txn.commit().await?;
+        reboot
+    };
+    assert_eq!(reboot_after, reboot_before);
 
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
-    let started_state_int = rpc::forge::machine_validation_status::MachineValidationState::Started(
-        rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
-    );
     let mut status_asserted = false;
     for run in runs.runs {
         if run.validation_id.unwrap_or_default()
@@ -646,8 +656,8 @@ async fn test_machine_validation_disabled(
                 run.status
                     .unwrap_or_default()
                     .machine_validation_state
-                    .unwrap_or(started_state_int),
-                started_state_int
+                    .unwrap_or(skipped_state_int),
+                skipped_state_int
             );
         }
     }
@@ -677,6 +687,155 @@ async fn test_machine_validation_disabled(
         }
     }
     assert!(status_asserted);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_machine_validation_disabled_waits_for_in_flight_reboot(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mh = create_host_with_machine_validation(&env, None, None).await;
+    let machine = mh.host().rpc_machine().await;
+    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+
+    let on_demand_response = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        Vec::new(),
+        false,
+        Vec::new(),
+    )
+    .await;
+    let validation_id = on_demand_response.validation_id.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
+        },
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
+            },
+        },
+    )
+    .await;
+
+    let reboot_request_before_wait = {
+        let mut txn = env.pool.begin().await?;
+        let machine = mh.host().db_machine(&mut txn).await;
+        let reboot = machine
+            .last_reboot_requested
+            .map(|last_reboot| (last_reboot.time, last_reboot.mode));
+        txn.commit().await?;
+        reboot
+    };
+
+    let mut machine_validation_config = env.config.machine_validation_config.clone();
+    machine_validation_config.enabled = false;
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_firmware_config())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .common_pools(env.common_pools.clone())
+        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
+        .machine_validation_config(machine_validation_config)
+        .bom_validation(env.config.bom_validation)
+        .instance_autoreboot_period(
+            env.config
+                .machine_updater
+                .instance_autoreboot_period
+                .clone(),
+        )
+        .power_options_config(env.config.power_manager_options.clone().into())
+        .build();
+    env.override_machine_state_controller_handler(handler).await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
+            },
+        },
+    )
+    .await;
+
+    let reboot_request_after_wait = {
+        let mut txn = env.pool.begin().await?;
+        let machine = mh.host().db_machine(&mut txn).await;
+        let reboot = machine
+            .last_reboot_requested
+            .map(|last_reboot| (last_reboot.time, last_reboot.mode));
+        txn.commit().await?;
+        reboot
+    };
+    assert_eq!(reboot_request_after_wait, reboot_request_before_wait);
+
+    mh.host().reboot_completed().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: true,
+            },
+        },
+    )
+    .await;
+
+    let skipped_state_int =
+        rpc::forge::machine_validation_status::MachineValidationState::Completed(
+            rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
+        );
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
+    let mut status_asserted = false;
+    for run in runs.runs {
+        if run.validation_id.unwrap_or_default() == validation_id {
+            status_asserted = true;
+            assert_eq!(
+                run.status
+                    .unwrap_or_default()
+                    .machine_validation_state
+                    .unwrap_or(skipped_state_int),
+                skipped_state_int
+            );
+        }
+    }
+    assert!(status_asserted);
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Ready,
+    )
+    .await;
+
     Ok(())
 }
 

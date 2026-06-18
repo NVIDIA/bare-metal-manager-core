@@ -20,7 +20,7 @@ use std::str::FromStr;
 use carbide_uuid::machine::MachineInterfaceId;
 use ipnetwork::IpNetwork;
 use model::network_segment::NetworkSegmentType;
-use model::test_support::{DpuConfig, ManagedHostConfig};
+use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
@@ -82,7 +82,7 @@ async fn test_set_primary_interface_does_not_apply_the_zero_dpu_guard(
     env.run_network_segment_controller_iteration().await;
 
     let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(vec![])).await?;
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
 
     // A well-formed but non-existent interface id: the handler must try to look
     // it up -- which is only reachable once it's past the would-be zero-DPU
@@ -131,11 +131,9 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let host = api_fixtures::site_explorer::new_host(
-        &env,
-        ManagedHostConfig::with_dpus(vec![DpuConfig::default(), DpuConfig::default()]),
-    )
-    .await?;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
     let host_id = host.host_snapshot.id;
 
     // One host interface is primary; pick a different (non-primary) host NIC to promote.
@@ -207,11 +205,9 @@ async fn test_set_primary_interface_rejects_non_admin_interface_on_dpu_host(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let host = api_fixtures::site_explorer::new_host(
-        &env,
-        ManagedHostConfig::with_dpus(vec![DpuConfig::default(), DpuConfig::default()]),
-    )
-    .await?;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
     let host_id = host.host_snapshot.id;
 
     // A non-primary host interface to target. The host's other DPU interface
@@ -314,7 +310,7 @@ async fn test_set_primary_interface_promotes_a_zero_dpu_host_interface(
     env.run_network_segment_controller_iteration().await;
 
     let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(vec![])).await?;
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
     let host_id = zero_dpu_host.host_snapshot.id;
 
     // A zero-DPU host's plain NIC lands on the HostInband segment and is not flagged
@@ -374,11 +370,9 @@ async fn test_set_primary_interface_repairs_dpu_host_with_no_admin_primary(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
 
-    let host = api_fixtures::site_explorer::new_host(
-        &env,
-        ManagedHostConfig::with_dpus(vec![DpuConfig::default(), DpuConfig::default()]),
-    )
-    .await?;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
     let host_id = host.host_snapshot.id;
 
     // The current Admin primary, plus a non-primary Admin interface to promote.

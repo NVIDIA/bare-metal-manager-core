@@ -67,6 +67,7 @@ fn test_site_explorer(
         Arc::new(api.runtime_config.get_firmware_config()),
         api.common_pools().clone(),
         api.work_lock_manager_handle(),
+        api.runtime_config.rack_profiles.clone(),
         None,
         api.credential_manager().clone(),
     );
@@ -111,13 +112,14 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
     // Site Explorer needs to run against BMC IPs on an underlay segment. The
     // old api-core fixture mutated a tenant segment into underlay for this;
     // TestHarness creates an underlay segment directly.
-    let created_host = test_harness
+    let (created_host, build_data) = test_harness
         .managed_host_builder(&explorer, underlay_segment)
         .with_dpu_network_status_reported()
         .build()
         .await;
+    let host_bmc_ip = build_data.host_bmc_ip();
 
-    let host_machine = find_machine(test_harness.api(), created_host.host_machine_id).await?;
+    let host_machine = find_machine(test_harness.api(), created_host.host.id).await?;
     let alerts = &host_machine.health.as_ref().unwrap().alerts;
     assert!(
         alerts.is_empty(),
@@ -126,13 +128,13 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
 
     // Now mark the Machine as unreachable. A health alert should be emitted
     explorer.insert_endpoint_result(
-        created_host.host_bmc_ip,
+        host_bmc_ip,
         Err(EndpointExplorationError::Unreachable { details: None }),
     );
 
     explorer.run_single_iteration().await?;
 
-    let host_machine = find_machine(test_harness.api(), created_host.host_machine_id).await?;
+    let host_machine = find_machine(test_harness.api(), created_host.host.id).await?;
 
     let mut alerts = host_machine.health.as_ref().unwrap().alerts.clone();
     assert_eq!(
@@ -150,7 +152,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
         alerts,
         vec![rpc::health::HealthProbeAlert {
             id: "BmcExplorationFailure".to_string(),
-            target: Some(created_host.host_bmc_ip.to_string()),
+            target: Some(host_bmc_ip.to_string()),
             in_alert_since: None,
             message: "Endpoint exploration failed: The endpoint was not reachable due to a generic network issue: None"
                 .to_string(),
@@ -176,12 +178,15 @@ async fn test_orphan_managed_host_alert_emitted(
     let underlay_segment = network_controller.create_underlay_segment(&domain).await;
     network_controller.create_admin_segment(&domain).await;
     let explorer = test_site_explorer(&test_harness, site_explorer_config());
-    let created_host = test_harness
+    let (created_host, _) = test_harness
         .managed_host_builder(&explorer, underlay_segment)
         .build()
         .await;
-    let host_bmc_mac = created_host.managed_host.bmc_mac_address;
-    let chassis_serial = created_host.managed_host.serial.clone();
+    let host_bmc_mac = created_host.host.bmc_mac;
+    let chassis_serial = created_host
+        .host
+        .serial()
+        .expect("created host should have a serial number");
 
     // Orphan the host by deleting its expected_machines entry.
     let mut txn = pool.begin().await?;
@@ -190,7 +195,7 @@ async fn test_orphan_managed_host_alert_emitted(
 
     // Run an iteration: audit_exploration_results should emit the orphan alert.
     explorer.run_single_iteration().await?;
-    let alerts = find_machine(test_harness.api(), created_host.host_machine_id)
+    let alerts = find_machine(test_harness.api(), created_host.host.id)
         .await?
         .health
         .unwrap()
@@ -217,7 +222,7 @@ async fn test_orphan_managed_host_alert_emitted(
     txn.commit().await?;
 
     explorer.run_single_iteration().await?;
-    let alerts = find_machine(test_harness.api(), created_host.host_machine_id)
+    let alerts = find_machine(test_harness.api(), created_host.host.id)
         .await?
         .health
         .unwrap()

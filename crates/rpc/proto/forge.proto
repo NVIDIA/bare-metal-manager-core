@@ -75,6 +75,7 @@ service Forge {
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
+  rpc AttachNetworkSegmentToVpc(AttachNetworkSegmentToVpcRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   // TODO: This functionality should get integrated into NetworkSegmentSearchFilter
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
@@ -2445,6 +2446,12 @@ message NetworkSegmentDeletionRequest {
   common.NetworkSegmentId id = 1;
 }
 
+message AttachNetworkSegmentToVpcRequest {
+  common.NetworkSegmentId network_segment_id = 1;
+  common.VpcId vpc_id = 2;
+  bool allow_replace = 3;
+}
+
 message NetworkSegmentDeletionResult {
 }
 
@@ -3542,6 +3549,13 @@ message Machine {
 
   // Build version of forge-scout last observed during machine discovery registration.
   optional string last_scout_observed_version = 48;
+
+  optional DpfMachineState dpf = 49;
+}
+
+message DpfMachineState {
+  bool enabled = 1;
+  bool used_for_ingestion = 2;
 }
 
 message InstanceNetworkRestrictions {
@@ -3802,6 +3816,23 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+  optional AddressFamily address_family = 8;
+  optional MessageKind message_kind = 9;
+  optional bytes duid = 10;
+}
+
+enum AddressFamily {
+  ADDRESS_FAMILY_UNSPECIFIED = 0;
+  ADDRESS_FAMILY_V4 = 1;
+  ADDRESS_FAMILY_V6 = 2;
+}
+
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_V4_DISCOVER = 1;
+  MESSAGE_KIND_V6_SOLICIT = 2;
+  MESSAGE_KIND_V6_REQUEST = 3;
+  MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
 
 message ExpireDhcpLeaseRequest {
@@ -3843,6 +3874,12 @@ message DhcpRecord {
 
   // The last time any underlay or admin DHCP record managed by Forge got invalidated
   optional google.protobuf.Timestamp last_invalidation_time = 12;
+
+  // Per site NTP server IPs
+  repeated string ntp_servers = 13;
+
+  optional uint32 dhcpv6_preferred_lifetime_secs = 14;
+  optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
 message NetworkSegmentList {
@@ -4043,6 +4080,10 @@ message ManagedHostNetworkConfigResponse {
   // should perform any extra config to prepare
   // for them.
   bool stateful_acls_enabled = 21;
+
+  // site-level configured NTP server IPs
+  // If empty, the agent may fall back to resolving carbide-ntp.forge for compatibility.
+  repeated string ntp_servers = 22;
 
   // Enable forge DHCP on HBN.
   // Deprecated: It is always enabled now.
@@ -7216,6 +7257,12 @@ enum RackHardwareTopology {
   RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
 }
 
+enum RackProductFamily {
+  RACK_PRODUCT_FAMILY_UNSPECIFIED = 0;
+  RACK_PRODUCT_FAMILY_GB200 = 1;
+  RACK_PRODUCT_FAMILY_GB300 = 2;
+}
+
 enum RackHardwareClass {
   RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
   RACK_HARDWARE_CLASS_DEV = 1;
@@ -7254,6 +7301,7 @@ message RackProfile {
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
   RackCapabilitiesSet capabilities = 4;
+  RackProductFamily product_family = 5;
 }
 
 message GetRackProfileRequest {
@@ -7338,6 +7386,9 @@ enum NmxcBrowseOperation {
   NMXC_BROWSE_OPERATION_GPU_INFO = 2;
   // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
   NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
+  NMXC_BROWSE_OPERATION_PARTITION_INFO_LIST = 4;
+  NMXC_BROWSE_OPERATION_SWITCH_NODE_INFO_LIST = 5;
+  NMXC_BROWSE_OPERATION_GET_DOMAIN_PROPERTIES = 6;
 }
 
 message NmxcBrowseRequest {

@@ -95,6 +95,10 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
+use model::rack_type::{
+    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
+    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
+};
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
@@ -1013,6 +1017,78 @@ pub fn get_config() -> CarbideConfig {
     default_config::get()
 }
 
+/// Rack profile ID used by RMS-ready test fixtures.
+pub const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
+
+/// Returns the default test config plus an RMS-ready NVL72 rack profile.
+pub fn get_config_with_rack_profiles() -> CarbideConfig {
+    let mut config = get_config();
+    config.rack_profiles = RackProfileConfig {
+        rack_profiles: [(
+            TEST_RMS_RACK_PROFILE_ID.to_string(),
+            RackProfile {
+                product_family: Some(RackProductFamily::Gb200),
+                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+                rack_capabilities: RackCapabilitiesSet {
+                    compute: RackCapabilityCompute {
+                        count: 18,
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    switch: RackCapabilitySwitch {
+                        count: 9,
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    power_shelf: RackCapabilityPowerShelf {
+                        count: 8,
+                        vendor: Some("LiteOn".to_string()),
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+
+    config
+}
+
+fn extend_component_manager_rms_profiles(
+    target: &mut RackProfileConfig,
+    source: &RackProfileConfig,
+) {
+    // This fixture builds component-manager with RMS switch and power shelf
+    // backends. Include custom RMS-ready profiles so tests exercise the profile
+    // IDs used by API paths, but keep intentionally incomplete profiles for
+    // call-time negative tests out of startup validation.
+    target.rack_profiles.extend(
+        source
+            .rack_profiles
+            .iter()
+            .filter(|(_, profile)| is_component_manager_rms_ready_profile(profile))
+            .map(|(profile_id, profile)| (profile_id.clone(), profile.clone())),
+    );
+}
+
+fn is_component_manager_rms_ready_profile(profile: &RackProfile) -> bool {
+    profile.product_family.is_some()
+        && profile
+            .rack_capabilities
+            .switch
+            .vendor
+            .as_deref()
+            .is_some_and(|vendor| !vendor.trim().is_empty())
+        && profile
+            .rack_capabilities
+            .power_shelf
+            .vendor
+            .as_deref()
+            .is_some_and(|vendor| !vendor.trim().is_empty())
+}
+
 /// crate::sqlx_test shares the pool with all testcases in a file. If there are many testcases in a file,
 /// test cases will start getting PoolTimedOut error. To avoid it, each test case will be assigned
 /// its own pool.
@@ -1246,6 +1322,17 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager = ib_fabric_test_manager(&config, composite_manager.clone());
 
     let rms_sim = Arc::new(RmsSim::default());
+    let mut component_manager_rack_profiles = get_config_with_rack_profiles().rack_profiles;
+    extend_component_manager_rms_profiles(
+        &mut component_manager_rack_profiles,
+        &config.rack_profiles,
+    );
+
+    let mut site_explorer_rack_profiles = component_manager_rack_profiles.clone();
+    site_explorer_rack_profiles
+        .rack_profiles
+        .extend(config.rack_profiles.rack_profiles.clone());
+
     let test_component_manager = component_manager::component_manager::build_component_manager(
         &component_manager::config::ComponentManagerConfig {
             nv_switch_backend: component_manager::nv_switch_manager::Backend::Rms,
@@ -1254,14 +1341,15 @@ pub async fn create_test_env_with_overrides(
             nv_switch_use_state_controller: true,
             ..Default::default()
         },
+        component_manager_rack_profiles,
         rms_sim.as_rms_client(),
         None,
         Some(db_pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new);
+    .expect("test component manager should build");
+    let test_component_manager = Some(Arc::new(test_component_manager));
 
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
@@ -1581,6 +1669,7 @@ pub async fn create_test_env_with_overrides(
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
+        site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
     );
@@ -2257,7 +2346,7 @@ pub async fn create_managed_host_with_dpf_multi(
             DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON))
         })
         .collect();
-    let mh_config = ManagedHostConfig::with_dpus(dpu_configs);
+    let mh_config = ManagedHostConfig::default().with_dpus(dpu_configs);
     let mh = site_explorer::new_mock_host_with_dpf(env, mh_config)
         .await
         .expect("Failed to create a new host");
@@ -2280,8 +2369,7 @@ pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestM
 /// Create a managed host with `dpu_count` DPUs (default config)
 pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> TestManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
-    let config =
-        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let config = ManagedHostConfig::default().with_dpu_count(dpu_count);
     create_managed_host_with_config(env, config).await
 }
 
@@ -2327,7 +2415,7 @@ pub async fn create_managed_host_with_hardware_info_template(
     hardware_info_template: HardwareInfoTemplate,
 ) -> TestManagedHost {
     insert_nvlink_nmxc_endpoint_from_managed_host(env, &hardware_info_template).await;
-    let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
+    let config = ManagedHostConfig::default().with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
     TestManagedHost {
         id: mh.host_snapshot.id,

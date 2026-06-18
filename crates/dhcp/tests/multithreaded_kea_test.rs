@@ -16,7 +16,6 @@
  */
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
@@ -28,7 +27,7 @@ use dhcproto::{Decodable, Decoder, v4};
 
 mod common;
 
-use common::{DHCPFactory, Kea, RELAY_IP};
+use common::{DHCPFactory, Kea};
 
 // Must be u8 to be used a idx (last part of MAC and link IP)
 // Must not exceed Kea config 'packet-queue-size', below, or packets  will be dropped.
@@ -52,16 +51,7 @@ fn test_real_kea_multithreaded() -> Result<(), eyre::Report> {
         .unwrap();
     let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
-    let dhcp_in_port = 7000;
-    let dhcp_out_port = 7001;
-
-    // Start Kea process. Stops on drop.
-    let mut kea = Kea::new(api_server.local_http_addr(), dhcp_in_port, dhcp_out_port)?;
-    kea.run()?;
-
-    // UDP socket to Kea. We're pretending to be dhcp-relay.
-    let socket = UdpSocket::bind(format!("{RELAY_IP}:{dhcp_out_port}"))?;
-    socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
+    let (_kea, socket) = Kea::start(api_server.local_http_addr(), None)?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
     let socket = Arc::new(socket);

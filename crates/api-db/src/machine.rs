@@ -26,7 +26,7 @@ use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::machine_validation::MachineValidationId;
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -920,6 +920,28 @@ pub async fn update_nvlink_status_observation(
         .bind(machine_id)
         .bind(observation.observed_at.to_rfc3339())
         .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+/// Clears `machines.nvlink_status_observation` for the given machine IDs.
+///
+/// Used when NMX-C is unreachable so instance state does not retain stale partition observations.
+pub async fn clear_nvlink_status_observations(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+) -> Result<(), DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(());
+    }
+
+    let query = "UPDATE machines SET nvlink_status_observation = NULL WHERE id = ANY($1)";
+    let machine_id_strings: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
+    sqlx::query(query)
+        .bind(machine_id_strings)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -2579,26 +2601,33 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
     }
 }
 
-/// RMS identity for a compute tray machine: the machine ID (used as the RMS
-/// node_id), the BMC IP address, the BMC MAC address, and the rack_id.
+/// RMS identity for a compute tray machine, including rack profile context for
+/// node type resolution.
 #[derive(Debug, sqlx::FromRow)]
 pub struct MachineRmsIdentity {
     pub id: String,
     pub bmc_ip: IpAddr,
     pub bmc_mac_address: MacAddress,
     pub rack_id: Option<RackId>,
+    pub rack_profile_id: Option<RackProfileId>,
 }
 
-/// Look up RMS identities (node_id, rack_id) for compute tray machines by their
-/// BMC IP addresses.
+/// Look up RMS identities and rack profile context for compute tray machines by
+/// their BMC IP addresses.
 pub async fn find_rms_identities_by_bmc_ips(
     db: impl crate::db_read::DbReader<'_>,
     bmc_ips: &[IpAddr],
 ) -> DatabaseResult<Vec<MachineRmsIdentity>> {
     let ip_strings: Vec<String> = bmc_ips.iter().map(ToString::to_string).collect();
     let sql = r#"
-        SELECT m.id::text, mia.address AS bmc_ip, mi.mac_address AS bmc_mac_address, m.rack_id
+        SELECT
+            m.id::text,
+            mia.address AS bmc_ip,
+            mi.mac_address AS bmc_mac_address,
+            m.rack_id,
+            r.rack_profile_id
         FROM machines m
+        LEFT JOIN racks r ON r.id = m.rack_id
         JOIN machine_interfaces mi
             ON mi.machine_id = m.id
             AND mi.interface_type = 'Bmc'

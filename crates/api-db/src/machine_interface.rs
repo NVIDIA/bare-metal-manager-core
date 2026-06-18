@@ -95,6 +95,13 @@ impl ColumnInfo<'_> for IdColumn {
     }
 }
 
+#[cfg(test)]
+mod ip_allocator;
+#[cfg(test)]
+mod test_duplicate_mac;
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy)]
 pub struct MacAddressColumn;
 impl ColumnInfo<'_> for MacAddressColumn {

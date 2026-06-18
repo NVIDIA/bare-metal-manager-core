@@ -299,7 +299,7 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
@@ -377,7 +377,7 @@ async fn test_zero_dpu_instance_allocation_auto(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
@@ -490,7 +490,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
@@ -1114,7 +1114,7 @@ async fn test_zero_dpu_host_verifies_boot_order_during_platform_configuration(
     // Ingest zero-DPU host. site-explorer runs it through the machine state
     // controller, which hits HostInit -> HostPlatformConfiguration, where
     // `CheckHostConfig` lives.
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
     // Advance the state controller until the host converges on Ready.
@@ -1151,7 +1151,7 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
@@ -1235,7 +1235,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
     crate::handlers::instance::allocate(
@@ -1362,7 +1362,7 @@ async fn test_reject_zero_dpu_instance_with_extension_services(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
@@ -1423,7 +1423,7 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
-    let config = ManagedHostConfig::with_dpus(vec![]);
+    let config = ManagedHostConfig::zero_dpu();
 
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
     let host_inband_segment =
@@ -1495,11 +1495,9 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
 async fn test_instance_allocation_rejects_auto_on_dpu_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use model::test_support::DpuConfig;
-
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
     // Default ManagedHostConfig has one DPU.
-    let config = ManagedHostConfig::with_dpus(vec![DpuConfig::default()]);
+    let config = ManagedHostConfig::default().with_dpu_count(1);
 
     let dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 

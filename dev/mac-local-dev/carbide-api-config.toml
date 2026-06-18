@@ -78,7 +78,7 @@ admin_root_cafile_path = "dev/certs/localhost/ca.crt"
 permissive_mode = true
 
 [auth.trust]
-spiffe_trust_domain = "forge.local"
+spiffe_trust_domain = "nico.local"
 spiffe_service_base_paths = ["/forge-system/sa/", "/default/sa/"]
 spiffe_machine_base_path = "/forge-system/machine/"
 additional_issuer_cns = []
@@ -163,6 +163,9 @@ run_interval = "10s"
 [component_manager]
 nv_switch_backend = "nsm"
 power_shelf_backend = "psm"
+# Local dev does not configure RMS by default. Keep compute tray management on a
+# non-RMS backend so startup validation does not require rack profiles.
+compute_tray_backend = "mock"
 
 [component_manager.nsm]
 url = "http://localhost:50052"

@@ -128,6 +128,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dhcp_servers: Vec<Ipv4Addr>,
 
+    /// NTP server IP addresses for the site.
+    #[serde(default)]
+    pub ntp_servers: Vec<Ipv4Addr>,
+
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
@@ -2863,6 +2867,10 @@ mod tests {
             config.dhcp_servers,
             vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
+        assert_eq!(
+            config.ntp_servers,
+            vec![Ipv4Addr::new(10, 20, 30, 40), Ipv4Addr::new(50, 60, 70, 80)]
+        );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
@@ -3170,6 +3178,10 @@ mod tests {
 
         assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
         let nvl72 = config.rack_profiles.get("NVL72").unwrap();
+        assert_eq!(
+            nvl72.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl72.rack_capabilities.compute.count, 18);
         assert_eq!(
             nvl72.rack_capabilities.compute.name.as_deref(),
@@ -3182,6 +3194,10 @@ mod tests {
         assert_eq!(nvl72.rack_capabilities.switch.count, 9);
         assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
         let nvl36 = config.rack_profiles.get("NVL36").unwrap();
+        assert_eq!(
+            nvl36.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
@@ -3814,7 +3830,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3827,7 +3845,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3840,7 +3860,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
                 prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),

@@ -4,6 +4,7 @@ database_url = "postgres://a:b@postgresql"
 max_database_connections = 1222
 asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
+ntp_servers = ["10.20.30.40", "50.60.70.80"]
 route_servers = ["9.10.11.12"]
 rapid_iterations = false
 initial_domain_name = "forge.local"
@@ -206,6 +207,8 @@ DevicesandIOPorts_IOMMU = "Disabled"
 OperatingModes_ChooseOperatingMode = "MinimalPower"
 
 [rack_profiles.NVL72]
+product_family = "gb200"
+
 [rack_profiles.NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
@@ -218,6 +221,8 @@ count = 9
 count = 8
 
 [rack_profiles.NVL36]
+product_family = "gb200"
+
 [rack_profiles.NVL36.rack_capabilities.compute]
 count = 9
 

@@ -252,6 +252,7 @@ pub fn get() -> CarbideConfig {
         initial_objects_file: None,
         config_ctx: None,
         tracing: TracingConfig::default(),
+        ntp_servers: vec![],
     }
 }
 

@@ -17,7 +17,7 @@
 
 use std::net::IpAddr;
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -27,7 +27,8 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
 use model::switch::{
-    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchMaintenanceOperation,
+    CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
+    SWITCH_CONTROLLER_STATE_READY, Switch, SwitchControllerState, SwitchMaintenanceOperation,
     SwitchMaintenanceRequest, SwitchReprovisionRequest,
 };
 use sqlx::PgConnection;
@@ -36,6 +37,9 @@ use crate::db_read::DbReader;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
+
+#[cfg(test)]
+mod test_metadata;
 
 #[derive(Copy, Clone)]
 pub struct IdColumn;
@@ -244,6 +248,41 @@ pub async fn find_ids(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("switch::find_ids", e))
+}
+
+/// Returns non-deleted switches in `rack_id` whose controller state is Ready and whose
+/// Fabric Manager status reports `fabric_manager_state = ok` with
+/// `addition_info = CONTROL_PLANE_STATE_CONFIGURED`.
+pub async fn find_ready_control_plane_configured_switch_ids_in_rack<DB>(
+    txn: &mut DB,
+    rack_id: &RackId,
+) -> DatabaseResult<Vec<SwitchId>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let query = r#"
+        SELECT s.id
+        FROM switches s
+        WHERE s.rack_id = $1
+          AND s.deleted IS NULL
+          AND s.controller_state->>'state' = $2
+          AND s.fabric_manager_status->>'fabric_manager_state' = $3
+          AND s.fabric_manager_status->>'addition_info' = $4
+    "#;
+
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(rack_id)
+        .bind(SWITCH_CONTROLLER_STATE_READY)
+        .bind(FabricManagerState::Ok.as_str())
+        .bind(CONTROL_PLANE_STATE_CONFIGURED)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                "switch::find_ready_control_plane_configured_switch_ids_in_rack",
+                e,
+            )
+        })
 }
 
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Switch>>(
@@ -649,24 +688,30 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("switch::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a switch: the switch ID (used as the RMS node_id),
-/// the BMC MAC address, and the rack_id.
+/// RMS identity for a switch, including rack profile context for node type
+/// resolution.
 #[derive(Debug, sqlx::FromRow)]
 pub struct SwitchRmsIdentity {
     pub id: String,
     pub bmc_mac_address: MacAddress,
     pub rack_id: Option<RackId>,
+    pub rack_profile_id: Option<RackProfileId>,
 }
 
-/// Look up RMS identities (node_id, rack_id) for switches by their
-/// BMC MAC addresses.
+/// Look up RMS identities and rack profile context for switches by their BMC
+/// MAC addresses.
 pub async fn find_rms_identities_by_macs(
     db: impl crate::db_read::DbReader<'_>,
     macs: &[MacAddress],
 ) -> DatabaseResult<Vec<SwitchRmsIdentity>> {
     let sql = r#"
-        SELECT s.id::text, s.bmc_mac_address, s.rack_id
+        SELECT
+            s.id::text,
+            s.bmc_mac_address,
+            s.rack_id,
+            r.rack_profile_id
         FROM switches s
+        LEFT JOIN racks r ON r.id = s.rack_id
         WHERE s.bmc_mac_address = ANY($1)
     "#;
 

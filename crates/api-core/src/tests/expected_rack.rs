@@ -19,7 +19,7 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackProfile, RackProfileConfig,
+    RackProductFamily, RackProfile, RackProfileConfig,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
@@ -34,6 +34,7 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "NVL72".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
                     rack_capabilities: RackCapabilitiesSet {
                         compute: RackCapabilityCompute {
                             name: Some("GB200".to_string()),
@@ -60,6 +61,7 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "NVL36".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
                     rack_capabilities: RackCapabilitiesSet {
                         compute: RackCapabilityCompute {
                             name: None,
@@ -93,242 +95,6 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
 fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
 }
-
-/// Helper to seed expected racks directly via DB for tests that don't need the API.
-async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
-    let ids: Vec<RackId> = (0..3).map(|_| new_rack_id()).collect();
-
-    db::expected_rack::create(
-        txn,
-        &model::expected_rack::ExpectedRack {
-            rack_id: ids[0].clone(),
-            rack_profile_id: RackProfileId::new("NVL72"),
-
-            metadata: model::metadata::Metadata {
-                name: "rack-1".to_string(),
-                description: "Test rack 1".to_string(),
-                labels: Default::default(),
-            },
-        },
-    )
-    .await
-    .unwrap();
-
-    db::expected_rack::create(
-        txn,
-        &model::expected_rack::ExpectedRack {
-            rack_id: ids[1].clone(),
-            rack_profile_id: RackProfileId::new("NVL72"),
-
-            metadata: model::metadata::Metadata {
-                name: "rack-2".to_string(),
-                description: "Test rack 2".to_string(),
-                labels: Default::default(),
-            },
-        },
-    )
-    .await
-    .unwrap();
-
-    db::expected_rack::create(
-        txn,
-        &model::expected_rack::ExpectedRack {
-            rack_id: ids[2].clone(),
-            rack_profile_id: RackProfileId::new("NVL36"),
-
-            metadata: model::metadata::Metadata {
-                name: "rack-3".to_string(),
-                description: "Test rack 3".to_string(),
-                labels: [("env".to_string(), "test".to_string())]
-                    .into_iter()
-                    .collect(),
-            },
-        },
-    )
-    .await
-    .unwrap();
-
-    ids
-}
-
-// ── DB tests ──
-
-#[crate::sqlx_test]
-async fn test_db_find_by_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let ids = seed_expected_racks(&mut txn).await;
-
-    let expected_rack = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
-        .await?
-        .expect("Expected rack not found");
-
-    assert_eq!(expected_rack.rack_id, ids[0]);
-    assert_eq!(expected_rack.rack_profile_id.as_str(), "NVL72");
-    assert_eq!(expected_rack.metadata.name, "rack-1");
-    assert_eq!(expected_rack.metadata.description, "Test rack 1");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let _ids = seed_expected_racks(&mut txn).await;
-
-    let all = db::expected_rack::find_all(&mut txn).await?;
-    assert_eq!(all.len(), 3);
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_find_nonexistent(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let rack_id = new_rack_id();
-    let result = db::expected_rack::find_by_rack_id(&mut txn, &rack_id).await?;
-    assert!(result.is_none());
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-
-    let rack_id = new_rack_id();
-    let metadata = model::metadata::Metadata {
-        name: "test-rack".to_string(),
-        description: "A test rack".to_string(),
-        labels: [("env".to_string(), "test".to_string())]
-            .into_iter()
-            .collect(),
-    };
-
-    let created = db::expected_rack::create(
-        &mut txn,
-        &model::expected_rack::ExpectedRack {
-            rack_id: rack_id.clone(),
-            rack_profile_id: RackProfileId::new("NVL72"),
-
-            metadata,
-        },
-    )
-    .await?;
-
-    assert_eq!(created.rack_id, rack_id);
-    assert_eq!(created.rack_profile_id.as_str(), "NVL72");
-    assert_eq!(created.metadata.name, "test-rack");
-    assert_eq!(created.metadata.labels.get("env").unwrap(), "test");
-
-    let found = db::expected_rack::find_by_rack_id(&mut txn, &rack_id)
-        .await?
-        .expect("Should find the rack we just created");
-
-    assert_eq!(found.rack_id, rack_id);
-    assert_eq!(found.rack_profile_id.as_str(), "NVL72");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let ids = seed_expected_racks(&mut txn).await;
-
-    let result = db::expected_rack::create(
-        &mut txn,
-        &model::expected_rack::ExpectedRack {
-            rack_id: ids[0].clone(),
-            rack_profile_id: RackProfileId::new("NVL72"),
-
-            metadata: model::metadata::Metadata::default(),
-        },
-    )
-    .await;
-
-    assert!(
-        result.is_err(),
-        "Creating a duplicate expected rack should fail"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let ids = seed_expected_racks(&mut txn).await;
-
-    let expected_rack = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
-        .await?
-        .expect("Expected rack not found");
-
-    assert_eq!(expected_rack.rack_profile_id.as_str(), "NVL72");
-
-    let updated = model::expected_rack::ExpectedRack {
-        rack_id: ids[0].clone(),
-        rack_profile_id: RackProfileId::new("NVL36"),
-        metadata: model::metadata::Metadata {
-            name: "updated-rack".to_string(),
-            description: "Updated description".to_string(),
-            labels: Default::default(),
-        },
-    };
-
-    db::expected_rack::update(&mut txn, &updated).await?;
-
-    txn.commit().await?;
-
-    let mut txn = pool.begin().await?;
-    let found = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
-        .await?
-        .unwrap();
-    assert_eq!(found.rack_profile_id.as_str(), "NVL36");
-    assert_eq!(found.metadata.name, "updated-rack");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let ids = seed_expected_racks(&mut txn).await;
-
-    db::expected_rack::delete(&mut txn, &ids[0]).await?;
-    txn.commit().await?;
-
-    let mut txn = pool.begin().await?;
-    let result = db::expected_rack::find_by_rack_id(&mut txn, &ids[0]).await?;
-    assert!(result.is_none());
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_delete_nonexistent(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let rack_id = new_rack_id();
-
-    let result = db::expected_rack::delete(&mut txn, &rack_id).await;
-    assert!(result.is_err(), "Deleting nonexistent rack should fail");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let _ids = seed_expected_racks(&mut txn).await;
-
-    db::expected_rack::clear(&mut txn).await?;
-    txn.commit().await?;
-
-    let mut txn = pool.begin().await?;
-    let all = db::expected_rack::find_all(&mut txn).await?;
-    assert_eq!(all.len(), 0);
-
-    Ok(())
-}
-
-// ── API handler tests ──
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack(pool: sqlx::PgPool) {

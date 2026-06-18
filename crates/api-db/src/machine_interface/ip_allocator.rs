@@ -19,14 +19,18 @@ use std::str::FromStr;
 
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::dns::{Domain, NewDomain};
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
     AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
-use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env, create_test_env_with_overrides,
-};
+use crate as db;
+use crate::test_support::network_segment::admin_segment;
+
+async fn init_dwrt1_domain(txn: &mut sqlx::PgTransaction<'_>) -> db::DatabaseResult<Domain> {
+    db::dns::domain::persist(NewDomain::new("dwrt1.com"), txn.as_mut()).await
+}
 
 /// Test that machine_interface::create allocates the correct IPv4 address
 /// from the admin segment (192.0.2.0/24 with num_reserved=3, gateway=.1).
@@ -34,14 +38,14 @@ use crate::tests::common::api_fixtures::{
 async fn test_machine_interface_create_with_ipv4_prefix(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mut txn = env.pool.begin().await?;
+    let mut txn = pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn)
-        .await?
-        .into_iter()
-        .next()
-        .unwrap();
+    let network_segment = db::network_segment::persist(
+        admin_segment("ADMIN_TEST", "192.0.2.0/24", "192.0.2.1", 3),
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
     let network_prefix = network_segment
         .prefixes
         .first()
@@ -111,36 +115,17 @@ async fn test_machine_interface_create_with_ipv4_prefix(
 async fn test_machine_interface_create_falls_through_admin_segments(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
-    let mut txn = env.pool.begin().await?;
-
-    let admin_segment = |name: &str, prefix: &str, gateway: &str| NewNetworkSegment {
-        name: name.to_string(),
-        subdomain_id: None,
-        vpc_id: None,
-        mtu: 1500,
-        prefixes: vec![NewNetworkPrefix {
-            prefix: prefix.parse().unwrap(),
-            gateway: Some(gateway.parse().unwrap()),
-            num_reserved: 2,
-        }],
-        vlan_id: None,
-        vni: None,
-        segment_type: NetworkSegmentType::Admin,
-        id: uuid::Uuid::new_v4().into(),
-        can_stretch: None,
-        allocation_strategy: AllocationStrategy::Dynamic,
-    };
+    let mut txn = pool.begin().await?;
 
     // Create two tiny admin segments with one allocatable address each.
     let first_segment = db::network_segment::persist(
-        admin_segment("ADMIN_TINY_1", "192.0.20.0/30", "192.0.20.1"),
+        admin_segment("ADMIN_TINY_1", "192.0.20.0/30", "192.0.20.1", 2),
         &mut txn,
         NetworkSegmentControllerState::Ready,
     )
     .await?;
     let second_segment = db::network_segment::persist(
-        admin_segment("ADMIN_TINY_2", "192.0.21.0/30", "192.0.21.1"),
+        admin_segment("ADMIN_TINY_2", "192.0.21.0/30", "192.0.21.1", 2),
         &mut txn,
         NetworkSegmentControllerState::Ready,
     )
@@ -178,7 +163,7 @@ async fn test_machine_interface_create_falls_through_admin_segments(
     txn.commit().await?;
 
     // Re-read the second interface to verify the persisted segment and address.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = pool.begin().await?;
     let persisted_interface =
         db::machine_interface::find_one(txn.as_mut(), second_interface_id).await?;
     assert_eq!(persisted_interface.segment_id, second_segment.id);
@@ -195,14 +180,8 @@ async fn test_machine_interface_create_falls_through_admin_segments(
 async fn test_machine_interface_create_with_ipv6_prefix(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mut txn = env.pool.begin().await?;
-
-    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
-        .await?
-        .into_iter()
-        .next()
-        .unwrap();
+    let mut txn = pool.begin().await?;
+    let domain = init_dwrt1_domain(&mut txn).await?;
 
     // Create an underlay segment with only an IPv6 prefix
     let new_ns = NewNetworkSegment {
@@ -213,6 +192,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         prefixes: vec![NewNetworkPrefix {
             prefix: "2001:db8:abcd::0/112".parse().unwrap(),
             gateway: None,
+            dhcpv6_link_address: None,
             num_reserved: 2,
         }],
         vlan_id: None,
@@ -278,14 +258,8 @@ async fn test_machine_interface_create_with_ipv6_prefix(
 async fn test_machine_interface_create_dual_stack(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mut txn = env.pool.begin().await?;
-
-    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
-        .await?
-        .into_iter()
-        .next()
-        .unwrap();
+    let mut txn = pool.begin().await?;
+    let domain = init_dwrt1_domain(&mut txn).await?;
 
     let new_ns = NewNetworkSegment {
         name: "DUAL-STACK-TEST".to_string(),
@@ -296,11 +270,13 @@ async fn test_machine_interface_create_dual_stack(
             NewNetworkPrefix {
                 prefix: "10.99.1.0/24".parse().unwrap(),
                 gateway: Some("10.99.1.1".parse().unwrap()),
+                dhcpv6_link_address: None,
                 num_reserved: 1,
             },
             NewNetworkPrefix {
                 prefix: "2001:db8:99::0/112".parse().unwrap(),
                 gateway: None,
+                dhcpv6_link_address: None,
                 num_reserved: 1,
             },
         ],

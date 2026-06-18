@@ -715,6 +715,46 @@ pub async fn set_vpc_id_and_can_stretch(
     Ok(())
 }
 
+pub async fn attach_to_vpc(
+    value: &NetworkSegment,
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+) -> Result<NetworkSegment, DatabaseError> {
+    let next_version = value.version.increment();
+    let query = "UPDATE network_segments
+            SET vpc_id=$1, version=$2, updated=NOW()
+            WHERE id=$3 AND version=$4 AND deleted IS NULL
+            RETURNING id";
+    let updated_id: NetworkSegmentId = sqlx::query_as(query)
+        .bind(vpc_id)
+        .bind(next_version)
+        .bind(value.id)
+        .bind(value.version)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::ConcurrentModificationError(
+                "network_segment",
+                value.version.to_string(),
+            ),
+            e => DatabaseError::query(query, e),
+        })?;
+
+    find_by(
+        txn,
+        ObjectColumnFilter::One(IdColumn, &updated_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| {
+        DatabaseError::new(
+            "finding just-attached network segment",
+            sqlx::Error::RowNotFound,
+        )
+    })
+}
+
 pub async fn mark_as_deleted(
     value: &NetworkSegment,
     txn: &mut PgConnection,
@@ -932,7 +972,9 @@ mod tests {
         let def = NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::Admin,
             prefix: "192.168.1.0/24".parse().unwrap(),
+            prefix_v6: None,
             gateway: "192.168.1.1".parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
@@ -969,7 +1011,9 @@ mod tests {
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::Admin,
             prefix: prefix.parse().unwrap(),
+            prefix_v6: None,
             gateway: gateway.parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 3,
             allocation_strategy: Default::default(),

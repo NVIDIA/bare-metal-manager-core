@@ -16,7 +16,7 @@
  */
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use carbide_uuid::UuidConversionError;
@@ -40,6 +40,16 @@ pub struct DhcpConfig {
     pub carbide_ntpservers: Vec<Ipv4Addr>,
     pub carbide_provisioning_server_ipv4: Ipv4Addr,
     pub carbide_dhcp_server: Ipv4Addr,
+    #[serde(default)]
+    pub carbide_nameservers_v6: Vec<Ipv6Addr>,
+    #[serde(default)]
+    pub carbide_ntpservers_v6: Vec<Ipv6Addr>,
+    #[serde(default)]
+    pub carbide_dhcp_server_v6: Option<Ipv6Addr>,
+    #[serde(default)]
+    pub dhcpv6_preferred_lifetime_secs: u32,
+    #[serde(default)]
+    pub dhcpv6_valid_lifetime_secs: u32,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -72,6 +82,11 @@ impl Default for DhcpConfig {
             // These two must be updated with valid values.
             carbide_provisioning_server_ipv4: Ipv4Addr::from([127, 0, 0, 1]),
             carbide_dhcp_server: Ipv4Addr::from([127, 0, 0, 1]),
+            carbide_nameservers_v6: vec![],
+            carbide_ntpservers_v6: vec![],
+            carbide_dhcp_server_v6: None,
+            dhcpv6_preferred_lifetime_secs: 0,
+            dhcpv6_valid_lifetime_secs: 0,
         }
     }
 }
@@ -113,6 +128,17 @@ pub struct InterfaceInfo {
     pub booturl: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u32>,
+    // TODO(ipv6-only): the v4 fields above are still required. IPv6-only
+    // hosts will need those fields to become optional in a later milestone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipv6: Option<InterfaceInfoV6>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InterfaceInfoV6 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<Ipv6Addr>,
+    pub prefix: String,
 }
 impl Default for InterfaceInfo {
     fn default() -> Self {
@@ -123,6 +149,7 @@ impl Default for InterfaceInfo {
             fqdn: Default::default(),
             booturl: None,
             mtu: None,
+            ipv6: None,
         }
     }
 }
@@ -192,6 +219,7 @@ impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
             fqdn: value.fqdn,
             booturl: value.booturl,
             mtu: value.mtu,
+            ipv6: None,
         })
     }
 }
@@ -296,7 +324,7 @@ impl IntoIterator for DhcpTimestamps {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{scenarios, value_scenarios};
@@ -642,6 +670,90 @@ mod tests {
                 ) => FailsWith("parameter-missing"),
             }
         );
+    }
+
+    /// Verifies DHCP config IPv6 fields round-trip and old configs default them.
+    #[test]
+    fn dhcp_config_v6_fields_round_trip_and_default_when_absent() {
+        let config = DhcpConfig {
+            carbide_nameservers_v6: vec!["2001:db8::53".parse().unwrap()],
+            carbide_ntpservers_v6: vec!["2001:db8::123".parse().unwrap()],
+            carbide_dhcp_server_v6: Some("2001:db8::1".parse().unwrap()),
+            dhcpv6_preferred_lifetime_secs: 3600,
+            dhcpv6_valid_lifetime_secs: 7200,
+            ..Default::default()
+        };
+
+        // Serialize a populated config and verify the IPv6 fields survive.
+        let wire = serde_json::to_string(&config).expect("dhcp config serializes");
+        let recovered: DhcpConfig = serde_json::from_str(&wire).expect("dhcp config deserializes");
+        assert_eq!(
+            recovered.carbide_nameservers_v6,
+            vec![Ipv6Addr::from_str("2001:db8::53").unwrap()]
+        );
+        assert_eq!(
+            recovered.carbide_ntpservers_v6,
+            vec![Ipv6Addr::from_str("2001:db8::123").unwrap()]
+        );
+        assert_eq!(
+            recovered.carbide_dhcp_server_v6,
+            Some(Ipv6Addr::from_str("2001:db8::1").unwrap())
+        );
+        assert_eq!(recovered.dhcpv6_preferred_lifetime_secs, 3600);
+        assert_eq!(recovered.dhcpv6_valid_lifetime_secs, 7200);
+
+        // Deserialize old-style JSON and verify the new fields default cleanly.
+        let old_wire = r#"{
+            "lease_time_secs": 604800,
+            "renewal_time_secs": 3600,
+            "rebinding_time_secs": 432000,
+            "carbide_nameservers": [],
+            "carbide_api_url": null,
+            "carbide_ntpservers": [],
+            "carbide_provisioning_server_ipv4": "127.0.0.1",
+            "carbide_dhcp_server": "127.0.0.1"
+        }"#;
+        let old_config: DhcpConfig =
+            serde_json::from_str(old_wire).expect("old dhcp config deserializes");
+        assert!(old_config.carbide_nameservers_v6.is_empty());
+        assert!(old_config.carbide_ntpservers_v6.is_empty());
+        assert_eq!(old_config.carbide_dhcp_server_v6, None);
+        assert_eq!(old_config.dhcpv6_preferred_lifetime_secs, 0);
+        assert_eq!(old_config.dhcpv6_valid_lifetime_secs, 0);
+    }
+
+    /// Verifies per-interface IPv6 details round-trip and old host configs default them.
+    #[test]
+    fn interface_info_ipv6_round_trip_and_defaults_when_absent() {
+        let interface = InterfaceInfo {
+            address: Ipv4Addr::new(192, 0, 2, 10),
+            gateway: Ipv4Addr::new(192, 0, 2, 1),
+            prefix: "192.0.2.0/24".to_string(),
+            fqdn: "host.example.com".to_string(),
+            booturl: None,
+            mtu: Some(9000),
+            ipv6: Some(InterfaceInfoV6 {
+                address: Some("2001:db8::10".parse().unwrap()),
+                prefix: "2001:db8::/64".to_string(),
+            }),
+        };
+
+        // Serialize a populated interface and verify the IPv6 sub-record survives.
+        let wire = serde_json::to_string(&interface).expect("interface serializes");
+        let recovered: InterfaceInfo = serde_json::from_str(&wire).expect("interface deserializes");
+        assert_eq!(recovered.ipv6, interface.ipv6);
+
+        // Deserialize old-style JSON and verify the IPv6 field defaults to absent.
+        let old_wire = r#"{
+            "address": "192.0.2.10",
+            "gateway": "192.0.2.1",
+            "prefix": "192.0.2.0/24",
+            "fqdn": "host.example.com",
+            "booturl": null
+        }"#;
+        let old_interface: InterfaceInfo =
+            serde_json::from_str(old_wire).expect("old interface deserializes");
+        assert_eq!(old_interface.ipv6, None);
     }
 
     #[test]

@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: image-pull-secret
+
+replicaCount: 1
+
+nameOverride: ""
+namespaceOverride: ""
+
+image:
+  name: nico-mcp
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# MCP server configuration. The server is stateless and parameter-driven:
+# per-call tool arguments and the inbound Authorization header normally supply
+# the connection details, so the defaults below are optional and are typically
+# left empty. Tokens are intentionally NOT exposed here -- supply them per-call
+# or via the inbound Authorization header.
+config:
+  path: /mcp
+  shutdownTimeout: 10s
+  # -- Optional server-side default base URL (a per-call base_url overrides it)
+  baseURL: ""
+  # -- Optional server-side default org (a per-call org overrides it)
+  org: ""
+  # -- Optional API path segment used in /v2/org/<org>/<name>/... routes
+  apiName: ""
+  # -- Enable debug logging (full HTTP request/response)
+  debug: false
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "256Mi"
+    cpu: "250m"

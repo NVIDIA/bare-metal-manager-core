@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
@@ -426,6 +426,16 @@ pub async fn set_preingestion_initial_bmc_reset(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::InitialBMCReset { phase };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_set_ntp_servers(
+    address: IpAddr,
+    set_at: Option<DateTime<Utc>>,
+    attempts: u32,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::SetNtpServers { set_at, attempts };
     set_preingestion(address, state, txn).await
 }
 
