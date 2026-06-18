@@ -419,20 +419,12 @@ pub async fn find_one(
 // newly_created_interface indicates that we couldn't find a
 // MachineInterface, so created new one.
 //
-// `is_primary` integrates `ExpectedHostNic.primary` into machine
-// interface creation. If True, this NIC is declared the primary
-// boot NIC (which is/was the previous default behavior anyway,
-// meaning None does the same thing), and this is fine, because
-// at the end of the day, site-explorer will end up demoting it
-// as part of attaching a DPU.
-//
-// Now, if it's *False*, there's a different NIC on this host declared
-// as the boot NIC, so we actually overide the new interface and
-// explicitly mark it as non-primary here. We *could* bake this in
-// as part of validate_existing_mac_and_create, but since this is
-// the only call-site that cares about it, I'm making it specific
-// to here.
-// TODO(chet): ...but consider plumbing it through.
+// `is_primary` carries the declared `ExpectedHostNic.primary` for this MAC:
+// `Some(true)` -- this NIC is the host's declared boot interface, `Some(false)`
+// -- a different NIC is, `None` -- nothing was declared. On a newly created (and
+// thus still machine-less) row we make that declaration stick, promoting to or
+// demoting from the creation default as needed, so the boot interface is right
+// from the first lease. `None` keeps the creation default.
 //
 // If we're not making a new interface, then existing interfaces
 // are returned untouched.
@@ -456,10 +448,6 @@ pub async fn find_or_create_machine_interface(
                 %mac_address,
                 "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
             );
-            // validate_existing_mac_and_create hardcodes primary_interface: true
-            // at creation. If the caller has explicitly declared a *different*
-            // NIC as this machine's primary (i.e. is_primary == false), override the
-            // true/default here.
             let mut interface = validate_existing_mac_and_create(
                 &mut *txn,
                 mac_address,
@@ -468,9 +456,22 @@ pub async fn find_or_create_machine_interface(
                 retained_window,
             )
             .await?;
-            if is_primary == Some(false) && interface.primary_interface {
-                set_primary_interface(&interface.id, false, &mut *txn).await?;
-                interface.primary_interface = false;
+            // Make the declaration authoritative on this machine-less row.
+            // `validate_existing_mac_and_create` defaults a freshly created row to
+            // primary, so the demote covers "a different NIC is declared primary"
+            // and the promote covers a row we *found* (rather than created) that is
+            // the declared primary. Safe on a NULL machine_id row: the
+            // one_primary_interface_per_machine index does not constrain it.
+            match is_primary {
+                Some(false) if interface.primary_interface => {
+                    set_primary_interface(&interface.id, false, &mut *txn).await?;
+                    interface.primary_interface = false;
+                }
+                Some(true) if !interface.primary_interface => {
+                    set_primary_interface(&interface.id, true, &mut *txn).await?;
+                    interface.primary_interface = true;
+                }
+                _ => {}
             }
             Ok(interface)
         }
@@ -1457,33 +1458,52 @@ pub async fn move_predicted_machine_interface_to_machine(
         );
     }
 
-    let (machine_interface_id, current_boot_interface_id, row_created_here) = match existing_row {
-        // This host has already DHCP'd once and created a machine_interface;
-        // we will migrate it below.
-        Some(machine_interface_snapshot) => (
-            machine_interface_snapshot.id,
-            machine_interface_snapshot.boot_interface_id,
-            false,
-        ),
-        None => {
-            // This host has never DHCP'd before, create a new machine_interface for it
-            // (`create` recovers any retained boot interface id onto it).
-            let machine_interface = create(
-                txn,
-                &[network_segment],
-                &predicted_machine_interface.mac_address,
+    let (machine_interface_id, current_boot_interface_id, current_primary, row_created_here) =
+        match existing_row {
+            // This host has already DHCP'd once and created a machine_interface;
+            // we will migrate it below.
+            Some(machine_interface_snapshot) => (
+                machine_interface_snapshot.id,
+                machine_interface_snapshot.boot_interface_id,
+                machine_interface_snapshot.primary_interface,
                 false,
-                AddressSelectionStrategy::NextAvailableIp,
-                retained_window,
-            )
-            .await?;
-            (
-                machine_interface.id,
-                machine_interface.boot_interface_id,
-                true,
-            )
-        }
-    };
+            ),
+            None => {
+                // This host has never DHCP'd before, create a new machine_interface for it
+                // (`create` recovers any retained boot interface id onto it). The promoted row
+                // is primary exactly when the prediction carries the declared
+                // `ExpectedHostNic.primary`.
+                let machine_interface = create(
+                    txn,
+                    &[network_segment],
+                    &predicted_machine_interface.mac_address,
+                    predicted_machine_interface.primary_interface,
+                    AddressSelectionStrategy::NextAvailableIp,
+                    retained_window,
+                )
+                .await?;
+                (
+                    machine_interface.id,
+                    machine_interface.boot_interface_id,
+                    machine_interface.primary_interface,
+                    true,
+                )
+            }
+        };
+
+    // Land the declared boot interface as we promote: the prediction holds the
+    // host's declared `ExpectedHostNic.primary`, so a promoted interface is primary
+    // exactly when it was declared. (An anonymous row found here keeps whatever
+    // flag DHCP set, so reconcile it to the declaration.) Done before association
+    // so a row reaches its machine already carrying the right flag.
+    if current_primary != predicted_machine_interface.primary_interface {
+        set_primary_interface(
+            &machine_interface_id,
+            predicted_machine_interface.primary_interface,
+            &mut *txn,
+        )
+        .await?;
+    }
 
     // Take either the newly-created interface or the anonymous one we found, and associate it with
     // this machine.
