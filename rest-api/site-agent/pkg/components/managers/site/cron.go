@@ -18,15 +18,15 @@ const (
 	InventoryDefaultSchedule = "@every 3m"
 )
 
-// RegisterCron registers the Site IP Block inventory discovery cron.
+// RegisterCron registers the Site Config inventory discovery cron.
 func (api *API) RegisterCron() error {
-	ManagerAccess.Data.EB.Log.Info().Msg("Site: Registering IP Block Inventory Discovery Cron")
-	workflowID := "inventory-site-ip-block-" + ManagerAccess.Conf.EB.Temporal.TemporalSubscribeNamespace
+	ManagerAccess.Data.EB.Log.Info().Msg("Site: Registering Site Config Inventory Discovery Cron")
+	workflowID := "inventory-site-config-" + ManagerAccess.Conf.EB.Temporal.TemporalSubscribeNamespace
 	cronSchedule := InventoryDefaultSchedule
 	if ManagerAccess.Conf.EB.Temporal.TemporalInventorySchedule != "" {
 		cronSchedule = ManagerAccess.Conf.EB.Temporal.TemporalInventorySchedule
 	}
-	ManagerAccess.Data.EB.Log.Info().Str("Schedule", cronSchedule).Msg("Site: IP Block Inventory Discovery Cron Schedule")
+	ManagerAccess.Data.EB.Log.Info().Str("Schedule", cronSchedule).Msg("Site: Site Config Inventory Discovery Cron Schedule")
 
 	workflowOptions := client.StartWorkflowOptions{
 		ID: workflowID,
@@ -39,12 +39,12 @@ func (api *API) RegisterCron() error {
 	we, err := ManagerAccess.Data.EB.Managers.Workflow.Temporal.Subscriber.ExecuteWorkflow(
 		context.Background(),
 		workflowOptions,
-		sww.DiscoverSiteIPBlockInventory,
+		sww.DiscoverSiteConfigInventory,
 	)
 	if err != nil {
-		ManagerAccess.Data.EB.Log.Error().Err(err).Msg("Site: Error registering IP Block Inventory Discovery Cron")
+		ManagerAccess.Data.EB.Log.Error().Err(err).Msg("Site: Error registering Site Config Inventory Discovery Cron")
 	} else {
-		ManagerAccess.Data.EB.Log.Info().Interface("workflow Id", we.GetID()).Msg("Site: successfully registered the IP Block Inventory Discovery workflow")
+		ManagerAccess.Data.EB.Log.Info().Interface("workflow Id", we.GetID()).Msg("Site: successfully registered the Site Config Inventory Discovery workflow")
 	}
 	return err
 }

@@ -10,12 +10,12 @@ import (
 	sww "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/workflow"
 )
 
-// RegisterPublisher registers Site IP Block inventory workflow and activity with Temporal.
+// RegisterPublisher registers Site Config inventory workflow and activity with Temporal.
 func (api *API) RegisterPublisher() error {
-	ManagerAccess.Data.EB.Log.Info().Msg("Site: Registering IP Block inventory workflow and activity")
+	ManagerAccess.Data.EB.Log.Info().Msg("Site: Registering Site Config inventory workflow and activity")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DiscoverSiteIPBlockInventory)
-	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteIPBlockInventory workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DiscoverSiteConfigInventory)
+	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteConfigInventory workflow")
 
 	siteID, err := uuid.Parse(ManagerAccess.Conf.EB.Temporal.ClusterID)
 	if err != nil {
@@ -23,15 +23,15 @@ func (api *API) RegisterPublisher() error {
 		return err
 	}
 
-	inventoryManager := swa.NewManageSiteIPBlockInventory(swa.ManageInventoryConfig{
+	inventoryManager := swa.NewManageSiteConfigInventory(swa.ManageInventoryConfig{
 		SiteID:                siteID,
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
 	})
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(inventoryManager.DiscoverSiteIPBlockInventory)
-	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteIPBlockInventory activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(inventoryManager.DiscoverSiteConfigInventory)
+	ManagerAccess.Data.EB.Log.Info().Msg("Site: Successfully registered DiscoverSiteConfigInventory activity")
 
 	return api.RegisterCron()
 }

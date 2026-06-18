@@ -14,50 +14,50 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-type InventorySiteIPBlockTestSuite struct {
+type InventorySiteConfigTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (isibts *InventorySiteIPBlockTestSuite) SetupTest() {
-	isibts.env = isibts.NewTestWorkflowEnvironment()
+func (iscts *InventorySiteConfigTestSuite) SetupTest() {
+	iscts.env = iscts.NewTestWorkflowEnvironment()
 }
 
-func (isibts *InventorySiteIPBlockTestSuite) AfterTest(suiteName, testName string) {
-	isibts.env.AssertExpectations(isibts.T())
+func (iscts *InventorySiteConfigTestSuite) AfterTest(suiteName, testName string) {
+	iscts.env.AssertExpectations(iscts.T())
 }
 
-func (isibts *InventorySiteIPBlockTestSuite) Test_DiscoverSiteIPBlockInventory_Success() {
-	var inventoryManager iActivity.ManageSiteIPBlockInventory
+func (iscts *InventorySiteConfigTestSuite) Test_DiscoverSiteConfigInventory_Success() {
+	var inventoryManager iActivity.ManageSiteConfigInventory
 
-	isibts.env.RegisterActivity(inventoryManager.DiscoverSiteIPBlockInventory)
-	isibts.env.OnActivity(inventoryManager.DiscoverSiteIPBlockInventory, mock.Anything).Return(nil)
+	iscts.env.RegisterActivity(inventoryManager.DiscoverSiteConfigInventory)
+	iscts.env.OnActivity(inventoryManager.DiscoverSiteConfigInventory, mock.Anything).Return(nil)
 
-	isibts.env.ExecuteWorkflow(DiscoverSiteIPBlockInventory)
-	isibts.True(isibts.env.IsWorkflowCompleted())
-	isibts.NoError(isibts.env.GetWorkflowError())
+	iscts.env.ExecuteWorkflow(DiscoverSiteConfigInventory)
+	iscts.True(iscts.env.IsWorkflowCompleted())
+	iscts.NoError(iscts.env.GetWorkflowError())
 }
 
-func (isibts *InventorySiteIPBlockTestSuite) Test_DiscoverSiteIPBlockInventory_ActivityFails() {
-	var inventoryManager iActivity.ManageSiteIPBlockInventory
+func (iscts *InventorySiteConfigTestSuite) Test_DiscoverSiteConfigInventory_ActivityFails() {
+	var inventoryManager iActivity.ManageSiteConfigInventory
 
 	errMsg := "Site Controller communication error"
 
-	isibts.env.RegisterActivity(inventoryManager.DiscoverSiteIPBlockInventory)
-	isibts.env.OnActivity(inventoryManager.DiscoverSiteIPBlockInventory, mock.Anything).Return(errors.New(errMsg))
+	iscts.env.RegisterActivity(inventoryManager.DiscoverSiteConfigInventory)
+	iscts.env.OnActivity(inventoryManager.DiscoverSiteConfigInventory, mock.Anything).Return(errors.New(errMsg))
 
-	isibts.env.ExecuteWorkflow(DiscoverSiteIPBlockInventory)
-	isibts.True(isibts.env.IsWorkflowCompleted())
-	err := isibts.env.GetWorkflowError()
-	isibts.Error(err)
+	iscts.env.ExecuteWorkflow(DiscoverSiteConfigInventory)
+	iscts.True(iscts.env.IsWorkflowCompleted())
+	err := iscts.env.GetWorkflowError()
+	iscts.Error(err)
 
 	var applicationErr *temporal.ApplicationError
-	isibts.True(errors.As(err, &applicationErr))
-	isibts.Equal(errMsg, applicationErr.Error())
+	iscts.True(errors.As(err, &applicationErr))
+	iscts.Equal(errMsg, applicationErr.Error())
 }
 
-func TestInventorySiteIPBlockTestSuite(t *testing.T) {
-	suite.Run(t, new(InventorySiteIPBlockTestSuite))
+func TestInventorySiteConfigTestSuite(t *testing.T) {
+	suite.Run(t, new(InventorySiteConfigTestSuite))
 }

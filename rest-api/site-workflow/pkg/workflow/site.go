@@ -12,10 +12,11 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// DiscoverSiteIPBlockInventory collects Site fabric prefixes and publishes
-// them to Cloud workflow for Site-level IP Block creation.
-func DiscoverSiteIPBlockInventory(ctx workflow.Context) error {
-	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "DiscoverSiteIPBlockInventory")
+// DiscoverSiteConfigInventory collects the Site Config inventory (today the
+// Site fabric prefixes) and publishes it to the Cloud workflow, which creates
+// the matching Site-level IP Blocks.
+func DiscoverSiteConfigInventory(ctx workflow.Context) error {
+	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "DiscoverSiteConfigInventory")
 
 	logger.Info("Starting workflow")
 
@@ -32,11 +33,11 @@ func DiscoverSiteIPBlockInventory(ctx workflow.Context) error {
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	var inventoryManager activity.ManageSiteIPBlockInventory
+	var inventoryManager activity.ManageSiteConfigInventory
 
-	err := workflow.ExecuteActivity(ctx, inventoryManager.DiscoverSiteIPBlockInventory).Get(ctx, nil)
+	err := workflow.ExecuteActivity(ctx, inventoryManager.DiscoverSiteConfigInventory).Get(ctx, nil)
 	if err != nil {
-		logger.Error("Failed to execute activity from workflow", "Activity", "DiscoverSiteIPBlockInventory", "Error", err)
+		logger.Error("Failed to execute activity from workflow", "Activity", "DiscoverSiteConfigInventory", "Error", err)
 		return err
 	}
 

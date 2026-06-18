@@ -16,7 +16,7 @@ import (
 	tmocks "go.temporal.io/sdk/mocks"
 )
 
-func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory(t *testing.T) {
+func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
@@ -32,12 +32,12 @@ func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory(t *testing.T) {
 		"ExecuteWorkflow",
 		mock.Anything,
 		mock.AnythingOfType("internal.StartWorkflowOptions"),
-		updateSiteIPBlockInventoryWorkflowName,
+		updateSiteConfigInventoryWorkflowName,
 		siteID.String(),
 		siteFabricPrefixes,
 	).Return(wrun, nil)
 
-	manageSiteIPBlockInventory := NewManageSiteIPBlockInventory(ManageInventoryConfig{
+	manageSiteConfigInventory := NewManageSiteConfigInventory(ManageInventoryConfig{
 		SiteID:                siteID,
 		CoreGrpcAtomicClient:  coreGrpcAtomicClient,
 		TemporalPublishClient: tc,
@@ -45,7 +45,7 @@ func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory(t *testing.T) {
 	})
 
 	ctx := context.WithValue(context.Background(), "siteFabricPrefixes", siteFabricPrefixes)
-	err := manageSiteIPBlockInventory.DiscoverSiteIPBlockInventory(ctx)
+	err := manageSiteConfigInventory.DiscoverSiteConfigInventory(ctx)
 	require.NoError(t, err)
 
 	tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 1)
@@ -55,17 +55,17 @@ func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory(t *testing.T) {
 
 	workflowOptions, ok := tc.Calls[0].Arguments[1].(tClient.StartWorkflowOptions)
 	require.True(t, ok)
-	assert.Equal(t, "update-site-ip-block-inventory-"+siteID.String(), workflowOptions.ID)
+	assert.Equal(t, "update-site-config-inventory-"+siteID.String(), workflowOptions.ID)
 	assert.Equal(t, "test-queue", workflowOptions.TaskQueue)
 }
 
-func TestManageSiteIPBlockInventory_DiscoverSiteIPBlockInventory_NoCoreClient(t *testing.T) {
+func TestManageSiteConfigInventory_DiscoverSiteConfigInventory_NoCoreClient(t *testing.T) {
 	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
-	manageSiteIPBlockInventory := NewManageSiteIPBlockInventory(ManageInventoryConfig{
+	manageSiteConfigInventory := NewManageSiteConfigInventory(ManageInventoryConfig{
 		SiteID:               uuid.New(),
 		CoreGrpcAtomicClient: coreGrpcAtomicClient,
 	})
 
-	err := manageSiteIPBlockInventory.DiscoverSiteIPBlockInventory(context.Background())
+	err := manageSiteConfigInventory.DiscoverSiteConfigInventory(context.Background())
 	assert.ErrorIs(t, err, cClient.ErrCoreGrpcClientNotConnected)
 }

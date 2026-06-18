@@ -13,24 +13,25 @@ import (
 	tClient "go.temporal.io/sdk/client"
 )
 
-const updateSiteIPBlockInventoryWorkflowName = "UpdateSiteIPBlockInventory"
+const updateSiteConfigInventoryWorkflowName = "UpdateSiteConfigInventory"
 
-// ManageSiteIPBlockInventory is an activity wrapper for Site IP Block inventory collection and publishing.
-type ManageSiteIPBlockInventory struct {
+// ManageSiteConfigInventory is an activity wrapper for Site Config inventory collection and publishing.
+type ManageSiteConfigInventory struct {
 	config ManageInventoryConfig
 }
 
-// NewManageSiteIPBlockInventory returns a ManageSiteIPBlockInventory implementation.
-func NewManageSiteIPBlockInventory(config ManageInventoryConfig) ManageSiteIPBlockInventory {
-	return ManageSiteIPBlockInventory{
+// NewManageSiteConfigInventory returns a ManageSiteConfigInventory implementation.
+func NewManageSiteConfigInventory(config ManageInventoryConfig) ManageSiteConfigInventory {
+	return ManageSiteConfigInventory{
 		config: config,
 	}
 }
 
-// DiscoverSiteIPBlockInventory collects Site fabric prefixes and publishes
-// them to Cloud workflow so matching Site-level IP Blocks can be created.
-func (msi *ManageSiteIPBlockInventory) DiscoverSiteIPBlockInventory(ctx context.Context) error {
-	logger := log.With().Str("Activity", "DiscoverSiteIPBlockInventory").Logger()
+// DiscoverSiteConfigInventory collects the Site Config inventory (today the
+// Site fabric prefixes) and publishes it to the Cloud workflow, which creates
+// the matching Site-level IP Blocks.
+func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Context) error {
+	logger := log.With().Str("Activity", "DiscoverSiteConfigInventory").Logger()
 	logger.Info().Msg("Starting activity")
 
 	grpcClient := msi.config.CoreGrpcAtomicClient.GetClient()
@@ -46,18 +47,18 @@ func (msi *ManageSiteIPBlockInventory) DiscoverSiteIPBlockInventory(ctx context.
 
 	siteFabricPrefixes := buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes()
 	workflowOptions := tClient.StartWorkflowOptions{
-		ID:        fmt.Sprintf("update-site-ip-block-inventory-%s", msi.config.SiteID.String()),
+		ID:        fmt.Sprintf("update-site-config-inventory-%s", msi.config.SiteID.String()),
 		TaskQueue: msi.config.TemporalPublishQueue,
 	}
 
 	if _, err = msi.config.TemporalPublishClient.ExecuteWorkflow(
 		ctx,
 		workflowOptions,
-		updateSiteIPBlockInventoryWorkflowName,
+		updateSiteConfigInventoryWorkflowName,
 		msi.config.SiteID.String(),
 		siteFabricPrefixes,
 	); err != nil {
-		logger.Error().Err(err).Msg("Failed to publish Site IP Block inventory to Cloud")
+		logger.Error().Err(err).Msg("Failed to publish Site Config inventory to Cloud")
 		return err
 	}
 
