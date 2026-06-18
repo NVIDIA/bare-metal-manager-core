@@ -52,9 +52,8 @@ use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::TEST_SITE_PREFIXES;
-use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::nvl_logical_partition::NvlLogicalPartitionFixture;
+use crate::tests::common::api_fixtures::{TEST_SITE_PREFIXES, TestEnvOverrides};
 use crate::tests::common::mac_address_pool::{
     EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL, EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL,
 };
