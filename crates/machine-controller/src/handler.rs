@@ -98,7 +98,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
-use crate::boot_interface::boot_interface_target;
+use crate::boot_interface::{BootInterfaceResolution, resolve_boot_interface};
 use crate::config::{
     FirmwareGlobal, MachineStateHandlerSiteConfig, MachineValidationConfig, TimePeriod,
 };
@@ -3339,6 +3339,7 @@ async fn handle_dpu_reprovision(
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     Ok(StateHandlerOutcome::wait(reason))
                 }
+                SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
             }
         }
         ReprovisionState::LockHostAfterBootRepair => {
@@ -3527,13 +3528,24 @@ async fn check_host_boot_config(
         ));
     }
 
-    // Resolve the interface whose boot option should be first in host UEFI.
-    let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-        StateHandlerError::GenericError(eyre::eyre!(
-            "Missing boot interface for host: {}",
-            mh_snapshot.host_snapshot.id
-        ))
-    })?;
+    // Resolve the interface whose boot option should be first in host UEFI. A
+    // zero-DPU host whose boot NIC has not taken its first HostInband lease yet
+    // has no boot interface to resolve -- wait for it rather than failing.
+    let boot_interface = match resolve_boot_interface(mh_snapshot) {
+        BootInterfaceResolution::Ready(target) => target,
+        BootInterfaceResolution::AwaitingNic => {
+            return Ok(HostBootConfigDecision::Wait(format!(
+                "Waiting for zero-DPU host {} to discover its boot NIC before configuring boot.",
+                mh_snapshot.host_snapshot.id
+            )));
+        }
+        BootInterfaceResolution::Missing => {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "Missing boot interface for host: {}",
+                mh_snapshot.host_snapshot.id
+            )));
+        }
+    };
 
     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
 
@@ -4835,6 +4847,10 @@ enum SetBootOrderOutcome {
     Continue(SetBootOrderInfo),
     Done,
     WaitingForReboot(String),
+    /// No boot interface to act on yet -- e.g. a zero-DPU host whose boot NIC
+    /// has not been discovered. Distinct from `WaitingForReboot`: nothing was
+    /// rebooted, the caller just waits and retries.
+    Wait(String),
 }
 
 /// Decision from checking whether host boot repair is still required.
@@ -5235,6 +5251,9 @@ async fn handle_host_boot_order_setup(
                     },
                 },
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+                SetBootOrderOutcome::Wait(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
             }
@@ -10876,6 +10895,9 @@ async fn handle_instance_host_platform_config(
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
+                SetBootOrderOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
             }
         }
         HostPlatformConfigurationState::LockHost => {
@@ -10922,13 +10944,24 @@ async fn set_host_boot_order(
             // for verification.
             //
             // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
-            // supporting hosts with DPU(s) and zero DPUs alike.
-            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface for host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
+            // supporting hosts with DPU(s) and zero DPUs alike. A zero-DPU host
+            // whose boot NIC has not taken its first HostInband lease yet has no
+            // boot interface to resolve -- wait for it rather than failing.
+            let boot_interface = match resolve_boot_interface(mh_snapshot) {
+                BootInterfaceResolution::Ready(target) => target,
+                BootInterfaceResolution::AwaitingNic => {
+                    return Ok(SetBootOrderOutcome::Wait(format!(
+                        "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+                BootInterfaceResolution::Missing => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "Missing boot interface for host: {}",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+            };
 
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
@@ -11207,12 +11240,21 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface for host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
+            let boot_interface = match resolve_boot_interface(mh_snapshot) {
+                BootInterfaceResolution::Ready(target) => target,
+                BootInterfaceResolution::AwaitingNic => {
+                    return Ok(SetBootOrderOutcome::Wait(format!(
+                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying boot order.",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+                BootInterfaceResolution::Missing => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "Missing boot interface for host: {}",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+            };
 
             let boot_order_configured = boot_interface
                 .run(|bi| redfish_client.is_boot_order_setup(bi))

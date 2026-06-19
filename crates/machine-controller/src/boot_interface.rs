@@ -38,3 +38,79 @@ pub fn boot_interface_target(
         .boot_interface_mac()
         .map(BootInterfaceTarget::MacOnly)
 }
+
+/// What a Redfish boot step should do with a host's boot interface.
+///
+/// Separates "not ready yet" from "broken". A zero-DPU host (`NoDpu` or
+/// `NicMode`) boots from a plain NIC that takes its first HostInband lease only
+/// after the host comes up, so until then it has no boot interface to
+/// resolve -- the controller should wait, not fail. A host with managed DPUs
+/// always has its DPU-facing primary set at promotion, so a missing boot
+/// interface there is a genuine fault.
+#[derive(Debug)]
+pub enum BootInterfaceResolution {
+    /// The boot interface resolved; target it.
+    Ready(BootInterfaceTarget),
+    /// A zero-DPU host whose boot NIC has not been discovered yet -- wait.
+    AwaitingNic,
+    /// A host that should already have a boot interface is missing one.
+    Missing,
+}
+
+/// Resolve this host's boot interface for a Redfish boot step, classifying a
+/// missing one as either "wait for the NIC" (zero-DPU) or "fault".
+pub fn resolve_boot_interface(mh_snapshot: &ManagedHostStateSnapshot) -> BootInterfaceResolution {
+    classify_boot_interface(
+        boot_interface_target(mh_snapshot),
+        mh_snapshot.has_managed_dpus(),
+    )
+}
+
+/// The decision behind [`resolve_boot_interface`], split out from the snapshot
+/// lookup so it can be unit-tested directly.
+fn classify_boot_interface(
+    boot_interface: Option<BootInterfaceTarget>,
+    has_managed_dpus: bool,
+) -> BootInterfaceResolution {
+    match boot_interface {
+        Some(target) => BootInterfaceResolution::Ready(target),
+        None if !has_managed_dpus => BootInterfaceResolution::AwaitingNic,
+        None => BootInterfaceResolution::Missing,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mac_address::MacAddress;
+
+    use super::*;
+
+    #[test]
+    fn classify_waits_for_a_zero_dpu_host_without_a_boot_interface() {
+        // The zero-DPU host's boot NIC has not taken its first lease yet: wait
+        // for it instead of faulting.
+        assert!(matches!(
+            classify_boot_interface(None, false),
+            BootInterfaceResolution::AwaitingNic
+        ));
+    }
+
+    #[test]
+    fn classify_faults_when_a_dpu_host_has_no_boot_interface() {
+        // A host with managed DPUs always has its DPU-facing primary set at
+        // promotion, so a missing boot interface is a real fault.
+        assert!(matches!(
+            classify_boot_interface(None, true),
+            BootInterfaceResolution::Missing
+        ));
+    }
+
+    #[test]
+    fn classify_uses_the_resolved_interface_when_present() {
+        let target = BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 1]));
+        assert!(matches!(
+            classify_boot_interface(Some(target), false),
+            BootInterfaceResolution::Ready(_)
+        ));
+    }
+}
