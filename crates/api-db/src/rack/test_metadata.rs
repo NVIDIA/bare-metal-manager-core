@@ -20,6 +20,8 @@ use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::metadata::Metadata;
 use model::rack::RackConfig;
 
+use crate as db;
+
 #[crate::sqlx_test]
 async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;

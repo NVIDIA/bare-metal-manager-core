@@ -27,6 +27,9 @@ use sqlx::{FromRow, PgConnection};
 use super::DatabaseError;
 use crate::db_read::DbReader;
 
+#[cfg(test)]
+mod test_find_by_address;
+
 /// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
 /// when the target IP is already held by some other interface.
 #[derive(thiserror::Error, Debug)]
@@ -170,8 +173,8 @@ pub async fn insert(
 /// allocation type:
 ///
 /// - `Static`: the old static address is replaced.
-/// - `Dhcp`: the DHCP allocation is removed and replaced with the
-///   static assignment.
+/// - `Dhcp` or `Slaac`: the managed allocation is removed and
+///   replaced with the static assignment.
 #[allow(txn_held_across_await)]
 pub async fn assign_static(
     txn: &mut PgConnection,
@@ -183,9 +186,8 @@ pub async fn assign_static(
     let existing = find_allocation_type_for_family(&mut *txn, interface_id, family).await?;
 
     let result = match existing {
-        Some(AllocationType::Dhcp) => {
-            delete_by_interface_family(&mut *txn, interface_id, family, AllocationType::Dhcp)
-                .await?;
+        Some(allocation_type @ (AllocationType::Dhcp | AllocationType::Slaac)) => {
+            delete_by_interface_family(&mut *txn, interface_id, family, allocation_type).await?;
             AssignStaticResult::ReplacedDhcp
         }
         Some(AllocationType::Static) => {
@@ -275,4 +277,50 @@ pub struct MachineInterfaceSearchResult {
     pub name: String,
     pub network_segment_type: NetworkSegmentType,
     pub allocation_type: AllocationType,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verifies the new SLAAC allocation type survives a database round trip.
+    #[crate::sqlx_test]
+    async fn slaac_allocation_type_round_trips(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        // Create the minimal segment and interface rows needed to own an address.
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version) VALUES ($1, 'V1-T0') RETURNING id",
+        )
+        .bind("slaac-roundtrip")
+        .fetch_one(txn.as_mut())
+        .await?;
+        let interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces (segment_id, mac_address, primary_interface, hostname)
+             VALUES ($1, $2::macaddr, true, 'slaac-roundtrip') RETURNING id",
+        )
+        .bind(segment_id)
+        .bind("02:00:00:00:00:01")
+        .fetch_one(txn.as_mut())
+        .await?;
+
+        // Insert a SLAAC allocation through the public helper and read it back.
+        insert(
+            txn.as_mut(),
+            interface_id,
+            "2001:db8::10".parse()?,
+            AllocationType::Slaac,
+        )
+        .await?;
+        let addresses = find_for_interface(txn.as_mut(), interface_id).await?;
+
+        // Verify the persisted row preserved the new allocation type.
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(addresses[0].allocation_type, AllocationType::Slaac);
+
+        txn.rollback().await?;
+        Ok(())
+    }
 }

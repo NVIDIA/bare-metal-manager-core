@@ -138,6 +138,52 @@ pub struct ServiceAddresses {
     pub nameservers: Vec<IpAddr>,
 }
 
+fn build_dhcp_ntp_servers(
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+    service_addrs: &ServiceAddresses,
+) -> Vec<Ipv4Addr> {
+    // Start with the NTP servers from the service addresses, which is read from carbide-ntp.forge.
+    let mut ntp_servers = service_addrs
+        .ntpservers
+        .iter()
+        .filter_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+
+    // If the site has configured NTP servers, use them instead.
+    if !nc.ntp_servers.is_empty() {
+        let site_ntp_servers: Vec<Ipv4Addr> = nc.ntp_servers
+        .iter()
+        .filter_map(|s| match IpAddr::from_str(s) {
+            Ok(IpAddr::V4(ip)) => Some(ip),
+            Ok(IpAddr::V6(_)) => {
+                tracing::debug!(
+                    ntp_server = %s,
+                    "IPv6 NTP server from ManagedHostNetworkConfigResponse is ignored for DHCPv4 config"
+                );
+                None
+            }
+            Err(e) => {
+                tracing::debug!(
+                    ntp_server = %s,
+                    error = %e,
+                    "Invalid NTP server IP from ManagedHostNetworkConfigResponse, ignoring"
+                );
+                None
+            }
+        })
+        .collect();
+
+        if !site_ntp_servers.is_empty() {
+            ntp_servers = site_ntp_servers;
+        }
+    }
+
+    ntp_servers
+}
+
 /// How we tell HBN to notice the new file we wrote
 #[derive(Debug)]
 struct PostAction {
@@ -1029,14 +1075,7 @@ async fn update_dhcp_via_grpc(
         })
         .collect::<Vec<Ipv4Addr>>();
 
-    let ntpservers_v4 = service_addrs
-        .ntpservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let ntpservers_v4 = build_dhcp_ntp_servers(network_config, service_addrs);
 
     let pxe_ip_v4 = service_addrs
         .pxe_ips
@@ -1445,14 +1484,7 @@ fn write_dhcp_v4_server_config(
         })
         .collect::<Vec<Ipv4Addr>>();
 
-    let ntpservers_v4 = service_addrs
-        .ntpservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let ntpservers_v4 = build_dhcp_ntp_servers(nc, service_addrs);
 
     let pxe_ip_v4 = service_addrs
         .pxe_ips
@@ -1909,6 +1941,54 @@ mod tests {
     #[ctor::ctor(unsafe)]
     fn setup() {
         carbide_host_support::init_logging("nico-dpu-agent").unwrap();
+    }
+
+    #[test]
+    fn test_build_dhcp_ntp_servers() {
+        let service_addrs = ServiceAddresses {
+            pxe_ips: vec![],
+            ntpservers: vec![IpAddr::from([192, 0, 2, 20])],
+            nameservers: vec![],
+        };
+        let nc = rpc::ManagedHostNetworkConfigResponse {
+            ntp_servers: vec!["198.51.100.1".to_string(), "198.51.100.2".to_string()],
+            ..Default::default()
+        };
+
+        let out = build_dhcp_ntp_servers(&nc, &service_addrs);
+        assert_eq!(
+            out,
+            vec![
+                Ipv4Addr::from([198, 51, 100, 1]),
+                Ipv4Addr::from([198, 51, 100, 2])
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_dhcp_ntp_servers_fallback() {
+        let service_addrs = ServiceAddresses {
+            pxe_ips: vec![],
+            ntpservers: vec![IpAddr::from([192, 0, 2, 20])],
+            nameservers: vec![],
+        };
+
+        let empty_nc = rpc::ManagedHostNetworkConfigResponse::default();
+
+        assert_eq!(
+            build_dhcp_ntp_servers(&empty_nc, &service_addrs),
+            vec![Ipv4Addr::from([192, 0, 2, 20])]
+        );
+
+        let invalid_nc = rpc::ManagedHostNetworkConfigResponse {
+            ntp_servers: vec!["not-an-ip".to_string(), "2001:db8::1".to_string()],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            build_dhcp_ntp_servers(&invalid_nc, &service_addrs),
+            vec![Ipv4Addr::from([192, 0, 2, 20])]
+        );
     }
 
     #[test]
@@ -2935,6 +3015,7 @@ mod tests {
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
@@ -3382,6 +3463,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3421,6 +3503,7 @@ mod tests {
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
@@ -3574,6 +3657,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
         let dhcp_contents = super::read_limited(g.path())?;
         assert!(dhcp_contents.contains("vlan196"));
@@ -3616,6 +3700,7 @@ mod tests {
             routing_profile: None,
             traffic_intercept_config: None,
             dhcp_servers: vec![],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
             managed_host_config: Some(netconf),
             managed_host_config_version: "V1-T1".to_string(),

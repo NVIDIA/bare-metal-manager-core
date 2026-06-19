@@ -195,6 +195,124 @@ nico-api:
       [machine_state_controller]
       failure_retry_time = "90m"
 
+      # -----------------------------------------------------------------------
+      # FNN related configuration
+      # FNN support is mandatory for nico-api to function
+      # -----------------------------------------------------------------------
+
+      # datacenter_asn
+      # Replace 4266030000 with the ASN for the physical datacenter itself
+      datacenter_asn = 4266030000
+
+
+      [fnn.admin_vpc]
+      enabled = true # Set to true when FNN is enabled on site.
+      # vpc_vni
+      vpc_vni = 61325 # Replace 61325 with the VNI that will be used for the admin VPC
+
+      #
+      # There are several fnn.routing_profiles defined below.  
+      # Replace 4266030000 with the datcenter_asn
+      #
+      # Also, in the import and export route-targets, replace the example VNIs with the actual VNIs that will be used at the site for those purposes and then uncomment. 
+
+      # The routing profile assigned to a tenant controls which routes are imported into that tenant's VRF and how routes from that tenant are tagged on export.  The routing profiles are defined with some default route-target imports and exports, but these will likely need to be customized for each site based on the RTs that are used at that site.
+      [fnn.routing_profiles.INTERNAL]
+      internal = true
+      tenant_leak_communities_accepted = true
+      route_target_imports = [
+        { asn = 4266030000, vni = 11 },    # Replace 11 with actual vni to import the default route for internal tenants
+        { asn = 4266030000, vni = 101 },   # Replace 101 with actual vni to import the RT for jump hosts
+        { asn = 4266030000, vni = 50100 }, # Replace 50100 with actual vni to import the RT for reaching FSC service VIPs
+      ]
+      route_targets_on_exports = [
+        { asn = 4266030000, vni = 50200 },  # Replace 50200 with actual vni to tag routes with the common internal RT
+      ]
+
+      [fnn.routing_profiles.MAINTENANCE]
+      internal = true
+      route_target_imports = [
+        { asn = 4266030000, vni = 10 },    # Replace 10 with actual vni to import the default route for tenants
+        { asn = 4266030000, vni = 101 },   # Replace 101 with actual vni to import the RT for jump hosts
+        { asn = 4266030000, vni = 50100 }, # Replace 50100 with actual vni to import the RT for reaching FSC service VIPs
+        { asn = 4266030000, vni = 121 },   # Replace 121 with actual vni to import the RT for SCP/breakfix routes
+      ]
+      route_targets_on_exports = [
+        { asn = 4266030000, vni = 50300 }, # Tag routes with the common breakfix RT; replace 50300 with actual vni to use for this purpose
+      ]
+
+      [fnn.routing_profiles.EXTERNAL]
+      internal = false
+      route_target_imports = [
+        { asn = 4266030000, vni = 50100 }, # Import the RT for reaching FSC service VIPs; Replace 50100 with actual vni.
+
+        # Do NOT import a default route for profiles when internal = false.
+        # It needs to be auto-inserted because there will be a 1:1 mapping between
+        # the tenant VNI and the VRF on the GWs that handle external tenants.
+      ]
+      route_targets_on_exports = [
+        { asn = 4266030000, vni = 50500 }, # Tag routes with the common external RT; replace 50500 with actual vni to use for this purpose
+      ]
+
+      # The only use-case for this right now is DPS.
+      [fnn.routing_profiles.PRIVILEGED_INTERNAL]
+      internal = true
+      route_target_imports = [
+        { asn = 4266030000, vni = 11 },    # Import the default route for internal tenants; Replace 11 with actual vni
+        { asn = 4266030000, vni = 101 },   # Import the RT for jump hosts; Replace 101 with actual vni
+        { asn = 4266030000, vni = 50100 }, # Import the RT for reaching FSC service VIPs; Replace 50100 with actual vni
+        { asn = 4266030000, vni = 900 },   # Import the RT for BMCs for forge managed nodes; Replace 900 with actual vni
+        { asn = 4266030000, vni = 1002 },   # Import the RT for NVLINK switches; Replace 1002 with actual vni
+        { asn = 4266030000, vni = 1003 },   # Import the RT for powershelves; Replace 1003 with actual vni
+      ]
+      route_targets_on_exports = [
+        # Tag routes with the common site-controller route tag.
+        # The other leg of the routing for the 901 route-target import above.
+        # This is a bit of a hack.  We'd use it until we either have a new RT
+        # registered for this or until the grpc calls that DPS would need exist in Carbid
+        { asn = 4266030000, vni = 50100 }, # Replace 50100 with actual vni to use for this purpose; this is the RT for reaching FSC service VIPs
+        { asn = 4266030000, vni = 50200 },  # Tag routes with the common internal RT
+      ]
+
+      [fnn.admin_vpc.routing_profile]
+      internal = true
+      route_target_imports = [
+        { asn = 4266030000, vni = 10 }, # Import the default route for infra; Replace 10 with actual vni to import the default route for tenants
+        { asn = 4266030000, vni = 101 },   # Import the RT for jump hosts; Replace 101 with actual vni
+        { asn = 4266030000, vni = 50100 }, # Import the RT for reaching FSC service VIPs; Replace 50100 with actual vni to use for this purpose
+      ]
+      route_targets_on_exports = [
+        { asn = 4266030000, vni = 50400 },  # Tag routes with the common admin RT; replace 50400 with actual vni to use for this purpose
+      ]
+
+
+      [pools.fnn-asn]
+      type = "integer"
+      # Change 4268060405 and 4268060499 to the actual ASN values. Each DPU needs an ASN, so the range should be sufficient to cover all hosts.
+      ranges = [{ start = "4268060405", end = "4268060499" }]
+
+      [pools.vpc-dpu-lo]
+      type = "ipv4"
+      ranges = [
+        { start = "10.255.247.3", end = "10.255.247.255" },  # Default pool added from VpcVrfLoopbackPrefix 10.255.247.0/24
+      ]
+
+      [pools.vpc-vni]
+      type = "integer"
+      # Change 61326 and 61424 to the actual VNI values. Range should be sufficient to cover all VPCs that will be needed at the site.
+      ranges = [{ start = "61326", end = "61424" }]
+
+      #
+      # This pool MUST NOT be expanded without coordination with GNI.
+      # The range used here must have matching config on our FNN GWs.
+      #
+      [pools.external-vpc-vni]
+      type = "integer"
+      # Change 51008 and 51011 to the actual VNI values. 
+      ranges = [
+        { start = "51008", end = "51011" },
+      ]
+
 ## ---------------------------------------------------------------------------
 ## Service VIP assignments - MetalLB loadBalancerIPs
 ##

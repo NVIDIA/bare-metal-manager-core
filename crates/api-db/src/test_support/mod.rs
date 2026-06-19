@@ -14,8 +14,5 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod dhcp_factory;
-pub(crate) mod kea;
 
-pub use dhcp_factory::DHCPFactory;
-pub use kea::Kea;
+pub(crate) mod network_segment;

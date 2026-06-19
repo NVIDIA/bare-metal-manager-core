@@ -21,6 +21,8 @@ use db::{DatabaseError, power_shelf as db_power_shelf};
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 
+use crate as db;
+
 #[crate::sqlx_test]
 async fn test_power_shelf_metadata_defaults(
     pool: sqlx::PgPool,

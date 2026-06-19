@@ -23,7 +23,10 @@
 //! with what Carbide returns from DiscoverDhcp -- regardless of what address
 //! the client requested in option 50 or ciaddr.
 
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, UdpSocket};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use dhcp::mock_api_server;
@@ -31,7 +34,7 @@ use dhcproto::{Decodable, Decoder, v4};
 
 mod common;
 
-use common::{DHCPFactory, Kea, RELAY_IP};
+use common::{DHCPFactory, Kea};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 /// Memfile writes are usually flushed within a few ms of the ACK.
@@ -90,34 +93,116 @@ fn default_mock_addr(idx: u8) -> Ipv4Addr {
     Ipv4Addr::new(172, 20, 0, idx)
 }
 
+/// One row from kea's memfile CSV (kea-leases4.csv). Only the fields these
+/// lease4 hook tests care about are exposed.
+#[derive(Debug, Clone)]
+struct LeaseEntry {
+    address: Ipv4Addr,
+    hwaddr: String,
+    /// 0 = default (active). Other states (declined, expired-reclaimed)
+    /// shouldn't appear in our tests but are exposed for completeness.
+    state: u32,
+}
+
+trait LeaseFileExt {
+    fn read_leases(&self) -> Vec<LeaseEntry>;
+    fn find_lease(&self, hwaddr: &str) -> Option<LeaseEntry>;
+    fn wait_for_lease(&self, hwaddr: &str, expected: Ipv4Addr, timeout: Duration) -> bool;
+}
+
+impl LeaseFileExt for Harness {
+    /// Read kea-leases4.csv and return all entries. Skips the header row.
+    /// Returns an empty Vec if the file doesn't exist yet (Kea writes it
+    /// lazily on first lease event).
+    fn read_leases(&self) -> Vec<LeaseEntry> {
+        let Ok(file) = File::open(&self.lease_file_path) else {
+            return Vec::new();
+        };
+        let mut entries = Vec::new();
+        for (i, line) in BufReader::new(file).lines().enumerate() {
+            let Ok(line) = line else { continue };
+            // Header is "address,hwaddr,client_id,...,state,user_context,pool_id"
+            if i == 0 || line.is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = line.split(',').collect();
+            if cols.len() < 10 {
+                continue;
+            }
+            let Ok(address) = cols[0].parse::<Ipv4Addr>() else {
+                continue;
+            };
+            let Ok(state) = cols[9].parse::<u32>() else {
+                continue;
+            };
+            entries.push(LeaseEntry {
+                address,
+                hwaddr: cols[1].to_string(),
+                state,
+            });
+        }
+        entries
+    }
+
+    /// Convenience: find the active lease entry for a given MAC string
+    /// (kea writes MAC as colon-separated lowercase hex, e.g. "02:00:00:00:00:01").
+    fn find_lease(&self, hwaddr: &str) -> Option<LeaseEntry> {
+        self.read_leases()
+            .into_iter()
+            .find(|l| l.hwaddr == hwaddr && l.state == 0)
+    }
+
+    /// Poll the lease file for an entry matching `hwaddr` whose address is
+    /// `expected`, up to `timeout`. Returns true if found, false if the
+    /// deadline passes. Useful because Kea's persist-to-disk can lag the
+    /// gRPC ACK by a few ms.
+    fn wait_for_lease(&self, hwaddr: &str, expected: Ipv4Addr, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if let Some(lease) = self.find_lease(hwaddr)
+                && lease.address == expected
+            {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
 /// tokio rt + mock API + Kea + socket pretending to be the relay.
 struct Harness {
     _rt: tokio::runtime::Runtime,
     api_server: mock_api_server::MockAPIServer,
-    kea: Kea,
+    _kea: Kea,
     socket: UdpSocket,
+    _lease_dir: tempfile::TempDir,
+    lease_file_path: PathBuf,
 }
 
 impl Harness {
-    fn new(in_port: u16, out_port: u16) -> Self {
+    fn new() -> Self {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .unwrap();
         let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
+        let lease_dir = tempfile::tempdir().unwrap();
+        let lease_file_path = lease_dir.path().join("kea-leases4.csv");
 
-        let mut kea = Kea::new(api_server.local_http_addr(), in_port, out_port).unwrap();
-        kea.run().unwrap();
-
-        let socket = UdpSocket::bind(format!("{RELAY_IP}:{out_port}")).unwrap();
-        socket.connect(format!("127.0.0.1:{in_port}")).unwrap();
+        let (kea, socket) =
+            Kea::start(api_server.local_http_addr(), Some(&lease_file_path)).unwrap();
         socket.set_read_timeout(Some(READ_TIMEOUT)).unwrap();
 
         Harness {
             _rt: rt,
             api_server,
-            kea,
+            _kea: kea,
             socket,
+            _lease_dir: lease_dir,
+            lease_file_path,
         }
     }
 }
@@ -128,7 +213,7 @@ impl Harness {
 #[test]
 fn lease4_select_persists_carbide_ip_on_happy_path() -> Result<(), eyre::Report> {
     let idx = 0x20;
-    let h = Harness::new(7100, 7101);
+    let h = Harness::new();
 
     // DISCOVER → OFFER
     let offer = send_and_recv(&h.socket, DHCPFactory::discover(idx))
@@ -149,8 +234,7 @@ fn lease4_select_persists_carbide_ip_on_happy_path() -> Result<(), eyre::Report>
     // Memfile must contain the carbide address (not whatever Kea would have
     // picked on its own from the 0.0.0.0/0 pool).
     assert!(
-        h.kea
-            .wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT),
+        h.wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT),
         "expected memfile entry ({}, {})",
         mac_for_idx(idx),
         default_mock_addr(idx)
@@ -168,7 +252,7 @@ fn lease4_select_persists_carbide_ip_on_happy_path() -> Result<(), eyre::Report>
 fn lease4_select_overrides_rogue_option_50_in_memfile() -> Result<(), eyre::Report> {
     let idx = 0x21;
     let rogue_ip = Ipv4Addr::new(192, 168, 99, 99);
-    let h = Harness::new(7102, 7103);
+    let h = Harness::new();
 
     // DISCOVER → OFFER (so kea has a state for this MAC and accepts the
     // following REQUEST). The OFFER's yiaddr is the carbide-allocated IP.
@@ -189,15 +273,14 @@ fn lease4_select_overrides_rogue_option_50_in_memfile() -> Result<(), eyre::Repo
     // The memfile must hold Carbide's IP, not the rogue value the client
     // asked for in option 50. This is what lease4_select uniquely enforces.
     assert!(
-        h.kea
-            .wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT),
+        h.wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT),
         "memfile should contain carbide IP {} for MAC {}, not the rogue option-50 value {rogue_ip}",
         default_mock_addr(idx),
         mac_for_idx(idx),
     );
 
     // And specifically nothing in the memfile should have the rogue address.
-    let leases = h.kea.read_leases();
+    let leases = h.read_leases();
     assert!(
         !leases.iter().any(|l| l.address == rogue_ip),
         "rogue IP {rogue_ip} should never be persisted, but found in leases: {leases:?}",
@@ -213,7 +296,7 @@ fn lease4_select_overrides_rogue_option_50_in_memfile() -> Result<(), eyre::Repo
 fn pkt4_receive_drops_when_carbide_returns_no_address() -> Result<(), eyre::Report> {
     let idx = 0x22;
     let helper_idx = 0x24;
-    let h = Harness::new(7104, 7105);
+    let h = Harness::new();
 
     // Learn Kea's server identifier from a different MAC. The failure case
     // below needs a SELECTING-state REQUEST so it exercises the persistence
@@ -247,7 +330,7 @@ fn pkt4_receive_drops_when_carbide_returns_no_address() -> Result<(), eyre::Repo
     // Key assertion: no active memfile entry for this MAC. Wait a beat so we
     // don't race a lazy memfile flush in the success-but-not-yet-visible case.
     std::thread::sleep(Duration::from_millis(200));
-    let leases = h.kea.read_leases();
+    let leases = h.read_leases();
     assert!(
         !leases
             .iter()
@@ -274,7 +357,7 @@ fn pkt4_receive_drops_when_carbide_returns_no_address() -> Result<(), eyre::Repo
 #[test]
 fn lease4_renew_preserves_memfile_on_steady_state_renewal() -> Result<(), eyre::Report> {
     let idx = 0x23;
-    let h = Harness::new(7106, 7107);
+    let h = Harness::new();
 
     // Initial DORA.
     let offer = send_and_recv(&h.socket, DHCPFactory::discover(idx))
@@ -286,10 +369,7 @@ fn lease4_renew_preserves_memfile_on_steady_state_renewal() -> Result<(), eyre::
     )
     .expect("kea did not respond to REQUEST");
     assert_eq!(ack.opts().msg_type().unwrap(), v4::MessageType::Ack);
-    assert!(
-        h.kea
-            .wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT)
-    );
+    assert!(h.wait_for_lease(&mac_for_idx(idx), default_mock_addr(idx), MEMFILE_TIMEOUT));
 
     // Renewing REQUEST: ciaddr = the IP we currently hold.
     let renew_ack = send_and_recv(&h.socket, request_renewing(idx, default_mock_addr(idx)))
@@ -300,7 +380,6 @@ fn lease4_renew_preserves_memfile_on_steady_state_renewal() -> Result<(), eyre::
     // Memfile still has the carbide IP. The lease4_renew hook fired (we'd see
     // a NAK or no response if it failed) and was a no-op on this matching path.
     let lease = h
-        .kea
         .find_lease(&mac_for_idx(idx))
         .expect("active lease should still exist after renewal");
     assert_eq!(lease.address, default_mock_addr(idx));
@@ -323,7 +402,7 @@ fn check_memfile_on_option_54() -> Result<(), eyre::Report> {
     let idx = 0x24;
     let bogus_request_ip = Ipv4Addr::new(192, 168, 99, 99);
     let fake_server_id = Ipv4Addr::new(10, 99, 99, 99); // not kea's identifier
-    let h = Harness::new(7108, 7109);
+    let h = Harness::new();
 
     // DISCOVER first, so kea has cached per-packet state for this MAC.
     let offer = send_and_recv(&h.socket, DHCPFactory::discover(idx))
@@ -351,14 +430,14 @@ fn check_memfile_on_option_54() -> Result<(), eyre::Report> {
 
     // Whatever kea did, the rogue IP shouldn't be persisted.
     std::thread::sleep(Duration::from_millis(200));
-    let leases = h.kea.read_leases();
+    let leases = h.read_leases();
     assert!(
         !leases.iter().any(|l| l.address == bogus_request_ip),
         "bogus option-50 IP {bogus_request_ip} should never appear in memfile, found: {leases:?}",
     );
 
     // And if there *is* an active entry for this MAC, it must be NICo's IP.
-    if let Some(lease) = h.kea.find_lease(&mac_for_idx(idx)) {
+    if let Some(lease) = h.find_lease(&mac_for_idx(idx)) {
         assert_eq!(
             lease.address,
             default_mock_addr(idx),
@@ -385,7 +464,7 @@ fn check_memfile_on_option_54() -> Result<(), eyre::Report> {
 fn reboot_with_stale_remembered_ip_does_not_pollute_memfile() -> Result<(), eyre::Report> {
     let idx = 0x27;
     let remembered_wrong_ip = Ipv4Addr::new(192, 168, 99, 99);
-    let h = Harness::new(7112, 7113);
+    let h = Harness::new();
 
     // No prior DISCOVER -- this is the BMC's first packet after reboot.
     // INIT-REBOOT REQUEST: option 50 set, no ciaddr, no Option 54.
@@ -408,7 +487,7 @@ fn reboot_with_stale_remembered_ip_does_not_pollute_memfile() -> Result<(), eyre
     }
 
     std::thread::sleep(Duration::from_millis(200));
-    let leases = h.kea.read_leases();
+    let leases = h.read_leases();
 
     // The remembered wrong IP must never be persisted.
     assert!(
@@ -417,7 +496,7 @@ fn reboot_with_stale_remembered_ip_does_not_pollute_memfile() -> Result<(), eyre
     );
 
     // If anything was persisted for this MAC, it must be carbide's IP.
-    if let Some(lease) = h.kea.find_lease(&mac_for_idx(idx)) {
+    if let Some(lease) = h.find_lease(&mac_for_idx(idx)) {
         assert_eq!(
             lease.address,
             default_mock_addr(idx),

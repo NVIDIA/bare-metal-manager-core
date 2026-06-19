@@ -1321,6 +1321,28 @@ pub enum ReprovisionState {
     BufferTime,
     VerifyFirmareVersions,
     WaitingForNetworkConfig,
+    PrepareHostBootRepair,
+    UnlockHostForBootRepair {
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
+    },
+    CheckHostBootConfig,
+    CheckHostBootConfigAfterHostReboot,
+    ConfigureHostBoot {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    WaitingForHostBiosJob {
+        bios_config_info: BiosConfigInfo,
+    },
+    PollingHostBiosSetup {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    SetHostBootOrder {
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockHostAfterBootRepair,
     RebootHostBmc,
     RebootHost,
     NotUnderReprovision,
@@ -1797,7 +1819,9 @@ pub enum UefiSetupState {
 /// `bios_job_id` is `Some` while polling a vendor BIOS job (e.g. Dell). `None` only during
 /// `HandleBiosJobFailure` recovery from stuck PollingBiosSetup; non-Dell hosts reboot in
 /// `configure_host_bios` and never enter job-polling substates.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+///
+/// Derived ordering is used by enclosing reprovision states to report the least advanced DPU.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub struct BiosConfigInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1808,7 +1832,8 @@ pub struct BiosConfigInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+/// Variant order follows BIOS job progression for derived reprovision-state comparisons.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum BiosConfigState {
     WaitForBiosJobScheduled,
@@ -1821,7 +1846,8 @@ pub enum BiosConfigState {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+/// Derived ordering is used by enclosing reprovision states to report the least advanced DPU.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub struct SetBootOrderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1832,7 +1858,8 @@ pub struct SetBootOrderInfo {
     pub retry_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+/// Variant order follows boot-order job progression for derived reprovision-state comparisons.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
@@ -2020,7 +2047,8 @@ pub enum HostPlatformConfigurationState {
     LockHost,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+/// Variant order follows unlock progression for derived reprovision-state comparisons.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Default)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum UnlockHostState {
     #[default]
@@ -2705,7 +2733,8 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
 
 // TODO: reconcile with site_explorer::PowerState. They are almost
 // identical but here we have Reset enum item.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+/// Variant order is a deterministic tie-breaker inside derived recovery-state comparisons.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PowerState {
     Off,
     On,
@@ -2972,6 +3001,10 @@ mod tests {
     // variant; the parsed value (PartialEq) is the whole assertion.
     #[test]
     fn test_json_deserialize_managed_host_states() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
         scenarios!(
             run = |s| serde_json::from_str::<ManagedHostState>(s).map_err(drop);
             "assigned booting with discovery image, default retry" {
@@ -2986,6 +3019,30 @@ mod tests {
                 r#"{"state":"assigned","instance_state":{"state":"bootingwithdiscoveryimage", "retry":{"count": 10}}}"# => Yields(ManagedHostState::Assigned {
                     instance_state: InstanceState::BootingWithDiscoveryImage {
                         retry: RetryInfo { count: 10 },
+                    },
+                }),
+            }
+
+            "dpu reprovision host boot configure state" {
+                r#"{"state":"dpureprovision","dpu_states":{"states":{"fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng":{"configurehostboot":{"retry_count":2}}}}}"# => Yields(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates {
+                        states: HashMap::from([(
+                            machine_id,
+                            ReprovisionState::ConfigureHostBoot { retry_count: 2 },
+                        )]),
+                    },
+                }),
+            }
+
+            "dpu reprovision host boot unlock default state" {
+                r#"{"state":"dpureprovision","dpu_states":{"states":{"fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng":{"unlockhostforbootrepair":{}}}}}"# => Yields(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates {
+                        states: HashMap::from([(
+                            machine_id,
+                            ReprovisionState::UnlockHostForBootRepair {
+                                unlock_host_state: UnlockHostState::DisableLockdown,
+                            },
+                        )]),
                     },
                 }),
             }

@@ -26,8 +26,11 @@ use rpc::forge as forgerpc;
 #[clap(rename_all = "kebab-case")]
 pub enum NmxcOperationArg {
     ComputeNodeInfoList,
+    SwitchNodeInfoList,
     GpuInfo,
     GpuInfoList,
+    PartitionInfoList,
+    GetDomainProperties,
 }
 
 impl From<NmxcOperationArg> for forgerpc::NmxcBrowseOperation {
@@ -36,8 +39,15 @@ impl From<NmxcOperationArg> for forgerpc::NmxcBrowseOperation {
             NmxcOperationArg::ComputeNodeInfoList => {
                 forgerpc::NmxcBrowseOperation::ComputeNodeInfoList
             }
+            NmxcOperationArg::SwitchNodeInfoList => {
+                forgerpc::NmxcBrowseOperation::SwitchNodeInfoList
+            }
             NmxcOperationArg::GpuInfo => forgerpc::NmxcBrowseOperation::GpuInfo,
             NmxcOperationArg::GpuInfoList => forgerpc::NmxcBrowseOperation::GpuInfoList,
+            NmxcOperationArg::PartitionInfoList => forgerpc::NmxcBrowseOperation::PartitionInfoList,
+            NmxcOperationArg::GetDomainProperties => {
+                forgerpc::NmxcBrowseOperation::GetDomainProperties
+            }
         }
     }
 }
@@ -52,8 +62,17 @@ List the GPUs on a chassis via NMX-C:
 List the compute nodes on a chassis:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation compute-node-info-list
 
+List the switch nodes on a chassis:
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation switch-node-info-list
+
 Get info for a specific GPU UID:
     $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info --gpu-uid 42
+
+List NMX-C partitions:
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation partition-info-list
+
+Get NMX-C domain properties:
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation get-domain-properties
 
 ")]
 pub struct Args {
