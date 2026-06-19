@@ -760,6 +760,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -1023,6 +1031,14 @@ paths:
       responses:
         '202':
           description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       tags:
@@ -1450,6 +1466,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -1875,6 +1899,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -2349,6 +2381,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -4854,6 +4894,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5176,6 +5224,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5602,6 +5658,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5846,6 +5910,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -6886,6 +6958,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -8199,6 +8279,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -9027,6 +9115,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11401,6 +11497,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11972,6 +12076,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -12259,6 +12371,14 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -22826,6 +22946,18 @@ components:
         notice:
           type: string
           description: Message describing the deprecation
+    DeletionAcceptedResponse:
+      title: DeletionAcceptedResponse
+      type: object
+      description: JSON body for accepted asynchronous DELETE requests
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable outcome of the delete request
+      examples:
+        - message: Deletion request was accepted
     NICoAPIError:
       title: NICoAPIError
       type: object
