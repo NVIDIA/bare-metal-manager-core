@@ -32,9 +32,11 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 ### Quick start
 
 ```bash
-# 1. Build and push images to your registry
-#    NICo Core image: <your-registry>/nvmetal-nico:<tag>  (this repo)
-#    NICo REST images: <your-registry>/nico-rest-api:<tag>, etc.
+# 1. Build all container images from this clone, then push them to your registry.
+#    See docs/manuals/building_nico_containers.md for the build-host prerequisites.
+make images IMAGE_REGISTRY=<your-registry>   # NICo Core (nico) + REST service images
+#    Then: docker push <your-registry>/nico:latest
+#          docker push <your-registry>/nico-rest-api:latest   # ...and the other nico-rest-* images
 
 # 2. Set environment variables
 export KUBECONFIG=/path/to/kubeconfig
