@@ -54,11 +54,12 @@ use crate::api::{Api, log_machine_id, log_request_data};
 /// `predicted_machine_interfaces` instead: the predicted NIC's MAC and
 /// recorded Redfish interface id form the same [`MachineBootInterface`] the
 /// real row will hold once the lease promotes it. Predictions answer only
-/// when unambiguous -- exactly one non-underlay prediction. Predictions hold
-/// no primary flag, so with several (e.g. a host whose report lists SuperNICs
-/// alongside the boot NIC) the declared `ExpectedHostNic.primary` cannot be
-/// applied here; resolution refuses to guess and the action keeps requiring
-/// an explicit MAC, which the matching prediction's recorded id completes.
+/// when unambiguous -- exactly one non-underlay prediction. Predictions now
+/// carry a `primary_interface` flag, but this resolver doesn't consult it yet,
+/// so with several (e.g. a host whose report lists SuperNICs alongside the boot
+/// NIC) the declared `ExpectedHostNic.primary` is not applied here; resolution
+/// refuses to guess and the action keeps requiring an explicit MAC, which the
+/// matching prediction's recorded id completes.
 /// The machine-controller does not consult predictions at all yet -- its
 /// boot states wait out this window -- a known follow-up.
 ///
@@ -118,8 +119,9 @@ fn resolve_admin_boot_interface_target(
             }
             // The rows offered no boot candidate: the machine's predicted
             // NICs answer, but only when unambiguous -- exactly one
-            // non-underlay prediction. Predictions hold no primary flag, so
-            // with several the declared intent is unknowable here.
+            // non-underlay prediction. Predictions now carry a primary flag,
+            // but this resolver doesn't consult it yet, so with several the
+            // declared intent isn't applied here.
             let mut bootable = candidates.predicted.iter().filter(|predicted| {
                 predicted.expected_network_segment_type != NetworkSegmentType::Underlay
             });
@@ -1140,6 +1142,7 @@ mod tests {
             mac_address: mac.parse().unwrap(),
             expected_network_segment_type: NetworkSegmentType::HostInband,
             boot_interface_id: boot_interface_id.map(String::from),
+            primary_interface: false,
         }
     }
 
@@ -1318,11 +1321,12 @@ mod tests {
 
     #[test]
     fn no_mac_multiple_predictions_refuse_to_guess_a_boot_device() {
-        // Predictions hold no primary flag, so with several (a report listing
-        // SuperNICs alongside the boot NIC) the declared intent is unknowable:
-        // resolution refuses to guess rather than silently programming boot
-        // order against whichever NIC sorts lowest. The operator's explicit
-        // MAC still resolves, completed from the matching prediction.
+        // These predictions are non-primary and this resolver doesn't consult
+        // the primary flag yet, so with several (a report listing SuperNICs
+        // alongside the boot NIC) the declared intent is unknowable: resolution
+        // refuses to guess rather than silently programming boot order against
+        // whichever NIC sorts lowest. The operator's explicit MAC still
+        // resolves, completed from the matching prediction.
         let c = BootInterfaceCandidates {
             interfaces: vec![],
             predicted: vec![

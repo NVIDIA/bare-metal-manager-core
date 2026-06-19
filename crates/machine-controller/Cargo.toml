@@ -66,6 +66,8 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+carbide-redfish = { path = "../redfish", features = ["test-support"] }
+
 figment = { workspace = true, features = ["env", "test", "toml"] }
 regex = { workspace = true }
 lazy_static = { workspace = true }

@@ -52,6 +52,7 @@ impl BmcState {
         match event {
             BmcEvent::PowerOn => {
                 self.complete_all_bios_jobs();
+                self.apply_pending_bluefield_mode();
             }
             BmcEvent::BootCompleted => {
                 self.system_state.on_boot_completed();
@@ -62,6 +63,15 @@ impl BmcState {
     pub fn complete_all_bios_jobs(&self) {
         if let redfish::oem::State::DellIdrac(v) = &self.oem_state {
             v.complete_all_bios_jobs()
+        }
+    }
+
+    /// Apply a BlueField's queued `Mode.Set` (the BF-3 OEM DPU/NIC mode flip),
+    /// if any. Real hardware picks up the staged mode only after a power cycle,
+    /// so this runs on `PowerOn`.
+    fn apply_pending_bluefield_mode(&self) {
+        if let redfish::oem::State::NvidiaBluefield(v) = &self.oem_state {
+            v.apply_pending_mode();
         }
     }
 }

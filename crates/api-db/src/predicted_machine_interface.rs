@@ -112,12 +112,13 @@ pub async fn create(
     value: NewPredictedMachineInterface<'_>,
     txn: &mut PgConnection,
 ) -> Result<PredictedMachineInterface, DatabaseError> {
-    let query = "INSERT INTO predicted_machine_interfaces (machine_id, mac_address, expected_network_segment_type, boot_interface_id) VALUES ($1, $2, $3, $4) RETURNING *";
+    let query = "INSERT INTO predicted_machine_interfaces (machine_id, mac_address, expected_network_segment_type, boot_interface_id, primary_interface) VALUES ($1, $2, $3, $4, $5) RETURNING *";
     sqlx::query_as(query)
         .bind(value.machine_id)
         .bind(value.mac_address)
         .bind(value.expected_network_segment_type)
         .bind(&value.boot_interface_id)
+        .bind(value.primary_interface)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))

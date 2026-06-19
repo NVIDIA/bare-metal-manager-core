@@ -270,20 +270,18 @@ pub async fn discover_dhcp(
                             .await
                             .map_err(CarbideError::from)?
                     {
-                        // Walk the host_nics list to see if there's a matching NIC (because it
-                        // may have a static reservation need or a primary-interface need)
-                        let mut declared_primary_mac: Option<MacAddress> = None;
-                        for nic in &m.data.host_nics {
-                            if nic.primary == Some(true) {
-                                declared_primary_mac = Some(nic.mac_address);
-                            }
-                            if nic.mac_address == parsed_mac {
-                                host_nic = Some(nic.clone());
-                            }
+                        // The host's declared primary NIC (if any) decides whether this
+                        // MAC is its boot interface; the matched NIC also carries any
+                        // static reservation need handled below.
+                        if let Some(declared_primary_mac) = m.data.declared_primary_mac() {
+                            is_primary_nic = Some(declared_primary_mac == parsed_mac);
                         }
-                        if let Some(pmac) = declared_primary_mac {
-                            is_primary_nic = Some(pmac == parsed_mac);
-                        }
+                        host_nic = m
+                            .data
+                            .host_nics
+                            .iter()
+                            .find(|nic| nic.mac_address == parsed_mac)
+                            .cloned();
                         if let Some(ref nic) = host_nic
                             && let Some(fixed_ip) = nic.fixed_ip
                         {
