@@ -1671,5 +1671,5 @@ func (handler DeleteMachineValidationExternalConfigHandler) Handle(c echo.Contex
 
 	// Create response
 	logger.Info().Msg("finishing API handler")
-	return c.JSON(http.StatusAccepted, "Deletion request was accepted")
+	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 }
