@@ -418,9 +418,19 @@ impl MachineCreator {
         self.create_machine_from_explored_managed_host(txn, managed_host, machine_id, machine_data)
             .await?;
 
+        // Settle this host's single boot interface as we take ownership: the
+        // declared `ExpectedHostNic.primary` (if any) is the host's primary, and
+        // every other NIC is non-primary. Routing both the already-leased rows and
+        // the freshly-minted predictions through the same declaration makes the
+        // choice authoritative regardless of DHCP arrival order, and keeps exactly
+        // one primary per machine -- so adopting several NICs that leased before
+        // ingestion never trips the `one_primary_interface_per_machine` index.
+        let declared_primary = machine_data.and_then(|data| data.declared_primary_mac());
+
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
+            let is_declared_primary = declared_primary == Some(mac_address);
             if let Some(machine_interface) =
                 db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
@@ -443,7 +453,18 @@ impl MachineCreator {
                         id: mac_address.to_string(),
                     });
                 } else {
-                    // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran. Set it to the new machine ID.
+                    // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran.
+                    // Reconcile its primary flag to the declaration before adopting it: an anonymous
+                    // DHCP row defaults to primary=true, so without this two pre-ingestion leases
+                    // would both arrive primary and collide on association.
+                    if machine_interface.primary_interface != is_declared_primary {
+                        db::machine_interface::set_primary_interface(
+                            &machine_interface.id,
+                            is_declared_primary,
+                            txn,
+                        )
+                        .await?;
+                    }
                     tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
                     db::machine_interface::associate_interface_with_machine(
                         &machine_interface.id,
@@ -471,6 +492,7 @@ impl MachineCreator {
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
                         boot_interface_id,
+                        primary_interface: is_declared_primary,
                     },
                     txn,
                 )
