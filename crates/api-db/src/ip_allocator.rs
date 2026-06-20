@@ -575,6 +575,9 @@ fn next_available_prefix(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
@@ -911,14 +914,55 @@ mod tests {
 
     #[test]
     fn test_v4_candidate() {
+        // A /30 from 192.168.1.0/24 always lands on 192.168.1.8/30 once .0 and the
+        // .4/30 block are taken — and stays there however the already-allocated set
+        // is spelled: with a bare pair, with a duplicate /32, or with a smaller /31
+        // already covered by the .4/30. The candidate search collapses all three.
+        struct AllocatedSet {
+            scenario: &'static str,
+            allocated_cidrs: Vec<IpNetwork>,
+        }
+
         let cidr = "192.168.1.0/24".parse().unwrap();
         let prefix_length = 30;
-        let allocated_cidrs = vec![
-            "192.168.1.0/32".parse().unwrap(),
-            "192.168.1.4/30".parse().unwrap(),
-        ];
-        let next_prefix = next_available_prefix(cidr, prefix_length, allocated_cidrs).unwrap();
-        assert!(next_prefix.is_some_and(|prefix| prefix.to_string() == "192.168.1.8/30"));
+
+        check_cases(
+            [
+                AllocatedSet {
+                    scenario: "distinct networks",
+                    allocated_cidrs: vec![
+                        "192.168.1.0/32".parse().unwrap(),
+                        "192.168.1.4/30".parse().unwrap(),
+                    ],
+                },
+                AllocatedSet {
+                    scenario: "duplicate /32",
+                    allocated_cidrs: vec![
+                        "192.168.1.0/32".parse().unwrap(),
+                        "192.168.1.0/32".parse().unwrap(),
+                        "192.168.1.4/30".parse().unwrap(),
+                    ],
+                },
+                AllocatedSet {
+                    scenario: "covered /31 inside the /30",
+                    allocated_cidrs: vec![
+                        "192.168.1.0/32".parse().unwrap(),
+                        "192.168.1.0/32".parse().unwrap(),
+                        "192.168.1.4/31".parse().unwrap(),
+                        "192.168.1.4/30".parse().unwrap(),
+                    ],
+                },
+            ]
+            .map(|set| Case {
+                scenario: set.scenario,
+                input: set.allocated_cidrs,
+                expect: Yields(Some("192.168.1.8/30".parse().unwrap())),
+            }),
+            |allocated_cidrs| {
+                next_available_prefix(cidr, prefix_length, allocated_cidrs)
+                    .map_err(|e| e.to_string())
+            },
+        );
     }
 
     #[test]
@@ -934,33 +978,6 @@ mod tests {
         assert!(maybe_next_prefix.is_some_and(|prefix| prefix.to_string() == "192.168.1.1/32"));
         let next_prefix = maybe_next_prefix.unwrap();
         assert_eq!(next_prefix.ip().to_string(), "192.168.1.1");
-    }
-
-    #[test]
-    fn test_v4_candidate_with_duplicate() {
-        let cidr = "192.168.1.0/24".parse().unwrap();
-        let prefix_length = 30;
-        let allocated_cidrs = vec![
-            "192.168.1.0/32".parse().unwrap(),
-            "192.168.1.0/32".parse().unwrap(),
-            "192.168.1.4/30".parse().unwrap(),
-        ];
-        let next_prefix = next_available_prefix(cidr, prefix_length, allocated_cidrs).unwrap();
-        assert!(next_prefix.is_some_and(|prefix| prefix.to_string() == "192.168.1.8/30"));
-    }
-
-    #[test]
-    fn test_v4_candidate_with_covered() {
-        let cidr = "192.168.1.0/24".parse().unwrap();
-        let prefix_length = 30;
-        let allocated_cidrs = vec![
-            "192.168.1.0/32".parse().unwrap(),
-            "192.168.1.0/32".parse().unwrap(),
-            "192.168.1.4/31".parse().unwrap(),
-            "192.168.1.4/30".parse().unwrap(),
-        ];
-        let next_prefix = next_available_prefix(cidr, prefix_length, allocated_cidrs).unwrap();
-        assert!(next_prefix.is_some_and(|prefix| prefix.to_string() == "192.168.1.8/30"));
     }
 
     #[test]
