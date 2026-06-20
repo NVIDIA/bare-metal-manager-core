@@ -759,7 +759,7 @@ paths:
       operationId: delete-tenant-account
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -1465,7 +1465,7 @@ paths:
       operationId: delete-allocation
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -1898,7 +1898,7 @@ paths:
       operationId: delete-ipblock
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -2380,7 +2380,7 @@ paths:
       operationId: delete-vpc
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -4893,7 +4893,7 @@ paths:
       operationId: delete-infiniband-partition
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -5223,7 +5223,7 @@ paths:
       operationId: delete-nvlink-logical-partition
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -5657,7 +5657,7 @@ paths:
       operationId: delete-instance-type
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -5909,7 +5909,7 @@ paths:
       operationId: delete-instance-type-machine-association
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -6957,7 +6957,7 @@ paths:
       operationId: delete-instance
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -8278,7 +8278,7 @@ paths:
       operationId: delete-operating-system
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -9114,7 +9114,7 @@ paths:
       operationId: delete-machine
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -11496,7 +11496,7 @@ paths:
       operationId: delete-network-security-group
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -12075,7 +12075,7 @@ paths:
       operationId: delete-ssh-key-group
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -12370,7 +12370,7 @@ paths:
       operationId: delete-ssh-key
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
           content:
             application/json:
               schema:
@@ -22956,8 +22956,8 @@ components:
         message:
           type: string
           description: Human-readable outcome of the delete request
-      examples:
-        - message: Deletion request was accepted
+      example:
+        message: Deletion request was accepted
     NICoAPIError:
       title: NICoAPIError
       type: object
