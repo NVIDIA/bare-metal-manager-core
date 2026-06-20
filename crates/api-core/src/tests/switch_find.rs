@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -67,55 +66,9 @@ async fn test_find_switch_ids_and_by_ids(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_find_switches_by_ids_empty_returns_error(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let result = env
-        .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
-            switch_ids: vec![],
-        }))
-        .await;
-    assert!(result.is_err());
-    assert_eq!(
-        result.err().unwrap().message(),
-        "at least one ID must be provided"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_find_switches_by_ids_over_max(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let count = env.config.max_find_by_ids + 1;
-    let switch_ids: Vec<SwitchId> = (0..count)
-        .map(|_| SwitchId::from(uuid::Uuid::new_v4()))
-        .collect();
-
-    let result = env
-        .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
-            switch_ids,
-        }))
-        .await;
-    assert!(result.is_err());
-    assert_eq!(
-        result.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-
-    Ok(())
-}
+// The empty-list and over-max guards for `find_switches_by_ids` are shared
+// API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.
 
 #[crate::sqlx_test]
 async fn test_find_switch_ids_excludes_deleted(
