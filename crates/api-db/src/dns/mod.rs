@@ -271,4 +271,118 @@ mod tests {
             assert!(records.contains(&expected_record));
         }
     }
+
+    #[crate::sqlx_test]
+    async fn find_ptr_record_resolves_address_to_hostname(pool: sqlx::PgPool) {
+        sqlx::query(
+            "INSERT INTO domains (id, name)
+             VALUES ('10000000-0000-0000-0000-000000000001', 'dwrt1.com')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO network_segments (id, name, version)
+             VALUES ('20000000-0000-0000-0000-000000000001', 'tenant-segment', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO machines (id, dpf)
+             VALUES ('host-1', '{\"enabled\": true, \"used_for_ingestion\": false}'::jsonb)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // host-1 has three interfaces on the same domain: the primary, a BMC, and a
+        // plain (non-primary, non-BMC) data interface.
+        sqlx::query(
+            "INSERT INTO machine_interfaces (
+                id, machine_id, segment_id, mac_address, domain_id,
+                primary_interface, hostname, association_type
+             )
+             VALUES (
+                '30000000-0000-0000-0000-000000000001', 'host-1',
+                '20000000-0000-0000-0000-000000000001', '02:00:00:00:00:01',
+                '10000000-0000-0000-0000-000000000001', true, 'host-1', 'Machine'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO machine_interfaces (
+                id, machine_id, segment_id, mac_address, domain_id,
+                primary_interface, hostname, association_type, interface_type
+             )
+             VALUES (
+                '30000000-0000-0000-0000-000000000002', 'host-1',
+                '20000000-0000-0000-0000-000000000001', '02:00:00:00:00:02',
+                '10000000-0000-0000-0000-000000000001', false, 'host-1-bmc', 'Machine', 'Bmc'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO machine_interfaces (
+                id, machine_id, segment_id, mac_address, domain_id,
+                primary_interface, hostname, association_type
+             )
+             VALUES (
+                '30000000-0000-0000-0000-000000000003', 'host-1',
+                '20000000-0000-0000-0000-000000000001', '02:00:00:00:00:03',
+                '10000000-0000-0000-0000-000000000001', false, 'host-1-data', 'Machine'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for (interface_id, address) in [
+            ("30000000-0000-0000-0000-000000000001", "192.168.0.1"),
+            ("30000000-0000-0000-0000-000000000002", "192.168.0.2"),
+            ("30000000-0000-0000-0000-000000000003", "192.168.0.3"),
+        ] {
+            sqlx::query(
+                "INSERT INTO machine_interface_addresses (interface_id, address)
+                 VALUES ($1::uuid, $2::inet)",
+            )
+            .bind(interface_id)
+            .bind(address)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Primary and BMC interfaces answer PTR (matching the forward shortname view);
+        // the plain data interface and an address no interface holds do not.
+        let cases = [
+            ("192.168.0.1", Some("host-1.dwrt1.com.")),
+            ("192.168.0.2", Some("host-1-bmc.dwrt1.com.")),
+            ("192.168.0.3", None),
+            ("10.9.9.9", None),
+        ];
+        for (address, expected) in cases {
+            let records = super::resource_record::find_ptr_record(&pool, address.parse().unwrap())
+                .await
+                .unwrap();
+            match expected {
+                Some(fqdn) => {
+                    assert_eq!(records.len(), 1, "address {address}");
+                    assert_eq!(records[0].ptr_content, fqdn, "address {address}");
+                }
+                None => assert!(
+                    records.is_empty(),
+                    "address {address} should resolve to nothing"
+                ),
+            }
+        }
+    }
 }
