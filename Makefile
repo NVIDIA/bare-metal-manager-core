@@ -63,8 +63,8 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 # registry access is required.
 #
 #   make images        Build the deployable service stack: NICo Core + REST images
-#   make images-all    Build everything: the stack plus machine-validation and the
-#                       x86 boot-artifact image (needs the full mkosi build host)
+#   make images-all    Build everything: the stack plus machine-validation and
+#                       boot-artifact images (needs the full mkosi build host)
 #   make images-core   NICo Core image (nico) only
 #   make images-rest   REST service images only
 #
@@ -94,7 +94,7 @@ images: images-core images-rest ## Build the deployable service stack (NICo Core
 	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
 	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
 
-images-all: images images-machine-validation images-boot-artifacts ## Build every image (stack + machine validation + x86 boot artifacts; needs an mkosi build host)
+images-all: images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
 
 images-base: ## Build the x86 build + runtime base containers (prerequisite for core / machine validation)
 	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER) .

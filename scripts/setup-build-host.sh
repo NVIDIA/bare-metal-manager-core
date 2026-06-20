@@ -31,6 +31,7 @@ SUDO=""
 if [[ "${EUID}" -ne 0 ]]; then
     SUDO="sudo"
 fi
+DOCKER_USER="${SUDO_USER:-$(id -un)}"
 
 # --- 1. System packages -------------------------------------------------------
 echo "=== [1/8] Installing system packages via apt ==="
@@ -96,7 +97,7 @@ command -v cargo-cache >/dev/null 2>&1 || cargo install cargo-cache
 echo "=== [8/8] Configuring host (unprivileged userns + docker group) ==="
 echo "kernel.apparmor_restrict_unprivileged_userns=0" \
     | ${SUDO} tee /etc/sysctl.d/99-userns.conf >/dev/null
-${SUDO} usermod -aG docker "${USER}"
+${SUDO} usermod -aG docker "${DOCKER_USER}"
 
 echo ""
 echo "================================================================================"

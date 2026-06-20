@@ -31,18 +31,12 @@ steps on an `apt`-based distribution such as Ubuntu 24.04:
 5. Clone NICo - `git clone git@github.com:NVIDIA/infra-controller.git infra-controller`
 6. `cd infra-controller`
 7. `direnv allow`
-8. `cd $REPO_ROOT/pxe`
-9. `git clone https://github.com/systemd/mkosi.git`
-10. `cd mkosi && git checkout 26673f6`
-11. `cd $REPO_ROOT/pxe/ipxe`
-12. `git clone https://github.com/ipxe/ipxe.git upstream`
-13. `cd upstream && git checkout d7e58c5`
-14. `sudo systemctl enable docker.socket`
-15. `cd $REPO_ROOT`
-16. `cargo install cargo-make cargo-cache`
-17. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
-18. `sudo usermod -aG docker <username>`
-19. `reboot`
+8. `git submodule update --init --recursive`
+9. `sudo systemctl enable docker.socket`
+10. `cargo install cargo-make cargo-cache`
+11. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
+12. `sudo usermod -aG docker $(id -un)`
+13. `reboot`
 
 
 ## Build all images with one command
