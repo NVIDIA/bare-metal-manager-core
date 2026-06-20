@@ -760,7 +760,7 @@ fn test_nvos_polling_unknown_state_preserves_status_and_sets_error() {
 /// test_expected_incomplete_device_counts_stays verifies that a rack with a
 /// topology expecting more devices than currently exist stays in Created.
 #[crate::sqlx_test]
-#[ignore]
+#[ignore = "asserts rack state-transition behavior the handler does not currently exhibit; tracked in #2715"]
 async fn test_expected_incomplete_device_counts_stays(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -871,7 +871,6 @@ async fn test_expected_counts_match_but_not_linked_stays(
 /// test_expected_zero_topology_transitions_to_discovering verifies that a rack
 /// with zero expected devices in topology immediately transitions to Discovering.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_zero_topology_transitions_to_discovering(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -888,18 +887,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create rack with a profile expecting 2 compute, 0 switches, 0 PS.
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("Empty")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-
-    // Simulate that both compute trays are already linked by setting
-    // compute_trays to have 2 entries matching expected_compute_trays.
+    // Create the rack with the "Empty" profile, which expects zero devices.
     db_rack::create(
         &mut txn,
         &rack_id,
@@ -949,7 +937,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 /// test_expected_more_discovered_than_expected_transitions verifies that a
 /// rack with more discovered compute trays than expected still transitions.
 #[crate::sqlx_test]
-#[ignore]
+#[ignore = "asserts rack state-transition behavior the handler does not currently exhibit; tracked in #2715"]
 async fn test_expected_more_discovered_than_expected_transitions(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1019,7 +1007,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
 /// test_discovering_waits_for_compute_ready verifies that the handler
 /// reports an error for the Discovering state when managed hosts are missing.
 #[crate::sqlx_test]
-#[ignore]
+#[ignore = "asserts rack state-transition behavior the handler does not currently exhibit; tracked in #2715"]
 async fn test_discovering_waits_for_compute_ready(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
