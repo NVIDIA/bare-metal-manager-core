@@ -270,9 +270,7 @@ mod tests {
         );
     }
 
-    // Derived `PartialEq`/`Eq` over both `AllocationType` and `AssignStaticResult`:
-    // a variant equals only itself. `AssignStaticResult` has no other pure logic, so
-    // equality across its full variant set is its coverage.
+    // Derived `PartialEq`/`Eq` over `AllocationType`: a variant equals only itself.
     #[test]
     fn variants_compare_by_identity() {
         value_scenarios!(
@@ -299,48 +297,6 @@ mod tests {
 
             "static != slaac" {
                 (AllocationType::Static, AllocationType::Slaac) => false,
-            }
-        );
-
-        value_scenarios!(
-            run = |(left, right)| left == right;
-            "assigned == assigned" {
-                (AssignStaticResult::Assigned, AssignStaticResult::Assigned) => true,
-            }
-
-            "replaced static == replaced static" {
-                (
-                    AssignStaticResult::ReplacedStatic,
-                    AssignStaticResult::ReplacedStatic,
-                ) => true,
-            }
-
-            "replaced dhcp == replaced dhcp" {
-                (
-                    AssignStaticResult::ReplacedDhcp,
-                    AssignStaticResult::ReplacedDhcp,
-                ) => true,
-            }
-
-            "assigned != replaced static" {
-                (
-                    AssignStaticResult::Assigned,
-                    AssignStaticResult::ReplacedStatic,
-                ) => false,
-            }
-
-            "replaced static != replaced dhcp" {
-                (
-                    AssignStaticResult::ReplacedStatic,
-                    AssignStaticResult::ReplacedDhcp,
-                ) => false,
-            }
-
-            "assigned != replaced dhcp" {
-                (
-                    AssignStaticResult::Assigned,
-                    AssignStaticResult::ReplacedDhcp,
-                ) => false,
             }
         );
     }

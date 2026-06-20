@@ -1562,7 +1562,7 @@ pub fn is_bluefield_model(model: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, scenarios};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
 
     use super::*;
     use crate::firmware::FirmwareComponent;
@@ -2096,17 +2096,63 @@ mod tests {
         assert_eq!(report.revision_id, None);
     }
 
+    // is_power_shelf identifies a power shelf either by a chassis id containing
+    // "powershelf" (manufacturer irrelevant) or by the generic "chassis" id paired
+    // with a Lite-On or Delta manufacturer. Any other id/manufacturer pairing is
+    // not a power shelf. Each row supplies a single chassis's id + manufacturer.
     #[test]
-    fn is_power_shelf_with_powershelf_chassis_id() {
-        let report = EndpointExplorationReport {
-            chassis: vec![Chassis {
-                id: "powershelf".to_string(),
-                manufacturer: Some("doesnt-matter-in-this-case".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(report.is_power_shelf());
+    fn is_power_shelf_by_chassis_id_or_manufacturer() {
+        struct ChassisInput {
+            id: &'static str,
+            manufacturer: Option<&'static str>,
+        }
+        value_scenarios!(
+            run = |ChassisInput { id, manufacturer }| {
+                EndpointExplorationReport {
+                    chassis: vec![Chassis {
+                        id: id.to_string(),
+                        manufacturer: manufacturer.map(str::to_string),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }
+                .is_power_shelf()
+            };
+            "powershelf chassis id (manufacturer irrelevant)" {
+                ChassisInput {
+                    id: "powershelf",
+                    manufacturer: Some("doesnt-matter-in-this-case"),
+                } => true,
+            }
+
+            "generic chassis id + Lite-On manufacturer" {
+                ChassisInput {
+                    id: "chassis",
+                    manufacturer: Some("LITE-ON TECHNOLOGY CORP."),
+                } => true,
+            }
+
+            "generic chassis id + Delta manufacturer" {
+                ChassisInput {
+                    id: "chassis",
+                    manufacturer: Some("DELTA"),
+                } => true,
+            }
+
+            "generic chassis id + other manufacturer" {
+                ChassisInput {
+                    id: "chassis",
+                    manufacturer: Some("Dell Inc."),
+                } => false,
+            }
+
+            "generic chassis id + no manufacturer" {
+                ChassisInput {
+                    id: "chassis",
+                    manufacturer: None,
+                } => false,
+            }
+        );
     }
 
     /// `find_interface_id_for_mac` returns the Redfish interface id of the host
@@ -2235,58 +2281,6 @@ mod tests {
             ],
             "complete_boot_interfaces should yield a MachineBootInterface for every NIC with both a MAC and a non-empty id -- DPU or not -- and skip the rest",
         );
-    }
-
-    #[test]
-    fn is_power_shelf_with_chassis_id_and_liteon_manufacturer() {
-        let report = EndpointExplorationReport {
-            chassis: vec![Chassis {
-                id: "chassis".to_string(),
-                manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(report.is_power_shelf());
-    }
-
-    #[test]
-    fn is_power_shelf_with_chassis_id_and_delta_manufacturer() {
-        let report = EndpointExplorationReport {
-            chassis: vec![Chassis {
-                id: "chassis".to_string(),
-                manufacturer: Some("DELTA".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(report.is_power_shelf());
-    }
-
-    #[test]
-    fn is_power_shelf_with_generic_chassis_id_not_liteon() {
-        let report = EndpointExplorationReport {
-            chassis: vec![Chassis {
-                id: "chassis".to_string(),
-                manufacturer: Some("Dell Inc.".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(!report.is_power_shelf());
-    }
-
-    #[test]
-    fn is_power_shelf_with_no_manufacturer() {
-        let report = EndpointExplorationReport {
-            chassis: vec![Chassis {
-                id: "chassis".to_string(),
-                manufacturer: None,
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(!report.is_power_shelf());
     }
 
     /// A `ComputerSystem` deserializes regardless of the `BaseMac` field: a valid
