@@ -2252,11 +2252,55 @@ async fn test_fetch_host_primary_interface_mac(
         });
     }
 
+    // No declaration: the automatic pick stands -- the lowest-PCI DPU host-PF
+    // (the second mock DPU, given the device paths set above).
     let expected_mac: MacAddress = mock_dpus[1].host_mac_address;
     let mac = host_report
-        .fetch_host_primary_interface_mac(&explored_dpus)
+        .fetch_host_primary_interface_mac(&explored_dpus, None)
         .unwrap();
     assert_eq!(mac, expected_mac);
+
+    // A declared primary on a DPU host-PF wins over the automatic pick -- here
+    // the first DPU, which the PCI ordering would NOT have chosen.
+    let declared_dpu_pf = mock_dpus[0].host_mac_address;
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(declared_dpu_pf))
+            .unwrap(),
+        declared_dpu_pf,
+    );
+
+    // The headline case: a declared *integrated* NIC -- which the DPU-only
+    // automatic pick can never name -- becomes the explored default.
+    let integrated_nic = host_report
+        .systems
+        .first()
+        .unwrap()
+        .ethernet_interfaces
+        .iter()
+        .filter_map(|e| e.mac_address)
+        .find(|mac| {
+            !explored_dpus
+                .iter()
+                .any(|d| d.host_pf_mac_address == Some(*mac))
+        })
+        .expect("the fixture host should have a non-DPU integrated NIC");
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(integrated_nic))
+            .unwrap(),
+        integrated_nic,
+    );
+
+    // A declared MAC absent from this report is ignored -- the automatic pick
+    // stands.
+    let absent_mac: MacAddress = "de:ad:be:ef:00:01".parse().unwrap();
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(absent_mac))
+            .unwrap(),
+        expected_mac,
+    );
     Ok(())
 }
 
