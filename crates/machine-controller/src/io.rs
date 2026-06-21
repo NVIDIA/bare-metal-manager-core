@@ -165,6 +165,10 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 DpuInitState::PollingBiosSetup => "pollingbiossetup",
+                DpuInitState::SetUefiPasswordOnDevice => "setuefipasswordondevice",
+                DpuInitState::SetUefiPasswordInCredentialStore => {
+                    "setuefipasswordincredentialstore"
+                }
                 DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
                 DpuInitState::DpfStates { .. } => "dpfstates",
             }

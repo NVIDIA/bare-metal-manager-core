@@ -4346,34 +4346,10 @@ impl DpuMachineStateHandler {
                     )));
                 }
 
-                if let Err(e) = ctx
-                    .services
-                    .redfish_client_pool
-                    .uefi_setup(dpu_redfish_client.as_ref(), true)
-                    .await
-                {
-                    let msg = format!(
-                        "Failed to run uefi_setup call failed for DPU {}: {}",
-                        dpu_snapshot.id, e
-                    );
-                    tracing::warn!(msg);
-                    let reboot_status = trigger_reboot_if_needed(
-                        dpu_snapshot,
-                        state,
-                        None,
-                        &self.reachability_params,
-                        ctx,
-                    )
-                    .await?;
-
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
-                        dpu_snapshot.id
-                    )));
-                }
-
                 // We need to reboot the DPU after configuring the BIOS settings appropriately
-                // so that they are applied
+                // so that they are applied. The UEFI password is set later, in
+                // DpuInitState::SetUefiPassword (after PollingBiosSetup verifies these
+                // settings), with its own reboot.
                 handler_restart_dpu(
                     dpu_snapshot,
                     ctx,
@@ -4388,7 +4364,7 @@ impl DpuMachineStateHandler {
             }
 
             DpuInitState::PollingBiosSetup => {
-                let next_state = DpuInitState::WaitingForNetworkConfig
+                let next_state = DpuInitState::SetUefiPasswordOnDevice
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
                 let dpu_redfish_client = match ctx
@@ -4453,6 +4429,125 @@ impl DpuMachineStateHandler {
                         )))
                     }
                 }
+            }
+
+            DpuInitState::SetUefiPasswordOnDevice => {
+                let dpu_redfish_client = match ctx
+                    .services
+                    .create_redfish_client_from_machine(dpu_snapshot)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        return Err(redfish_error(
+                            "create_client_from_machine",
+                            RedfishError::GenericError {
+                                error: e.to_string(),
+                            },
+                        ));
+                    }
+                };
+
+                // Set the site-default DPU UEFI password on the device. On
+                // failure, reboot and retry rather than advancing.
+                if let Err(e) = ctx
+                    .services
+                    .redfish_client_pool
+                    .uefi_setup(dpu_redfish_client.as_ref(), true)
+                    .await
+                {
+                    let msg = format!(
+                        "Failed to run uefi_setup call for DPU {}: {}",
+                        dpu_snapshot.id, e
+                    );
+                    tracing::warn!(msg);
+                    let reboot_status = trigger_reboot_if_needed(
+                        dpu_snapshot,
+                        state,
+                        None,
+                        &self.reachability_params,
+                        ctx,
+                    )
+                    .await?;
+
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                        dpu_snapshot.id
+                    )));
+                }
+
+                // Reboot the DPU so the UEFI password change is applied. The
+                // per-device secret is recorded in the next state.
+                handler_restart_dpu(
+                    dpu_snapshot,
+                    ctx,
+                    state.host_snapshot.dpf.used_for_ingestion,
+                )
+                .await?;
+
+                let next_state = DpuInitState::SetUefiPasswordInCredentialStore
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+
+                Ok(StateHandlerOutcome::transition(next_state))
+            }
+
+            DpuInitState::SetUefiPasswordInCredentialStore => {
+                // The DPU now holds the site-default DPU UEFI password, so
+                // record it as the authoritative per-device secret
+                // (`machines/uefi/{dpu_bmc_mac}/root`) the rotation engine
+                // authenticates with. Failing to record it fails the transition
+                // so the DPU stays here and retries rather than advancing
+                // without a recorded secret; a missing site default is an
+                // invariant violation (uefi_setup just used it).
+                //
+                // Create-if-missing (unlike the host path's strict
+                // expecting-absent): the DPU startup backfill
+                // (`seed_existing_dpu_uefi_secrets`) seeds every DPU with a BMC
+                // MAC and re-runs on each restart, so a per-device secret may
+                // already exist here through no fault of this flow. Tolerating
+                // it also preserves an already-rotated value.
+                let dpu_bmc_mac =
+                    dpu_snapshot
+                        .bmc_info
+                        .mac
+                        .ok_or_else(|| StateHandlerError::MissingData {
+                            object_id: dpu_snapshot.id.to_string(),
+                            missing: "bmc_mac",
+                        })?;
+                let site_default_uefi_key = carbide_secrets::uefi::site_default_dpu_uefi_key();
+                let site_default_uefi_password = ctx
+                    .services
+                    .credential_manager
+                    .get_credentials(&site_default_uefi_key)
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "failed to read site-default DPU UEFI credential: {e}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        StateHandlerError::GenericError(eyre!(
+                            "site-default DPU UEFI credential ({}) is not configured; \
+                             cannot record per-device UEFI secret after UEFI setup",
+                            site_default_uefi_key.to_key_str()
+                        ))
+                    })?;
+                carbide_secrets::uefi::seed_per_device_uefi_if_absent(
+                    &*ctx.services.credential_manager,
+                    dpu_bmc_mac,
+                    &site_default_uefi_password,
+                )
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "failed to record per-device DPU UEFI secret after UEFI setup: {e}"
+                    ))
+                })?;
+
+                let next_state = DpuInitState::WaitingForNetworkConfig
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+
+                Ok(StateHandlerOutcome::transition(next_state))
             }
 
             DpuInitState::WaitingForNetworkConfig => {
@@ -5433,6 +5528,62 @@ async fn handle_host_uefi_setup(
                     )));
                 }
             }
+
+            // The device now holds the site-default host UEFI password that
+            // UEFI setup just applied. Re-read that same credential and record
+            // it as the authoritative per-device secret
+            // (`machines/uefi/{mac}/root`) the rotation engine authenticates
+            // with. The per-device secret must not already exist here: this is
+            // the first time UEFI is set on the device, so a pre-existing
+            // secret is an anomaly (stale secret, reused MAC, or a logic bug)
+            // and we error rather than silently skip or overwrite.
+            //
+            // This is a hard requirement: failing to record it fails the
+            // transition so the host stays in UEFI setup and retries (the
+            // completed job is re-observed and the write re-attempted) rather
+            // than silently advancing without a recorded secret. A missing
+            // site default here is an invariant violation (setup just used it).
+            // Done before opening the DB transaction so we neither hold a
+            // transaction across the credential-store write nor persist
+            // bios_password_set_time without the secret.
+            let bmc_mac =
+                state
+                    .host_snapshot
+                    .bmc_info
+                    .mac
+                    .ok_or_else(|| StateHandlerError::MissingData {
+                        object_id: state.host_snapshot.id.to_string(),
+                        missing: "bmc_mac",
+                    })?;
+            let site_default_uefi_key = carbide_secrets::uefi::site_default_host_uefi_key();
+            let site_default_uefi_password = ctx
+                .services
+                .credential_manager
+                .get_credentials(&site_default_uefi_key)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "failed to read site-default host UEFI credential: {e}"
+                    ))
+                })?
+                .ok_or_else(|| {
+                    StateHandlerError::GenericError(eyre!(
+                        "site-default host UEFI credential ({}) is not configured; \
+                         cannot record per-device UEFI secret after UEFI setup",
+                        site_default_uefi_key.to_key_str()
+                    ))
+                })?;
+            carbide_secrets::uefi::write_per_device_uefi_expecting_absent(
+                &*ctx.services.credential_manager,
+                bmc_mac,
+                &site_default_uefi_password,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!(
+                    "failed to record per-device host UEFI secret after UEFI setup: {e}"
+                ))
+            })?;
 
             let mut txn = ctx.services.db_pool.begin().await?;
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());

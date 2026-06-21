@@ -15,14 +15,114 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use carbide_secrets::credentials::{CredentialKey, CredentialManager};
+use carbide_uuid::machine::MachineId;
 use db::WithTransaction;
 use futures_util::FutureExt;
+use mac_address::MacAddress;
 use model::machine::LoadSnapshotOptions;
+use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
+
+/// Backfills per-device host UEFI secrets (`machines/uefi/{mac}/root`) for
+/// existing sites. For every host whose UEFI password was already set before
+/// per-device secrets existed, copies the current site-default host UEFI value
+/// into the per-device key. New hosts are handled inline by the ingestion state
+/// machine right after the password is set; this migration covers hosts that
+/// are already past UEFI setup.
+///
+/// Idempotent and best-effort: runs on every startup, fetches the site default
+/// once, skips hosts already seeded, and never overwrites an existing
+/// per-device secret (so a rotated value is preserved). No-op when the
+/// site-default host UEFI credential is not configured yet.
+///
+/// DPUs are handled separately by [`seed_existing_dpu_uefi_secrets`].
+pub async fn seed_existing_host_uefi_secrets(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+) -> Result<(), eyre::Report> {
+    let devices = db::machine::list_hosts_with_uefi_password_set(db_pool).await?;
+    backfill_per_device_uefi(
+        credential_manager,
+        &carbide_secrets::uefi::site_default_host_uefi_key(),
+        devices,
+        "host",
+    )
+    .await
+}
+
+/// Backfills per-device DPU UEFI secrets (`machines/uefi/{mac}/root`) for
+/// existing sites.
+///
+/// DPUs have no per-device "UEFI password set" marker (unlike a host's
+/// `bios_password_set_time`), so this uses a coarser assumption: if the
+/// site-wide DPU UEFI password is configured, the UEFI setup flow is presumed
+/// to have applied it to every DPU, and so every DPU's per-device secret is
+/// seeded from it. No-op when the site-default DPU UEFI credential is not
+/// configured. Idempotent and create-if-missing, so it never clobbers an
+/// already-seeded or rotated per-device secret.
+pub async fn seed_existing_dpu_uefi_secrets(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+) -> Result<(), eyre::Report> {
+    let devices = db::machine::list_dpus_with_bmc_mac(db_pool).await?;
+    backfill_per_device_uefi(
+        credential_manager,
+        &carbide_secrets::uefi::site_default_dpu_uefi_key(),
+        devices,
+        "DPU",
+    )
+    .await
+}
+
+/// Shared per-device UEFI backfill: resolves `site_default_key` once and seeds
+/// each device's per-device secret from it (create-if-missing). A no-op when
+/// the site default is unset. `kind` is purely for log context.
+async fn backfill_per_device_uefi(
+    credential_manager: &dyn CredentialManager,
+    site_default_key: &CredentialKey,
+    devices: Vec<(MachineId, MacAddress)>,
+    kind: &str,
+) -> Result<(), eyre::Report> {
+    let Some(site_default) = credential_manager.get_credentials(site_default_key).await? else {
+        tracing::info!(
+            kind,
+            "site-default UEFI credential not set; skipping per-device UEFI backfill"
+        );
+        return Ok(());
+    };
+
+    let mut seeded = 0usize;
+    for (machine_id, bmc_mac) in devices {
+        match carbide_secrets::uefi::seed_per_device_uefi_if_absent(
+            credential_manager,
+            bmc_mac,
+            &site_default,
+        )
+        .await
+        {
+            Ok(true) => seeded += 1,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(
+                    machine_id = %machine_id,
+                    kind,
+                    error = %e,
+                    "failed to backfill per-device UEFI secret; will retry next startup"
+                );
+            }
+        }
+    }
+
+    if seeded > 0 {
+        tracing::info!(count = seeded, kind, "backfilled per-device UEFI secrets");
+    }
+    Ok(())
+}
 
 pub(crate) async fn clear_host_uefi_password(
     api: &Api,

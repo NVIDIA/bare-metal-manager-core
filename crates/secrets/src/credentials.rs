@@ -297,6 +297,10 @@ pub enum CredentialKey {
     HostUefi {
         credential_type: CredentialType,
     },
+    /// Per-device UEFI password, keyed by BMC MAC.
+    Uefi {
+        bmc_mac_address: MacAddress,
+    },
     BmcCredentials {
         credential_type: BmcCredentialType,
     },
@@ -358,6 +362,7 @@ pub enum CredentialPrefix {
     UfmAuth,
     DpuUefi,
     HostUefi,
+    Uefi,
     BmcCredentials,
     NicLockdownIkm,
     ExtensionService,
@@ -381,6 +386,7 @@ impl CredentialPrefix {
             Self::UfmAuth => "ufm/",
             Self::DpuUefi => "machines/all_dpus/",
             Self::HostUefi => "machines/all_hosts/",
+            Self::Uefi => "machines/uefi/",
             Self::BmcCredentials => "machines/bmc/",
             Self::NicLockdownIkm => "machines/nic_lockdown_ikm/",
             Self::ExtensionService => "machines/extension-services/",
@@ -403,6 +409,7 @@ impl CredentialPrefix {
             Self::UfmAuth,
             Self::DpuUefi,
             Self::HostUefi,
+            Self::Uefi,
             Self::BmcCredentials,
             Self::NicLockdownIkm,
             Self::ExtensionService,
@@ -428,6 +435,7 @@ impl CredentialKey {
             Self::UfmAuth { .. } => CredentialPrefix::UfmAuth,
             Self::DpuUefi { .. } => CredentialPrefix::DpuUefi,
             Self::HostUefi { .. } => CredentialPrefix::HostUefi,
+            Self::Uefi { .. } => CredentialPrefix::Uefi,
             Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
             Self::NicLockdownIkm { .. } => CredentialPrefix::NicLockdownIkm,
             Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
@@ -495,6 +503,9 @@ impl CredentialKey {
                     panic!("Not supported credential key");
                 }
             },
+            CredentialKey::Uefi { bmc_mac_address } => {
+                Cow::from(format!("machines/uefi/{bmc_mac_address}/root"))
+            }
             CredentialKey::BmcCredentials { credential_type } => match credential_type {
                 BmcCredentialType::SiteWideRoot => Cow::from("machines/bmc/site/root"),
                 BmcCredentialType::BmcRoot { bmc_mac_address } => {
@@ -719,6 +730,12 @@ mod tests {
                 "machines/all_hosts/",
             ),
             (
+                CredentialKey::Uefi {
+                    bmc_mac_address: mac,
+                },
+                "machines/uefi/",
+            ),
+            (
                 CredentialKey::BmcCredentials {
                     credential_type: BmcCredentialType::SiteWideRoot,
                 },
@@ -837,6 +854,9 @@ mod tests {
             CredentialKey::HostUefi {
                 credential_type: CredentialType::SiteDefault,
             },
+            CredentialKey::Uefi {
+                bmc_mac_address: mac,
+            },
             CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRoot,
             },
@@ -879,6 +899,17 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
+    }
+
+    // Pins the per-device UEFI path layout.
+    #[test]
+    fn uefi_per_device_path_is_mac_keyed() {
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let key = CredentialKey::Uefi {
+            bmc_mac_address: mac,
+        };
+        assert_eq!(key.to_key_str(), format!("machines/uefi/{mac}/root"));
+        assert_eq!(key.prefix(), CredentialPrefix::Uefi);
     }
 }

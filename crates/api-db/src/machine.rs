@@ -665,6 +665,67 @@ pub async fn update_bios_password_set_time(
     Ok(())
 }
 
+/// Parses `(machine id, BMC MAC string)` rows into `(MachineId, MacAddress)`,
+/// dropping (with a warning) any row whose BMC MAC fails to parse so a single
+/// bad row never aborts a per-device UEFI seed pass.
+fn parse_machine_bmc_mac_rows(rows: Vec<(MachineId, String)>) -> Vec<(MachineId, MacAddress)> {
+    rows.into_iter()
+        .filter_map(|(id, mac)| match MacAddress::from_str(&mac) {
+            Ok(mac) => Some((id, mac)),
+            Err(e) => {
+                tracing::warn!(
+                    machine_id = %id,
+                    bmc_mac = %mac,
+                    error = %e,
+                    "skipping machine with unparseable BMC MAC during per-device UEFI seed"
+                );
+                None
+            }
+        })
+        .collect()
+}
+
+/// Returns the `(machine id, BMC MAC)` for every host whose UEFI password has
+/// already been set (`bios_password_set_time IS NOT NULL`) and that has a BMC
+/// MAC recorded. Used to backfill per-device UEFI secrets
+/// (`machines/uefi/{mac}/root`) for hosts ingested before per-device UEFI
+/// secrets existed. `bios_password_set_time` is only set on hosts, so DPU rows
+/// are naturally excluded.
+pub async fn list_hosts_with_uefi_password_set(
+    pool: &Pool<Postgres>,
+) -> Result<Vec<(MachineId, MacAddress)>, DatabaseError> {
+    let query = "SELECT id, (bmc_info::jsonb->>'mac') AS bmc_mac \
+                 FROM machines \
+                 WHERE bios_password_set_time IS NOT NULL \
+                   AND (bmc_info::jsonb->>'mac') IS NOT NULL";
+    let rows = sqlx::query_as::<_, (MachineId, String)>(query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(parse_machine_bmc_mac_rows(rows))
+}
+
+/// Returns the `(machine id, BMC MAC)` for every DPU that has a BMC MAC
+/// recorded. Unlike hosts, DPUs have no per-device "UEFI password set" marker,
+/// so callers gate on the site-wide DPU UEFI credential being configured and
+/// then assume the password was applied to every DPU during ingestion.
+pub async fn list_dpus_with_bmc_mac(
+    pool: &Pool<Postgres>,
+) -> Result<Vec<(MachineId, MacAddress)>, DatabaseError> {
+    let query = "SELECT id, (bmc_info::jsonb->>'mac') AS bmc_mac \
+                 FROM machines \
+                 WHERE starts_with(id, $1) \
+                   AND (bmc_info::jsonb->>'mac') IS NOT NULL";
+    let rows = sqlx::query_as::<_, (MachineId, String)>(query)
+        .bind(MachineType::Dpu.id_prefix())
+        .fetch_all(pool)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(parse_machine_bmc_mac_rows(rows))
+}
+
 pub async fn update_discovery_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,

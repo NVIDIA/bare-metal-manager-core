@@ -35,6 +35,7 @@ pub mod forge_vault;
 pub mod key_encryption;
 pub mod local_credentials;
 pub mod memory_credentials;
+pub mod uefi;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

@@ -390,6 +390,18 @@ pub async fn start_api(
         // lockdown key without operator action. No-op once seeded or if the BMC
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
+
+        // Backfill per-device host UEFI secrets (machines/uefi/{mac}/root) for
+        // hosts whose UEFI password was already set before per-device secrets
+        // existed. Idempotent; new hosts are seeded inline during ingestion.
+        crate::handlers::uefi::seed_existing_host_uefi_secrets(&db_pool, &*credential_manager)
+            .await?;
+
+        // Backfill per-device DPU UEFI secrets. DPUs have no per-device
+        // "password set" marker, so if the site-wide DPU UEFI password is
+        // configured we assume it was applied to every DPU and seed all of them.
+        crate::handlers::uefi::seed_existing_dpu_uefi_secrets(&db_pool, &*credential_manager)
+            .await?;
     };
 
     let common_pools =
@@ -1143,6 +1155,7 @@ async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 db_reader: db_pool.clone().into(),
                 redfish_client_pool: shared_redfish_pool.clone(),
+                credential_manager: credential_manager.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),

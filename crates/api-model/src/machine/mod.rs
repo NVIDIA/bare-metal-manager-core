@@ -1730,12 +1730,25 @@ pub enum SetSecureBootState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
-    InstallDpuOs { substate: InstallDpuOsState },
-    DpfStates { state: DpfState },
+    InstallDpuOs {
+        substate: InstallDpuOsState,
+    },
+    DpfStates {
+        state: DpfState,
+    },
     Init,
-    WaitingForPlatformPowercycle { substate: PerformPowerOperation },
+    WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation,
+    },
     WaitingForPlatformConfiguration,
     PollingBiosSetup,
+    /// Set the site-default DPU UEFI password on the device and reboot the DPU
+    /// to apply it. Entered after `PollingBiosSetup`.
+    SetUefiPasswordOnDevice,
+    /// Record the DPU UEFI password as the per-device secret
+    /// (`machines/uefi/{dpu_bmc_mac}/root`) the rotation engine authenticates
+    /// with. Entered after `SetUefiPasswordOnDevice`.
+    SetUefiPasswordInCredentialStore,
     WaitingForNetworkConfig,
     WaitingForNetworkInstall, // Deprecated now, not used
 }

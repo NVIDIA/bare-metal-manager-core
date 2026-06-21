@@ -20,6 +20,7 @@ use std::sync::Arc;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_secrets::credentials::CredentialManager;
 use db::db_read::PgPoolReader;
 use libredfish::Redfish;
 use model::machine::Machine;
@@ -44,6 +45,9 @@ pub struct MachineStateHandlerServices {
     pub db_reader: PgPoolReader,
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
+    /// Credential store used to persist per-device secrets (e.g. the
+    /// per-device UEFI password recorded after UEFI setup).
+    pub credential_manager: Arc<dyn CredentialManager>,
     /// An implementation of the IPMITool that understands how to reboot a machine
     pub ipmi_tool: Arc<dyn IPMITool>,
     /// Configuration used by MachineStateHandler.
