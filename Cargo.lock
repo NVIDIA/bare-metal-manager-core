@@ -1649,6 +1649,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-version",
  "clap",
