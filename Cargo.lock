@@ -2586,6 +2586,7 @@ dependencies = [
  "carbide-health-metrics",
  "carbide-rack",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
