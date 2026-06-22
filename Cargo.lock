@@ -1057,6 +1057,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-systemd",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",

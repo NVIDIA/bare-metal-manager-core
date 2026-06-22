@@ -1705,110 +1705,118 @@ struct TmplVni {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
+
+    /// One `split_prefixes_by_family` scenario: the input prefixes, an optional
+    /// VPC allow-list `filter` (as prefix strings, parsed inside the run), the
+    /// `start_index` each family bucket counts from, and the `(ipv4, ipv6)`
+    /// `Prefix` buckets the split should yield.
+    struct SplitRow {
+        prefixes: Vec<&'static str>,
+        filter: Option<Vec<&'static str>>,
+        start_index: usize,
+    }
+
+    /// Builds a `Prefix` from its index and CIDR string -- the shape
+    /// `split_prefixes_by_family` produces -- so expected buckets read as a list
+    /// of `(index, prefix)` pairs.
+    fn prefix(index: &str, cidr: &str) -> Prefix {
+        Prefix {
+            Index: index.to_string(),
+            Prefix: cidr.to_string(),
+        }
+    }
 
     #[test]
     fn test_split_prefixes_by_family() {
-        let prefixes = vec![
-            "10.0.0.0/8".to_string(),
-            "2001:db8::/32".to_string(),
-            "192.168.0.0/16".to_string(),
-            "fd00::/8".to_string(),
-        ];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1000);
+        value_scenarios!(run = |row: SplitRow| {
+            let prefixes: Vec<String> = row.prefixes.iter().map(|s| s.to_string()).collect();
+            let filter = row
+                .filter
+                .map(|f| parse_prefixes(&f.iter().map(|s| s.to_string()).collect::<Vec<_>>()));
+            split_prefixes_by_family(&prefixes, filter.as_deref(), row.start_index)
+        };
+            "mixed families share the start index" {
+                SplitRow {
+                    prefixes: vec!["10.0.0.0/8", "2001:db8::/32", "192.168.0.0/16", "fd00::/8"],
+                    filter: None,
+                    start_index: 1000,
+                } => (
+                    vec![prefix("1000", "10.0.0.0/8"), prefix("1001", "192.168.0.0/16")],
+                    vec![prefix("1000", "2001:db8::/32"), prefix("1001", "fd00::/8")],
+                ),
+            }
 
-        assert_eq!(ipv4.len(), 2);
-        assert_eq!(ipv6.len(), 2);
+            "ipv4 only" {
+                SplitRow {
+                    prefixes: vec!["10.0.0.0/8", "172.16.0.0/12"],
+                    filter: None,
+                    start_index: 1,
+                } => (
+                    vec![prefix("1", "10.0.0.0/8"), prefix("2", "172.16.0.0/12")],
+                    vec![],
+                ),
+            }
 
-        assert_eq!(ipv4[0].Index, "1000");
-        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
-        assert_eq!(ipv4[1].Index, "1001");
-        assert_eq!(ipv4[1].Prefix, "192.168.0.0/16");
+            "ipv6 only" {
+                SplitRow {
+                    prefixes: vec!["2001:db8::/32", "fd00::/8"],
+                    filter: None,
+                    start_index: 1,
+                } => (
+                    vec![],
+                    vec![prefix("1", "2001:db8::/32"), prefix("2", "fd00::/8")],
+                ),
+            }
 
-        assert_eq!(ipv6[0].Index, "1000");
-        assert_eq!(ipv6[0].Prefix, "2001:db8::/32");
-        assert_eq!(ipv6[1].Index, "1001");
-        assert_eq!(ipv6[1].Prefix, "fd00::/8");
-    }
+            "empty input" {
+                SplitRow {
+                    prefixes: vec![],
+                    filter: None,
+                    start_index: 1000,
+                } => (vec![], vec![]),
+            }
 
-    #[test]
-    fn test_split_prefixes_ipv4_only() {
-        let prefixes = vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
+            "unparseable prefixes are dropped" {
+                SplitRow {
+                    prefixes: vec!["not-a-cidr", "10.0.0.0/8"],
+                    filter: None,
+                    start_index: 1,
+                } => (vec![prefix("1", "10.0.0.0/8")], vec![]),
+            }
 
-        assert_eq!(ipv4.len(), 2);
-        assert!(ipv6.is_empty());
-    }
+            "ipv4-mapped ipv6 sorts into the v6 bucket" {
+                // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) parse as V6.
+                SplitRow {
+                    prefixes: vec!["::ffff:192.0.2.33/128", "10.0.0.0/8", "2001:db8::/32"],
+                    filter: None,
+                    start_index: 1,
+                } => (
+                    vec![prefix("1", "10.0.0.0/8")],
+                    vec![prefix("1", "::ffff:192.0.2.33/128"), prefix("2", "2001:db8::/32")],
+                ),
+            }
 
-    #[test]
-    fn test_split_prefixes_ipv6_only() {
-        let prefixes = vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
-
-        assert!(ipv4.is_empty());
-        assert_eq!(ipv6.len(), 2);
-    }
-
-    #[test]
-    fn test_split_prefixes_empty() {
-        let prefixes: Vec<String> = vec![];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1000);
-
-        assert!(ipv4.is_empty());
-        assert!(ipv6.is_empty());
-    }
-
-    #[test]
-    fn test_split_prefixes_unparseable_dropped() {
-        let prefixes = vec!["not-a-cidr".to_string(), "10.0.0.0/8".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
-
-        assert_eq!(ipv4.len(), 1);
-        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
-        assert_eq!(ipv4[0].Index, "1");
-        assert!(ipv6.is_empty());
-    }
-
-    #[test]
-    fn test_split_prefixes_ipv4_mapped_ipv6() {
-        // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) parse as V6
-        let prefixes = vec![
-            "::ffff:192.0.2.33/128".to_string(),
-            "10.0.0.0/8".to_string(),
-            "2001:db8::/32".to_string(),
-        ];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
-
-        assert_eq!(ipv4.len(), 1);
-        assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
-
-        assert_eq!(ipv6.len(), 2);
-        assert_eq!(ipv6[0].Prefix, "::ffff:192.0.2.33/128");
-        assert_eq!(ipv6[1].Prefix, "2001:db8::/32");
-    }
-
-    #[test]
-    fn test_split_prefixes_filters_to_containing_prefixes() {
-        // Build mixed-family inputs with one contained and one excluded prefix per family.
-        let prefixes = vec![
-            "192.0.2.64/26".to_string(),
-            "198.51.100.0/24".to_string(),
-            "2001:db8:1::/64".to_string(),
-            "2001:db9::/48".to_string(),
-        ];
-        let filter = parse_prefixes(&["192.0.2.0/24".to_string(), "2001:db8::/32".to_string()]);
-
-        // Filter through the VPC allow-list while preserving family-specific indexes.
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, Some(&filter), 1);
-
-        // Verify only prefixes contained by the filter remain.
-        let ipv4_prefixes: Vec<_> = ipv4.iter().map(|prefix| prefix.Prefix.as_str()).collect();
-        let ipv6_prefixes: Vec<_> = ipv6.iter().map(|prefix| prefix.Prefix.as_str()).collect();
-
-        assert_eq!(ipv4_prefixes, vec!["192.0.2.64/26"]);
-        assert_eq!(ipv6_prefixes, vec!["2001:db8:1::/64"]);
-        assert_eq!(ipv4[0].Index, "1");
-        assert_eq!(ipv6[0].Index, "1");
+            "filter keeps only prefixes contained by the allow-list" {
+                // One contained and one excluded prefix per family; family-specific
+                // indexes are preserved.
+                SplitRow {
+                    prefixes: vec![
+                        "192.0.2.64/26",
+                        "198.51.100.0/24",
+                        "2001:db8:1::/64",
+                        "2001:db9::/48",
+                    ],
+                    filter: Some(vec!["192.0.2.0/24", "2001:db8::/32"]),
+                    start_index: 1,
+                } => (
+                    vec![prefix("1", "192.0.2.64/26")],
+                    vec![prefix("1", "2001:db8:1::/64")],
+                ),
+            }
+        );
     }
 
     /// Helper to build a minimal NvueConfig for template rendering tests.
