@@ -309,6 +309,9 @@ service Forge {
   // paginated APIs to get site explorer explored managed hosts
   rpc FindExploredManagedHostIds(site_explorer.ExploredManagedHostSearchFilter) returns (site_explorer.ExploredManagedHostIdList);
   rpc FindExploredManagedHostsByIds(site_explorer.ExploredManagedHostsByIdsRequest) returns (site_explorer.ExploredManagedHostList);
+  // Mellanox/BlueField device firmware, projected from explored Redfish PCIe
+  // inventory -- surfaces NIC firmware for DPUs operating in NIC mode.
+  rpc GetExploredMlxDevices(site_explorer.GetExploredMlxDevicesRequest) returns (site_explorer.ExploredMlxDeviceList);
   rpc UpdateMachineHardwareInfo(UpdateMachineHardwareInfoRequest) returns (google.protobuf.Empty);
 
   // Force deletes a Machine and the associated DPU from Forge databases,

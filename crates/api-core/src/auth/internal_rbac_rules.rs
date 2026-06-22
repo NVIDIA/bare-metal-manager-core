@@ -281,6 +281,7 @@ impl InternalRBACRules {
         x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
+        x.perm("GetExploredMlxDevices", vec![ForgeAdminCLI]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);

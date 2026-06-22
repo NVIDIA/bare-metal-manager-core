@@ -126,6 +126,56 @@ message ExploredManagedHostList {
   repeated ExploredManagedHost managed_hosts = 1;
 }
 
+// A Mellanox/BlueField device surfaced from a host's Redfish PCIe inventory
+// during site exploration -- the explored counterpart to scout's live
+// MlxDeviceReport. Reports a device's NIC firmware, part number and serial even
+// for a BlueField in NIC mode, whose Arm OS is down and so cannot report them
+// over its own management channel.
+message ExploredMlxDevice {
+  // The BMC IP of the host the device was found under.
+  string host_bmc_ip = 1;
+  // The host's MachineId, once it has been ingested far enough to derive one.
+  optional string machine_id = 2;
+  // The device kind, classified from its part number.
+  MlxDeviceKind device_kind = 3;
+  // Redfish PCIe device id / slot (e.g. "188-0").
+  optional string pcie_id = 4;
+  // Manufacturer part number (e.g. "900-9D3B4-00EN-EA0").
+  optional string part_number = 5;
+  // Board serial number (e.g. "MT2403X00984").
+  optional string serial_number = 6;
+  // The NIC firmware version currently installed (e.g. "32.42.1000").
+  optional string firmware_version = 7;
+  // The long device description as reported by Redfish.
+  optional string description = 8;
+  // The BMC IP of the device's own DPU endpoint, set when its serial matches a
+  // DPU we have explored -- the address to target for a firmware push.
+  optional string dpu_bmc_ip = 9;
+  // The DPU's authoritative operating mode, read from its own Redfish endpoint
+  // when matched.
+  optional NicMode nic_mode = 10;
+}
+
+// The kind of BlueField/Mellanox device, classified from its part number. A
+// BlueField-3's part number records the mode it is operating in: 900-9D3B4
+// (NIC), 900-9D3B6 (DPU), 900-9D3D4 (SuperNIC).
+enum MlxDeviceKind {
+  MLX_DEVICE_KIND_UNKNOWN = 0;
+  MLX_DEVICE_KIND_BF3_NIC_MODE = 1;
+  MLX_DEVICE_KIND_BF3_DPU_MODE = 2;
+  MLX_DEVICE_KIND_BF3_SUPER_NIC = 3;
+  MLX_DEVICE_KIND_BF2_DPU = 4;
+}
+
+message ExploredMlxDeviceList {
+  repeated ExploredMlxDevice devices = 1;
+}
+
+message GetExploredMlxDevicesRequest {
+  // Restrict to devices found under this host BMC IP; all hosts if unset.
+  optional string host_bmc_ip = 1;
+}
+
 enum NicMode {
   DPU = 0;
   NIC = 1;
