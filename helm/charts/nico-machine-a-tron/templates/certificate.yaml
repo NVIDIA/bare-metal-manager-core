@@ -6,26 +6,7 @@ metadata:
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
 spec:
-  duration: {{ .Values.global.certificate.duration }}
-  renewBefore: {{ .Values.global.certificate.renewBefore }}
-  secretName: {{ include "nico-machine-a-tron.name" . }}-certificate
-  commonName: {{ printf "%s.%s.svc.cluster.local" (include "nico-machine-a-tron.name" .) (include "nico-machine-a-tron.namespace" .) }}
-  dnsNames:
-    - {{ printf "%s.%s.svc.cluster.local" (include "nico-machine-a-tron.name" .) (include "nico-machine-a-tron.namespace" .) }}
-    - {{ printf "%s.%s" (include "nico-machine-a-tron.name" .) (include "nico-machine-a-tron.namespace" .) }}
-    - {{ printf "%s-bmc-mock.%s.svc.cluster.local" (include "nico-machine-a-tron.name" .) (include "nico-machine-a-tron.namespace" .) }}
-    {{- range .Values.certificate.extraDnsNames | default list }}
-    - {{ . }}
-    {{- end }}
-  uris:
-    - {{ printf "spiffe://%s/%s/sa/%s" .Values.global.spiffe.trustDomain (include "nico-machine-a-tron.namespace" .) (include "nico-machine-a-tron.name" .) }}
-    {{- range .Values.certificate.extraUris | default list }}
-    - {{ . }}
-    {{- end }}
-  privateKey:
-    algorithm: {{ .Values.global.certificate.privateKey.algorithm }}
-    size: {{ .Values.global.certificate.privateKey.size }}
-  issuerRef:
-    kind: {{ .Values.global.certificate.issuerRef.kind }}
-    name: {{ .Values.global.certificate.issuerRef.name }}
-    group: {{ .Values.global.certificate.issuerRef.group }}
+  {{- $bmcMockDns := printf "%s-bmc-mock.%s.svc.cluster.local" (include "nico-machine-a-tron.name" .) (include "nico-machine-a-tron.namespace" .) }}
+  {{- $extraDns := prepend (.Values.certificate.extraDnsNames | default list) $bmcMockDns }}
+  {{- $certWithExtra := merge (dict "extraDnsNames" $extraDns) .Values.certificate }}
+  {{- include "nico-machine-a-tron.certificateSpec" (dict "name" (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) "svcName" (include "nico-machine-a-tron.name" .) "namespace" (include "nico-machine-a-tron.namespace" .) "cert" $certWithExtra "global" .Values.global) | nindent 2 }}

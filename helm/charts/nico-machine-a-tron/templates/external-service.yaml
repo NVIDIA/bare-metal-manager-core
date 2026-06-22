@@ -18,5 +18,6 @@ spec:
   ports:
     - port: {{ .Values.service.bmcMock.port }}
       name: bmc-mock
+      targetPort: redfish
       protocol: TCP
 {{- end }}

@@ -24,7 +24,7 @@ In other deployments, the main nico image contains all binaries.
 {{- define "nico-machine-a-tron.image" -}}
 {{- if not (eq (toString (.Values.image.repository | default "")) "") }}
 {{- .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}
-{{- else if .Values.global.image }}
+{{- else if and .Values.global.image (not (eq (toString (.Values.global.image.repository | default "")) "")) (not (eq (toString (.Values.global.image.tag | default "")) "")) }}
 {{- .Values.global.image.repository }}:{{ .Values.global.image.tag }}
 {{- else }}
 {{- "nico:latest" }}
