@@ -391,17 +391,28 @@ pub async fn start_api(
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
 
-        // Backfill per-device host UEFI secrets (machines/uefi/{mac}/root) for
-        // hosts whose UEFI password was already set before per-device secrets
-        // existed. Idempotent; new hosts are seeded inline during ingestion.
-        crate::handlers::uefi::seed_existing_host_uefi_secrets(&db_pool, &*credential_manager)
-            .await?;
+        // One-time per-site backfill of per-device UEFI secrets
+        // (machines/uefi/{mac}/root) for the fleet provisioned before per-device
+        // secrets existed. New devices are seeded inline during ingestion, so this
+        // only needs to cover pre-existing devices. Gated on a site-level flag so
+        // it runs at most once per site; we mark it applied only after both
+        // backfills succeed, so a crash or transient Vault error simply retries on
+        // the next startup (the backfills are idempotent, so a re-run -- or a
+        // concurrent replica on first startup -- is harmless).
+        if !db::site_state::per_device_uefi_backfill_applied(&db_pool).await? {
+            // Hosts whose UEFI password was already set (tracked via the DB
+            // "password set" marker).
+            crate::handlers::uefi::seed_existing_host_uefi_secrets(&db_pool, &*credential_manager)
+                .await?;
 
-        // Backfill per-device DPU UEFI secrets. DPUs have no per-device
-        // "password set" marker, so if the site-wide DPU UEFI password is
-        // configured we assume it was applied to every DPU and seed all of them.
-        crate::handlers::uefi::seed_existing_dpu_uefi_secrets(&db_pool, &*credential_manager)
-            .await?;
+            // DPUs have no per-device "password set" marker, so if the site-wide
+            // DPU UEFI password is configured we assume it was applied to every
+            // DPU and seed all of them.
+            crate::handlers::uefi::seed_existing_dpu_uefi_secrets(&db_pool, &*credential_manager)
+                .await?;
+
+            db::site_state::mark_per_device_uefi_backfill_applied(&db_pool).await?;
+        }
     };
 
     let common_pools =
