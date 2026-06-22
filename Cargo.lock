@@ -2910,6 +2910,7 @@ dependencies = [
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-ssh-console-mock-api-server",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
