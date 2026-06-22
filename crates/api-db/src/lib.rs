@@ -57,6 +57,7 @@ pub mod machine_interface_address;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;
+pub mod machine_validation_execution;
 pub mod machine_validation_result;
 pub mod machine_validation_suites;
 pub mod managed_host;
@@ -95,6 +96,9 @@ pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
 pub mod work_lock_manager;
+
+#[cfg(test)]
+mod test_support;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;

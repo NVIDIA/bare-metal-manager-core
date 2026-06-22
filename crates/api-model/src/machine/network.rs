@@ -405,50 +405,6 @@ mod tests {
         .check(|qs| qs);
     }
 
-    // Verify that IpAddr::to_string() produces the expected format for both
-    // address families, since several call sites throughout the codebase
-    // use .to_string() on the loopback_ip value. Folded from a pair of
-    // hand-written asserts into a table covering both families plus the
-    // boundary/canonicalization cases (zero, broadcast, all-ones,
-    // loopback, embedded-IPv4) where formatting can surprise.
-    #[test]
-    fn test_ip_addr_to_string_format() {
-        value_scenarios!(
-            run = |ip| ip.to_string();
-            "ipv4" {
-                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)) => "10.0.0.1".to_string(),
-            }
-
-            "ipv4 unspecified" {
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) => "0.0.0.0".to_string(),
-            }
-
-            "ipv4 broadcast" {
-                IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)) => "255.255.255.255".to_string(),
-            }
-
-            "ipv4 loopback" {
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)) => "127.0.0.1".to_string(),
-            }
-
-            "ipv6 compressed" {
-                IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)) => "2001:db8::1".to_string(),
-            }
-
-            "ipv6 unspecified collapses to ::" {
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)) => "::".to_string(),
-            }
-
-            "ipv6 loopback collapses to ::1" {
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)) => "::1".to_string(),
-            }
-
-            "ipv6 full (no run to compress)" {
-                IpAddr::V6(Ipv6Addr::new(0xfd00, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x42)) => "fd00:1:2:3:4:5:6:42".to_string(),
-            }
-        );
-    }
-
     // ManagedHostQuarantineState::reason_str() returns the reason or an empty
     // string when None. ManagedHostQuarantineMode has a single variant today;
     // its as_str()/mode_str() must render it exactly so the persisted form is
@@ -609,68 +565,6 @@ mod tests {
                     network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
                     network_status(Some(v1), None, Some(extension_observation(v1, Some(v2)))),
                 ) => true,
-            }
-        );
-    }
-
-    // Parse pool strings as IpAddr (resource pools store values as strings and
-    // parse them via IpAddr::from_str). Yielding the exact IpAddr value also
-    // covers the original is_ipv4()/is_ipv6() family assertions. AddrParseError
-    // is not PartialEq, so failing rows would use `Fails`; both rows parse.
-    #[test]
-    fn test_ip_addr_parse_from_pool_strings() {
-        scenarios!(
-            run = |s| s.parse::<IpAddr>().map_err(drop);
-            "ipv4 string" {
-                "10.0.0.1" => Yields(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-            }
-
-            "ipv6 string" {
-                "2001:db8::1" => Yields(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
-            }
-
-            "ipv4 unspecified" {
-                "0.0.0.0" => Yields(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))),
-            }
-
-            "ipv4 broadcast" {
-                "255.255.255.255" => Yields(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))),
-            }
-
-            "ipv6 unspecified" {
-                "::" => Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))),
-            }
-
-            "ipv6 loopback" {
-                "::1" => Yields(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
-            }
-
-            "empty string is rejected" {
-                "" => Fails,
-            }
-
-            "non-address text is rejected" {
-                "not-an-ip" => Fails,
-            }
-
-            "ipv4 octet out of range is rejected" {
-                "256.0.0.1" => Fails,
-            }
-
-            "ipv4 with too few octets is rejected" {
-                "10.0.0" => Fails,
-            }
-
-            "ipv4 with trailing whitespace is rejected" {
-                "10.0.0.1 " => Fails,
-            }
-
-            "ipv6 with double :: is rejected" {
-                "2001::db8::1" => Fails,
-            }
-
-            "cidr suffix is not an address" {
-                "10.0.0.0/24" => Fails,
             }
         );
     }

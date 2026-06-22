@@ -76,7 +76,8 @@ pub async fn create(
     })?;
 
     if new_prefix.config.prefix.is_ipv6() {
-        vpc.network_virtualization_type
+        vpc.config
+            .network_virtualization_type
             .ensure_supports_ipv6_prefix()
             .map_err(CarbideError::from)?;
     }

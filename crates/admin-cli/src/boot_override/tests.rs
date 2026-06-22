@@ -46,48 +46,35 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_get ensures the get subcommand routes to the Get variant and
-// parses its interface_id.
+// The get and clear subcommands each route to their own variant and parse the
+// shared interface_id. The closure yields the routed variant name paired with the
+// parsed interface_id, so one table covers both.
 #[test]
-fn parse_get() {
+fn parse_get_and_clear() {
     scenarios!(
         run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
-                    Cmd::Get(args) => args.inner.interface_id.to_string(),
-                    _ => panic!("expected Get variant"),
+                    Cmd::Get(args) => ("get", args.inner.interface_id.to_string()),
+                    Cmd::Clear(args) => ("clear", args.inner.interface_id.to_string()),
+                    _ => panic!("expected Get or Clear variant"),
                 })
                 .map_err(drop)
         };
-        "get parses interface_id" {
+        "get routes to Get and parses interface_id" {
             &[
                 "boot-override",
                 "get",
                 "550e8400-e29b-41d4-a716-446655440000",
-            ][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+            ][..] => Yields(("get", "550e8400-e29b-41d4-a716-446655440000".to_string())),
         }
-    );
-}
 
-// parse_clear ensures the clear subcommand routes to the Clear variant and
-// parses its interface_id.
-#[test]
-fn parse_clear() {
-    scenarios!(
-        run = |argv| {
-            Cmd::try_parse_from(argv.iter().copied())
-                .map(|cmd| match cmd {
-                    Cmd::Clear(args) => args.inner.interface_id.to_string(),
-                    _ => panic!("expected Clear variant"),
-                })
-                .map_err(drop)
-        };
-        "clear parses interface_id" {
+        "clear routes to Clear and parses interface_id" {
             &[
                 "boot-override",
                 "clear",
                 "550e8400-e29b-41d4-a716-446655440000",
-            ][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+            ][..] => Yields(("clear", "550e8400-e29b-41d4-a716-446655440000".to_string())),
         }
     );
 }

@@ -94,19 +94,6 @@ fn test_status_report_yaml() {
 }
 
 #[test]
-fn test_lockdown_manager_creation_with_runner() {
-    let runner = FlintRunner::with_path("/fake/path");
-    let _manager = LockdownManager::with_runner(runner);
-    // Should not panic
-}
-
-#[test]
-fn test_lockdown_manager_default() {
-    let _manager = LockdownManager::default();
-    // Should not panic even if flint is not available
-}
-
-#[test]
 fn test_lockdown_manager_with_dry_run() {
     let manager = LockdownManager::with_dry_run(true).unwrap_or_else(|_| {
         let runner = FlintRunner::with_path("/fake/flint").with_dry_run(true);

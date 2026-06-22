@@ -1733,6 +1733,9 @@ type APIInstance struct {
 	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 }
 
+// APIInstanceStats holds aggregated instance status counts at the API layer.
+type APIInstanceStats = cdbm.InstanceCountByStatus
+
 // NewAPIInstance accepts a DB layer Instance object returns an API layer object.
 // SecondaryVpcIDs are derived from interface relations, so callers must preload
 // Interface.VpcPrefix on prefix-backed interfaces when they want those IDs populated.
@@ -1817,7 +1820,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 		apiInstance.TpmEkCertificate = dbinst.TpmEkCertificate
 	}
 
-	apiInstance.Status = cdbm.AggregatedInstanceStatus(dbinst.Status, dbinst.PowerStatus)
+	apiInstance.Status = dbinst.GetAggregatedStatus(dbinst.Status, dbinst.PowerStatus)
 
 	secondaryVpcIDs := goset.NewSet[string]()
 
@@ -1891,7 +1894,7 @@ func NewAPIInstanceSummary(dbist *cdbm.Instance) *APIInstanceSummary {
 		Name:                     dbist.Name,
 		InfrastructureProviderID: dbist.InfrastructureProviderID.String(),
 		SiteID:                   dbist.SiteID.String(),
-		Status:                   cdbm.AggregatedInstanceStatus(dbist.Status, dbist.PowerStatus),
+		Status:                   dbist.GetAggregatedStatus(dbist.Status, dbist.PowerStatus),
 	}
 
 	// Check if the instance type is set.  If so, use it.  If not set, it's a targeted Instance.

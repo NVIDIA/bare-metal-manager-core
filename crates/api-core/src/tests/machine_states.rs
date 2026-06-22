@@ -1785,12 +1785,16 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
-    let _expected_state = ManagedHostState::DPUInit {
+    let expected_state = ManagedHostState::DPUInit {
         dpu_states: model::machine::DpuInitStates {
             states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
         },
     };
-    assert!(matches!(host_machine.current_state(), _expected_state));
+    assert_eq!(
+        host_machine.current_state(),
+        &expected_state,
+        "machine should be in DPUInit, waiting for network config"
+    );
     assert!(
         matches!(
             host_machine.controller_state_outcome,
@@ -1809,7 +1813,6 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
     let outcome = host_machine.controller_state_outcome.unwrap();
-    dbg!(&outcome);
     assert!(
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason, source_ref: Some(source_ref) } if !reason.is_empty() && source_ref.file.ends_with("/handler.rs")),
         "Third iteration should be waiting for DPU agent, and include a wait reason and source reference",

@@ -29,6 +29,8 @@ pub struct NetworkPrefix {
     pub segment_id: NetworkSegmentId,
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
+    #[serde(default)]
+    pub dhcpv6_link_address: Option<IpAddr>,
     pub num_reserved: i32,
     pub vpc_prefix_id: Option<VpcPrefixId>,
     pub vpc_prefix: Option<IpNetwork>,
@@ -41,6 +43,7 @@ pub struct NetworkPrefix {
 pub struct NewNetworkPrefix {
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
+    pub dhcpv6_link_address: Option<IpAddr>,
     pub num_reserved: i32,
 }
 
@@ -49,6 +52,7 @@ impl From<NetworkPrefix> for NewNetworkPrefix {
         Self {
             prefix: prefix.prefix,
             gateway: prefix.gateway,
+            dhcpv6_link_address: prefix.dhcpv6_link_address,
             num_reserved: prefix.num_reserved,
         }
     }
@@ -63,6 +67,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             vpc_prefix: row.try_get("vpc_prefix")?,
             prefix: row.try_get("prefix")?,
             gateway: row.try_get("gateway")?,
+            dhcpv6_link_address: row.try_get("dhcpv6_link_address")?,
             num_reserved: row.try_get("num_reserved")?,
             svi_ip: row.try_get("svi_ip")?,
             num_free_ips: 0,

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use ::rpc::forge as rpc;
 use carbide_rpc_utils::dhcp::HostConfig;
@@ -64,12 +64,14 @@ pub fn build_server_config(
     pxe_ip: Ipv4Addr,
     ntpservers: Vec<Ipv4Addr>,
     nameservers: Vec<Ipv4Addr>,
+    nameservers_v6: Vec<Ipv6Addr>,
     loopback_ip: Ipv4Addr,
 ) -> Result<String, eyre::Report> {
     let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip,
         ntpservers,
         nameservers,
+        nameservers_v6,
         loopback_ip,
     )?;
 

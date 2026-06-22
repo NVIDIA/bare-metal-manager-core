@@ -164,25 +164,14 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 async fn test_delete(pool: sqlx::PgPool) -> () {
     let mut txn = pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
-
-    let switch = &switches[0];
-
-    assert_eq!(switch.serial_number, "SW-SN-001");
-
-    db::expected_switch::delete_by_mac(&mut txn, switch.bmc_mac_address)
-        .await
-        .expect("Error deleting expected_switch");
-
+    let mac = switches[0].bmc_mac_address;
     txn.commit().await.expect("Failed to commit transaction");
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
 
-    assert!(
-        db::expected_switch::find_by_bmc_mac_address(&mut txn, switches[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .is_none()
+    crate::test_support::expected_host::assert_delete_by_mac_removes_row(
+        &pool,
+        mac,
+        async |txn, mac| db::expected_switch::delete_by_mac(txn, mac).await,
+        async |txn, mac| db::expected_switch::find_by_bmc_mac_address(txn, mac).await,
     )
+    .await;
 }

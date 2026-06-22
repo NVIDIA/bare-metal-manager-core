@@ -2275,39 +2275,83 @@ mod tests {
         }
     }
 
-    #[test]
-    fn error_to_status_unavailable() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::Unavailable("gone".into()));
-        assert_eq!(st.code(), Code::Unavailable);
-        assert!(st.message().contains("gone"));
+    /// Yields a real `tonic::transport::Error` so the `Transport` arm can be
+    /// exercised without a live connection: an invalid endpoint URI fails to parse
+    /// synchronously into exactly that error type.
+    fn transport_error() -> tonic::transport::Error {
+        tonic::transport::Endpoint::new("not a valid uri")
+            .expect_err("an invalid endpoint URI should fail to parse")
+    }
+
+    /// One `component_manager_error_to_status` mapping: the source error, the gRPC
+    /// `Code` it must produce, and (where the message is part of the contract) a
+    /// substring the propagated status message must contain.
+    struct ErrorToStatusCase {
+        scenario: &'static str,
+        error: ComponentManagerError,
+        expected_code: Code,
+        message_contains: Option<&'static str>,
     }
 
     #[test]
-    fn error_to_status_not_found() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::NotFound("missing".into()));
-        assert_eq!(st.code(), Code::NotFound);
-    }
+    fn error_to_status_maps_each_variant() {
+        let cases = [
+            ErrorToStatusCase {
+                scenario: "unavailable propagates its message",
+                error: ComponentManagerError::Unavailable("gone".into()),
+                expected_code: Code::Unavailable,
+                message_contains: Some("gone"),
+            },
+            ErrorToStatusCase {
+                scenario: "not found",
+                error: ComponentManagerError::NotFound("missing".into()),
+                expected_code: Code::NotFound,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "invalid argument",
+                error: ComponentManagerError::InvalidArgument("bad".into()),
+                expected_code: Code::InvalidArgument,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "internal",
+                error: ComponentManagerError::Internal("oops".into()),
+                expected_code: Code::Internal,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "status passthrough preserves the original code",
+                error: ComponentManagerError::Status(Status::permission_denied("nope")),
+                expected_code: Code::PermissionDenied,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "transport maps to unavailable",
+                error: ComponentManagerError::Transport(transport_error()),
+                expected_code: Code::Unavailable,
+                message_contains: Some("transport error"),
+            },
+            ErrorToStatusCase {
+                scenario: "rms maps to internal",
+                error: ComponentManagerError::Rms("rms boom".into()),
+                expected_code: Code::Internal,
+                message_contains: Some("RMS error"),
+            },
+        ];
 
-    #[test]
-    fn error_to_status_invalid_argument() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::InvalidArgument("bad".into()));
-        assert_eq!(st.code(), Code::InvalidArgument);
-    }
-
-    #[test]
-    fn error_to_status_internal() {
-        let st = component_manager_error_to_status(ComponentManagerError::Internal("oops".into()));
-        assert_eq!(st.code(), Code::Internal);
-    }
-
-    #[test]
-    fn error_to_status_passthrough() {
-        let original = Status::permission_denied("nope");
-        let st = component_manager_error_to_status(ComponentManagerError::Status(original));
-        assert_eq!(st.code(), Code::PermissionDenied);
+        for case in cases {
+            let status = component_manager_error_to_status(case.error);
+            assert_eq!(status.code(), case.expected_code, "{}", case.scenario);
+            if let Some(substring) = case.message_contains {
+                assert!(
+                    status.message().contains(substring),
+                    "{}: message {:?} should contain {substring:?}",
+                    case.scenario,
+                    status.message(),
+                );
+            }
+        }
     }
 
     #[test]
@@ -2466,39 +2510,20 @@ mod tests {
     }
 
     #[test]
-    fn power_action_on() {
-        let action = map_power_action(SystemPowerControl::On as i32).unwrap();
-        assert!(matches!(action, PowerAction::On));
-    }
-
-    #[test]
-    fn power_action_graceful_shutdown() {
-        let action = map_power_action(SystemPowerControl::GracefulShutdown as i32).unwrap();
-        assert!(matches!(action, PowerAction::GracefulShutdown));
-    }
-
-    #[test]
-    fn power_action_force_off() {
-        let action = map_power_action(SystemPowerControl::ForceOff as i32).unwrap();
-        assert!(matches!(action, PowerAction::ForceOff));
-    }
-
-    #[test]
-    fn power_action_graceful_restart() {
-        let action = map_power_action(SystemPowerControl::GracefulRestart as i32).unwrap();
-        assert!(matches!(action, PowerAction::GracefulRestart));
-    }
-
-    #[test]
-    fn power_action_force_restart() {
-        let action = map_power_action(SystemPowerControl::ForceRestart as i32).unwrap();
-        assert!(matches!(action, PowerAction::ForceRestart));
-    }
-
-    #[test]
-    fn power_action_ac_powercycle() {
-        let action = map_power_action(SystemPowerControl::AcPowercycle as i32).unwrap();
-        assert!(matches!(action, PowerAction::AcPowercycle));
+    fn power_action_maps_each_control() {
+        use carbide_test_support::Outcome::*;
+        // Map the rejection error to its `Code` so rows share one comparable error
+        // type; every row here is a successful control-to-action mapping.
+        carbide_test_support::scenarios!(run = |raw| map_power_action(raw).map_err(|s| s.code());
+            "control maps to action" {
+                SystemPowerControl::On as i32 => Yields(PowerAction::On),
+                SystemPowerControl::GracefulShutdown as i32 => Yields(PowerAction::GracefulShutdown),
+                SystemPowerControl::ForceOff as i32 => Yields(PowerAction::ForceOff),
+                SystemPowerControl::GracefulRestart as i32 => Yields(PowerAction::GracefulRestart),
+                SystemPowerControl::ForceRestart as i32 => Yields(PowerAction::ForceRestart),
+                SystemPowerControl::AcPowercycle as i32 => Yields(PowerAction::AcPowercycle),
+            }
+        );
     }
 
     #[test]

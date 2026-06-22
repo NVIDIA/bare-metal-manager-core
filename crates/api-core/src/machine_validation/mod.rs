@@ -202,6 +202,8 @@ async fn reconcile_stale_validation(
     stale_run_timeout: std::time::Duration,
     now: chrono::DateTime<chrono::Utc>,
 ) -> CarbideResult<bool> {
+    // Returns true only when this call actually transitions an active stale run.
+    // False means another path already completed or reconciled the run.
     let error_message = format!(
         "Machine validation run {} exceeded its expected duration plus stale timeout",
         validation.id

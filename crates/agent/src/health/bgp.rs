@@ -371,6 +371,8 @@ struct BgpPeer {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     const BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SUCCESS: &str =
@@ -386,245 +388,181 @@ mod tests {
     const BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_FAILED_ALL_PEERS: &str =
         include_str!("../hbn_bgp_summary_with_route_server_failed_all_peers.json");
 
-    #[test]
-    fn test_check_bgp_success() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SUCCESS,
-            &[],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert!(hr.alerts.is_empty());
-        Ok(())
+    /// One `verify_bgp_summary` scenario: a BGP summary JSON plus the host routes
+    /// and route servers that frame what's expected, and the exact alerts the
+    /// resulting health report should hold (sorted by `(id, target)`).
+    struct Row {
+        scenario: &'static str,
+        json: &'static str,
+        host_routes: &'static [&'static str],
+        route_servers: &'static [&'static str],
+        expected_alerts: Vec<health_report::HealthProbeAlert>,
+    }
+
+    /// Builds a TOR-peering alert for `port`, the most common alert these
+    /// scenarios produce.
+    fn tor_alert(port: &str, message: &str, critical: bool) -> health_report::HealthProbeAlert {
+        make_alert(
+            probe_ids::BgpPeeringTor.clone(),
+            Some(port.to_string()),
+            message.to_string(),
+            critical,
+        )
     }
 
     #[test]
-    fn test_check_bgp_no_route_server_failed_tor_peers() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_NO_ROUTE_SERVER_FAILED_TOR_PEERS,
-            &[],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
+    fn verify_bgp_summary_emits_expected_alerts() {
+        check_values(
+            [
+                Row {
+                    scenario: "all sessions established, no alerts",
+                    json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SUCCESS,
+                    host_routes: &[],
+                    route_servers: &[],
+                    expected_alerts: vec![],
+                },
+                Row {
+                    scenario: "both TOR peers down is critical",
+                    json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_FAILED_TOR_PEERS,
+                    host_routes: &[],
+                    route_servers: &[],
+                    expected_alerts: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if is not Established, but in state Idle",
+                            true,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if is not Established, but in state Idle",
+                            true,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "single TOR peer down is not critical",
+                    json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SINGLE_FAILED_TOR_PEER,
+                    host_routes: &[],
+                    route_servers: &[],
+                    expected_alerts: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if is not Established, but in state Idle",
+                        false,
+                    )],
+                },
+                Row {
+                    scenario: "tenant route in host_routes is expected, no alerts",
+                    json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_WITH_TENANT_ROUTES,
+                    host_routes: &["10.217.4.78"],
+                    route_servers: &[],
+                    expected_alerts: vec![],
+                },
+                Row {
+                    scenario: "tenant route absent from host_routes is unexpected",
+                    json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_WITH_TENANT_ROUTES,
+                    host_routes: &[],
+                    route_servers: &[],
+                    expected_alerts: vec![make_alert(
+                        probe_ids::UnexpectedBgpPeer.clone(),
+                        Some("10.217.4.78".to_string()),
+                        "Unexpected BGP session referencing peer 10.217.4.78 was found in ipv4_unicast"
+                            .to_string(),
+                        true,
+                    )],
+                },
+                Row {
+                    scenario: "route server present but not in route_servers list",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_AND_TENANT_ROUTES,
+                    host_routes: &["10.217.19.211"],
+                    route_servers: &[],
+                    expected_alerts: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Expected session for p0_if was not found in BGP peer data",
+                            true,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Expected session for p1_if was not found in BGP peer data",
+                            true,
+                        ),
+                        make_alert(
+                            probe_ids::UnexpectedBgpPeer.clone(),
+                            Some("10.217.126.67".to_string()),
+                            "Unexpected BGP session referencing peer 10.217.126.67 was found in l2_vpn_evpn"
+                                .to_string(),
+                            true,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "route server and tenant routes both expected, no alerts",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_AND_TENANT_ROUTES,
+                    host_routes: &["10.217.19.211"],
+                    route_servers: &["10.217.126.67"],
+                    expected_alerts: vec![],
+                },
+                Row {
+                    scenario: "route server and both TOR peers down",
+                    json: BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_FAILED_ALL_PEERS,
+                    host_routes: &[],
+                    route_servers: &["10.217.126.67"],
+                    expected_alerts: vec![
+                        make_alert(
+                            probe_ids::BgpPeeringRouteServer.clone(),
+                            Some("10.217.126.67".to_string()),
+                            "Session 10.217.126.67 is not Established, but in state Active"
+                                .to_string(),
+                            true,
+                        ),
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if is not Established, but in state Idle",
+                            true,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if is not Established, but in state Idle",
+                            true,
+                        ),
+                    ],
+                },
+            ]
+            .map(|mut row| {
+                // Sort the expected alerts the same way the run closure sorts the
+                // produced ones, so rows can list alerts in any readable order.
+                sort_alerts(&mut row.expected_alerts);
+                let expect = row.expected_alerts.clone();
+                Check {
+                    scenario: row.scenario,
+                    input: row,
+                    expect,
+                }
+            }),
+            |row: Row| {
+                let route_servers: Vec<String> =
+                    row.route_servers.iter().map(|s| s.to_string()).collect();
+                let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+                let mut health_data = BgpHealthData::default();
+                verify_bgp_summary(
+                    &mut health_data,
+                    row.json,
+                    row.host_routes,
+                    2,
+                    &route_servers,
+                    HBNDeviceNames::hbn_23(),
+                );
+                health_data.into_health_report(&mut hr);
+                let mut alerts = hr.alerts;
+                sort_alerts(&mut alerts);
+                alerts
+            },
         );
-        health_data.into_health_report(&mut hr);
-        assert_eq!(hr.alerts.len(), 2);
-        hr.alerts
-            .sort_by(|alert1, alert2| alert1.target.cmp(&alert2.target));
-
-        assert_eq!(
-            hr.alerts[0],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p0_if".to_string()),
-                "Session p0_if is not Established, but in state Idle".to_string(),
-                true
-            )
-        );
-        assert_eq!(
-            hr.alerts[1],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p1_if".to_string()),
-                "Session p1_if is not Established, but in state Idle".to_string(),
-                true
-            )
-        );
-        Ok(())
     }
 
-    #[test]
-    fn test_check_bgp_no_route_server_single_failed_tor_peer() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SINGLE_FAILED_TOR_PEER,
-            &[],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert_eq!(hr.alerts.len(), 1);
-        hr.alerts
-            .sort_by(|alert1, alert2| alert1.target.cmp(&alert2.target));
-
-        assert_eq!(
-            hr.alerts[0],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p0_if".to_string()),
-                "Session p0_if is not Established, but in state Idle".to_string(),
-                false
-            )
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_check_bgp_no_route_server_with_tenant_routes() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_NO_ROUTE_SERVER_WITH_TENANT_ROUTES,
-            &["10.217.4.78"],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert!(hr.alerts.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn test_check_bgp_no_route_server_unexpected_tenant_route() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_NO_ROUTE_SERVER_WITH_TENANT_ROUTES,
-            &[],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert_eq!(hr.alerts.len(), 1);
-        assert_eq!(
-            hr.alerts[0],
-            make_alert(
-                probe_ids::UnexpectedBgpPeer.clone(),
-                Some("10.217.4.78".to_string()),
-                "Unexpected BGP session referencing peer 10.217.4.78 was found in ipv4_unicast"
-                    .to_string(),
-                true
-            )
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_check_bgp_unexpected_route_server() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_AND_TENANT_ROUTES,
-            &["10.217.19.211"],
-            2,
-            &[],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        hr.alerts.sort_by(|alert1, alert2| {
-            (&alert1.id, &alert1.target).cmp(&(&alert2.id, &alert2.target))
-        });
-
-        assert_eq!(
-            hr.alerts[0],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p0_if".to_string()),
-                "Expected session for p0_if was not found in BGP peer data".to_string(),
-                true
-            )
-        );
-        assert_eq!(
-            hr.alerts[1],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p1_if".to_string()),
-                "Expected session for p1_if was not found in BGP peer data".to_string(),
-                true
-            )
-        );
-        assert_eq!(
-            hr.alerts[2],
-            make_alert(
-                probe_ids::UnexpectedBgpPeer.clone(),
-                Some("10.217.126.67".to_string()),
-                "Unexpected BGP session referencing peer 10.217.126.67 was found in l2_vpn_evpn"
-                    .to_string(),
-                true
-            )
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_check_bgp_with_route_server_and_tenant_routes() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_AND_TENANT_ROUTES,
-            &["10.217.19.211"],
-            2,
-            &["10.217.126.67".to_string()],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert!(hr.alerts.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn test_check_bgp_with_route_server_failed_all_peers() -> eyre::Result<()> {
-        let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
-        let mut health_data = BgpHealthData::default();
-        verify_bgp_summary(
-            &mut health_data,
-            BGP_SUMMARY_JSON_WITH_ROUTE_SERVER_FAILED_ALL_PEERS,
-            &[],
-            2,
-            &["10.217.126.67".to_string()],
-            HBNDeviceNames::hbn_23(),
-        );
-        health_data.into_health_report(&mut hr);
-        assert_eq!(hr.alerts.len(), 3);
-        hr.alerts
-            .sort_by(|alert1, alert2| alert1.target.cmp(&alert2.target));
-
-        assert_eq!(
-            hr.alerts[0],
-            make_alert(
-                probe_ids::BgpPeeringRouteServer.clone(),
-                Some("10.217.126.67".to_string()),
-                "Session 10.217.126.67 is not Established, but in state Active".to_string(),
-                true
-            )
-        );
-        assert_eq!(
-            hr.alerts[1],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p0_if".to_string()),
-                "Session p0_if is not Established, but in state Idle".to_string(),
-                true
-            )
-        );
-        assert_eq!(
-            hr.alerts[2],
-            make_alert(
-                probe_ids::BgpPeeringTor.clone(),
-                Some("p1_if".to_string()),
-                "Session p1_if is not Established, but in state Idle".to_string(),
-                true
-            )
-        );
-        Ok(())
+    /// Orders alerts by `(id, target)` so a produced report and its expected
+    /// report compare element-by-element regardless of insertion order.
+    fn sort_alerts(alerts: &mut [health_report::HealthProbeAlert]) {
+        alerts.sort_by(|a, b| (&a.id, &a.target).cmp(&(&b.id, &b.target)));
     }
 }

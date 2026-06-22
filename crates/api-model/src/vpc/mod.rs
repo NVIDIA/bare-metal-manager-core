@@ -26,6 +26,7 @@ pub use capability::{
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
+use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use carbide_uuid::vpc::VpcId;
 use carbide_uuid::vpc_peering::VpcPeeringId;
 use chrono::{DateTime, Utc};
@@ -36,29 +37,33 @@ use sqlx::{FromRow, Row};
 
 use crate::metadata::{LabelFilter, Metadata};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VpcConfig {
+    pub tenant_organization_id: String,
+    pub tenant_keyset_id: Option<String>,
+    pub network_virtualization_type: VpcVirtualizationType,
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
+    pub default_nvlink_logical_partition_id: Option<NvLinkLogicalPartitionId>,
+    pub vni: Option<i32>,
+    pub routing_profile_type: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct VpcStatus {
+    /// Allocated VNI.
     pub vni: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
     pub id: VpcId,
-    pub tenant_organization_id: String,
-    pub network_security_group_id: Option<NetworkSecurityGroupId>,
     pub version: ConfigVersion,
+    pub config: VpcConfig,
+    pub status: VpcStatus,
+    pub metadata: Metadata,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
-    pub tenant_keyset_id: Option<String>,
-    pub network_virtualization_type: VpcVirtualizationType,
-    pub routing_profile_type: Option<String>,
-    // Option because we can't allocate it until DB generates an id for us
-    // TODO: Update - Seems this isn't true since we generate a UUID if not found
-    // in the original creation request.
-    pub vni: Option<i32>,
-    pub metadata: Metadata,
-    pub status: Option<VpcStatus>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -115,26 +120,24 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             labels: vpc_labels.0,
         };
 
-        let routing_profile_type: Option<String> = row.try_get("routing_profile_type")?;
-        let status: Option<sqlx::types::Json<VpcStatus>> = row.try_get("status")?;
+        let status: sqlx::types::Json<VpcStatus> = row.try_get("status")?;
 
-        // TODO(chet): Once `tenant_keyset_id` is taken care of,
-        // this entire FromRow implementation can go away with a
-        // rename of `tenant_organization_id` to match (or just
-        // a rename of the `organization_id` column).
         Ok(Vpc {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
-            tenant_organization_id: row.try_get("organization_id")?,
-            network_security_group_id: row.try_get("network_security_group_id")?,
+            config: VpcConfig {
+                tenant_organization_id: row.try_get("organization_id")?,
+                tenant_keyset_id: None, // TODO: fix this once DB gets updated
+                network_security_group_id: row.try_get("network_security_group_id")?,
+                network_virtualization_type: row.try_get("network_virtualization_type")?,
+                routing_profile_type: row.try_get("routing_profile_type")?,
+                vni: row.try_get("vni")?,
+                default_nvlink_logical_partition_id: None,
+            },
+            status: status.0,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
-            tenant_keyset_id: None, //TODO: fix this once DB gets updated
-            status: status.map(|s| s.0),
-            network_virtualization_type: row.try_get("network_virtualization_type")?,
-            routing_profile_type,
-            vni: row.try_get("vni")?,
             metadata,
         })
     }

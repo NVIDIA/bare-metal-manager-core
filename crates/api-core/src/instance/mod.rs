@@ -281,7 +281,7 @@ pub async fn allocate_network(
         if vpcs.len() != vpc_ids.len()
             || vpcs
                 .iter()
-                .any(|x| x.network_virtualization_type != VpcVirtualizationType::Fnn)
+                .any(|x| x.config.network_virtualization_type != VpcVirtualizationType::Fnn)
         {
             return Err(CarbideError::InvalidConfiguration(
                 ConfigValidationError::InvalidValue(format!(
@@ -291,7 +291,7 @@ pub async fn allocate_network(
                         .map(|x| (x.id, x.vpc_id))
                         .collect_vec(),
                     vpcs.iter()
-                        .map(|x| (x.id, x.network_virtualization_type))
+                        .map(|x| (x.id, x.config.network_virtualization_type))
                         .collect_vec()
                 )),
             ));
@@ -995,15 +995,17 @@ pub async fn batch_allocate_instances(
                             requested_auto_config.vpc_id,
                         )));
                     }
-
-                    let vpc_iface = vpc.network_virtualization_type.fabric_interface_type();
+                    let vpc_iface = vpc
+                        .config
+                        .network_virtualization_type
+                        .fabric_interface_type();
                     if vpc_iface != FabricInterfaceType::Nic {
                         return Err(CarbideError::FailedPrecondition(format!(
                             "zero-DPU host {} has HostInband segment {} bound to VPC {} ({}); zero-DPU hosts can only allocate into VPCs whose fabric_interface_type is `nic` (got `{vpc_iface}`)",
                             mh_snapshot.host_snapshot.id,
                             segment_id,
                             vpc.id,
-                            vpc.network_virtualization_type,
+                            vpc.config.network_virtualization_type,
                         )));
                     }
                 }
@@ -1042,13 +1044,16 @@ pub async fn batch_allocate_instances(
                         .map_err(CarbideError::from)?
                     {
                         Some(vpc) => {
-                            let vpc_iface = vpc.network_virtualization_type.fabric_interface_type();
+                            let vpc_iface = vpc
+                                .config
+                                .network_virtualization_type
+                                .fabric_interface_type();
                             if vpc_iface != FabricInterfaceType::Dpu {
                                 return Err(CarbideError::FailedPrecondition(format!(
                                     "DPU-managed host {} cannot allocate an instance into VPC {} ({}, via segment {}); DPU hosts can only allocate into VPCs whose fabric_interface_type is `dpu` (got `{vpc_iface}`)",
                                     mh_snapshot.host_snapshot.id,
                                     vpc.id,
-                                    vpc.network_virtualization_type,
+                                    vpc.config.network_virtualization_type,
                                     ns_id,
                                 )));
                             }

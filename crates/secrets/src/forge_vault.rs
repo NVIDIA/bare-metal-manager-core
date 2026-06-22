@@ -46,7 +46,7 @@ use crate::credentials::{
 
 const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
 const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
-const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "forge.local";
+const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "nico.local";
 const DEFAULT_SPIFFE_MACHINE_BASE_PATH: &str = "/forge-system/machine/";
 const VAULT_SPIFFE_TRUST_DOMAIN_ENV_VAR: &str = "VAULT_SPIFFE_TRUST_DOMAIN";
 const VAULT_SPIFFE_MACHINE_BASE_PATH_ENV_VAR: &str = "VAULT_SPIFFE_MACHINE_BASE_PATH";
@@ -907,7 +907,7 @@ pub struct VaultConfig {
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
     pub vault_cacert: Option<String>,
-    /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `forge.local`.
+    /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `nico.local`.
     pub spiffe_trust_domain: Option<String>,
     /// Path prefix after the trust domain, e.g. `/forge-system/machine/`.
     pub spiffe_machine_base_path: Option<String>,
@@ -1058,6 +1058,14 @@ mod tests {
             machine_spiffe_uri("forge.local", "forge-system/machine", "abc-123"),
             "spiffe://forge.local/forge-system/machine/abc-123"
         );
+    }
+
+    #[test]
+    fn vault_config_spiffe_trust_domain_defaults_to_nico_local() {
+        use super::VaultConfig;
+
+        let config = VaultConfig::default();
+        assert_eq!(config.spiffe_trust_domain(), "nico.local");
     }
 
     fn jwt_from_payload(payload_value: serde_json::Value) -> String {

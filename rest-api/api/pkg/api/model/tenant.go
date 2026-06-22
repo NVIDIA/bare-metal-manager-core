@@ -82,13 +82,10 @@ func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
 	return &atn
 }
 
-// APIInstanceStat holds aggregated instance status counts at the API layer.
-type APIInstanceStat = cdbm.InstanceStatusCounts
-
 // APITenantStats is the data structure to capture API representation of a Tenant Stats
 type APITenantStats struct {
 	// Instance holds aggregated instance status counts for the tenant.
-	Instance APIInstanceStat `json:"instance"`
+	Instance APIInstanceStats `json:"instance"`
 	// Vpc is the data structure to capture API representation of a Vpc Stats associated with tenant
 	Vpc APIVpcStats `json:"vpc"`
 	// Subnet is the data structure to capture API representation of a Subnet Stats associated with tenant
@@ -98,7 +95,7 @@ type APITenantStats struct {
 }
 
 // NewAPITenantStats accepts stats for each object and returns an API layer object
-func NewAPITenantStats(instanceStats APIInstanceStat, vpcstatsmap map[string]int, subnetstatmap map[string]int, tastatsmap map[string]int) *APITenantStats {
+func NewAPITenantStats(instanceStats APIInstanceStats, vpcstatsmap map[string]int, subnetstatmap map[string]int, tastatsmap map[string]int) *APITenantStats {
 	ats := APITenantStats{
 		Vpc: APIVpcStats{
 			Total:        vpcstatsmap["total"],

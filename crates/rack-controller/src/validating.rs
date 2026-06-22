@@ -397,6 +397,8 @@ pub async fn handle_validating(
 mod tests {
     use std::collections::HashMap;
 
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     fn metadata_with_labels(pairs: &[(&str, &str)]) -> Metadata {
@@ -593,204 +595,234 @@ mod tests {
     // -------------------------------------------------------------------------
     // compute_validation_transition tests
 
-    #[test]
-    fn test_compute_validation_transition_from_in_progress() {
-        let state = RackValidationState::InProgress {
+    /// One transition case: a current sub-state plus the partition summary it is
+    /// evaluated against. The expected value is the next sub-state, or `None` when
+    /// the state machine should hold.
+    struct TransitionCase {
+        state: RackValidationState,
+        summary: RackPartitionSummary,
+    }
+
+    fn in_progress() -> RackValidationState {
+        RackValidationState::InProgress {
             run_id: "run-001".to_string(),
-        };
+        }
+    }
 
-        // Still in progress
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 2,
-            in_progress: 2,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
+    fn partial() -> RackValidationState {
+        RackValidationState::Partial {
+            run_id: "run-001".to_string(),
+        }
+    }
 
-        // One validated
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 2,
-            in_progress: 1,
-            validated: 1,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::Partial {
-                run_id: "run-001".to_string()
-            })
-        );
+    fn failed_partial() -> RackValidationState {
+        RackValidationState::FailedPartial {
+            run_id: "run-001".to_string(),
+        }
+    }
 
-        // One failed (higher priority than validated)
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 1,
-            in_progress: 1,
-            validated: 1,
-            failed: 1,
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::FailedPartial {
-                run_id: "run-001".to_string()
-            })
-        );
+    fn failed() -> RackValidationState {
+        RackValidationState::Failed {
+            run_id: "run-001".to_string(),
+        }
+    }
+
+    fn validated() -> RackValidationState {
+        RackValidationState::Validated {
+            run_id: "run-001".to_string(),
+        }
     }
 
     #[test]
-    fn test_compute_validation_transition_from_partial() {
-        let state = RackValidationState::Partial {
-            run_id: "run-001".to_string(),
-        };
-
-        // More in progress
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            in_progress: 2,
-            validated: 2,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
-
-        // All validated
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            validated: 4,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::Validated {
-                run_id: "run-001".to_string()
-            })
+    fn test_compute_validation_transition() {
+        check_values(
+            [
+                // ── from InProgress ──────────────────────────────────────
+                Check {
+                    scenario: "in progress / still in progress holds",
+                    input: TransitionCase {
+                        state: in_progress(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            pending: 2,
+                            in_progress: 2,
+                            ..Default::default()
+                        },
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "in progress / one validated -> Partial",
+                    input: TransitionCase {
+                        state: in_progress(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            pending: 2,
+                            in_progress: 1,
+                            validated: 1,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(partial()),
+                },
+                Check {
+                    scenario: "in progress / one failed outranks validated -> FailedPartial",
+                    input: TransitionCase {
+                        state: in_progress(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            pending: 1,
+                            in_progress: 1,
+                            validated: 1,
+                            failed: 1,
+                        },
+                    },
+                    expect: Some(failed_partial()),
+                },
+                // ── from Partial ─────────────────────────────────────────
+                Check {
+                    scenario: "partial / more in progress holds",
+                    input: TransitionCase {
+                        state: partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            in_progress: 2,
+                            validated: 2,
+                            ..Default::default()
+                        },
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "partial / all validated -> Validated",
+                    input: TransitionCase {
+                        state: partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            validated: 4,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(validated()),
+                },
+                Check {
+                    scenario: "partial / one failed -> FailedPartial",
+                    input: TransitionCase {
+                        state: partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            validated: 3,
+                            failed: 1,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(failed_partial()),
+                },
+                // ── from FailedPartial ───────────────────────────────────
+                Check {
+                    scenario: "failed partial / all failed -> Failed",
+                    input: TransitionCase {
+                        state: failed_partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            failed: 4,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(failed()),
+                },
+                Check {
+                    scenario: "failed partial / recovery with some validated -> Partial",
+                    input: TransitionCase {
+                        state: failed_partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            in_progress: 2,
+                            validated: 2,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(partial()),
+                },
+                Check {
+                    scenario: "failed partial / recovery none validated yet -> InProgress",
+                    input: TransitionCase {
+                        state: failed_partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            pending: 2,
+                            in_progress: 2,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(in_progress()),
+                },
+                Check {
+                    scenario: "failed partial / still some failed and some validated holds",
+                    input: TransitionCase {
+                        state: failed_partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            validated: 2,
+                            failed: 2,
+                            ..Default::default()
+                        },
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "failed partial / all partitions reset to idle -> Pending",
+                    input: TransitionCase {
+                        state: failed_partial(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            pending: 4,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(RackValidationState::Pending),
+                },
+                // ── from Failed ──────────────────────────────────────────
+                Check {
+                    scenario: "failed / still all failed holds",
+                    input: TransitionCase {
+                        state: failed(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            failed: 4,
+                            ..Default::default()
+                        },
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "failed / recovery started -> FailedPartial",
+                    input: TransitionCase {
+                        state: failed(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            in_progress: 1,
+                            failed: 3,
+                            ..Default::default()
+                        },
+                    },
+                    expect: Some(failed_partial()),
+                },
+                // ── from Validated (terminal) ────────────────────────────
+                Check {
+                    scenario: "validated / terminal sub-state always holds",
+                    input: TransitionCase {
+                        state: validated(),
+                        summary: RackPartitionSummary {
+                            total_partitions: 4,
+                            validated: 4,
+                            ..Default::default()
+                        },
+                    },
+                    expect: None,
+                },
+            ],
+            |TransitionCase { state, summary }| compute_validation_transition(&state, &summary),
         );
-
-        // One failed
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            validated: 3,
-            failed: 1,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::FailedPartial {
-                run_id: "run-001".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn test_compute_validation_transition_from_failed_partial() {
-        let state = RackValidationState::FailedPartial {
-            run_id: "run-001".to_string(),
-        };
-
-        // All failed -> Failed
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            failed: 4,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::Failed {
-                run_id: "run-001".to_string()
-            })
-        );
-
-        // Recovery: no failures, some validated
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            in_progress: 2,
-            validated: 2,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::Partial {
-                run_id: "run-001".to_string()
-            })
-        );
-
-        // Recovery: no failures, none validated yet
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 2,
-            in_progress: 2,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::InProgress {
-                run_id: "run-001".to_string()
-            })
-        );
-
-        // Still some failed, some validated
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            validated: 2,
-            failed: 2,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
-
-        // All partitions reset to idle (RVS cleared labels before re-run)
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            pending: 4,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::Pending)
-        );
-    }
-
-    #[test]
-    fn test_compute_validation_transition_from_failed() {
-        let state = RackValidationState::Failed {
-            run_id: "run-001".to_string(),
-        };
-
-        // Still all failed
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            failed: 4,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
-
-        // Recovery started
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            in_progress: 1,
-            failed: 3,
-            ..Default::default()
-        };
-        assert_eq!(
-            compute_validation_transition(&state, &summary),
-            Some(RackValidationState::FailedPartial {
-                run_id: "run-001".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn test_compute_validation_transition_from_validated() {
-        let state = RackValidationState::Validated {
-            run_id: "run-001".to_string(),
-        };
-
-        // Terminal sub-state -- always returns None.
-        let summary = RackPartitionSummary {
-            total_partitions: 4,
-            validated: 4,
-            ..Default::default()
-        };
-        assert_eq!(compute_validation_transition(&state, &summary), None);
     }
 }
