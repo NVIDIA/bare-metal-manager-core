@@ -605,6 +605,15 @@ service Forge {
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
 
+  // Machine-Validation run item IDs
+  rpc FindMachineValidationRunItemIds(MachineValidationRunItemSearchFilter) returns (MachineValidationRunItemIdList);
+
+  // Machine-Validation run items by IDs
+  rpc FindMachineValidationRunItemsByIds(MachineValidationRunItemsByIdsRequest) returns (MachineValidationRunItemList);
+
+  // Machine-Validation attempt detail
+  rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
+
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation test list
@@ -1488,19 +1497,30 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
-// 
+message VpcConfig {
+  string tenant_organization_id = 1;
+  optional string tenant_keyset_id = 2;
+  optional VpcVirtualizationType network_virtualization_type = 3;
+  optional string network_security_group_id = 4;
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 5;
+  // Desired VNI for this VPC. Only populated when explicitly requested during creation.
+  optional uint32 vni = 6;
+  optional string routing_profile_type = 7;
+}
+
 message VpcStatus {
   // The actual VNI allocated to the VPC. If a VNI had been
-  // explicitly requested, we'd expect this to match the VNI
-  // of the Vpc message. If not explicitly requested, we'd
-  // expect the VNI of the Vpc message to be unset.
+  // explicitly requested, we'd expect this to match config.vni.
+  // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
 }
 
 message Vpc {
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_organization_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
 
@@ -1509,34 +1529,41 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  optional string tenantKeysetId = 7; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_keyset_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
-  // We'll keep populating this field but it will come from
-  // status.vni
-  // We'll be able to trim it out later after some deprecation window.
-  optional uint32 deprecated_vni = 8; // Deprecated
+  // Deprecated: use status.vni
+  // TODO change to reserved once rest component uses `VpcStatus`
+  optional uint32 deprecated_vni = 8 [deprecated = true];
 
-  optional VpcVirtualizationType network_virtualization_type = 9;
+  // Deprecated: use config.network_virtualization_type
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
   Metadata metadata = 10;
 
-  // Sets the desired NSG ID for a VPC
-  optional string network_security_group_id  = 11;
+  // Deprecated: use config.network_security_group_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string network_security_group_id  = 11 [deprecated = true];
 
   // dpa_vni
   reserved 12;
 
-  // The ID of the default NVLink Logical Partition for a VPC
-  // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
+  // Deprecated: use config.default_nvlink_logical_partition_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
 
   optional VpcStatus status = 14;
 
-  // This will only be populated if the VNI was explicitly
-  // requested during creation of the VPC.
-  optional uint32 vni = 15;
+  // Deprecated: use config.vni
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional uint32 vni = 15 [deprecated = true];
 
-  // The resolved routing profile type applied to this VPC.
-  optional string routing_profile_type = 16;
+  // Deprecated: use config.routing_profile_type
+  // TODO change to reserved once rest-component uses `VpcConfig`
+  optional string routing_profile_type = 16 [deprecated = true];
+
+  VpcConfig config = 17;
 }
 
 message VpcCreationRequest {
@@ -3816,22 +3843,54 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+  // DHCP protocol family for this request.
+  // Omit only for legacy callers; the service infers the family from relay/link
+  // addresses. If present, ADDRESS_FAMILY_UNSPECIFIED is invalid.
+  // When either address_family or message_kind is present, both must be present,
+  // specified, and compatible.
   optional AddressFamily address_family = 8;
+  // DHCP message kind for this request.
+  // Omit only for legacy callers. If present, MESSAGE_KIND_UNSPECIFIED is invalid.
+  // ADDRESS_FAMILY_V4 is valid only with MESSAGE_KIND_V4_DISCOVER.
+  // ADDRESS_FAMILY_V6 is valid only with MESSAGE_KIND_V6_SOLICIT,
+  // MESSAGE_KIND_V6_REQUEST, or MESSAGE_KIND_V6_INFO_REQUEST.
+  // Mismatched pairs, such as ADDRESS_FAMILY_V4 with MESSAGE_KIND_V6_SOLICIT,
+  // are validation errors and must not be coerced.
   optional MessageKind message_kind = 9;
+  // DHCPv6 client DUID.
+  // Must be present and non-empty for DHCPv6 requests, including all V6
+  // MessageKind values and any request with ADDRESS_FAMILY_V6.
+  // Must be absent for DHCPv4 requests.
   optional bytes duid = 10;
 }
 
+// DHCP protocol family used to validate DhcpDiscovery.message_kind and duid.
+// Field absence means legacy inference; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
 enum AddressFamily {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.address_family instead
+  // when using legacy family inference.
   ADDRESS_FAMILY_UNSPECIFIED = 0;
+  // DHCPv4. Compatible only with MESSAGE_KIND_V4_DISCOVER and no DUID.
   ADDRESS_FAMILY_V4 = 1;
+  // DHCPv6. Compatible only with V6 MessageKind values and requires a DUID.
   ADDRESS_FAMILY_V6 = 2;
 }
 
+// DHCP message type used to validate DhcpDiscovery.address_family and duid.
+// Field absence means legacy behavior; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
 enum MessageKind {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.message_kind instead
+  // when using legacy behavior.
   MESSAGE_KIND_UNSPECIFIED = 0;
+  // DHCPv4 DISCOVER. Requires ADDRESS_FAMILY_V4 and forbids duid.
   MESSAGE_KIND_V4_DISCOVER = 1;
+  // DHCPv6 SOLICIT. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_SOLICIT = 2;
+  // DHCPv6 REQUEST. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_REQUEST = 3;
+  // DHCPv6 Information-request. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
 
@@ -3878,7 +3937,13 @@ message DhcpRecord {
   // Per site NTP server IPs
   repeated string ntp_servers = 13;
 
+  // DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When present, dhcpv6_valid_lifetime_secs must also be present and must be
+  // greater than or equal to this value.
   optional uint32 dhcpv6_preferred_lifetime_secs = 14;
+  // DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When both DHCPv6 lifetime fields are present, this value must be greater
+  // than or equal to dhcpv6_preferred_lifetime_secs.
   optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
@@ -6168,6 +6233,65 @@ message MachineValidationRunListGetRequest {
   bool include_history = 2;
 }
 
+message MachineValidationRunItemSearchFilter {
+  common.MachineValidationId validation_id = 1;
+}
+
+message MachineValidationRunItemIdList {
+  repeated common.UUID run_item_ids = 1;
+}
+
+message MachineValidationRunItemsByIdsRequest {
+  repeated common.UUID run_item_ids = 1;
+}
+
+message MachineValidationRunItemList {
+  repeated MachineValidationRunItem run_items = 1;
+}
+
+message MachineValidationRunItem {
+  common.UUID run_item_id = 1;
+  common.MachineValidationId validation_id = 2;
+  string test_id = 3;
+  optional string test_version = 4;
+  string display_name = 5;
+  string context = 6;
+  optional string component = 7;
+  string state = 8;
+  uint32 order_index = 9;
+  uint32 attempt = 10;
+  uint32 max_attempts = 11;
+  google.protobuf.Duration timeout = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp ended_at = 14;
+  google.protobuf.Timestamp last_heartbeat_at = 15;
+  optional string skip_reason = 16;
+  optional string failure_reason = 17;
+  common.UUID current_attempt_id = 18;
+}
+
+message MachineValidationAttemptGetRequest {
+  common.UUID attempt_id = 1;
+}
+
+message MachineValidationAttempt {
+  common.UUID attempt_id = 1;
+  common.UUID run_item_id = 2;
+  uint32 attempt_number = 3;
+  string state = 4;
+  optional string command = 5;
+  optional string args = 6;
+  optional string container_image = 7;
+  optional bool execute_in_host = 8;
+  optional int32 exit_code = 9;
+  optional string failure_classification = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  google.protobuf.Timestamp last_heartbeat_at = 13;
+  optional string stdout_summary = 14;
+  optional string stderr_summary = 15;
+}
+
 message IsBmcInManagedHostResponse {
   bool in_managed_host = 1;
 }
@@ -6294,6 +6418,7 @@ message MachineValidationRunRequest {
   common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
+  repeated MachineValidationTest selected_tests = 4;
 }
 message MachineValidationRunResponse {
   string message = 1;

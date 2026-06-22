@@ -44,19 +44,53 @@ struct VpcRowDisplay {
     vni: String,
 }
 
+#[allow(deprecated)]
+fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
+    if let Some(config) = vpc.config.clone() {
+        config
+    } else {
+        forgerpc::VpcConfig {
+            tenant_organization_id: vpc.tenant_organization_id.clone(),
+            tenant_keyset_id: vpc.tenant_keyset_id.clone(),
+            network_virtualization_type: vpc.network_virtualization_type,
+            network_security_group_id: vpc.network_security_group_id.clone(),
+            default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
+            vni: vpc.vni,
+            routing_profile_type: vpc.routing_profile_type.clone(),
+        }
+    }
+}
+
+#[allow(deprecated)]
+fn vpc_allocated_vni(vpc: &forgerpc::Vpc) -> Option<u32> {
+    vpc.status
+        .as_ref()
+        .and_then(|status| status.vni)
+        .or(vpc.deprecated_vni)
+}
+
+#[allow(deprecated)]
+fn vpc_virt_type(vpc: &forgerpc::Vpc) -> i32 {
+    vpc_config(vpc)
+        .network_virtualization_type
+        .or(vpc.network_virtualization_type)
+        .unwrap_or_default()
+}
+
 impl From<forgerpc::Vpc> for VpcRowDisplay {
     fn from(vpc: forgerpc::Vpc) -> Self {
+        let config = vpc_config(&vpc);
         Self {
-            network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
+            network_virtualization_type: format!(
+                "{:?}",
+                forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc)).unwrap_or_default()
+            ),
             id: vpc.id.unwrap_or_default().to_string(),
-            metadata: vpc.metadata.unwrap_or_default(),
-            tenant_organization_id: vpc.tenant_organization_id,
-            tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
-            routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
-            vni: vpc
-                .status
-                .as_ref()
-                .and_then(|status| status.vni)
+            metadata: vpc.metadata.clone().unwrap_or_default(),
+            tenant_organization_id: config.tenant_organization_id,
+            tenant_keyset_id: config.tenant_keyset_id.unwrap_or_default(),
+            routing_profile_type: config.routing_profile_type.unwrap_or("None".to_string()),
+            vni: vpc_allocated_vni(&vpc)
                 .map(|vni| vni.to_string())
                 .unwrap_or_default(),
         }
@@ -154,20 +188,21 @@ struct VpcDetail {
 
 impl From<forgerpc::Vpc> for VpcDetail {
     fn from(vpc: forgerpc::Vpc) -> Self {
+        let config = vpc_config(&vpc);
         Self {
-            network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
+            network_virtualization_type: format!(
+                "{:?}",
+                forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc)).unwrap_or_default()
+            ),
             id: vpc.id.unwrap_or_default().to_string(),
-            tenant_organization_id: vpc.tenant_organization_id,
-            tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
-            routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
-            vni: vpc
-                .status
-                .as_ref()
-                .and_then(|status| status.vni)
+            tenant_organization_id: config.tenant_organization_id,
+            tenant_keyset_id: config.tenant_keyset_id.unwrap_or_default(),
+            routing_profile_type: config.routing_profile_type.unwrap_or("None".to_string()),
+            vni: vpc_allocated_vni(&vpc)
                 .map(|vni| vni.to_string())
                 .unwrap_or_default(),
             metadata_detail: super::MetadataDetail {
-                metadata: vpc.metadata.unwrap_or_default(),
+                metadata: vpc.metadata.clone().unwrap_or_default(),
                 metadata_version: vpc.version,
             },
         }

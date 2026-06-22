@@ -18,6 +18,7 @@ use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use carbide_machine_controller::config::machine_validation::{
     MachineValidationConfig, MachineValidationTestSelectionMode,
 };
+use carbide_uuid::machine_validation::{MachineValidationAttemptId, MachineValidationRunItemId};
 use config_version::ConfigVersion;
 use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -27,6 +28,7 @@ use model::machine::{
 };
 use model::machine_validation::{
     MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
+    MachineValidationTest as ModelMachineValidationTest,
     MachineValidationTestAddRequest as ModelTestAddRequest,
     MachineValidationTestUpdateRequest as ModelTestUpdateRequest,
     MachineValidationTestsGetRequest as ModelTestsGetRequest,
@@ -259,6 +261,21 @@ pub(crate) async fn persist_validation_result(
         }
     }
 
+    // Keep the durable run-item/attempt write ahead of the legacy projections.
+    // A false return means this report is a replay of an already-terminal attempt.
+    let first_terminal_report =
+        db::machine_validation_execution::record_result(&mut txn, &validation_result).await?;
+    if !first_terminal_report {
+        tracing::info!(
+            validation_id = %validation_result.validation_id,
+            machine_id = %machine.id,
+            test_id = ?validation_result.test_id,
+            "machine validation result ignored because attempt was already terminal"
+        );
+        txn.commit().await?;
+        return Ok(tonic::Response::new(()));
+    }
+
     // Update the Machine validation health report based on the result
     let mut updated_validation_health_report = machine.machine_validation_health_report();
     updated_validation_health_report.observed_at = Some(chrono::Utc::now());
@@ -431,6 +448,100 @@ pub(crate) async fn get_machine_validation_runs(
         .map(Response::new)?;
 
     Ok(ret)
+}
+
+pub(crate) async fn find_machine_validation_run_item_ids(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationRunItemSearchFilter>,
+) -> Result<tonic::Response<rpc::MachineValidationRunItemIdList>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let validation_id = req
+        .validation_id
+        .as_ref()
+        .ok_or(CarbideError::MissingArgument("validation id"))?;
+
+    let mut db_reader = api.db_reader();
+    let run_item_ids = db::machine_validation_execution::find_run_item_ids_by_run_id(
+        &mut db_reader,
+        validation_id,
+    )
+    .await?
+    .into_iter()
+    .map(|id| ::rpc::common::Uuid {
+        value: id.to_string(),
+    })
+    .collect();
+
+    Ok(tonic::Response::new(rpc::MachineValidationRunItemIdList {
+        run_item_ids,
+    }))
+}
+
+pub(crate) async fn find_machine_validation_run_items_by_ids(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationRunItemsByIdsRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationRunItemList>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if req.run_item_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} run_item_ids can be accepted"
+        ))
+        .into());
+    } else if req.run_item_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one run_item_id must be provided".to_string(),
+        )
+        .into());
+    }
+
+    let run_item_ids = req
+        .run_item_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id)
+                .map(MachineValidationRunItemId::from)
+                .map_err(CarbideError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut db_reader = api.db_reader();
+    let run_items =
+        db::machine_validation_execution::find_run_items_by_ids(&mut db_reader, &run_item_ids)
+            .await?
+            .into_iter()
+            .map(rpc::MachineValidationRunItem::from)
+            .collect();
+
+    Ok(tonic::Response::new(rpc::MachineValidationRunItemList {
+        run_items,
+    }))
+}
+
+pub(crate) async fn get_machine_validation_attempt(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationAttemptGetRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationAttempt>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let attempt_id = req
+        .attempt_id
+        .as_ref()
+        .ok_or(CarbideError::MissingArgument("attempt id"))?;
+    let attempt_id = MachineValidationAttemptId::from(
+        uuid::Uuid::try_from(attempt_id).map_err(CarbideError::from)?,
+    );
+
+    let attempt =
+        db::machine_validation_execution::find_attempt_by_id(&api.database_connection, &attempt_id)
+            .await?;
+
+    Ok(tonic::Response::new(rpc::MachineValidationAttempt::from(
+        attempt,
+    )))
 }
 
 pub(crate) async fn on_demand_machine_validation(
@@ -761,18 +872,45 @@ pub(crate) async fn update_machine_validation_run(
 
     let validation_id = req
         .validation_id
-        .as_ref()
         .ok_or(CarbideError::MissingArgument("Validation id"))?;
+    let selected_tests = req
+        .selected_tests
+        .into_iter()
+        .map(ModelMachineValidationTest::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let total = req
+        .total
+        .try_into()
+        .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?;
+    let total_len =
+        usize::try_from(total).map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?;
+
+    if !selected_tests.is_empty() && total_len != selected_tests.len() {
+        return Err(CarbideError::InvalidArgument(
+            "total must match selected_tests length".to_string(),
+        )
+        .into());
+    }
 
     db::machine_validation::update_run(
         &mut txn,
-        validation_id,
-        req.total
-            .try_into()
-            .map_err(|_e| CarbideError::InvalidArgument("total".to_string()))?,
+        &validation_id,
+        total,
         req.duration_to_complete.unwrap_or_default().seconds,
     )
     .await?;
+
+    if !selected_tests.is_empty() {
+        let machine_validation =
+            db::machine_validation::find_by_id(&mut txn, &validation_id).await?;
+        db::machine_validation_execution::materialize_run_plan(
+            &mut txn,
+            &validation_id,
+            machine_validation.context.as_deref().unwrap_or_default(),
+            &selected_tests,
+        )
+        .await?;
+    }
 
     txn.commit().await?;
 

@@ -716,6 +716,9 @@ pub async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
+
     use super::*;
 
     // Should these gaps be tabs? Yes. Are they tabs? No. `supervisorctl` outputs spaces.
@@ -761,121 +764,173 @@ overlay          41G   12G   27G  31% /run/containerd/io.containerd.runtime.v2.t
 tmpfs           3.4G     0  3.4G   0% /run/user/1002
 "#;
 
+    /// Builds the expected `DiskUtilization` for one `df -HP` row, in the column
+    /// order the output lists them: device, size, used, available, then the
+    /// utilization percentage.
+    fn disk(
+        device: &str,
+        size: &str,
+        used: &str,
+        available: &str,
+        utilization: u32,
+    ) -> DiskUtilization {
+        DiskUtilization {
+            device: device.to_string(),
+            size: size.to_string(),
+            used: used.to_string(),
+            available: available.to_string(),
+            utilization,
+        }
+    }
+
     #[test]
     fn test_parse_disk_utilization() {
-        let utilizations = super::parse_disk_utilization(DISKUTIL_OUT).unwrap();
+        let parsed = super::parse_disk_utilization(DISKUTIL_OUT).unwrap();
+        // Every mountpoint in the fixture is accounted for, so a stray or missing
+        // row is caught alongside the per-row field checks below.
+        assert_eq!(parsed.utilizations.len(), 10);
 
-        assert_eq!(
-            utilizations.utilizations,
-            HashMap::from_iter([(
-                "/dev/shm".to_string(),
-                DiskUtilization {
-                    device: "tmpfs".to_string(),
-                    utilization: 1,
-                    available: "17G".to_string(),
-                    used: "4.1k".to_string(),
-                    size: "17G".to_string()
-                }
-            ),
-            (
-                "/run".to_string(),
-                DiskUtilization {
-                    device: "tmpfs".to_string(),
-                    utilization: 1,
-                    available: "6.7G".to_string(),
-                    used: "17M".to_string(),
-                    size: "6.8G".to_string()
-                }
-            ),(
-                "/run/lock".to_string(),
-                DiskUtilization {
-                    device: "tmpfs".to_string(),
-                    utilization: 1,
-                    available: "5.3M".to_string(),
-                    used: "8.2k".to_string(),
-                    size: "5.3M".to_string()
-                }
-            ),(
-                "/".to_string(),
-                DiskUtilization {
-                    device: "/dev/mmcblk0p2".to_string(),
-                    utilization: 31,
-                    available: "27G".to_string(),
-                    used: "12G".to_string(),
-                    size: "41G".to_string()
-                }
-            ),(
-                "/boot/efi".to_string(),
-                DiskUtilization {
-                    device: "/dev/mmcblk0p1".to_string(),
-                    utilization: 18,
-                    available: "43M".to_string(),
-                    used: "9.0M".to_string(),
-                    size: "52M".to_string()
-                }
-            ),(
-                "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/shm".to_string(),
-                DiskUtilization {
-                    device: "shm".to_string(),
-                    utilization: 0,
-                    available: "68M".to_string(),
-                    used: "0".to_string(),
-                    size: "68M".to_string()
-                }
-            ),(
-                "/run/containerd/io.containerd.runtime.v2.task/k8s.io/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/rootfs".to_string(),
-                DiskUtilization {
-                    device: "overlay".to_string(),
-                    utilization: 31,
-                    available: "27G".to_string(),
-                    used: "12G".to_string(),
-                    size: "41G".to_string()
-                }
-            ),(
-                "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/shm".to_string(),
-                DiskUtilization {
-                    device: "shm".to_string(),
-                    utilization: 1,
-                    available: "68M".to_string(),
-                    used: "8.2k".to_string(),
-                    size: "68M".to_string()
-                }
-            ),(
-                "/run/containerd/io.containerd.runtime.v2.task/k8s.io/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/rootfs".to_string(),
-                DiskUtilization {
-                    device: "overlay".to_string(),
-                    utilization: 31,
-                    available: "27G".to_string(),
-                    used: "12G".to_string(),
-                    size: "41G".to_string()
-                }
-            ),(
-                "/run/user/1002".to_string(),
-                DiskUtilization {
-                    device: "tmpfs".to_string(),
-                    utilization: 0,
-                    available: "3.4G".to_string(),
-                    used: "0".to_string(),
-                    size: "3.4G".to_string()
-                }
-            )])
+        check_values(
+            [
+                Check {
+                    scenario: "/dev/shm",
+                    input: "/dev/shm",
+                    expect: Some(disk("tmpfs", "17G", "4.1k", "17G", 1)),
+                },
+                Check {
+                    scenario: "/run",
+                    input: "/run",
+                    expect: Some(disk("tmpfs", "6.8G", "17M", "6.7G", 1)),
+                },
+                Check {
+                    scenario: "/run/lock",
+                    input: "/run/lock",
+                    expect: Some(disk("tmpfs", "5.3M", "8.2k", "5.3M", 1)),
+                },
+                Check {
+                    scenario: "rootfs",
+                    input: "/",
+                    expect: Some(disk("/dev/mmcblk0p2", "41G", "12G", "27G", 31)),
+                },
+                Check {
+                    scenario: "/boot/efi",
+                    input: "/boot/efi",
+                    expect: Some(disk("/dev/mmcblk0p1", "52M", "9.0M", "43M", 18)),
+                },
+                Check {
+                    scenario: "containerd sandbox shm",
+                    input: "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/shm",
+                    expect: Some(disk("shm", "68M", "0", "68M", 0)),
+                },
+                Check {
+                    scenario: "containerd task rootfs",
+                    input: "/run/containerd/io.containerd.runtime.v2.task/k8s.io/3c9db06a2021f14b6cb98d0583ae43909f282c6d670dd9da071bddf333caaa4e/rootfs",
+                    expect: Some(disk("overlay", "41G", "12G", "27G", 31)),
+                },
+                Check {
+                    scenario: "second containerd sandbox shm",
+                    input: "/run/containerd/io.containerd.grpc.v1.cri/sandboxes/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/shm",
+                    expect: Some(disk("shm", "68M", "8.2k", "68M", 1)),
+                },
+                Check {
+                    scenario: "second containerd task rootfs",
+                    input: "/run/containerd/io.containerd.runtime.v2.task/k8s.io/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/rootfs",
+                    expect: Some(disk("overlay", "41G", "12G", "27G", 31)),
+                },
+                Check {
+                    scenario: "/run/user/1002",
+                    input: "/run/user/1002",
+                    expect: Some(disk("tmpfs", "3.4G", "0", "3.4G", 0)),
+                },
+                Check {
+                    scenario: "unlisted mountpoint is absent",
+                    input: "/nope",
+                    expect: None,
+                },
+            ],
+            |mount_point| parsed.utilizations.get(mount_point).cloned(),
         );
     }
 
     #[test]
-    fn test_parse_supervisorctl_status() -> eyre::Result<()> {
-        let st = parse_status(SUPERVISORCTL_STATUS_OUT)?;
-        assert_eq!(st.status_of("frr"), SctlState::Running);
-        assert_eq!(st.status_of("ifreload"), SctlState::Exited);
-        assert_eq!(st.status_of("nvued"), SctlState::Stopped);
-        Ok(())
+    fn test_parse_supervisorctl_status() {
+        let st = parse_status(SUPERVISORCTL_STATUS_OUT).unwrap();
+        check_values(
+            [
+                Check {
+                    scenario: "running service",
+                    input: "frr",
+                    expect: SctlState::Running,
+                },
+                Check {
+                    scenario: "exited service",
+                    input: "ifreload",
+                    expect: SctlState::Exited,
+                },
+                Check {
+                    scenario: "stopped service",
+                    input: "nvued",
+                    expect: SctlState::Stopped,
+                },
+                Check {
+                    scenario: "absent service reports Unknown",
+                    input: "not-a-service",
+                    expect: SctlState::Unknown,
+                },
+            ],
+            |service| st.status_of(service),
+        );
     }
 
     #[test]
     fn test_parse_mlxprivhost() {
-        assert_eq!(
-            super::parse_mlxprivhost(MLXPRIVHOST_OUT).unwrap(),
-            "RESTRICTED"
+        scenarios!(run = |s| parse_mlxprivhost(s).map_err(|e| e.to_string());
+            "well-formed output yields the level" {
+                MLXPRIVHOST_OUT => Yields("RESTRICTED".to_string()),
+            }
+
+            "malformed output is rejected" {
+                // No `level` line at all, and a level line without the `:` separator.
+                "Host configurations\n-------------------\n" => Fails,
+                "level RESTRICTED" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn test_sctl_state_from_str() {
+        value_scenarios!(run = |s: &str| s.parse::<SctlState>().expect("from_str is infallible");
+            "each supervisorctl state name maps to its variant" {
+                "STOPPED" => SctlState::Stopped,
+                "STARTING" => SctlState::Starting,
+                "RUNNING" => SctlState::Running,
+                "BACKOFF" => SctlState::Backoff,
+                "STOPPING" => SctlState::Stopping,
+                "EXITED" => SctlState::Exited,
+                "FATAL" => SctlState::Fatal,
+            }
+
+            "an unrecognized state falls through to Unknown" {
+                "UNKNOWN" => SctlState::Unknown,
+                "wat" => SctlState::Unknown,
+                "" => SctlState::Unknown,
+            }
+        );
+    }
+
+    #[test]
+    fn test_sctl_state_display() {
+        value_scenarios!(run = |state: SctlState| state.to_string();
+            "every variant renders its supervisorctl name" {
+                SctlState::Stopped => "STOPPED".to_string(),
+                SctlState::Starting => "STARTING".to_string(),
+                SctlState::Running => "RUNNING".to_string(),
+                SctlState::Backoff => "BACKOFF".to_string(),
+                SctlState::Stopping => "STOPPING".to_string(),
+                SctlState::Exited => "EXITED".to_string(),
+                SctlState::Fatal => "FATAL".to_string(),
+                SctlState::Unknown => "UNKNOWN".to_string(),
+            }
         );
     }
 }

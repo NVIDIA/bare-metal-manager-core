@@ -373,73 +373,64 @@ impl NvSwitchManager for NsmSwitchBackend {
 #[cfg(test)]
 mod tests {
     use carbide_secrets::credentials::Credentials;
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
     #[test]
-    fn nsm_state_queued() {
-        assert_eq!(
-            map_nsm_update_state(nsm::UpdateState::Queued as i32),
-            FirmwareState::Queued,
+    fn nsm_update_state_maps_each_variant() {
+        value_scenarios!(run = |state: nsm::UpdateState| map_nsm_update_state(state as i32);
+            "queued" {
+                nsm::UpdateState::Queued => FirmwareState::Queued,
+            }
+
+            "in progress" {
+                nsm::UpdateState::Copy => FirmwareState::InProgress,
+                nsm::UpdateState::Upload => FirmwareState::InProgress,
+                nsm::UpdateState::Install => FirmwareState::InProgress,
+                nsm::UpdateState::PollCompletion => FirmwareState::InProgress,
+                nsm::UpdateState::PowerCycle => FirmwareState::InProgress,
+                nsm::UpdateState::WaitReachable => FirmwareState::InProgress,
+            }
+
+            "verifying" {
+                nsm::UpdateState::Verify => FirmwareState::Verifying,
+                nsm::UpdateState::Cleanup => FirmwareState::Verifying,
+            }
+
+            "completed" {
+                nsm::UpdateState::Completed => FirmwareState::Completed,
+            }
+
+            "failed" {
+                nsm::UpdateState::Failed => FirmwareState::Failed,
+            }
+
+            "cancelled" {
+                nsm::UpdateState::Cancelled => FirmwareState::Cancelled,
+            }
         );
     }
 
     #[test]
-    fn nsm_state_in_progress_variants() {
-        for state in [
-            nsm::UpdateState::Copy,
-            nsm::UpdateState::Upload,
-            nsm::UpdateState::Install,
-            nsm::UpdateState::PollCompletion,
-            nsm::UpdateState::PowerCycle,
-            nsm::UpdateState::WaitReachable,
-        ] {
-            assert_eq!(
-                map_nsm_update_state(state as i32),
-                FirmwareState::InProgress,
-                "expected InProgress for {state:?}",
-            );
-        }
-    }
-
-    #[test]
-    fn nsm_state_verifying_variants() {
-        for state in [nsm::UpdateState::Verify, nsm::UpdateState::Cleanup] {
-            assert_eq!(
-                map_nsm_update_state(state as i32),
-                FirmwareState::Verifying,
-                "expected Verifying for {state:?}",
-            );
-        }
-    }
-
-    #[test]
-    fn nsm_state_completed() {
-        assert_eq!(
-            map_nsm_update_state(nsm::UpdateState::Completed as i32),
-            FirmwareState::Completed,
+    fn nsm_update_state_unknown_for_unrecognized_value() {
+        value_scenarios!(map_nsm_update_state:
+            "unrecognized" {
+                9999 => FirmwareState::Unknown,
+            }
         );
     }
 
     #[test]
-    fn nsm_state_failed() {
-        assert_eq!(
-            map_nsm_update_state(nsm::UpdateState::Failed as i32),
-            FirmwareState::Failed,
+    fn to_nsm_component_maps_each_variant() {
+        value_scenarios!(run = |component: NvSwitchComponent| to_nsm_component(&component);
+            "components" {
+                NvSwitchComponent::Bmc => nsm::NvSwitchComponent::NvswitchComponentBmc,
+                NvSwitchComponent::Cpld => nsm::NvSwitchComponent::NvswitchComponentCpld,
+                NvSwitchComponent::Bios => nsm::NvSwitchComponent::NvswitchComponentBios,
+                NvSwitchComponent::Nvos => nsm::NvSwitchComponent::NvswitchComponentNvos,
+            }
         );
-    }
-
-    #[test]
-    fn nsm_state_cancelled() {
-        assert_eq!(
-            map_nsm_update_state(nsm::UpdateState::Cancelled as i32),
-            FirmwareState::Cancelled,
-        );
-    }
-
-    #[test]
-    fn nsm_state_unknown_for_unrecognized_value() {
-        assert_eq!(map_nsm_update_state(9999), FirmwareState::Unknown);
     }
 
     #[test]
@@ -474,25 +465,5 @@ mod tests {
         let nvos_creds = nvos.credentials.as_ref().unwrap();
         assert_eq!(nvos_creds.username, "nvadmin");
         assert_eq!(nvos_creds.password, "nvos_pass");
-    }
-
-    #[test]
-    fn to_nsm_component_all_variants() {
-        assert_eq!(
-            to_nsm_component(&NvSwitchComponent::Bmc),
-            nsm::NvSwitchComponent::NvswitchComponentBmc
-        );
-        assert_eq!(
-            to_nsm_component(&NvSwitchComponent::Cpld),
-            nsm::NvSwitchComponent::NvswitchComponentCpld
-        );
-        assert_eq!(
-            to_nsm_component(&NvSwitchComponent::Bios),
-            nsm::NvSwitchComponent::NvswitchComponentBios
-        );
-        assert_eq!(
-            to_nsm_component(&NvSwitchComponent::Nvos),
-            nsm::NvSwitchComponent::NvswitchComponentNvos
-        );
     }
 }

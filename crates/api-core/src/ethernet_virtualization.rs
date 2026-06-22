@@ -152,7 +152,7 @@ pub(crate) async fn validate_instance_interface_routing_profiles(
         let vpc = db::vpc::find_by_segment(&mut *txn, segment_id).await?;
 
         // Interface routing profiles are only valid on FNN VPC interfaces.
-        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+        if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {
             return Err(CarbideError::InvalidArgument(
                 "instance interface routing_profile is only supported for FNN VPC interfaces"
                     .to_string(),
@@ -165,7 +165,8 @@ pub(crate) async fn validate_instance_interface_routing_profiles(
             )
         })?;
         let profile_type =
-            vpc.routing_profile_type
+            vpc.config
+                .routing_profile_type
                 .as_ref()
                 .ok_or_else(|| CarbideError::Internal {
                     message: "tenant routing profile type not found in VPC record".to_string(),
@@ -440,7 +441,7 @@ pub async fn admin_network(
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
                 let vpc = vpcs.remove(0);
-                match vpc.status.and_then(|v| v.vni) {
+                match vpc.status.vni {
                     Some(vpc_vni) => {
                         let tenant_loopback_ip = if use_vpc_vrf_loopback {
                             Some(
@@ -643,50 +644,51 @@ pub async fn tenant_network(
         None => None,
     };
 
-    let vpc_vni = vpc
-        .as_ref()
-        .and_then(|v| v.status.as_ref().and_then(|vs| vs.vni))
-        .unwrap_or_default() as u32;
+    let vpc_vni = vpc.as_ref().and_then(|v| v.status.vni).unwrap_or_default() as u32;
 
     // Resolve the routing profile from the VPC attached to this interface.
-    let (vpc_routing_profile, interface_routing_profile) = match (vpc.as_ref(), fnn_config) {
-        (Some(vpc), Some(fnn)) if vpc.network_virtualization_type == VpcVirtualizationType::Fnn => {
-            let profile_type =
-                vpc.routing_profile_type
-                    .as_ref()
-                    .ok_or_else(|| CarbideError::Internal {
+    let (vpc_routing_profile, interface_routing_profile) =
+        match (vpc.as_ref(), fnn_config) {
+            (Some(vpc), Some(fnn))
+                if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
+            {
+                let profile_type = vpc.config.routing_profile_type.as_ref().ok_or_else(|| {
+                    CarbideError::Internal {
                         message: "tenant routing profile type not found in VPC record".to_string(),
-                    })?;
-            let profile = fnn.routing_profiles.get(profile_type).ok_or_else(|| {
-                CarbideError::NotFoundError {
-                    kind: "routing_profile_type",
-                    id: profile_type.to_string(),
-                }
-            })?;
+                    }
+                })?;
+                let profile = fnn.routing_profiles.get(profile_type).ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "routing_profile_type",
+                        id: profile_type.to_string(),
+                    }
+                })?;
 
-            (
-                Some(rpc::RoutingProfile::from(profile)),
-                iface
-                    .routing_profile
-                    .as_ref()
-                    .map(rpc::FlatInterfaceRoutingProfile::from),
-            )
-        }
-        (Some(vpc), None) if vpc.network_virtualization_type == VpcVirtualizationType::Fnn => {
-            return Err(CarbideError::Internal {
-                message: "FNN VPC found but no FNN config found".to_string(),
+                (
+                    Some(rpc::RoutingProfile::from(profile)),
+                    iface
+                        .routing_profile
+                        .as_ref()
+                        .map(rpc::FlatInterfaceRoutingProfile::from),
+                )
             }
-            .into());
-        }
-        _ if iface.routing_profile.is_some() => {
-            return Err(CarbideError::InvalidArgument(
-                "instance interface routing_profile is only supported for FNN VPC interfaces"
-                    .to_string(),
-            )
-            .into());
-        }
-        _ => (None, None),
-    };
+            (Some(vpc), None)
+                if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
+            {
+                return Err(CarbideError::Internal {
+                    message: "FNN VPC found but no FNN config found".to_string(),
+                }
+                .into());
+            }
+            _ if iface.routing_profile.is_some() => {
+                return Err(CarbideError::InvalidArgument(
+                    "instance interface routing_profile is only supported for FNN VPC interfaces"
+                        .to_string(),
+                )
+                .into());
+            }
+            _ => (None, None),
+        };
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let (svi_ip, svi_ip_v6) = ds.svi_ips(network_virtualization_type, is_l2_segment)?;
@@ -701,14 +703,14 @@ pub async fn tenant_network(
         // see if there's an associated VPC (there should be),
         // and see if the VPC has an NSG attached.
         (false, None, Some(v)) => {
-            match v.network_security_group_id.as_ref() {
+            match v.config.network_security_group_id.as_ref() {
                 None => None,
                 Some(vpc_nsg_id) => {
                     // Make our DB query for the IDs to get our NetworkSecurityGroup
                     let network_security_group = network_security_group::find_by_ids(
                         txn,
                         &[vpc_nsg_id.to_owned()],
-                        Some(&v.tenant_organization_id.parse().map_err(|_| {
+                        Some(&v.config.tenant_organization_id.parse().map_err(|_| {
                             CarbideError::Internal {
                                 message: "invalid tenant org in VPC data".to_string(),
                             }
@@ -719,7 +721,7 @@ pub async fn tenant_network(
                     .pop()
                     .ok_or(CarbideError::NotFoundError {
                         kind: "NetworkSecurityGroup",
-                        id: v.tenant_organization_id.clone(),
+                        id: vpc_nsg_id.to_string(),
                     })?;
 
                     Some((

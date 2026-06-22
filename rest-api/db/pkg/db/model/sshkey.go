@@ -129,10 +129,10 @@ type SSHKeySQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new SSHKey from the given parameters
+// Create creates a new SSHKey from the given parameters
 func (sksd SSHKeySQLDAO) Create(ctx context.Context, tx *db.Tx, input SSHKeyCreateInput) (*SSHKey, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sshKeyDAOSpan := sksd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyDAO.CreateFromParams")
+	ctx, sshKeyDAOSpan := sksd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyDAO.Create")
 	if sshKeyDAOSpan != nil {
 		defer sshKeyDAOSpan.End()
 
@@ -273,11 +273,11 @@ func (sksd SSHKeySQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter SSHKeyFil
 	return sks, paginator.Total, nil
 }
 
-// UpdateFromParams updates specified fields of an existing SSHKey
+// Update updates specified fields of an existing SSHKey
 // The updated fields are assumed to be set to non-null values
 func (sksd SSHKeySQLDAO) Update(ctx context.Context, tx *db.Tx, input SSHKeyUpdateInput) (*SSHKey, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sshKeyDAOSpan := sksd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyDAO.UpdateFromParams")
+	ctx, sshKeyDAOSpan := sksd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyDAO.Update")
 	if sshKeyDAOSpan != nil {
 		defer sshKeyDAOSpan.End()
 

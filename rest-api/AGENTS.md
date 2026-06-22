@@ -166,6 +166,10 @@ make kind-down              # tear down cluster
 
 ## Coding Conventions
 
+Follow the shared [Engineering Guidelines](../CONTRIBUTING.md#engineering-guidelines)
+for scope control, reuse-before-new-code, evidence-backed assumptions, and
+verification expectations.
+
 - Follow standard Go conventions; `go fmt` is enforced in CI.
 - Linting uses `golangci-lint` (v2 config in `.golangci.yml`) with most
   linters enabled, plus `revive` (config in `.revive.toml`).

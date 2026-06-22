@@ -260,7 +260,7 @@ pub async fn allocate(
         vpcs.len() == vpc_ids.len()
             && vpcs
                 .iter()
-                .all(|vpc| vpc.network_virtualization_type == VpcVirtualizationType::Fnn)
+                .all(|vpc| vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn)
     } else {
         false
     };

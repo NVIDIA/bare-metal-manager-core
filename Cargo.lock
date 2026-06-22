@@ -928,6 +928,7 @@ dependencies = [
 name = "bms-dsx-exchange"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",
@@ -1057,6 +1058,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-systemd",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -1502,6 +1504,7 @@ dependencies = [
 name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "hyper",
  "serde",
  "thiserror 2.0.18",
@@ -1584,6 +1587,7 @@ name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "cbindgen",
  "cc",
@@ -1619,6 +1623,7 @@ version = "0.1.0"
 dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -1843,6 +1848,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -2130,6 +2136,7 @@ dependencies = [
 name = "carbide-ipxe-renderer"
 version = "0.0.1"
 dependencies = [
+ "carbide-test-support",
  "hex",
  "serde",
  "serde_yaml",
@@ -2144,6 +2151,7 @@ dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
  "base64",
+ "carbide-test-support",
  "hex",
  "rand 0.10.1",
  "serde",
@@ -2558,6 +2566,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-mqtt-common",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "eyre",
@@ -2586,6 +2595,7 @@ dependencies = [
  "carbide-health-metrics",
  "carbide-rack",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2717,6 +2727,7 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "clap",
@@ -2790,6 +2801,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-test-support",
  "carbide-uuid",
  "eyre",
  "figment",
@@ -2910,6 +2922,7 @@ dependencies = [
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-ssh-console-mock-api-server",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -3487,6 +3500,7 @@ dependencies = [
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "libredfish",

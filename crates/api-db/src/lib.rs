@@ -57,6 +57,7 @@ pub mod machine_interface_address;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;
+pub mod machine_validation_execution;
 pub mod machine_validation_result;
 pub mod machine_validation_suites;
 pub mod managed_host;
