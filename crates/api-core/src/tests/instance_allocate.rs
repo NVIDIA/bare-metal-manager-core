@@ -517,7 +517,7 @@ async fn test_zero_dpu_instance_allocation_auto(
     )
     .await?
     .expect("zero-DPU allocation should persist an instance address");
-    assert_eq!(address.vpc_id, Some(flat_vpc_id));
+    assert_eq!(address.vpc_id, flat_vpc_id);
     Ok(())
 }
 
@@ -1006,7 +1006,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
         )
         .await?
         .expect("zero-DPU allocation should persist an instance address per HostInband segment");
-        assert_eq!(address.vpc_id, Some(flat_vpc_id));
+        assert_eq!(address.vpc_id, flat_vpc_id);
     }
 
     Ok(())

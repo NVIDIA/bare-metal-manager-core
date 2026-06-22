@@ -439,7 +439,19 @@ pub async fn get_next_free_machine(
                 continue;
             }
             if flat_vpc_id.is_some() {
-                return Some(machine);
+                if machine
+                    .instance_network_restrictions
+                    .as_ref()
+                    .is_some_and(|r| {
+                        r.network_segment_membership_type()
+                            == forgerpc::InstanceNetworkSegmentMembershipType::Static
+                    })
+                {
+                    return Some(machine);
+                } else {
+                    tracing::debug!(machine_id = %id, "machine does not support flat VPC auto allocation");
+                    continue;
+                }
             }
             if let Some(discovery_info) = &machine.discovery_info {
                 let dpu_interfaces = discovery_info

@@ -1264,12 +1264,19 @@ impl ApiClient {
         let (interface_configs, tenant_org, vpc_id) = if let Some(vpc_id) =
             allocate_instance.flat_vpc_id
         {
-            if !allocate_instance.vpc_prefix_id.is_empty()
+            if !allocate_instance.subnet.is_empty()
+                || !allocate_instance.vpc_prefix_id.is_empty()
                 || !allocate_instance.vf_vpc_prefix_id.is_empty()
                 || !allocate_instance.vf_subnet.is_empty()
+                || !allocate_instance.ip_address.is_empty()
+                || !allocate_instance.vf_ip_address.is_empty()
+                || !allocate_instance.ipv6_vpc_prefix_id.is_empty()
+                || !allocate_instance.ipv6_vf_prefix_id.is_empty()
+                || !allocate_instance.ipv6_ip_address.is_empty()
+                || !allocate_instance.ipv6_vf_ip_address.is_empty()
             {
                 return Err(CarbideCliError::GenericError(
-                    "--flat-vpc-id does not support explicit VPC prefixes or VF subnets"
+                    "--flat-vpc-id cannot be combined with explicit interface selectors"
                         .to_string(),
                 ));
             }

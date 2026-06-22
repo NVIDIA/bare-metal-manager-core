@@ -283,9 +283,10 @@ pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>
         )));
     }
 
-    let instance_address_count_query = "SELECT count(*) FROM instance_addresses
-        WHERE vpc_id=$1
-        AND EXISTS (SELECT 1 FROM vpcs WHERE id=$1 AND deleted IS NULL)";
+    // No need to check "deleted IS NULL" because there are no "legacy" cases (this field was
+    // introduced at the same time as this check: deleted will not be set unless there are no
+    // instance_addresses in the first place.)
+    let instance_address_count_query = "SELECT count(*) FROM instance_addresses WHERE vpc_id=$1";
     let instance_address_count: i64 = sqlx::query_scalar(instance_address_count_query)
         .bind(id)
         .fetch_one(&mut *txn)

@@ -198,7 +198,7 @@ async fn convert_instance_to_nice_format(
     } else if !auto_network && if_configs.len() != if_status.len() {
         writeln!(&mut lines, "\tLENGTH MISMATCH")?;
     } else {
-        let vpcs: Vec<Vpc> = if auto_network {
+        let vpcs: Vec<Option<Vpc>> = if auto_network {
             futures::future::join_all(
                 if_status
                     .iter()
@@ -220,7 +220,6 @@ async fn convert_instance_to_nice_format(
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
         }
-        .flatten()
         .collect();
         if !auto_network && if_configs.len() != if_status.len() {
             writeln!(&mut lines, "\tLENGTH MISMATCH")?;
@@ -278,12 +277,18 @@ async fn convert_instance_to_nice_format(
                     ("ADDRESSES", status.addresses.as_slice().join(", ").into()),
                     (
                         "VPC ID",
-                        vpc.map(|v| v.id.unwrap_or_default().to_string().into())
-                            .unwrap_or("<not found>".into()),
+                        vpc.map(|v| {
+                            v.as_ref()
+                                .and_then(|v| v.id)
+                                .unwrap_or_default()
+                                .to_string()
+                                .into()
+                        })
+                        .unwrap_or("<not found>".into()),
                     ),
                     (
                         "VPC NAME",
-                        vpc.and_then(|v| v.metadata.as_ref())
+                        vpc.and_then(|v| v.as_ref().and_then(|v| v.metadata.as_ref()))
                             .map(|v| Cow::Borrowed(v.name.as_str()))
                             .unwrap_or("<not found>".into()),
                     ),

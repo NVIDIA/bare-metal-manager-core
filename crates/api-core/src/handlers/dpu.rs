@@ -257,7 +257,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             };
             let Some(vpc) = db::vpc::find_by_segment(&mut txn, network_segment_id)
                 .await? else {
-                return Err(CarbideError::InvalidArgument(
+                return Err(CarbideError::FailedPrecondition(
                     "network segment is not a member of a VPC".to_string(),
                 ).into())
             };
