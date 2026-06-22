@@ -1302,7 +1302,16 @@ impl ApiClient {
                 )));
             };
 
-            (Vec::new(), vpc.tenant_organization_id, Some(vpc_id))
+            (
+                Vec::new(),
+                vpc.config
+                    .as_ref()
+                    .map(|c| c.tenant_organization_id.clone())
+                    .ok_or_else(|| {
+                        CarbideCliError::GenericError("VPC has no organization ID".to_string())
+                    })?,
+                Some(vpc_id),
+            )
         } else if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
                 return Err(CarbideCliError::GenericError(

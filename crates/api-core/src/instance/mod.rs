@@ -99,25 +99,28 @@ async fn validate_zero_dpu_auto_vpc(
             CarbideError::FailedPrecondition(format!("VPC `{vpc_id}` does not exist"))
         })?;
 
-    if vpc.tenant_organization_id != tenant_organization_id.to_string() {
+    if vpc.config.tenant_organization_id != tenant_organization_id.to_string() {
         return Err(CarbideError::FailedPrecondition(format!(
             "VPC `{}` is not owned by Tenant `{}`",
             vpc.id, tenant_organization_id
         )));
     }
 
-    if vpc.network_virtualization_type != VpcVirtualizationType::Flat {
+    if vpc.config.network_virtualization_type != VpcVirtualizationType::Flat {
         return Err(CarbideError::FailedPrecondition(format!(
             "zero-DPU auto allocation requires a Flat VPC; VPC {} uses {}",
-            vpc.id, vpc.network_virtualization_type
+            vpc.id, vpc.config.network_virtualization_type
         )));
     }
 
-    let vpc_iface = vpc.network_virtualization_type.fabric_interface_type();
+    let vpc_iface = vpc
+        .config
+        .network_virtualization_type
+        .fabric_interface_type();
     if vpc_iface != FabricInterfaceType::Nic {
         return Err(CarbideError::FailedPrecondition(format!(
             "zero-DPU auto allocation requires a VPC whose fabric_interface_type is `nic`; VPC {} ({}) has `{vpc_iface}`",
-            vpc.id, vpc.network_virtualization_type
+            vpc.id, vpc.config.network_virtualization_type
         )));
     }
 

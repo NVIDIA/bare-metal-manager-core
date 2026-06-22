@@ -1494,11 +1494,17 @@ async fn validate_auto_inband_segment_vpc_bindings(
             )));
         }
 
-        let vpc_iface = vpc.network_virtualization_type.fabric_interface_type();
+        let vpc_iface = vpc
+            .config
+            .network_virtualization_type
+            .fabric_interface_type();
         if vpc_iface != FabricInterfaceType::Nic {
             return Err(CarbideError::FailedPrecondition(format!(
                 "zero-DPU host {} has HostInband segment {} bound to VPC {} ({}); zero-DPU hosts can only allocate into VPCs whose fabric_interface_type is `nic` (got `{vpc_iface}`)",
-                mh_snapshot.host_snapshot.id, segment_id, vpc.id, vpc.network_virtualization_type,
+                mh_snapshot.host_snapshot.id,
+                segment_id,
+                vpc.id,
+                vpc.config.network_virtualization_type,
             )));
         }
     }
