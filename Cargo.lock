@@ -1502,6 +1502,7 @@ dependencies = [
 name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "hyper",
  "serde",
  "thiserror 2.0.18",
