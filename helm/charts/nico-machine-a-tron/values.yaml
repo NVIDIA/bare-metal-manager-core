@@ -28,6 +28,11 @@ namespaceOverride: ""
 
 replicas: 1
 automountServiceAccountToken: true
+
+## Graceful shutdown timeout (seconds)
+## Allows machine-a-tron to clean up resources when pod is deleted
+terminationGracePeriodSeconds: 60
+
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-machine-a-tron.name" . }}-config-files'
 
