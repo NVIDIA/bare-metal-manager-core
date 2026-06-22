@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,32 +46,60 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_list ensures list parses with no arguments.
-#[test]
-fn parse_list() {
-    let cmd = Cmd::try_parse_from(["resource-pool", "list"]).expect("should parse list");
-
-    assert!(matches!(cmd, Cmd::List(_)));
-}
-
-// parse_grow ensures grow parses with filename.
-#[test]
-fn parse_grow() {
-    let cmd = Cmd::try_parse_from(["resource-pool", "grow", "--filename", "config.toml"])
-        .expect("should parse grow");
-
+// variant names the subcommand a parsed Cmd routes to, for cases that only
+// assert "routes to variant X" with no field checks.
+fn variant(cmd: &Cmd) -> &'static str {
     match cmd {
-        Cmd::Grow(args) => {
-            assert_eq!(args.filename, "config.toml");
-        }
-        _ => panic!("expected Grow variant"),
+        Cmd::List(_) => "list",
+        Cmd::Grow(_) => "grow",
     }
 }
 
-// parse_grow_missing_filename_fails ensures grow fails
-// without --filename.
+// list parses with no arguments and routes to the List variant.
 #[test]
-fn parse_grow_missing_filename_fails() {
-    let result = Cmd::try_parse_from(["resource-pool", "grow"]);
-    assert!(result.is_err(), "should fail without --filename");
+fn parse_list() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| variant(&cmd))
+                .map_err(drop)
+        };
+        "list with no arguments" {
+            &["resource-pool", "list"][..] => Yields("list"),
+        }
+    );
+}
+
+// grow parses with --filename and surfaces that filename on the Grow variant.
+#[test]
+fn parse_grow() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Grow(args) => args.filename,
+                    _ => panic!("expected Grow variant"),
+                })
+                .map_err(drop)
+        };
+        "grow with --filename" {
+            &["resource-pool", "grow", "--filename", "config.toml"][..] => Yields("config.toml".to_string()),
+        }
+    );
+}
+
+// Every malformed invocation is rejected at parse time -- here, grow without
+// its required --filename.
+#[test]
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "grow without --filename" {
+            &["resource-pool", "grow"][..] => Fails,
+        }
+    );
 }

@@ -22,8 +22,8 @@ use nv_redfish::resource::Health as BmcHealth;
 
 use super::{CollectorEvent, EventContext, EventProcessor};
 use crate::sink::{
-    Classification, HealthReport, HealthReportAlert, HealthReportSuccess, Probe, ReportSource,
-    SensorHealthContext, SensorHealthData,
+    Classification, HealthReport, HealthReportAlert, HealthReportSuccess, MetricSample, Probe,
+    ReportSource, SensorThresholdContext,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +83,7 @@ impl HealthReportProcessor {
         }
     }
 
-    fn classify(health: &SensorHealthContext, reading: f64) -> SensorHealth {
+    fn classify(health: &SensorThresholdContext, reading: f64) -> SensorHealth {
         if let Some(max) = health.range_max
             && reading > max
         {
@@ -135,8 +135,8 @@ impl HealthReportProcessor {
     }
 
     fn to_health_result(
-        metric: &SensorHealthData,
-        health: &SensorHealthContext,
+        metric: &MetricSample,
+        health: &SensorThresholdContext,
     ) -> SensorHealthResult {
         let classification = Self::classify(health, metric.value);
 
@@ -295,14 +295,14 @@ mod tests {
         let _ = processor.process_event(
             &context,
             &CollectorEvent::Metric(
-                SensorHealthData {
+                MetricSample {
                     key: "sensor-1".to_string(),
                     name: "hw_sensor".to_string(),
                     metric_type: "temperature".to_string(),
                     unit: "celsius".to_string(),
                     value: 42.0,
                     labels: vec![],
-                    context: Some(SensorHealthContext {
+                    context: Some(SensorThresholdContext {
                         entity_type: "sensor".to_string(),
                         sensor_id: "Temp1".to_string(),
                         upper_fatal: None,

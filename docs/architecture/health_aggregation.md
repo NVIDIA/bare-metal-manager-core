@@ -252,7 +252,7 @@ Details can be found in the [SKU Validation guide](../provisioning/sku-validatio
 
 ### BMC health monitoring
 
-The [`nico-hw-health`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
+The [`nico-hw-health`](https://github.com/NVIDIA/infra-controller/blob/main/crates/health) service periodically queries all Host and DPU BMCs in the system for health information. It emits the captured health datapoints as metrics on a metrics endpoint that can be scraped by a standard telemetry system (prometheus/otel).
 
 Health metrics fetched from BMCs include:
 - Fan speeds
@@ -282,7 +282,7 @@ In certain conditions the scraping process will place a health alert on the host
 
 ### dpu-agent based health monitoring
 
-[`dpu-agent`](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `nico-core`. The agent monitors a variety of health conditions, including
+[`dpu-agent`](https://github.com/NVIDIA/infra-controller/blob/main/crates/agent) collects health information directly on the DPU and sends a health-**rollup** towards `nico-core`. The agent monitors a variety of health conditions, including
 - whether BGP sessions are established to peers according to the current configuration of the DPU
 - whether all required services on the DPU are running
 - whether the DPU is configured in restricted mode

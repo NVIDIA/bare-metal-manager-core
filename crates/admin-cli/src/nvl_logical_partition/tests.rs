@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,87 +46,91 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all partitions).
+// show parses with or without a --name filter; with no args it
+// targets all partitions (empty id list, no name), and --name
+// threads the filter through.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_empty());
-            assert!(args.name.is_none());
+fn parse_show() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.id.is_empty(), args.name),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no arguments targets all partitions" {
+            &["nvl-logical-partition", "show"][..] => Yields((true, None)),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_name ensures show parses with --name filter.
-#[test]
-fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "show", "--name", "my-partition"])
-        .expect("should parse show with name");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.name, Some("my-partition".to_string()));
+        "with a --name filter" {
+            &["nvl-logical-partition", "show", "--name", "my-partition"][..] => Yields((true, Some("my-partition".to_string()))),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_create ensures create parses with required
-// arguments.
-#[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from([
-        "nvl-logical-partition",
-        "create",
-        "--name",
-        "my-partition",
-        "--tenant-organization-id",
-        "tenant-123",
-    ])
-    .expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.name, "my-partition");
-            assert_eq!(args.tenant_organization_id, "tenant-123");
-        }
-        _ => panic!("expected Create variant"),
-    }
-}
-
-// parse_delete ensures delete parses with required
-// arguments.
-#[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["nvl-logical-partition", "delete", "--name", "my-partition"])
-        .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.name, "my-partition");
-        }
-        _ => panic!("expected Delete variant"),
-    }
-}
-
-// parse_create_missing_required_fails ensures create
-// fails without required arguments.
-#[test]
-fn parse_create_missing_required_fails() {
-    let result = Cmd::try_parse_from(["nvl-logical-partition", "create"]);
-    assert!(
-        result.is_err(),
-        "should fail without --name and --tenant-organization-id"
     );
 }
 
-// parse_delete_missing_name_fails ensures delete fails without --name.
+// create parses with its required --name and --tenant-organization-id,
+// threading both through to the Create variant.
 #[test]
-fn parse_delete_missing_name_fails() {
-    let result = Cmd::try_parse_from(["nvl-logical-partition", "delete"]);
-    assert!(result.is_err(), "should fail without --name");
+fn parse_create() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (args.name, args.tenant_organization_id),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        };
+        "create with required arguments" {
+            &[
+                "nvl-logical-partition",
+                "create",
+                "--name",
+                "my-partition",
+                "--tenant-organization-id",
+                "tenant-123",
+            ][..] => Yields(("my-partition".to_string(), "tenant-123".to_string())),
+        }
+    );
+}
+
+// delete parses with its required --name, routing to the Delete variant.
+#[test]
+fn parse_delete() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => args.name,
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        };
+        "delete with required --name" {
+            &["nvl-logical-partition", "delete", "--name", "my-partition"][..] => Yields("my-partition".to_string()),
+        }
+    );
+}
+
+// Every malformed invocation is rejected at parse time -- create
+// without its required --name/--tenant-organization-id, and delete
+// without its required --name.
+#[test]
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "create without --name and --tenant-organization-id" {
+            &["nvl-logical-partition", "create"][..] => Fails,
+        }
+
+        "delete without --name" {
+            &["nvl-logical-partition", "delete"][..] => Fails,
+        }
+    );
 }

@@ -25,6 +25,8 @@
 // Enum Conversions  - Test From implementations for proto <-> non-proto mapping.
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::common::AdminPowerControlAction;
@@ -50,160 +52,156 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_bmc_reset ensures bmc-reset parses with
-// required args.
+// parse_bmc_reset routes to the BmcReset variant; the --machine value is
+// captured verbatim and --use-ipmitool toggles the flag (default off).
 #[test]
 fn parse_bmc_reset() {
-    let cmd = Cmd::try_parse_from(["bmc-machine", "bmc-reset", "--machine", "machine-123"])
-        .expect("should parse bmc-reset");
-
-    match cmd {
-        Cmd::BmcReset(args) => {
-            assert_eq!(args.machine, "machine-123");
-            assert!(!args.use_ipmitool);
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::BmcReset(args) => (args.machine, args.use_ipmitool),
+                    _ => panic!("expected BmcReset variant"),
+                })
+                .map_err(drop)
+        };
+        "bmc-reset with required args, ipmitool off" {
+            &["bmc-machine", "bmc-reset", "--machine", "machine-123"][..] => Yields(("machine-123".to_string(), false)),
         }
-        _ => panic!("expected BmcReset variant"),
-    }
-}
 
-// parse_bmc_reset_with_ipmitool ensures bmc-reset
-// parses with --use-ipmitool flag.
-#[test]
-fn parse_bmc_reset_with_ipmitool() {
-    let cmd = Cmd::try_parse_from([
-        "bmc-machine",
-        "bmc-reset",
-        "--machine",
-        "machine-123",
-        "--use-ipmitool",
-    ])
-    .expect("should parse bmc-reset with ipmitool");
-
-    match cmd {
-        Cmd::BmcReset(args) => {
-            assert!(args.use_ipmitool);
+        "bmc-reset with --use-ipmitool" {
+            &[
+                "bmc-machine",
+                "bmc-reset",
+                "--machine",
+                "machine-123",
+                "--use-ipmitool",
+            ][..] => Yields(("machine-123".to_string(), true)),
         }
-        _ => panic!("expected BmcReset variant"),
-    }
-}
-
-// parse_admin_power_control ensures admin-power-control
-// parses correctly.
-#[test]
-fn parse_admin_power_control() {
-    let cmd = Cmd::try_parse_from([
-        "bmc-machine",
-        "admin-power-control",
-        "--machine",
-        "machine-123",
-        "--action",
-        "on",
-    ])
-    .expect("should parse admin-power-control");
-
-    match cmd {
-        Cmd::AdminPowerControl(args) => {
-            assert_eq!(args.machine, "machine-123");
-            assert!(matches!(args.action, AdminPowerControlAction::On));
-        }
-        _ => panic!("expected AdminPowerControl variant"),
-    }
-}
-
-// parse_lockdown_enable ensures lockdown parses with
-// --enable.
-#[test]
-fn parse_lockdown_enable() {
-    let cmd = Cmd::try_parse_from([
-        "bmc-machine",
-        "lockdown",
-        "--machine",
-        TEST_MACHINE_ID,
-        "--enable",
-    ])
-    .expect("should parse lockdown with enable");
-
-    match cmd {
-        Cmd::Lockdown(args) => {
-            assert!(args.enable);
-            assert!(!args.disable);
-        }
-        _ => panic!("expected Lockdown variant"),
-    }
-}
-
-// parse_lockdown_disable ensures lockdown parses with
-// --disable.
-#[test]
-fn parse_lockdown_disable() {
-    let cmd = Cmd::try_parse_from([
-        "bmc-machine",
-        "lockdown",
-        "--machine",
-        TEST_MACHINE_ID,
-        "--disable",
-    ])
-    .expect("should parse lockdown with disable");
-
-    match cmd {
-        Cmd::Lockdown(args) => {
-            assert!(!args.enable);
-            assert!(args.disable);
-        }
-        _ => panic!("expected Lockdown variant"),
-    }
-}
-
-// parse_lockdown_requires_enable_or_disable ensures
-// lockdown fails without enable/disable.
-#[test]
-fn parse_lockdown_requires_enable_or_disable() {
-    let result = Cmd::try_parse_from(["bmc-machine", "lockdown", "--machine", TEST_MACHINE_ID]);
-    assert!(result.is_err(), "should fail without --enable or --disable");
-}
-
-// parse_lockdown_conflicts_enable_disable ensures
-// lockdown fails with both enable and disable.
-#[test]
-fn parse_lockdown_conflicts_enable_disable() {
-    let result = Cmd::try_parse_from([
-        "bmc-machine",
-        "lockdown",
-        "--machine",
-        TEST_MACHINE_ID,
-        "--enable",
-        "--disable",
-    ]);
-    assert!(
-        result.is_err(),
-        "should fail with both --enable and --disable"
     );
 }
 
-// parse_create_bmc_user ensures create-bmc-user parses
-// correctly.
+// parse_admin_power_control routes to the AdminPowerControl variant; the
+// --machine value is captured and --action on maps to the On action.
+#[test]
+fn parse_admin_power_control() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::AdminPowerControl(args) => (
+                        args.machine,
+                        matches!(args.action, AdminPowerControlAction::On),
+                    ),
+                    _ => panic!("expected AdminPowerControl variant"),
+                })
+                .map_err(drop)
+        };
+        "admin-power-control --action on" {
+            &[
+                "bmc-machine",
+                "admin-power-control",
+                "--machine",
+                "machine-123",
+                "--action",
+                "on",
+            ][..] => Yields(("machine-123".to_string(), true)),
+        }
+    );
+}
+
+// parse_lockdown routes to the Lockdown variant; --enable and --disable are
+// mutually exclusive flags, each setting exactly its own bool.
+#[test]
+fn parse_lockdown() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Lockdown(args) => (args.enable, args.disable),
+                    _ => panic!("expected Lockdown variant"),
+                })
+                .map_err(drop)
+        };
+        "lockdown --enable" {
+            &[
+                "bmc-machine",
+                "lockdown",
+                "--machine",
+                TEST_MACHINE_ID,
+                "--enable",
+            ][..] => Yields((true, false)),
+        }
+
+        "lockdown --disable" {
+            &[
+                "bmc-machine",
+                "lockdown",
+                "--machine",
+                TEST_MACHINE_ID,
+                "--disable",
+            ][..] => Yields((false, true)),
+        }
+    );
+}
+
+// parse_create_bmc_user routes to the CreateBmcUser variant, capturing the
+// username, password, and optional IP address.
 #[test]
 fn parse_create_bmc_user() {
-    let cmd = Cmd::try_parse_from([
-        "bmc-machine",
-        "create-bmc-user",
-        "--username",
-        "admin",
-        "--password",
-        "secret123",
-        "--ip-address",
-        "192.168.1.100",
-    ])
-    .expect("should parse create-bmc-user");
-
-    match cmd {
-        Cmd::CreateBmcUser(args) => {
-            assert_eq!(args.username, "admin");
-            assert_eq!(args.password, "secret123");
-            assert_eq!(args.ip_address, Some("192.168.1.100".to_string()));
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::CreateBmcUser(args) => (args.username, args.password, args.ip_address),
+                    _ => panic!("expected CreateBmcUser variant"),
+                })
+                .map_err(drop)
+        };
+        "create-bmc-user with username, password, and ip" {
+            &[
+                "bmc-machine",
+                "create-bmc-user",
+                "--username",
+                "admin",
+                "--password",
+                "secret123",
+                "--ip-address",
+                "192.168.1.100",
+            ][..] => Yields((
+                "admin".to_string(),
+                "secret123".to_string(),
+                Some("192.168.1.100".to_string()),
+            )),
         }
-        _ => panic!("expected CreateBmcUser variant"),
-    }
+    );
+}
+
+// Every malformed lockdown invocation is rejected at parse time -- neither
+// --enable nor --disable, or both at once (a conflict).
+#[test]
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "lockdown without --enable or --disable" {
+            &["bmc-machine", "lockdown", "--machine", TEST_MACHINE_ID][..] => Fails,
+        }
+
+        "lockdown with both --enable and --disable" {
+            &[
+                "bmc-machine",
+                "lockdown",
+                "--machine",
+                TEST_MACHINE_ID,
+                "--enable",
+                "--disable",
+            ][..] => Fails,
+        }
+    );
 }
 
 /////////////////////////////////////////////////////////////////////////////

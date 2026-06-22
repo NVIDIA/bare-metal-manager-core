@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all machine interfaces:
-    $ carbide-admin-cli machine-interfaces show
+    $ nico-admin-cli machine-interfaces show
 
 Show one machine interface by ID:
-    $ carbide-admin-cli machine-interfaces show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-interfaces show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

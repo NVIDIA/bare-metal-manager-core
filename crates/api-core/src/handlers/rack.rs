@@ -22,6 +22,7 @@ use ::rpc::forge::{self as rpc, HealthReportEntry};
 use carbide_rack::firmware_object::{
     rack_maintenance_access_token_key, rms_access_token_or_noauth,
 };
+use carbide_secrets::credentials::Credentials;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -30,7 +31,6 @@ use db::{
     ObjectColumnFilter, WithTransaction, machine as db_machine, power_shelf as db_power_shelf,
     rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::Credentials;
 use futures_util::FutureExt;
 use health_report::HealthReportApplyMode;
 use model::machine::machine_search_config::MachineSearchConfig;

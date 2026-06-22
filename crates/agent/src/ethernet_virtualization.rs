@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -136,6 +136,67 @@ pub struct ServiceAddresses {
     pub pxe_ips: Vec<IpAddr>,
     pub ntpservers: Vec<IpAddr>,
     pub nameservers: Vec<IpAddr>,
+}
+
+/// Split a dual-stack nameserver list into its IPv4 and IPv6 members, so the
+/// gRPC and file-write DHCP-config paths derive both families the same way.
+fn split_nameservers_by_family(nameservers: &[IpAddr]) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+    nameservers
+        .iter()
+        .copied()
+        .fold((Vec::new(), Vec::new()), |(mut v4, mut v6), addr| {
+            match addr {
+                IpAddr::V4(v4_addr) => v4.push(v4_addr),
+                IpAddr::V6(v6_addr) => v6.push(v6_addr),
+            }
+            (v4, v6)
+        })
+}
+
+fn build_dhcp_ntp_servers(
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+    service_addrs: &ServiceAddresses,
+) -> Vec<Ipv4Addr> {
+    // Start with the NTP servers from the service addresses, which is read from carbide-ntp.forge.
+    let mut ntp_servers = service_addrs
+        .ntpservers
+        .iter()
+        .filter_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+
+    // If the site has configured NTP servers, use them instead.
+    if !nc.ntp_servers.is_empty() {
+        let site_ntp_servers: Vec<Ipv4Addr> = nc.ntp_servers
+        .iter()
+        .filter_map(|s| match IpAddr::from_str(s) {
+            Ok(IpAddr::V4(ip)) => Some(ip),
+            Ok(IpAddr::V6(_)) => {
+                tracing::debug!(
+                    ntp_server = %s,
+                    "IPv6 NTP server from ManagedHostNetworkConfigResponse is ignored for DHCPv4 config"
+                );
+                None
+            }
+            Err(e) => {
+                tracing::debug!(
+                    ntp_server = %s,
+                    error = %e,
+                    "Invalid NTP server IP from ManagedHostNetworkConfigResponse, ignoring"
+                );
+                None
+            }
+        })
+        .collect();
+
+        if !site_ntp_servers.is_empty() {
+            ntp_servers = site_ntp_servers;
+        }
+    }
+
+    ntp_servers
 }
 
 /// How we tell HBN to notice the new file we wrote
@@ -485,6 +546,32 @@ pub async fn update_nvue(
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
+    let secondary_overlay_vtep_ip = nc
+        .traffic_intercept_config
+        .as_ref()
+        .and_then(|vc| vc.additional_overlay_vtep_ip.as_deref())
+        .map(str::parse)
+        .transpose()
+        .wrap_err("invalid secondary overlay VTEP IP")?;
+    let internal_bridge_routing_prefix = nc
+        .traffic_intercept_config
+        .as_ref()
+        .and_then(|vc| vc.bridging.as_ref())
+        .map(|b| b.internal_bridge_routing_prefix.parse::<Ipv4Net>())
+        .transpose()
+        .wrap_err("invalid internal bridge routing prefix")?;
+    let dhcp_servers = nc
+        .dhcp_servers
+        .iter()
+        .map(|ip| ip.parse::<IpAddr>())
+        .collect::<Result<Vec<_>, _>>()
+        .wrap_err("invalid DHCP server IP")?;
+    let route_servers = nc
+        .route_servers
+        .iter()
+        .map(|ip| ip.parse::<IpAddr>())
+        .collect::<Result<Vec<_>, _>>()
+        .wrap_err("invalid route server IP")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
         is_dpu_os,
@@ -512,15 +599,8 @@ pub async fn update_nvue(
                 .map(|b| b.vf_intercept_bridge_sf.clone())
         }),
         host_intercept_bridge_port_name: None,
-        secondary_overlay_vtep_ip: nc
-            .traffic_intercept_config
-            .as_ref()
-            .and_then(|vc| vc.additional_overlay_vtep_ip.clone()),
-        internal_bridge_routing_prefix: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.internal_bridge_routing_prefix.clone())
-        }),
+        secondary_overlay_vtep_ip,
+        internal_bridge_routing_prefix,
         traffic_intercept_public_prefixes: nc
             .traffic_intercept_config
             .as_ref()
@@ -550,8 +630,8 @@ pub async fn update_nvue(
             .into_iter()
             .map(String::from)
             .collect(),
-        dhcp_servers: nc.dhcp_servers.clone(),
-        route_servers: nc.route_servers.clone(),
+        dhcp_servers,
+        route_servers,
         ct_port_configs: networks,
         ct_vrf_name: format!("vpc_{}", nc.vpc_vni.unwrap_or_default()),
         ct_access_vlans: access_vlans,
@@ -686,8 +766,11 @@ pub async fn update_traffic_intercept_bridging(
     let Some(bridge_config) = traffic_intercept_config.bridging.as_ref() else {
         eyre::bail!("traffic_intercept bridging config not provided");
     };
-    let Some(secondary_overlay_vtep_ip) =
-        traffic_intercept_config.additional_overlay_vtep_ip.as_ref()
+    let Some(secondary_overlay_vtep_ip) = traffic_intercept_config
+        .additional_overlay_vtep_ip
+        .as_deref()
+        .map(str::parse)
+        .transpose()?
     else {
         eyre::bail!("secondary_overlay_vtep_ip required by traffic_intercept bridging not found");
     };
@@ -756,7 +839,7 @@ pub async fn update_traffic_intercept_bridging(
         .collect();
 
     let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-        secondary_overlay_vtep_ip: secondary_overlay_vtep_ip.to_owned(),
+        secondary_overlay_vtep_ip,
         secondary_vtep_aggregate_prefixes: traffic_intercept_config
             .secondary_vtep_aggregate_prefixes
             .clone(),
@@ -998,23 +1081,9 @@ async fn update_dhcp_via_grpc(
     };
     let loopback_ip: Ipv4Addr = mh_nc.loopback_ip.parse()?;
 
-    let nameservers_v4 = service_addrs
-        .nameservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let (nameservers_v4, nameservers_v6) = split_nameservers_by_family(&service_addrs.nameservers);
 
-    let ntpservers_v4 = service_addrs
-        .ntpservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let ntpservers_v4 = build_dhcp_ntp_servers(network_config, service_addrs);
 
     let pxe_ip_v4 = service_addrs
         .pxe_ips
@@ -1034,6 +1103,7 @@ async fn update_dhcp_via_grpc(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
+        nameservers_v6,
         loopback_ip,
     )?;
     let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
@@ -1410,27 +1480,12 @@ fn write_dhcp_v4_server_config(
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;
 
-    // Filter to IPv4, since this is specifically for the DHCPv4 server
-    // config, and the input ServiceAddresses holds both families.
-    // Again, we'll eventually have a specific builder for a DHCPv6
-    // that does similar things with ServiceAddresses, but for IPv6.
-    let nameservers_v4 = service_addrs
-        .nameservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    // Split the dual-stack nameservers by family: the IPv4 set drives the
+    // DHCPv4 options written here, while the IPv6 set is held in the config for
+    // the eventual DHCPv6 / RA consumer (inert in this path for now).
+    let (nameservers_v4, nameservers_v6) = split_nameservers_by_family(&service_addrs.nameservers);
 
-    let ntpservers_v4 = service_addrs
-        .ntpservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let ntpservers_v4 = build_dhcp_ntp_servers(nc, service_addrs);
 
     let pxe_ip_v4 = service_addrs
         .pxe_ips
@@ -1463,8 +1518,13 @@ fn write_dhcp_v4_server_config(
         Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
     }
 
-    let next_contents =
-        dhcp::build_server_config(pxe_ip_v4, ntpservers_v4, nameservers_v4, loopback_ip)?;
+    let next_contents = dhcp::build_server_config(
+        pxe_ip_v4,
+        ntpservers_v4,
+        nameservers_v4,
+        nameservers_v6,
+        loopback_ip,
+    )?;
     match write(
         next_contents,
         &dhcp_server_path.config,
@@ -1869,7 +1929,7 @@ impl InterfaceTranslationMode {
 mod tests {
     use std::fs;
     use std::io::Write;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
@@ -1886,7 +1946,55 @@ mod tests {
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor(unsafe)]
     fn setup() {
-        carbide_host_support::init_logging().unwrap();
+        carbide_host_support::init_logging("nico-dpu-agent").unwrap();
+    }
+
+    #[test]
+    fn test_build_dhcp_ntp_servers() {
+        let service_addrs = ServiceAddresses {
+            pxe_ips: vec![],
+            ntpservers: vec![IpAddr::from([192, 0, 2, 20])],
+            nameservers: vec![],
+        };
+        let nc = rpc::ManagedHostNetworkConfigResponse {
+            ntp_servers: vec!["198.51.100.1".to_string(), "198.51.100.2".to_string()],
+            ..Default::default()
+        };
+
+        let out = build_dhcp_ntp_servers(&nc, &service_addrs);
+        assert_eq!(
+            out,
+            vec![
+                Ipv4Addr::from([198, 51, 100, 1]),
+                Ipv4Addr::from([198, 51, 100, 2])
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_dhcp_ntp_servers_fallback() {
+        let service_addrs = ServiceAddresses {
+            pxe_ips: vec![],
+            ntpservers: vec![IpAddr::from([192, 0, 2, 20])],
+            nameservers: vec![],
+        };
+
+        let empty_nc = rpc::ManagedHostNetworkConfigResponse::default();
+
+        assert_eq!(
+            build_dhcp_ntp_servers(&empty_nc, &service_addrs),
+            vec![Ipv4Addr::from([192, 0, 2, 20])]
+        );
+
+        let invalid_nc = rpc::ManagedHostNetworkConfigResponse {
+            ntp_servers: vec!["not-an-ip".to_string(), "2001:db8::1".to_string()],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            build_dhcp_ntp_servers(&invalid_nc, &service_addrs),
+            vec![Ipv4Addr::from([192, 0, 2, 20])]
+        );
     }
 
     #[test]
@@ -2913,6 +3021,7 @@ mod tests {
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
@@ -3095,9 +3204,9 @@ mod tests {
             use_admin_network: true,
             tenancy_enabled: true,
             site_global_vpc_vni: None,
-            loopback_ip: "10.217.5.39".to_string(),
-            secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
-            internal_bridge_routing_prefix: Some("10.255.255.0/29".to_string()),
+            loopback_ip: "10.217.5.39".parse().unwrap(),
+            secondary_overlay_vtep_ip: Some("10.255.254.253".parse().unwrap()),
+            internal_bridge_routing_prefix: Some("10.255.255.0/29".parse().unwrap()),
             vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
             vf_intercept_bridge_sf: Some("pf0dpu5".to_string()),
             host_intercept_bridge_port_name: Some("pfdpu1".to_string()),
@@ -3122,8 +3231,8 @@ mod tests {
                 .into_iter()
                 .map(String::from)
                 .collect(),
-            dhcp_servers: vec!["10.217.5.197".to_string()],
-            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            dhcp_servers: vec!["10.217.5.197".parse().unwrap()],
+            route_servers: vec!["172.43.0.1".parse().unwrap(), "172.43.0.2".parse().unwrap()],
             deny_prefixes: vec![],
             use_vpc_isolation: false,
             site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],
@@ -3200,6 +3309,31 @@ mod tests {
         eprint!("Diff output:\n{}", r.report());
         assert!(r.is_identical());
         Ok(())
+    }
+
+    #[test]
+    fn split_nameservers_by_family_partitions_by_family() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |input: Vec<IpAddr>| -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+                split_nameservers_by_family(&input)
+            };
+            "splits nameservers by family" {
+                vec![
+                    IpAddr::from([10, 0, 0, 1]),
+                    "2001:db8::1".parse::<IpAddr>().unwrap(),
+                    IpAddr::from([10, 0, 0, 2]),
+                ] => (
+                    vec![Ipv4Addr::new(10, 0, 0, 1), Ipv4Addr::new(10, 0, 0, 2)],
+                    vec!["2001:db8::1".parse::<Ipv6Addr>().unwrap()],
+                ),
+                vec![IpAddr::from([10, 0, 0, 1])] => (vec![Ipv4Addr::new(10, 0, 0, 1)], vec![]),
+                vec!["2001:db8::1".parse::<IpAddr>().unwrap()]
+                    => (vec![], vec!["2001:db8::1".parse::<Ipv6Addr>().unwrap()]),
+                vec![] => (vec![], vec![]),
+            }
+        );
     }
 
     fn validate_dhcp_config(received: DhcpConfig, expected: DhcpConfig) {
@@ -3360,6 +3494,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
@@ -3399,6 +3534,7 @@ mod tests {
 
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
@@ -3552,6 +3688,7 @@ mod tests {
             rebinding_time_secs: 432000,
             carbide_api_url: None,
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+            ..Default::default()
         };
         let dhcp_contents = super::read_limited(g.path())?;
         assert!(dhcp_contents.contains("vlan196"));
@@ -3594,6 +3731,7 @@ mod tests {
             routing_profile: None,
             traffic_intercept_config: None,
             dhcp_servers: vec![],
+            ntp_servers: vec![],
             vni_device: "vxlan48".to_string(),
             managed_host_config: Some(netconf),
             managed_host_config_version: "V1-T1".to_string(),

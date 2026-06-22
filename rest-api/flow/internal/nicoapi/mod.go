@@ -56,6 +56,12 @@ type Client interface {
 	// for which Core returns no controller_state are omitted from the result.
 	FindSwitchControllerStates(ctx context.Context, switchIds []string) (map[string]string, error)
 
+	// FindSwitchNvosIPs returns the resolved NVOS host IP for each switch,
+	// keyed by Core SwitchId. Core populates nvos_info only once both the NVOS
+	// MAC and its assigned address resolve, so switches without a resolved NVOS
+	// endpoint are omitted from the result.
+	FindSwitchNvosIPs(ctx context.Context, switchIds []string) (map[string]string, error)
+
 	// FindPowerShelfControllerStates is the power-shelf equivalent of
 	// FindSwitchControllerStates.
 	FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error)
@@ -91,6 +97,72 @@ type Client interface {
 	// RemoveHealthReportOverride removes a previously inserted health-report override.
 	RemoveHealthReportOverride(ctx context.Context, machineID string, source string) error
 
+	// InsertHostUpdateInProgressHealthOverride inserts the specific
+	// "HostUpdateInProgress" health alert with the "PreventAllocations"
+	// classification that Core's `TriggerDpuReprovisioning` requires as a
+	// precondition (see crates/api-core/src/handlers/dpu.rs::trigger_dpu_reprovisioning).
+	//
+	// The plain InsertHealthReportOverride above writes a different alert
+	// id ("Maintenance" + "SuppressExternalAlerting") used by power-cycle
+	// flows; that alert does NOT satisfy the DPU reprov precondition, so
+	// callers initiating DPU reprovisioning MUST use this method instead.
+	//
+	// `message` is recorded as the alert's human-readable message and is
+	// the only caller-supplied free-form field; everything else is fixed
+	// to the canonical (id, source, classifications) tuple Core expects.
+	InsertHostUpdateInProgressHealthOverride(ctx context.Context, machineID string, message string) error
+
+	// RemoveHostUpdateInProgressHealthOverride removes the override
+	// inserted by InsertHostUpdateInProgressHealthOverride. Idempotent:
+	// removing an override that does not exist is treated as success so
+	// callers can run this from `defer` cleanup blocks without special-
+	// casing the "we never managed to insert it" branch.
+	RemoveHostUpdateInProgressHealthOverride(ctx context.Context, machineID string) error
+
+	// TriggerDpuReprovisioning sets the reprovisioning request flag on
+	// either a single DPU machine (when machineID is a DPU machine id) or
+	// every DPU attached to a host (when machineID is a host machine id).
+	// Initiator is fixed to AdminCli and Mode is fixed to Set; the only
+	// caller-controlled knob is whether the reprovisioning should also
+	// roll the DPU NIC firmware to the site-configured target version.
+	//
+	// The host MUST already carry the HostUpdateInProgress /
+	// PreventAllocations health alert (see
+	// InsertHostUpdateInProgressHealthOverride) or Core rejects the call
+	// with InvalidArgument. This method does NOT power-cycle the host;
+	// the caller is responsible for triggering the actual reboot via
+	// InvokeInstancePower (when a tenant instance owns the host) or via
+	// AdminPowerControl (when the host is unassigned).
+	TriggerDpuReprovisioning(ctx context.Context, machineID string, updateFirmware bool) error
+
+	// IsDpuReprovisioningPendingForHost returns true if any DPU attached
+	// to the given host machine is currently listed by
+	// ListDpuWaitingForReprovisioning. This is the polling hook Flow uses
+	// to wait for completion: a DPU disappears from the list once Core
+	// finishes reprovisioning it (success or failure resets the flag).
+	IsDpuReprovisioningPendingForHost(ctx context.Context, hostMachineID string) (bool, error)
+
+	// FindAssociatedDpuMachineIds returns the DPU machine ids attached to
+	// a given host machine, taken from the host Machine's
+	// `associated_dpu_machine_ids` field. Returns an empty slice (not an
+	// error) when the host has no DPUs; callers can use this for an
+	// early "host has no DPUs to reprov" guard before trying to mutate
+	// state.
+	FindAssociatedDpuMachineIds(ctx context.Context, hostMachineID string) ([]string, error)
+
+	// FindInstanceIdByMachineId returns the tenant instance id currently
+	// attached to the given host machine, or "" when the host is in a
+	// non-Assigned state (no instance attached). The host's instance id
+	// is the argument required by InvokeInstancePower.
+	FindInstanceIdByMachineId(ctx context.Context, machineID string) (string, error)
+
+	// InvokeInstancePower issues a POWER_RESET against a tenant instance.
+	// When applyUpdates is true, Core sets `user_approval_received` so
+	// any pending reprovisioning / firmware update is allowed to proceed
+	// during the reboot — this is the gate the DPU reprovisioning state
+	// machine waits on for hosts in Assigned/* lifecycle.
+	InvokeInstancePower(ctx context.Context, instanceID string, applyUpdates bool) error
+
 	// ComponentPowerControl performs power control on component targets (switches, power shelves).
 	ComponentPowerControl(ctx context.Context, req *pb.ComponentPowerControlRequest) (*pb.ComponentPowerControlResponse, error)
 
@@ -118,6 +190,29 @@ type Client interface {
 	// created), and the expected power shelf UUID.
 	GetAllExpectedPowerShelvesLinked(ctx context.Context) ([]LinkedExpectedPowerShelf, error)
 
+	// GetAllExpectedRackDetails returns every expected rack registered with
+	// Core. The result is the canonical view: rack_id (operator-supplied
+	// stable identifier), rack_profile_id, and Metadata (name, description,
+	// labels including chassis.* / location.*).
+	GetAllExpectedRackDetails(ctx context.Context) ([]ExpectedRackDetail, error)
+
+	// GetAllExpectedMachineDetails returns every expected machine registered
+	// with Core, including bmc_mac, chassis_serial_number, rack_id, the
+	// expected_machine UUID and the full Metadata block. This is the source
+	// of truth for Flow's expected-inventory sync; do not confuse with
+	// GetMachines, which returns runtime (discovered) machine state.
+	GetAllExpectedMachineDetails(ctx context.Context) ([]ExpectedMachineDetail, error)
+
+	// GetAllExpectedSwitchDetails returns every expected switch registered
+	// with Core as a flat slice carrying the full proto contents. The
+	// existing GetAllExpectedSwitches (keyed by BMC MAC, thin info) is kept
+	// for its current callers and intentionally not replaced here.
+	GetAllExpectedSwitchDetails(ctx context.Context) ([]ExpectedSwitchDetail, error)
+
+	// GetAllExpectedPowerShelfDetails returns every expected power shelf
+	// registered with Core as a flat slice with the full proto contents.
+	GetAllExpectedPowerShelfDetails(ctx context.Context) ([]ExpectedPowerShelfDetail, error)
+
 	// GetDesiredFirmwareVersions returns a slice of desired firmware version
 	// entries configured in Core. Each entry carries vendor and model fields;
 	// iterate the slice to find matching entries.
@@ -142,6 +237,22 @@ type Client interface {
 	SetSwitchRackID(switchID, rackID string)
 	SetPowerShelfRackID(shelfID, rackID string)
 	SetSwitchControllerState(switchID, state string)
+	SetSwitchNvosIP(switchID, ip string)
 	SetPowerShelfControllerState(shelfID, state string)
 	SetRackHostMachineIDs(rackID string, machineIDs []string)
+	AddExpectedRackDetail(detail ExpectedRackDetail)
+	AddExpectedMachineDetail(detail ExpectedMachineDetail)
+	AddExpectedSwitchDetail(detail ExpectedSwitchDetail)
+	AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail)
+
+	// DPU reprovisioning mock fixtures + recorders.
+	SetHostDpuMachineIds(hostMachineID string, dpuIDs []string)
+	SetHostInstanceID(hostMachineID string, instanceID string)
+	SetDpuReprovisioningPending(hostMachineID string, pending bool)
+	SetInsertHostUpdateOverrideError(err error)
+	SetTriggerDpuReprovisioningError(err error)
+	SetInvokeInstancePowerError(err error)
+	DpuReprovisioningTriggers() []DpuReprovisioningCall
+	InstancePowerCalls() []InstancePowerCall
+	HostUpdateOverridesActive() map[string]string
 }

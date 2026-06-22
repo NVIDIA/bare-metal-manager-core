@@ -62,7 +62,7 @@ pub enum CmdJournal {
 EXAMPLES:
 
 Delete a journal entry by ID:
-    $ carbide-admin-cli attestation measured-boot journal delete \
+    $ nico-admin-cli attestation measured-boot journal delete \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -77,10 +77,10 @@ pub struct Delete {
 EXAMPLES:
 
 List all journal entries:
-    $ carbide-admin-cli attestation measured-boot journal list
+    $ nico-admin-cli attestation measured-boot journal list
 
 List journal entries for a single machine:
-    $ carbide-admin-cli attestation measured-boot journal list \
+    $ nico-admin-cli attestation measured-boot journal list \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -96,10 +96,10 @@ pub struct List {
 EXAMPLES:
 
 Show all journal entries:
-    $ carbide-admin-cli attestation measured-boot journal show
+    $ nico-admin-cli attestation measured-boot journal show
 
 Show one journal entry by ID:
-    $ carbide-admin-cli attestation measured-boot journal show \
+    $ nico-admin-cli attestation measured-boot journal show \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -115,11 +115,11 @@ pub struct Show {
 EXAMPLES:
 
 Promote a journal entry's report into a bundle:
-    $ carbide-admin-cli attestation measured-boot journal promote \
+    $ nico-admin-cli attestation measured-boot journal promote \
     12345678-1234-5678-90ab-cdef01234567
 
 Promote only specific PCR registers (indices and ranges):
-    $ carbide-admin-cli attestation measured-boot journal promote \
+    $ nico-admin-cli attestation measured-boot journal promote \
     12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
 
 ")]

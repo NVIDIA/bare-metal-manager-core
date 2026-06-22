@@ -20,13 +20,14 @@
 //! Write a test as a list of labeled cases — each a `scenario`, an `input`, and an
 //! `expect`ed result — then run them all through one operation, written once.
 //! [`check_cases`] does the running and the asserting, [`Outcome`] is what a
-//! fallible operation should produce, and [`Case`] is one row.
+//! fallible operation should produce, and [`Case`] is one row. For concise
+//! grouped tables, use [`scenarios!`] or [`value_scenarios!`].
 //!
 //! # A table of cases
 //!
 //! ```
-//! use nico_test_support::Outcome::*;
-//! use nico_test_support::{Case, check_cases};
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases};
 //!
 //! check_cases(
 //!     [
@@ -51,14 +52,46 @@
 //! );
 //! ```
 //!
+//! # Grouped scenarios
+//!
+//! When several rows belong to the same named condition, [`scenarios!`] keeps the
+//! inputs and expected outcomes visible while removing the repeated [`Case`]
+//! fields. Pass the operation under test as a `run =` closure -- the form most
+//! tables use, because the same syntax also takes an inline expression or a row
+//! that destructures several inputs:
+//!
+//! ```
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::scenarios;
+//!
+//! fn parse_byte(input: &str) -> Result<u8, String> {
+//!     input.parse::<u8>().map_err(|_| format!("bad byte: {input}"))
+//! }
+//!
+//! scenarios!(run = |input| parse_byte(input);
+//!     "valid bytes" {
+//!         "0" => Yields(0),
+//!         "42" => Yields(42),
+//!     }
+//!
+//!     "invalid bytes" {
+//!         "999" => FailsWith("bad byte: 999".to_string()),
+//!         "x" => Fails,
+//!     }
+//! );
+//! ```
+//!
+//! For a bare named function, the `fn:` shorthand reads a little cleaner --
+//! `scenarios!(parse_byte: ...)` expands to exactly the same table.
+//!
 //! # A single case
 //!
 //! A one-off test is just one [`Case`]; `.check(run)` is the single-row
 //! counterpart to [`check_cases`]:
 //!
 //! ```
-//! use nico_test_support::Case;
-//! use nico_test_support::Outcome::*;
+//! use carbide_test_support::Case;
+//! use carbide_test_support::Outcome::*;
 //!
 //! Case {
 //!     scenario: "in range",
@@ -68,17 +101,113 @@
 //! .check(|s| s.parse::<u8>().map_err(|_| ()));
 //! ```
 //!
+//! # Async
+//!
+//! For an `async` operation, use [`check_cases_async`] (or [`Case::check_async`])
+//! and `.await` it — [`Outcome`], [`Case`], and the asserting are unchanged:
+//!
+//! ```
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases_async};
+//!
+//! # async fn example() {
+//! check_cases_async(
+//!     [
+//!         Case {
+//!             scenario: "doubles",
+//!             input: 2u8,
+//!             expect: Yields(4),
+//!         },
+//!         Case {
+//!             scenario: "overflows",
+//!             input: 200u8,
+//!             expect: Fails,
+//!         },
+//!     ],
+//!     |n| async move { n.checked_mul(2).ok_or(()) },
+//! )
+//! .await;
+//! # }
+//! ```
+//!
+//! # A plain value (no `Result`)
+//!
+//! When the operation returns a plain value rather than a `Result` — a `bool`
+//! predicate, a getter — use [`check_values`] with [`Check`]. There's no
+//! [`Outcome`] to dress up; `expect` is just the value:
+//!
+//! ```
+//! use carbide_test_support::{Check, check_values};
+//!
+//! check_values(
+//!     [
+//!         Check {
+//!             scenario: "even",
+//!             input: 4,
+//!             expect: true,
+//!         },
+//!         Check {
+//!             scenario: "odd",
+//!             input: 7,
+//!             expect: false,
+//!         },
+//!     ],
+//!     |n| n % 2 == 0,
+//! );
+//! ```
+//!
+//! The [`value_scenarios!`] macro provides the same grouping for total
+//! operations:
+//!
+//! ```
+//! use carbide_test_support::value_scenarios;
+//!
+//! fn is_even(input: u8) -> bool {
+//!     input % 2 == 0
+//! }
+//!
+//! value_scenarios!(run = |n| is_even(n);
+//!     "parity" {
+//!         2 => true,
+//!         7 => false,
+//!     }
+//! );
+//! ```
+//!
+//! # Several inputs per row
+//!
+//! When a row carries more than one input, keep using the macro: declare a
+//! *local* struct with content-named fields, use it as the row `input`, and
+//! destructure it in the `run =` closure. The struct keeps each row readable; the
+//! closure does the work:
+//!
+//! ```
+//! use carbide_test_support::value_scenarios;
+//!
+//! struct Row {
+//!     left: u8,
+//!     right: u8,
+//! }
+//!
+//! value_scenarios!(run = |Row { left, right }| left.saturating_add(right);
+//!     "saturating add" {
+//!         Row { left: 1, right: 2 } => 3,
+//!         Row { left: 250, right: 10 } => 255,
+//!     }
+//! );
+//! ```
+//!
 //! # What's shared, and what stays a convention
 //!
-//! [`Outcome`] is the one piece worth sharing — every fallible test otherwise
-//! re-invents the same "succeeds / fails / fails-with-a-specific-error" enum. There
-//! is deliberately no macro: that's a last-mile crystallization, not a starting
-//! point. And when a row carries several inputs or expected values, a *local*
-//! `struct Case` with content-named fields plus [`assert_outcome`] reads better
-//! than forcing it through the generic [`Case`] here — so that stays a convention,
-//! not a type.
+//! [`Outcome`] is the one piece worth sharing -- every fallible test otherwise
+//! re-invents the same "succeeds / fails / fails-with-a-specific-error" enum.
+//! [`scenarios!`] and [`value_scenarios!`] are intentionally thin syntax over
+//! [`Case`] and [`Check`]. [`assert_outcome`] is the primitive they are built on;
+//! reach for it directly only when a case needs a fully hand-written body that
+//! neither a macro nor [`Case::check`] can express.
 
 use std::fmt::Debug;
+use std::future::Future;
 
 /// The expected result of a fallible operation under test.
 ///
@@ -122,6 +251,17 @@ impl<I, T, E> Case<I, T, E> {
     {
         assert_outcome(run(self.input), self.expect, self.scenario);
     }
+
+    /// Async counterpart to [`check`](Case::check): runs an `async` operation and
+    /// awaits its result before asserting.
+    pub async fn check_async<Fut>(self, run: impl FnOnce(I) -> Fut)
+    where
+        Fut: Future<Output = Result<T, E>>,
+        T: PartialEq + Debug,
+        E: PartialEq + Debug,
+    {
+        assert_outcome(run(self.input).await, self.expect, self.scenario);
+    }
 }
 
 /// Run each case's `input` through `run` and assert its [`Outcome`]. `run` is the
@@ -135,6 +275,22 @@ pub fn check_cases<I, T, E>(
 {
     for case in cases {
         case.check(&run);
+    }
+}
+
+/// Async counterpart to [`check_cases`]: each case's `input` is run through the
+/// `async` operation `run` and its result awaited. Call it from an async test
+/// (e.g. `#[tokio::test]`) and `.await` it.
+pub async fn check_cases_async<I, T, E, Fut>(
+    cases: impl IntoIterator<Item = Case<I, T, E>>,
+    run: impl Fn(I) -> Fut,
+) where
+    Fut: Future<Output = Result<T, E>>,
+    T: PartialEq + Debug,
+    E: PartialEq + Debug,
+{
+    for case in cases {
+        case.check_async(&run).await;
     }
 }
 
@@ -155,10 +311,154 @@ where
     }
 }
 
+/// One row of a *total* table test: a labeled `input` and the plain value the
+/// operation is expected to return. The counterpart to [`Case`] for an operation
+/// that can't fail — a predicate, a getter, any `fn(I) -> T`.
+pub struct Check<I, T> {
+    /// What this row exercises; used as the failure label.
+    pub scenario: &'static str,
+    /// The input handed to the operation under test.
+    pub input: I,
+    /// The value the operation should return.
+    pub expect: T,
+}
+
+impl<I, T> Check<I, T> {
+    /// Run this check's `input` through `run` and assert it returns `expect`,
+    /// naming a failure by `scenario`. The single-row counterpart to
+    /// [`check_values`].
+    pub fn check(self, run: impl FnOnce(I) -> T)
+    where
+        T: PartialEq + Debug,
+    {
+        assert_eq!(run(self.input), self.expect, "{}", self.scenario);
+    }
+}
+
+/// Run each check's `input` through `run` and assert the returned value equals its
+/// `expect`. The total-function counterpart to [`check_cases`]: reach for it when
+/// the operation under test returns a plain value — a `bool` predicate, a getter —
+/// rather than a `Result`.
+pub fn check_values<I, T>(checks: impl IntoIterator<Item = Check<I, T>>, run: impl Fn(I) -> T)
+where
+    T: PartialEq + Debug,
+{
+    for check in checks {
+        check.check(&run);
+    }
+}
+
+/// Run grouped fallible table rows through one operation.
+///
+/// Each group label is combined with the row input expression in failure output,
+/// so a failure points at both the broad scenario and the concrete input. This is
+/// equivalent to writing [`Case`] rows and passing them to [`check_cases`].
+///
+/// ```
+/// use carbide_test_support::Outcome::*;
+/// use carbide_test_support::scenarios;
+///
+/// fn checked_double(input: u8) -> Result<u8, &'static str> {
+///     input.checked_mul(2).ok_or("overflow")
+/// }
+///
+/// scenarios!(checked_double:
+///     "doubles" {
+///         2 => Yields(4),
+///     }
+///
+///     "overflow" {
+///         200 => Fails,
+///     }
+/// );
+/// ```
+#[macro_export]
+macro_rules! scenarios {
+    ($run:path: $($scenario:literal { $($input:expr => $expect:expr),+ $(,)? })+ $(,)?) => {
+        $crate::check_cases(
+            [
+                $($(
+                    $crate::Case {
+                        scenario: concat!($scenario, " / ", stringify!($input)),
+                        input: $input,
+                        expect: $expect,
+                    },
+                )+)+
+            ],
+            $run,
+        )
+    };
+    (run = $run:expr; $($scenario:literal { $($input:expr => $expect:expr),+ $(,)? })+ $(,)?) => {
+        $crate::check_cases(
+            [
+                $($(
+                    $crate::Case {
+                        scenario: concat!($scenario, " / ", stringify!($input)),
+                        input: $input,
+                        expect: $expect,
+                    },
+                )+)+
+            ],
+            $run,
+        )
+    };
+}
+
+/// Run grouped total-value table rows through one operation.
+///
+/// This is the total-function counterpart to [`scenarios!`], equivalent to
+/// writing [`Check`] rows and passing them to [`check_values`].
+///
+/// ```
+/// use carbide_test_support::value_scenarios;
+///
+/// fn double(input: u8) -> u8 {
+///     input * 2
+/// }
+///
+/// value_scenarios!(double:
+///     "doubles" {
+///         2 => 4,
+///         9 => 18,
+///     }
+/// );
+/// ```
+#[macro_export]
+macro_rules! value_scenarios {
+    ($run:path: $($scenario:literal { $($input:expr => $expect:expr),+ $(,)? })+ $(,)?) => {
+        $crate::check_values(
+            [
+                $($(
+                    $crate::Check {
+                        scenario: concat!($scenario, " / ", stringify!($input)),
+                        input: $input,
+                        expect: $expect,
+                    },
+                )+)+
+            ],
+            $run,
+        )
+    };
+    (run = $run:expr; $($scenario:literal { $($input:expr => $expect:expr),+ $(,)? })+ $(,)?) => {
+        $crate::check_values(
+            [
+                $($(
+                    $crate::Check {
+                        scenario: concat!($scenario, " / ", stringify!($input)),
+                        input: $input,
+                        expect: $expect,
+                    },
+                )+)+
+            ],
+            $run,
+        )
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::Outcome::*;
-    use super::{Case, assert_outcome, check_cases};
+    use super::{Case, Check, assert_outcome, check_cases, check_values};
 
     #[test]
     fn check_runs_a_single_case() {
@@ -187,6 +487,101 @@ mod tests {
             ],
             |n| n.checked_mul(2).ok_or("overflow"),
         );
+    }
+
+    #[test]
+    fn check_values_runs_every_row() {
+        check_values(
+            [
+                Check {
+                    scenario: "even",
+                    input: 4,
+                    expect: true,
+                },
+                Check {
+                    scenario: "odd",
+                    input: 7,
+                    expect: false,
+                },
+            ],
+            |n| n % 2 == 0,
+        );
+    }
+
+    #[test]
+    fn scenarios_macro_runs_grouped_fallible_rows() {
+        fn checked_double(input: u8) -> Result<u8, &'static str> {
+            input.checked_mul(2).ok_or("overflow")
+        }
+
+        crate::scenarios!(checked_double:
+            "doubles" {
+                2 => Yields(4),
+                21 => Yields(42),
+            }
+
+            "overflow" {
+                200 => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn scenarios_macro_accepts_run_expression() {
+        crate::scenarios!(run = |n| n.checked_add(1).ok_or("overflow");
+            "increments" {
+                1u8 => Yields(2),
+            }
+
+            "overflow" {
+                u8::MAX => FailsWith("overflow"),
+            }
+        );
+    }
+
+    #[test]
+    fn value_scenarios_macro_runs_grouped_total_rows() {
+        fn double(input: u8) -> u8 {
+            input * 2
+        }
+
+        crate::value_scenarios!(double:
+            "doubles" {
+                2 => 4,
+                21 => 42,
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "label / 1")]
+    fn value_scenarios_macro_labels_failures_with_group_and_input() {
+        crate::value_scenarios!(run = |n| n;
+            "label" {
+                1 => 2,
+            }
+        );
+    }
+
+    #[test]
+    fn check_runs_a_single_value() {
+        Check {
+            scenario: "doubles",
+            input: 21,
+            expect: 42,
+        }
+        .check(|n| n * 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "the value is wrong")]
+    fn flags_an_unexpected_value() {
+        Check {
+            scenario: "the value is wrong",
+            input: 1,
+            expect: 2,
+        }
+        .check(|n| n);
     }
 
     #[test]

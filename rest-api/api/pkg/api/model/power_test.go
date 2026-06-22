@@ -4,11 +4,22 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestAPIUpdatePowerStateRequest_OverrideReadinessCheck(t *testing.T) {
+	var omitted APIUpdatePowerStateRequest
+	assert.NoError(t, json.Unmarshal([]byte(`{"siteId":"s","state":"on"}`), &omitted))
+	assert.False(t, omitted.OverrideReadinessCheck, "defaults to false when omitted")
+
+	var optIn APIUpdatePowerStateRequest
+	assert.NoError(t, json.Unmarshal([]byte(`{"siteId":"s","state":"on","overrideReadinessCheck":true}`), &optIn))
+	assert.True(t, optIn.OverrideReadinessCheck, "set when provided")
+}
 
 func TestAPIUpdatePowerStateRequest_Validate(t *testing.T) {
 	tests := []struct {

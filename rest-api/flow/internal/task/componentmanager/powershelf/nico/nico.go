@@ -17,10 +17,12 @@ import (
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 const (
@@ -30,30 +32,40 @@ const (
 // Manager manages power shelf components via the NICo/NICo component dispatch RPCs.
 type Manager struct {
 	nicoClient nicoapi.Client
-	// assignment guards power/firmware operations on a shelf from running
-	// while any host on the shelf's rack is still attached to an instance.
-	// PowerShelves feed the entire rack, so toggling one can power-cycle
-	// every host downstream of it; the check is therefore rack-scoped.
-	assignment *nicoprovider.AssignmentChecker
+	// readiness guards power/firmware operations on a shelf from running
+	// while any host on the shelf's rack is reported as not ready for
+	// the operation by its persisted ComponentOperationStatus. PowerShelves feed
+	// the entire rack, so toggling one can power-cycle every host
+	// downstream of it; the check is therefore rack-scoped.
+	readiness readiness.Gate
 }
 
-func New(nicoClient nicoapi.Client) *Manager {
+// New creates a new NICo-based PowerShelf Manager. A nil gate
+// short-circuits to permissive in tests; production callers wire the
+// shared DB-backed gate.
+func New(nicoClient nicoapi.Client, gate readiness.Gate) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
-		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+		readiness:  gate,
 	}
 }
 
-// Factory creates a new Manager from the provided providers.
-func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.ComponentManager, error) {
-	provider, err := providerapi.GetTyped[*nicoprovider.Provider](
-		providerRegistry,
-		nicoprovider.ProviderName,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("powershelf/nico requires nico provider: %w", err)
+// Factory returns a factory that closes over the shared readiness gate.
+// The factory retrieves the NICo provider from the registry and pairs it
+// with the gate.
+func Factory(gate readiness.Gate) componentmanager.ManagerFactory {
+	return func(
+		providerRegistry *providerapi.ProviderRegistry,
+	) (componentmanager.ComponentManager, error) {
+		provider, err := providerapi.GetTyped[*nicoprovider.Provider](
+			providerRegistry,
+			nicoprovider.ProviderName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("powershelf/nico requires nico provider: %w", err)
+		}
+		return New(provider.Client(), gate), nil
 	}
-	return New(provider.Client()), nil
 }
 
 // Descriptor returns the NICo PowerShelf manager descriptor.
@@ -75,10 +87,10 @@ func Descriptor() cmcatalog.Descriptor {
 }
 
 // FactorySpec returns the NICo PowerShelf manager runtime factory spec.
-func FactorySpec() componentmanager.FactorySpec {
+func FactorySpec(gate readiness.Gate) componentmanager.FactorySpec {
 	return componentmanager.FactorySpec{
 		Descriptor: Descriptor(),
-		Factory:    Factory,
+		Factory:    Factory(gate),
 	}
 }
 
@@ -98,10 +110,11 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 // ensureRackOperable is the per-Manager policy gate for disruptive
 // operations on the racks that own the given power shelves. The default
 // policy refuses to proceed while any host on the resolved rack(s) is
-// still in Core's Assigned/* lifecycle state, because a shelf reset
-// power-cycles every host downstream of it.
+// reported as not ready for the operation by its persisted
+// ComponentOperationStatus, because a shelf reset power-cycles every host
+// downstream of it.
 //
-// When overrideAssignmentCheck is true the gate is short-circuited
+// When overrideReadinessCheck is true the gate is short-circuited
 // without performing the rack lookup. The override is intended for
 // operator-supervised maintenance windows; authorisation is enforced
 // upstream and is not re-checked here. A warning is emitted so the
@@ -112,16 +125,24 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 func (m *Manager) ensureRackOperable(
 	ctx context.Context,
 	shelfIDs []string,
-	overrideAssignmentCheck bool,
+	op types.OperationType,
+	overrideReadinessCheck bool,
 ) error {
 	if len(shelfIDs) == 0 {
 		return nil
 	}
 
-	if overrideAssignmentCheck {
+	// A nil gate is the documented permissive mode: skip the rack lookup
+	// entirely rather than dispatch on a nil interface.
+	if m.readiness == nil {
+		return nil
+	}
+
+	if overrideReadinessCheck {
 		log.Warn().
 			Strs("power_shelf_ids", shelfIDs).
-			Msg("Assignment safety check bypassed by override_assignment_check on PowerShelf operation")
+			Str("operation", string(op)).
+			Msg("Readiness check bypassed by override_readiness_check on PowerShelf operation")
 		return nil
 	}
 
@@ -144,10 +165,10 @@ func (m *Manager) ensureRackOperable(
 	if len(orphan) > 0 {
 		log.Warn().
 			Strs("power_shelf_ids", orphan).
-			Msg("PowerShelf has no rack assignment; assignment safety check cannot be applied")
+			Msg("PowerShelf has no rack assignment; readiness check cannot be applied")
 	}
 
-	return m.assignment.WaitForRacksUnassigned(ctx, rackIDs)
+	return m.readiness.WaitForRackHostsReady(ctx, rackIDs, op)
 }
 
 // InjectExpectation registers an expected power shelf with NICo via AddExpectedPowerShelf.
@@ -190,7 +211,7 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -214,7 +235,8 @@ func (m *Manager) PowerControl(
 		Target: &pb.ComponentPowerControlRequest_PowerShelfIds{
 			PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 		},
-		Action: action,
+		Action:                action,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.ComponentPowerControl(ctx, req)
@@ -282,7 +304,7 @@ func (m *Manager) FirmwareControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, types.OperationTypeFirmwareControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -304,7 +326,8 @@ func (m *Manager) FirmwareControl(
 				Components:    subComponents,
 			},
 		},
-		TargetVersion: info.TargetVersion,
+		TargetVersion:         info.TargetVersion,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)

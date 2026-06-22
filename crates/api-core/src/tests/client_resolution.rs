@@ -159,7 +159,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
     env.run_network_segment_controller_iteration().await;
     env.run_network_segment_controller_iteration().await;
 
-    let mh = create_managed_host_with_config(&env, ManagedHostConfig::with_dpus(Vec::new())).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
     assert!(
         mh.dpu_ids.is_empty(),
         "zero-DPU fixture should produce no DPU machines"

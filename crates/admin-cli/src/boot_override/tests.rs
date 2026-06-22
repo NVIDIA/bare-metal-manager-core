@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,130 +46,116 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_get ensures get subcommand parses interface_id.
+// The get and clear subcommands each route to their own variant and parse the
+// shared interface_id. The closure yields the routed variant name paired with the
+// parsed interface_id, so one table covers both.
 #[test]
-fn parse_get() {
-    let cmd = Cmd::try_parse_from([
-        "boot-override",
-        "get",
-        "550e8400-e29b-41d4-a716-446655440000",
-    ])
-    .expect("should parse get");
-
-    match cmd {
-        Cmd::Get(args) => {
-            assert_eq!(
-                args.inner.interface_id.to_string(),
-                "550e8400-e29b-41d4-a716-446655440000"
-            );
+fn parse_get_and_clear() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Get(args) => ("get", args.inner.interface_id.to_string()),
+                    Cmd::Clear(args) => ("clear", args.inner.interface_id.to_string()),
+                    _ => panic!("expected Get or Clear variant"),
+                })
+                .map_err(drop)
+        };
+        "get routes to Get and parses interface_id" {
+            &[
+                "boot-override",
+                "get",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields(("get", "550e8400-e29b-41d4-a716-446655440000".to_string())),
         }
-        _ => panic!("expected Get variant"),
-    }
+
+        "clear routes to Clear and parses interface_id" {
+            &[
+                "boot-override",
+                "clear",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields(("clear", "550e8400-e29b-41d4-a716-446655440000".to_string())),
+        }
+    );
 }
 
-// parse_clear ensures clear subcommand parses interface_id.
+// parse_set covers the set subcommand: it parses with just interface_id
+// (custom flags unset), with the long --custom-pxe/--custom-user-data flags,
+// and with the short -p/-u aliases. Each row yields the parsed
+// (interface_id, custom_pxe, custom_user_data).
 #[test]
-fn parse_clear() {
-    let cmd = Cmd::try_parse_from([
-        "boot-override",
-        "clear",
-        "550e8400-e29b-41d4-a716-446655440000",
-    ])
-    .expect("should parse clear");
-
-    match cmd {
-        Cmd::Clear(args) => {
-            assert_eq!(
-                args.inner.interface_id.to_string(),
-                "550e8400-e29b-41d4-a716-446655440000"
-            );
+fn parse_set() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Set(args) => (
+                        args.interface_id.to_string(),
+                        args.custom_pxe,
+                        args.custom_user_data,
+                    ),
+                    _ => panic!("expected Set variant"),
+                })
+                .map_err(drop)
+        };
+        "set with just interface_id leaves the custom flags unset" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                None,
+                None,
+            )),
         }
-        _ => panic!("expected Clear variant"),
-    }
+
+        "set with the long --custom-pxe/--custom-user-data flags" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--custom-pxe",
+                "http://pxe.example.com/boot",
+                "--custom-user-data",
+                "some-user-data",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                Some("http://pxe.example.com/boot".to_string()),
+                Some("some-user-data".to_string()),
+            )),
+        }
+
+        "set with the short -p/-u aliases" {
+            &[
+                "boot-override",
+                "set",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "-p",
+                "http://pxe.example.com/boot",
+                "-u",
+                "some-user-data",
+            ][..] => Yields((
+                "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                Some("http://pxe.example.com/boot".to_string()),
+                Some("some-user-data".to_string()),
+            )),
+        }
+    );
 }
 
-// parse_set_basic ensures set subcommand parses with
-// just interface_id.
+// Every malformed invocation is rejected at parse time -- here, a subcommand
+// invoked without its required interface_id.
 #[test]
-fn parse_set_basic() {
-    let cmd = Cmd::try_parse_from([
-        "boot-override",
-        "set",
-        "550e8400-e29b-41d4-a716-446655440000",
-    ])
-    .expect("should parse set");
-
-    match cmd {
-        Cmd::Set(args) => {
-            assert_eq!(
-                args.interface_id.to_string(),
-                "550e8400-e29b-41d4-a716-446655440000"
-            );
-            assert!(args.custom_pxe.is_none());
-            assert!(args.custom_user_data.is_none());
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "get without interface_id" {
+            &["boot-override", "get"][..] => Fails,
         }
-        _ => panic!("expected Set variant"),
-    }
-}
-
-// parse_set_with_options ensures set subcommand parses
-// with custom_pxe and custom_user_data.
-#[test]
-fn parse_set_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "boot-override",
-        "set",
-        "550e8400-e29b-41d4-a716-446655440000",
-        "--custom-pxe",
-        "http://pxe.example.com/boot",
-        "--custom-user-data",
-        "some-user-data",
-    ])
-    .expect("should parse set with options");
-
-    match cmd {
-        Cmd::Set(args) => {
-            assert_eq!(
-                args.custom_pxe,
-                Some("http://pxe.example.com/boot".to_string())
-            );
-            assert_eq!(args.custom_user_data, Some("some-user-data".to_string()));
-        }
-        _ => panic!("expected Set variant"),
-    }
-}
-
-// parse_set_short_options ensures set subcommand parses
-// short flags -p and -u.
-#[test]
-fn parse_set_short_options() {
-    let cmd = Cmd::try_parse_from([
-        "boot-override",
-        "set",
-        "550e8400-e29b-41d4-a716-446655440000",
-        "-p",
-        "http://pxe.example.com/boot",
-        "-u",
-        "some-user-data",
-    ])
-    .expect("should parse set with short options");
-
-    match cmd {
-        Cmd::Set(args) => {
-            assert_eq!(
-                args.custom_pxe,
-                Some("http://pxe.example.com/boot".to_string())
-            );
-            assert_eq!(args.custom_user_data, Some("some-user-data".to_string()));
-        }
-        _ => panic!("expected Set variant"),
-    }
-}
-
-// parse_requires_interface_id ensures subcommands
-// require interface_id.
-#[test]
-fn parse_requires_interface_id() {
-    let result = Cmd::try_parse_from(["boot-override", "get"]);
-    assert!(result.is_err(), "should fail without interface_id");
+    );
 }

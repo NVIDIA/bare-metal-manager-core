@@ -28,13 +28,13 @@ use std::time::Instant;
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::sanitized_mac;
 use carbide_redfish::libredfish::conv::IntoModel;
+use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
-use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -47,6 +47,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_boot_interface::MachineBootInterface;
 use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
@@ -62,6 +63,8 @@ mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
 mod metrics;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
@@ -291,6 +294,7 @@ impl SiteExplorer {
         firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
@@ -306,12 +310,14 @@ impl SiteExplorer {
             hold_period,
             &explorer_config,
         ));
+        let rack_profiles = Arc::new(rack_profiles);
 
         SiteExplorer {
             machine_creator: MachineCreator::new(
                 database_connection.clone(),
                 explorer_config.clone(),
                 common_pools,
+                rack_profiles,
                 rms_client.clone(),
                 credential_manager,
             ),
@@ -410,6 +416,7 @@ impl SiteExplorer {
             "explore_site",
             span_id,
             carbide.trace_root = true,
+            component = "site-explorer",
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
             created_machines = tracing::field::Empty,
@@ -733,6 +740,29 @@ impl SiteExplorer {
         // Audit after everything has been explored, identified, and created.
         self.audit_exploration_results(metrics, &expected_endpoint_index)
             .await?;
+
+        // Retained boot interface records that aged out of the configured
+        // window are already ignored at read time; sweep them once per pass
+        // so MACs that never return don't occupy table rows indefinitely.
+        // (A no-op without a window: records wait for their machine.)
+        if self.config.retained_boot_interface_window.is_some() {
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::new("begin retained boot interface sweep", e))?;
+            let swept = db::retained_boot_interface::delete_expired(
+                &mut txn,
+                self.config.retained_boot_interface_window,
+            )
+            .await?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("end retained boot interface sweep", e))?;
+            if swept > 0 {
+                tracing::info!(swept, "Removed expired retained boot interface records");
+            }
+        }
 
         Ok(identified_hosts)
     }
@@ -1119,7 +1149,7 @@ impl SiteExplorer {
             let DpuExplorationState {
                 reported_total: host_reported_dpus_total,
                 running_as_nic_total: mut host_reported_dpus_nic_mode_total,
-                all_configured: all_dpus_configured_properly_in_host,
+                all_configured: mut all_dpus_configured_properly_in_host,
                 running_as_dpu: mut dpus_explored_for_host,
             } = dpu_exploration;
 
@@ -1136,30 +1166,53 @@ impl SiteExplorer {
                 {
                     for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
-                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(&dpu_ep, &ep)
-                                && host_reported_dpus_total
-                                    .saturating_sub(host_reported_dpus_nic_mode_total)
-                                    > 0
-                            {
-                                host_reported_dpus_nic_mode_total += 1;
-                                continue;
-                            }
+                            // Enforce the host's declared DPU mode on a fallback-serial
+                            // match the same way the host-reported path does, rather than
+                            // trusting it as already-configured. A DPU still in the wrong
+                            // mode gets a `set_nic_mode` here and has to wait for the host
+                            // reset to apply it; without this, a DPU-mode BlueField on a
+                            // `NicMode` host would be attached and then dropped to zero-DPU
+                            // (the `NicMode` arm further down), leaving the database reading
+                            // "NIC-mode host" while the hardware stayed in DPU mode.
+                            let mode_check = Some(
+                                self.check_and_configure_dpu_mode(
+                                    &dpu_ep,
+                                    dpu_ep.report.model().unwrap_or_default(),
+                                    host_dpu_mode,
+                                )
+                                .await,
+                            );
 
-                            // we found at least one DPU from expected machines for this host
-                            // assume that the expected machines is the source of truth. Clear the
-                            // contents of dpus_explored_for_host to discard the previous results of
-                            // iterating over the hosts pcie devices.
-                            if !dpu_added {
-                                dpus_explored_for_host.clear();
+                            match classify_matched_dpu(&dpu_ep, &ep, mode_check) {
+                                DiscoveredDpu::RunningAsDpu(dpu) => {
+                                    // The expected-machine fallback list is the source of
+                                    // truth here, so discard whatever the PCIe scan found
+                                    // on the first confirmed match.
+                                    if !dpu_added {
+                                        dpus_explored_for_host.clear();
+                                    }
+                                    dpu_added = true;
+                                    dpus_explored_for_host.push(dpu);
+                                }
+                                DiscoveredDpu::RunningAsNic => {
+                                    host_reported_dpus_nic_mode_total += 1;
+                                }
+                                DiscoveredDpu::NeedsReconfig => {
+                                    // `set_nic_mode` was just issued; the host needs a
+                                    // reset before this DPU re-reports in the new mode, so
+                                    // mark it not-yet-configured and let the reset path
+                                    // below run.
+                                    all_dpus_configured_properly_in_host = false;
+                                }
+                                DiscoveredDpu::ModeCheckFailed(err) => {
+                                    tracing::warn!(
+                                        dpu = %dpu_ep.address,
+                                        dpu_sn = %dpu_sn,
+                                        error = %err,
+                                        "failed to check fallback-matched DPU mode; skipping this device this pass",
+                                    );
+                                }
                             }
-
-                            dpu_added = true;
-                            dpus_explored_for_host.push(ExploredDpu {
-                                bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report.into(),
-                            });
                         }
                     }
                 }
@@ -1173,21 +1226,29 @@ impl SiteExplorer {
                     // confirmed to be running as plain NICs.
                     let expected_managed_dpus_total =
                         host_reported_dpus_total.saturating_sub(host_reported_dpus_nic_mode_total);
-                    if expected_managed_dpus_total > 0 {
-                        tracing::warn!(
-                            address = %ep.address,
-                            exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
-                            dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
-                        );
+                    // Enter the reset/wait path when DPUs are still expected to pair, or
+                    // when a `set_nic_mode` was just issued -- a fallback-serial match can
+                    // queue a flip even on a host whose BMC reports no DPU over PCIe
+                    // (`expected_managed_dpus_total == 0`), which is the usual reason we are
+                    // on the fallback path at all.
+                    if expected_managed_dpus_total > 0 || !all_dpus_configured_properly_in_host {
+                        if expected_managed_dpus_total > 0 {
+                            tracing::warn!(
+                                address = %ep.address,
+                                exploration_report = ?ep,
+                                "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
+                                dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
+                            );
+                        }
 
                         if !all_dpus_configured_properly_in_host {
                             // A queued `set_nic_mode` only takes effect after a host
-                            // power cycle, so drive one for every vendor -- the
-                            // Redfish `ComputerSystem.Reset` action is standard
-                            // across BMCs -- throttled by `reset_rate_limit`. A BMC
-                            // that refuses the request surfaces the host as needing
-                            // a manual power cycle via the pairing-blocker metric.
+                            // power cycle, so drive one for every vendor --
+                            // `redfish_powercycle` issues `PowerCycle` and falls back
+                            // to a cold `ACPowercycle` for vendors that refuse it --
+                            // throttled by `reset_rate_limit`. A BMC that refuses both
+                            // surfaces the host as needing a manual power cycle via
+                            // the pairing-blocker metric.
                             let time_since_redfish_powercycle = Utc::now().signed_duration_since(
                                 ep.last_redfish_powercycle.unwrap_or_default(),
                             );
@@ -1217,10 +1278,11 @@ impl SiteExplorer {
                                 // loop stays visible to operators instead of
                                 // rebooting hourly in silence.
                                 //
-                                // TODO(chet): If the power cycle doesn't appear to
-                                // be flipping the NIC to the expected mode, this is
-                                // where we'd want to introduce a cold power cycle
-                                // (`ForceOff`/`On` or similar).
+                                // The reset above already escalates a refused
+                                // `PowerCycle` to a cold `ACPowercycle`
+                                // (`redfish_powercycle`), so a host still unflipped
+                                // here is mid-flight or genuinely stuck -- either way
+                                // it stays visible via the metric.
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::ManualPowerCycleRequired,
                                 );
@@ -1263,9 +1325,15 @@ impl SiteExplorer {
             // If we know the booting interface of the host, we should use this for deciding
             // primary interface.
             let mut is_sorted = false;
+            // A declared `ExpectedHostNic.primary` (when the matched expected
+            // machine sets one) wins over the automatic DPU-PF pick, so the
+            // explored default names the same NIC the managed store will.
+            let declared_primary = expected_explored_endpoint_index
+                .matched_expected_machine(&ep.address)
+                .and_then(|expected| expected.data.declared_primary_mac());
             if let Some(mac_address) = ep
                 .report
-                .fetch_host_primary_interface_mac(&dpus_explored_for_host)
+                .fetch_host_primary_interface_mac(&dpus_explored_for_host, declared_primary)
             {
                 // Capture the boot interface's [stable] Redfish interface id
                 // alongside its MAC. Only persist when both resolve from the
@@ -1379,11 +1447,20 @@ impl SiteExplorer {
 
         // Record each host NIC's Redfish id on its machine_interfaces row so the
         // primary-flagged row is the host's complete boot interface (MAC + id).
+        // Pending predicted interfaces get the same refresh, so a prediction
+        // minted before the report resolved the id stays as current as the
+        // live report until DHCP promotes it.
         for boot_interface in &nic_boot_interfaces {
             db::machine_interface::set_boot_interface_id(
                 boot_interface.mac_address,
                 &boot_interface.interface_id,
                 &mut txn,
+            )
+            .await?;
+            db::predicted_machine_interface::set_boot_interface_id(
+                &mut txn,
+                boot_interface.mac_address,
+                &boot_interface.interface_id,
             )
             .await?;
         }
@@ -1578,6 +1655,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_machine BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1591,6 +1669,7 @@ impl SiteExplorer {
                     ip,
                     InterfaceType::Data,
                     "expected_machine host NIC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1604,6 +1683,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_switch BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1620,6 +1700,7 @@ impl SiteExplorer {
                             nvos_ip,
                             InterfaceType::Data,
                             "expected_switch NVOS",
+                            self.config.retained_boot_interface_window,
                         )
                         .await;
                     }
@@ -1643,6 +1724,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_power_shelf BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -2472,9 +2554,30 @@ impl SiteExplorer {
             })
     }
 
+    /// Drive a power cycle to apply a queued BlueField NIC-mode change.
+    ///
+    /// `PowerCycle` (Redfish `ComputerSystem.Reset`) is implemented only by Dell
+    /// and the DPU BMCs; other host vendors -- and Vikings -- refuse it. Fall
+    /// back to `ACPowercycle`, the cold AC cycle the HPE/Lenovo/Supermicro/GBx00
+    /// wrappers implement, so the queued change still applies without an
+    /// operator. If both are refused the error propagates and the caller
+    /// surfaces `ManualPowerCycleRequired`.
     async fn redfish_powercycle(&self, bmc_ip_address: IpAddr) -> SiteExplorerResult<()> {
-        self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+        if let Err(power_cycle_err) = self
+            .redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+            .await
+        {
+            tracing::warn!(
+                %bmc_ip_address,
+                error = %power_cycle_err,
+                "PowerCycle refused; falling back to ACPowercycle to apply the queued NIC mode change",
+            );
+            self.redfish_power_control(
+                bmc_ip_address,
+                libredfish::SystemPowerControl::ACPowercycle,
+            )
             .await?;
+        }
 
         let mut txn = self.txn_begin().await?;
 
@@ -2828,6 +2931,7 @@ pub async fn try_preallocate_one(
     ip: IpAddr,
     interface_type: InterfaceType,
     kind: &'static str,
+    retained_window: Option<chrono::Duration>,
 ) {
     let mut txn = match db::Transaction::begin(pool).await {
         Ok(t) => t,
@@ -2841,10 +2945,22 @@ pub async fn try_preallocate_one(
     };
     let result = match interface_type {
         InterfaceType::Bmc => {
-            db::machine_interface::preallocate_bmc_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_bmc_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
         InterfaceType::Data => {
-            db::machine_interface::preallocate_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
     };
     match result {
@@ -3142,10 +3258,10 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
-    use nico_test_support::Outcome::*;
-    use nico_test_support::{Case, check_cases};
 
     use super::*;
 

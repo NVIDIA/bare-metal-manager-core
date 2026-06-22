@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -63,7 +64,7 @@ pub struct LldpChassisData {
     pub descr: String,
     #[serde(rename = "mgmt-ip", default)]
     #[serde_as(as = "OneOrMany<_>")]
-    pub management_ip_address: Vec<String>, // we get an array with ipv4 and ipv6 addresses
+    pub management_ip_address: Vec<IpAddr>, // we get an array with ipv4 and ipv6 addresses
     #[serde(default)]
     pub capability: Vec<LldpCapabilityData>,
 }
@@ -178,7 +179,11 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
             lldp_info.local_port = port.to_string();
 
             // management_ip_address if missing we just replace it with empty list.
-            lldp_info.ip_address = tor_data.management_ip_address.clone();
+            lldp_info.ip_address = tor_data
+                .management_ip_address
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect();
         }
         lldp_info.remote_port =
             format!("{}={}", lldp_data.port.id.id_type, lldp_data.port.id.value);
@@ -329,28 +334,130 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use crate::hardware_enumeration::dpu;
 
+    // `is_lldp_working` is currently stubbed to always return `false` (the
+    // firmware-version parse is commented out pending a real LLDP fix). Every
+    // input -- valid versions, boundary `40`, and garbage -- must yield `false`.
     #[test]
-    fn check_fw_versions_for_lldp() {
-        assert!(!dpu::is_lldp_working("xx.39.yyyy"));
-        assert!(!dpu::is_lldp_working("xx.40.yyyy"));
-        assert!(!dpu::is_lldp_working("xx.41.yyyy"));
+    fn is_lldp_working_always_false() {
+        value_scenarios!(
+            run = dpu::is_lldp_working;
+            "below the 40 boundary" {
+                "xx.39.yyyy" => false,
+            }
 
-        //broken data should return false
-        assert!(!dpu::is_lldp_working("xx.zz.yyyy"));
-        assert!(!dpu::is_lldp_working("junk"));
+            "at the 40 boundary" {
+                "xx.40.yyyy" => false,
+            }
+
+            "above the 40 boundary" {
+                "xx.41.yyyy" => false,
+            }
+
+            "non-numeric middle chunk" {
+                "xx.zz.yyyy" => false,
+            }
+
+            "no dots at all" {
+                "junk" => false,
+            }
+
+            "empty string" {
+                "" => false,
+            }
+
+            "well-formed high version" {
+                "22.99.1000" => false,
+            }
+
+            "single leading dot" {
+                ".40." => false,
+            }
+        );
     }
 
+    // `get_port_lldp_info` reads the `test/lldp_query.json` fixture (in `cfg(test)`
+    // it ignores the live `lldpcli` command) and then looks the requested port up
+    // in `lldp.interface`. The lookup, the `OneOrMany` mgmt-ip flattening, and the
+    // tor/port field formatting are all pure given that fixture, so we pin the
+    // facts each known port produces and the not-found rejection path.
+    //
+    // The yielded value for each row is `(first_ip, ip_count, name, remote_port)`.
     #[test]
-    fn validate_mgmt_ip_lldp_with_mixed_mgmt_ip_results() {
-        let oob_lldp = dpu::get_port_lldp_info("oob_net0").unwrap();
-        let p0_lldp = dpu::get_port_lldp_info("p0").unwrap();
+    fn get_port_lldp_info_translates_fixture() {
+        scenarios!(
+            run = |port| {
+                let info = dpu::get_port_lldp_info(port).map_err(drop)?;
+                let first_ip = info.ip_address.first().cloned().unwrap_or_default();
+                Ok::<_, ()>((first_ip, info.ip_address.len(), info.name, info.remote_port))
+            };
+            "oob_net0: single (scalar) mgmt-ip" {
+                "oob_net0" => Yields((
+                    "10.180.253.66".to_string(),
+                    1,
+                    "RNO1-M03-B17-IPMI-01".to_string(),
+                    "ifname=swp7".to_string(),
+                )),
+            }
 
-        assert_eq!(oob_lldp.ip_address[0], "10.180.253.66");
-        assert_eq!(oob_lldp.ip_address.len(), 1);
+            "p0: array mgmt-ip keeps first (v4) and counts both" {
+                "p0" => Yields((
+                    "10.180.253.67".to_string(),
+                    2,
+                    "RNO1-M03-B17-IPMI-01".to_string(),
+                    "ifname=swp7".to_string(),
+                )),
+            }
 
-        assert_eq!(p0_lldp.ip_address[0], "10.180.253.67");
-        assert_eq!(p0_lldp.ip_address.len(), 2);
+            "p1: distinct array mgmt-ip, first is v4" {
+                "p1" => Yields((
+                    "10.180.253.66".to_string(),
+                    2,
+                    "RNO1-M03-B17-IPMI-01".to_string(),
+                    "ifname=swp7".to_string(),
+                )),
+            }
+
+            "unknown port: not present in the fixture interface map" {
+                "p99" => Fails,
+            }
+
+            "empty port name: also absent" {
+                "" => Fails,
+            }
+        );
+    }
+
+    // The tor-id and description formatting on the resolved switch is its own
+    // contract: `id` is rendered `"{id_type}={value}"` and `description`/`local_port`
+    // are copied verbatim. Token-contains keeps this robust to fixture churn.
+    //
+    // The yielded value is whether every expected token appears in the rendered field.
+    #[test]
+    fn get_port_lldp_info_formats_fields() {
+        scenarios!(
+            run = |(port, tokens): (&str, &[&str])| {
+                let info = dpu::get_port_lldp_info(port).map_err(drop)?;
+                // Concatenate the formatted fields this row may inspect; every token
+                // must appear somewhere across id / description / local_port.
+                let haystack = format!("{} {} {}", info.id, info.description, info.local_port);
+                Ok::<_, ()>(tokens.iter().all(|t| haystack.contains(t)))
+            };
+            "id renders mac type=value for oob_net0" {
+                ("oob_net0", &["mac=", "0c:29:ef:d9:1c:20"][..]) => Yields(true),
+            }
+
+            "description carried verbatim for p0" {
+                ("p0", &["Cumulus Linux", "DELL S3048ON"][..]) => Yields(true),
+            }
+
+            "local_port echoes the requested port" {
+                ("p1", &["p1"][..]) => Yields(true),
+            }
+        );
     }
 }

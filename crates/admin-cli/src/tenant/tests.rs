@@ -24,6 +24,8 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 // Routing Profile Parsing - Ensure profile strings are accepted unchanged.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -45,96 +47,81 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no arguments.
+// show parses with or without the optional positional tenant_org; the parsed
+// value flows straight through, so each row yields the resulting Option.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["tenant", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.tenant_org.is_none());
+fn parse_show_tenant_org() {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Show(args)) => Ok(args.tenant_org),
+            Ok(_) => panic!("expected Show variant"),
+            Err(_) => Err(()),
+        };
+        "no arguments" {
+            &["tenant", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
+
+        "with tenant_org" {
+            &["tenant", "show", "org-123"][..] => Yields(Some("org-123".to_string())),
+        }
+    );
 }
 
-// parse_show_with_tenant_org ensures show parses with tenant_org.
+// update parses with a required tenant_org plus optional -p/-v/-n flags; each
+// row yields the full (tenant_org, routing_profile_type, version, name) tuple.
 #[test]
-fn parse_show_with_tenant_org() {
-    let cmd =
-        Cmd::try_parse_from(["tenant", "show", "org-123"]).expect("should parse show with tenant");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org, Some("org-123".to_string()));
+fn parse_update_fields() {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Update(args)) => Ok((
+                args.tenant_org,
+                args.routing_profile_type,
+                args.version,
+                args.name,
+            )),
+            Ok(_) => panic!("expected Update variant"),
+            Err(_) => Err(()),
+        };
+        "tenant_org only" {
+            &["tenant", "update", "org-123"][..] => Yields(("org-123".to_string(), None, None, None)),
         }
-        _ => panic!("expected Show variant"),
-    }
+
+        "with -p routing profile" {
+            &["tenant", "update", "org-123", "-p", "profile-a"][..] => Yields((
+                "org-123".to_string(),
+                Some("profile-a".to_string()),
+                None,
+                None,
+            )),
+        }
+
+        "with -v version" {
+            &["tenant", "update", "org-123", "-v", "1.0"][..] => Yields(("org-123".to_string(), None, Some("1.0".to_string()), None)),
+        }
+
+        "with -n name" {
+            &["tenant", "update", "org-123", "-n", "New Name"][..] => Yields((
+                "org-123".to_string(),
+                None,
+                None,
+                Some("New Name".to_string()),
+            )),
+        }
+    );
 }
 
-// parse_update ensures update parses with tenant_org.
+// Every malformed invocation is rejected at parse time -- here, update with its
+// required tenant_org positional omitted.
 #[test]
-fn parse_update() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123"]).expect("should parse update");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.tenant_org, "org-123");
-            assert!(args.routing_profile_type.is_none());
-            assert!(args.version.is_none());
-            assert!(args.name.is_none());
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "update without tenant_org" {
+            &["tenant", "update"][..] => Fails,
         }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_update_with_routing_profile ensures update parses
-// with -p routing profile.
-#[test]
-fn parse_update_with_routing_profile() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "profile-a"])
-        .expect("should parse update with routing profile");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.routing_profile_type, Some("profile-a".to_string()));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_update_with_version ensures update parses with -v version.
-#[test]
-fn parse_update_with_version() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-v", "1.0"])
-        .expect("should parse update with version");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.version, Some("1.0".to_string()));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_update_with_name ensures update parses with -n name.
-#[test]
-fn parse_update_with_name() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-n", "New Name"])
-        .expect("should parse update with name");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.name, Some("New Name".to_string()));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_update_missing_tenant_org_fails ensures update
-// fails without tenant_org.
-#[test]
-fn parse_update_missing_tenant_org_fails() {
-    let result = Cmd::try_parse_from(["tenant", "update"]);
-    assert!(result.is_err(), "should fail without tenant_org");
+    );
 }

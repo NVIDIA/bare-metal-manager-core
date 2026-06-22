@@ -28,10 +28,10 @@ use crate::machine::MachineQuery;
 EXAMPLES:
 
 Clear the UEFI password for a host by machine ID:
-    $ carbide-admin-cli host clear-uefi-password --query 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host clear-uefi-password --query 12345678-1234-5678-90ab-cdef01234567
 
 Clear the UEFI password for a host selected by MAC address:
-    $ carbide-admin-cli host clear-uefi-password --query 00:11:22:33:44:55
+    $ nico-admin-cli host clear-uefi-password --query 00:11:22:33:44:55
 
 ")]
 pub struct Args {

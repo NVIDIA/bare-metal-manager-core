@@ -57,6 +57,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
         test_mac_address,
         std::slice::from_ref(&test_gateway_address),
         None,
+        None,
     )
     .await?;
 
@@ -80,6 +81,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         test_mac_address,
         std::slice::from_ref(&test_gateway_address),
         None,
+        None,
     )
     .await?;
 
@@ -89,6 +91,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         test_mac_address,
         std::slice::from_ref(&test_gateway_address),
         None,
+        None,
     )
     .await?;
 
@@ -97,6 +100,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         &mut txn,
         test_mac_address,
         &["192.0.1.1".parse().unwrap()],
+        None,
         None,
     )
     .await;
@@ -201,6 +205,54 @@ async fn test_non_primary_admin_interface_dhcp_is_rejected(
     assert!(persisted_interface.addresses.is_empty());
     txn.commit().await?;
 
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_discover_dhcp_includes_site_ntp_server_ips(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers = vec![
+        "198.51.100.10".parse().unwrap(),
+        "198.51.100.11".parse().unwrap(),
+    ];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("FF:FF:FF:FF:FF:FF", FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.ntp_servers,
+        vec!["198.51.100.10".to_string(), "198.51.100.11".to_string()]
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_discover_dhcp_returns_empty_ntp_servers_when_site_not_configured(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers = vec![];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("FF:FF:FF:FF:FF:EE", FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(response.ntp_servers, Vec::<String>::new());
     Ok(())
 }
 
@@ -766,7 +818,7 @@ async fn test_dhcp_allows_zero_dpu_host_with_instance(
     .await;
     create_host_inband_network_segment(&env.api, None).await;
 
-    let mh = create_managed_host_with_config(&env, ManagedHostConfig::with_dpus(Vec::new())).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
     assert!(
         mh.dpu_ids.is_empty(),
         "zero-DPU fixture should produce no DPU machines"

@@ -28,29 +28,61 @@ use crate::errors::RpcDataConversionError;
 /// instance would otherwise be tenant-ready (`InstanceState::Ready` with synced configs
 /// and extension services ready). It does not override Failed, Updating, Configuring,
 /// Provisioning, or Terminating.
+///
+/// When `operator_managed_networking` is true, NICo has no data-plane readiness
+/// signal to wait for. Allocation and network-wait states are therefore projected
+/// as tenant-ready while terminal and update states retain precedence.
 pub fn instance_status_tenant_state(
     machine_state: ManagedHostState,
     configs_synced: SyncState,
     phone_home_enrolled: bool,
     phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
     extension_services_ready: bool,
+    operator_managed_networking: bool,
     repair_active: bool,
 ) -> Result<TenantState, RpcDataConversionError> {
     // At this point, we are sure that instance is created.
     // If machine state is still ready, means state machine has not processed this instance
     // yet.
 
+    let tenant_ready_state = || {
+        if repair_active {
+            TenantState::Repairing
+        } else {
+            TenantState::Ready
+        }
+    };
+
     let tenant_state = match machine_state {
-        ManagedHostState::Ready => TenantState::Provisioning,
+        ManagedHostState::Ready => {
+            if operator_managed_networking {
+                tenant_ready_state()
+            } else {
+                TenantState::Provisioning
+            }
+        }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Init
             | InstanceState::WaitingForNetworkSegmentToBeReady
             | InstanceState::WaitingForNetworkConfig
             | InstanceState::WaitingForStorageConfig
             | InstanceState::WaitingForExtensionServicesConfig
-            | InstanceState::WaitingForRebootToReady => TenantState::Provisioning,
-            InstanceState::NetworkConfigUpdate { .. } => TenantState::Configuring,
+            | InstanceState::WaitingForRebootToReady => {
+                if operator_managed_networking {
+                    tenant_ready_state()
+                } else {
+                    TenantState::Provisioning
+                }
+            }
+            InstanceState::NetworkConfigUpdate { .. } => {
+                if operator_managed_networking {
+                    tenant_ready_state()
+                } else {
+                    TenantState::Configuring
+                }
+            }
 
+            InstanceState::Ready if operator_managed_networking => tenant_ready_state(),
             InstanceState::Ready => {
                 let phone_home_pending = phone_home_enrolled && phone_home_last_contact.is_none();
 
@@ -142,6 +174,8 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
     use carbide_uuid::machine::MachineId;
     use chrono::Utc;
     use health_report::{HealthReport, REPAIR_REQUEST_MERGE_SOURCE};
@@ -182,77 +216,113 @@ mod tests {
             machine_id,
         };
 
-        struct Case {
-            name: &'static str,
-            machine_state: ManagedHostState,
-            configs_synced: SyncState,
-            repair_active: bool,
-            expected: TenantState,
-        }
+        // Each row: a (machine_state, configs_synced) pair under repair_active=true,
+        // exercising which states repair-merge does or does not override.
+        scenarios!(
+            run = |(machine_state, configs_synced)| {
+                instance_status_tenant_state(
+                    machine_state,
+                    configs_synced,
+                    false,
+                    None,
+                    true,
+                    false,
+                    true,
+                )
+                .map_err(drop)
+            };
+            "tenant-ready with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    },
+                    SyncState::Synced,
+                ) => Yields(TenantState::Repairing),
+            }
 
-        let cases = [
-            Case {
-                name: "tenant-ready with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::Ready,
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Repairing,
-            },
-            Case {
-                name: "terminating with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::SwitchToAdminNetwork,
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Terminating,
-            },
-            Case {
-                name: "reprovision with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::DPUReprovision {
-                        dpu_states: DpuReprovisionStates {
-                            states: HashMap::new(),
+            "terminating with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::SwitchToAdminNetwork,
+                    },
+                    SyncState::Synced,
+                ) => Yields(TenantState::Terminating),
+            }
+
+            "reprovision with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::DPUReprovision {
+                            dpu_states: DpuReprovisionStates {
+                                states: HashMap::new(),
+                            },
                         },
                     },
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Updating,
-            },
-            Case {
-                name: "configuring with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::Ready,
-                },
-                configs_synced: SyncState::Pending,
-                repair_active: true,
-                expected: TenantState::Configuring,
-            },
-            Case {
-                name: "failed with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: failed,
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Failed,
-            },
-        ];
+                    SyncState::Synced,
+                ) => Yields(TenantState::Updating),
+            }
 
-        for case in cases {
-            let state = instance_status_tenant_state(
-                case.machine_state,
-                case.configs_synced,
-                false,
-                None,
-                true,
-                case.repair_active,
-            )
-            .unwrap_or_else(|_| panic!("case {:?} failed conversion", case.name));
-            assert_eq!(state, case.expected, "case: {}", case.name);
-        }
+            "configuring with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    },
+                    SyncState::Pending,
+                ) => Yields(TenantState::Configuring),
+            }
+
+            "failed with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: failed,
+                    },
+                    SyncState::Synced,
+                ) => Yields(TenantState::Failed),
+            }
+        );
+    }
+
+    #[test]
+    fn operator_managed_allocations_project_as_tenant_ready() {
+        // Allocated/network-wait states where Flat has no NICo readiness signal:
+        // operator-managed networking should not wait on network observations.
+        scenarios!(
+            run = |machine_state| {
+                instance_status_tenant_state(
+                    machine_state,
+                    SyncState::Pending,
+                    true,
+                    None,
+                    false,
+                    true,
+                    false,
+                )
+                .map_err(drop)
+            };
+            "allocated before state controller pickup" {
+                ManagedHostState::Ready => Yields(TenantState::Ready),
+            }
+
+            "assigned init" {
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::Init,
+                } => Yields(TenantState::Ready),
+            }
+
+            "waiting for network config" {
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForNetworkConfig,
+                } => Yields(TenantState::Ready),
+            }
+
+            "network config update" {
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::NetworkConfigUpdate {
+                        network_config_update_state:
+                            model::machine::NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
+                    },
+                } => Yields(TenantState::Ready),
+            }
+        );
     }
 }

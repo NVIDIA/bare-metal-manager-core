@@ -79,35 +79,54 @@ impl From<ActionRequest> for rpc::forge::RedfishAction {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, value_scenarios};
+
     use super::*;
 
+    // `From<rpc::forge::RedfishActionId>` carries the request id through.
     #[test]
     fn redfish_action_id_from_rpc() {
-        let rpc_id = rpc::forge::RedfishActionId { request_id: 42 };
-        let id = RedfishActionId::from(rpc_id);
-        assert_eq!(id.request_id, 42);
+        Check {
+            scenario: "request id passes through",
+            input: rpc::forge::RedfishActionId { request_id: 42 },
+            expect: 42,
+        }
+        .check(|id| RedfishActionId::from(id).request_id);
     }
 
+    // `From<rpc::forge::RedfishListActionsRequest>` carries the machine ip filter through.
     #[test]
     fn redfish_list_actions_filter_from_rpc() {
-        let rpc_req = rpc::forge::RedfishListActionsRequest {
-            machine_ip: Some("10.0.0.1".to_string()),
-        };
-        let filter = RedfishListActionsFilter::from(rpc_req);
-        assert_eq!(filter.machine_ip, Some("10.0.0.1".to_string()));
+        Check {
+            scenario: "machine ip passes through",
+            input: rpc::forge::RedfishListActionsRequest {
+                machine_ip: Some("10.0.0.1".to_string()),
+            },
+            expect: Some("10.0.0.1".to_string()),
+        }
+        .check(|req| RedfishListActionsFilter::from(req).machine_ip);
     }
 
+    // `From<rpc::forge::RedfishCreateActionRequest>` maps action/target/parameters across.
     #[test]
     fn redfish_create_action_from_rpc() {
-        let rpc_req = rpc::forge::RedfishCreateActionRequest {
-            ips: vec!["10.0.0.1".to_string()],
-            action: "Reset".to_string(),
-            target: "/redfish/v1/Systems/1/Actions".to_string(),
-            parameters: r#"{"ResetType":"ForceRestart"}"#.to_string(),
-        };
-        let action = RedfishCreateAction::from(rpc_req);
-        assert_eq!(action.action, "Reset");
-        assert_eq!(action.target, "/redfish/v1/Systems/1/Actions");
-        assert_eq!(action.parameters, r#"{"ResetType":"ForceRestart"}"#);
+        value_scenarios!(
+            run = |req| {
+                let action = RedfishCreateAction::from(req);
+                (action.action, action.target, action.parameters)
+            };
+            "action, target, and parameters map across" {
+                rpc::forge::RedfishCreateActionRequest {
+                    ips: vec!["10.0.0.1".to_string()],
+                    action: "Reset".to_string(),
+                    target: "/redfish/v1/Systems/1/Actions".to_string(),
+                    parameters: r#"{"ResetType":"ForceRestart"}"#.to_string(),
+                } => (
+                    "Reset".to_string(),
+                    "/redfish/v1/Systems/1/Actions".to_string(),
+                    r#"{"ResetType":"ForceRestart"}"#.to_string(),
+                ),
+            }
+        );
     }
 }

@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,32 +46,27 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all racks).
+// show parses with or without a rack identifier: bare `show` targets all
+// racks (no rack), while a trailing identifier scopes it to that one rack.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["rack", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.rack.is_none());
+fn parse_show_routes_to_show_variant() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.rack.map(|r| r.to_string()),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no args targets all racks" {
+            &["rack", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_identifier ensures show parses with identifier.
-#[test]
-fn parse_show_with_identifier() {
-    let cmd = Cmd::try_parse_from(["rack", "show", "rack-123"])
-        .expect("should parse show with identifier");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.rack, Some("rack-123".parse().unwrap()));
+        "trailing identifier scopes to one rack" {
+            &["rack", "show", "rack-123"][..] => Yields(Some("rack-123".to_string())),
         }
-        _ => panic!("expected Show variant"),
-    }
+    );
 }
 
 // parse_list ensures list parses with no arguments.
@@ -93,14 +90,6 @@ fn parse_delete() {
     }
 }
 
-// parse_delete_missing_identifier_fails ensures delete
-// fails without identifier.
-#[test]
-fn parse_delete_missing_identifier_fails() {
-    let result = Cmd::try_parse_from(["rack", "delete"]);
-    assert!(result.is_err(), "should fail without identifier");
-}
-
 // parse_profile_show ensures profile show parses with rack ID.
 #[test]
 fn parse_profile_show() {
@@ -115,10 +104,22 @@ fn parse_profile_show() {
     }
 }
 
-// parse_profile_show_missing_rack_id_fails ensures profile
-// show fails without rack ID.
+// Every malformed invocation is rejected at parse time -- a delete or a
+// profile-show left without its required rack identifier.
 #[test]
-fn parse_profile_show_missing_rack_id_fails() {
-    let result = Cmd::try_parse_from(["rack", "profile", "show"]);
-    assert!(result.is_err(), "should fail without rack_id");
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "delete without an identifier" {
+            &["rack", "delete"][..] => Fails,
+        }
+
+        "profile show without a rack_id" {
+            &["rack", "profile", "show"][..] => Fails,
+        }
+    );
 }

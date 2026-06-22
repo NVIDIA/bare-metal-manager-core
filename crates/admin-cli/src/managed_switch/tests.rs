@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,32 +46,27 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all switches).
+// show parses with or without a positional identifier; the optional argument
+// is None when omitted and carries the given value when supplied.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["managed-switch", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.identifier.is_none());
+fn parse_show_identifier() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.identifier,
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "show with no arguments (all switches)" {
+            &["managed-switch", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_identifier ensures show parses with identifier.
-#[test]
-fn parse_show_with_identifier() {
-    let cmd = Cmd::try_parse_from(["managed-switch", "show", "switch-123"])
-        .expect("should parse show with identifier");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.identifier, Some("switch-123".to_string()));
+        "show with an identifier" {
+            &["managed-switch", "show", "switch-123"][..] => Yields(Some("switch-123".to_string())),
         }
-        _ => panic!("expected Show variant"),
-    }
+    );
 }
 
 // parse_list ensures list parses with no arguments.

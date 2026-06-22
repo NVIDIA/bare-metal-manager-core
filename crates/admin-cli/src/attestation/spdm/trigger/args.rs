@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Trigger SPDM attestation for a machine with a 60-second Redfish timeout:
-    $ carbide-admin-cli attestation spdm trigger 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli attestation spdm trigger 12345678-1234-5678-90ab-cdef01234567 \
     --redfish-timeout-secs 60
 
 ")]

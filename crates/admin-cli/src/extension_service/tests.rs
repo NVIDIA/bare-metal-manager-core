@@ -24,6 +24,8 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases, scenarios};
 use clap::{CommandFactory, Parser};
 
 use super::common::ExtensionServiceType;
@@ -46,223 +48,253 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_create ensures create parses with required
-// arguments.
+// Create parses both with just the required arguments and with the full
+// option set; each row asserts the fields the original test inspected:
+// (service_id, service_name, service_type, data, description, registry_url).
 #[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "create",
-        "--name",
-        "my-service",
-        "--type",
-        "kubernetes-pod",
-        "--data",
-        "{}",
-    ])
-    .expect("should parse create");
+fn parse_create_routes_and_binds_fields() {
+    type CreateFields = (
+        Option<String>,
+        String,
+        ExtensionServiceType,
+        String,
+        Option<String>,
+        Option<String>,
+    );
 
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.service_name, "my-service");
-            assert_eq!(args.service_type, ExtensionServiceType::KubernetesPod);
-            assert_eq!(args.data, "{}");
-            assert!(args.service_id.is_none());
-        }
-        _ => panic!("expected Create variant"),
-    }
+    check_cases(
+        [
+            Case {
+                scenario: "create with required arguments",
+                input: &[
+                    "extension-service",
+                    "create",
+                    "--name",
+                    "my-service",
+                    "--type",
+                    "kubernetes-pod",
+                    "--data",
+                    "{}",
+                ][..],
+                expect: Yields((
+                    None,
+                    "my-service".to_string(),
+                    ExtensionServiceType::KubernetesPod,
+                    "{}".to_string(),
+                    None,
+                    None,
+                )),
+            },
+            Case {
+                scenario: "create with all options",
+                input: &[
+                    "extension-service",
+                    "create",
+                    "--id",
+                    "svc-123",
+                    "--name",
+                    "my-service",
+                    "--type",
+                    "k8s",
+                    "--data",
+                    "{}",
+                    "--description",
+                    "My extension service",
+                    "--registry-url",
+                    "https://registry.example.com",
+                    "--username",
+                    "user",
+                    "--password",
+                    "pass",
+                ][..],
+                expect: Yields((
+                    Some("svc-123".to_string()),
+                    "my-service".to_string(),
+                    ExtensionServiceType::KubernetesPod,
+                    "{}".to_string(),
+                    Some("My extension service".to_string()),
+                    Some("https://registry.example.com".to_string()),
+                )),
+            },
+        ],
+        |argv| -> Result<CreateFields, ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::Create(args) => Ok((
+                    args.service_id,
+                    args.service_name,
+                    args.service_type,
+                    args.data,
+                    args.description,
+                    args.registry_url,
+                )),
+                _ => panic!("expected Create variant"),
+            }
+        },
+    );
 }
 
-// parse_create_with_options ensures create parses with
-// all options.
+// Update routes to the Update variant and binds (service_id, data).
 #[test]
-fn parse_create_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "create",
-        "--id",
-        "svc-123",
-        "--name",
-        "my-service",
-        "--type",
-        "k8s",
-        "--data",
-        "{}",
-        "--description",
-        "My extension service",
-        "--registry-url",
-        "https://registry.example.com",
-        "--username",
-        "user",
-        "--password",
-        "pass",
-    ])
-    .expect("should parse create with options");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.service_id, Some("svc-123".to_string()));
-            assert_eq!(args.description, Some("My extension service".to_string()));
-            assert_eq!(
-                args.registry_url,
-                Some("https://registry.example.com".to_string())
-            );
-        }
-        _ => panic!("expected Create variant"),
-    }
+fn parse_update_routes_and_binds_fields() {
+    check_cases(
+        [Case {
+            scenario: "update with required arguments",
+            input: &[
+                "extension-service",
+                "update",
+                "--id",
+                "svc-123",
+                "--data",
+                "{}",
+            ][..],
+            expect: Yields(("svc-123".to_string(), "{}".to_string())),
+        }],
+        |argv| -> Result<(String, String), ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::Update(args) => Ok((args.service_id, args.data)),
+                _ => panic!("expected Update variant"),
+            }
+        },
+    );
 }
 
-// parse_update ensures update parses with required
-// arguments.
+// Delete routes to the Delete variant, with an optional version filter; each
+// row asserts (service_id, versions).
 #[test]
-fn parse_update() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "update",
-        "--id",
-        "svc-123",
-        "--data",
-        "{}",
-    ])
-    .expect("should parse update");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.service_id, "svc-123");
-            assert_eq!(args.data, "{}");
-        }
-        _ => panic!("expected Update variant"),
-    }
+fn parse_delete_routes_and_binds_fields() {
+    check_cases(
+        [
+            Case {
+                scenario: "delete with service ID only",
+                input: &["extension-service", "delete", "--id", "svc-123"][..],
+                expect: Yields(("svc-123".to_string(), Vec::<String>::new())),
+            },
+            Case {
+                scenario: "delete with version filter",
+                input: &[
+                    "extension-service",
+                    "delete",
+                    "--id",
+                    "svc-123",
+                    "--versions",
+                    "v1,v2,v3",
+                ][..],
+                expect: Yields((
+                    "svc-123".to_string(),
+                    vec!["v1".to_string(), "v2".to_string(), "v3".to_string()],
+                )),
+            },
+        ],
+        |argv| -> Result<(String, Vec<String>), ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::Delete(args) => Ok((args.service_id, args.versions)),
+                _ => panic!("expected Delete variant"),
+            }
+        },
+    );
 }
 
-// parse_delete ensures delete parses with
-// service ID.
+// Show routes to the Show variant with all filters optional; each row asserts
+// (id, service_type, service_name).
 #[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["extension-service", "delete", "--id", "svc-123"])
-        .expect("should parse delete");
+fn parse_show_routes_and_binds_fields() {
+    type ShowFields = (Option<String>, Option<ExtensionServiceType>, Option<String>);
 
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.service_id, "svc-123");
-            assert!(args.versions.is_empty());
-        }
-        _ => panic!("expected Delete variant"),
-    }
+    check_cases(
+        [
+            Case {
+                scenario: "show with no arguments",
+                input: &["extension-service", "show"][..],
+                expect: Yields((None, None, None)),
+            },
+            Case {
+                scenario: "show with filter options",
+                input: &[
+                    "extension-service",
+                    "show",
+                    "--id",
+                    "svc-123",
+                    "--type",
+                    "kubernetes-pod",
+                    "--name",
+                    "my-service",
+                ][..],
+                expect: Yields((
+                    Some("svc-123".to_string()),
+                    Some(ExtensionServiceType::KubernetesPod),
+                    Some("my-service".to_string()),
+                )),
+            },
+        ],
+        |argv| -> Result<ShowFields, ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::Show(args) => Ok((args.id, args.service_type, args.service_name)),
+                _ => panic!("expected Show variant"),
+            }
+        },
+    );
 }
 
-// parse_delete_with_versions ensures delete parses
-// with version filter.
+// GetVersion routes to the GetVersion variant and binds (service_id, versions).
 #[test]
-fn parse_delete_with_versions() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "delete",
-        "--id",
-        "svc-123",
-        "--versions",
-        "v1,v2,v3",
-    ])
-    .expect("should parse delete with versions");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.versions, vec!["v1", "v2", "v3"]);
-        }
-        _ => panic!("expected Delete variant"),
-    }
+fn parse_get_version_routes_and_binds_fields() {
+    check_cases(
+        [Case {
+            scenario: "get-version with service ID",
+            input: &[
+                "extension-service",
+                "get-version",
+                "--service-id",
+                "svc-123",
+            ][..],
+            expect: Yields(("svc-123".to_string(), Vec::<String>::new())),
+        }],
+        |argv| -> Result<(String, Vec<String>), ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::GetVersion(args) => Ok((args.service_id, args.versions)),
+                _ => panic!("expected GetVersion variant"),
+            }
+        },
+    );
 }
 
-// parse_show_no_args ensures show parses with no
-// arguments (all services).
+// ShowInstances routes to the ShowInstances variant and binds
+// (service_id, version).
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["extension-service", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(args.service_type.is_none());
-            assert!(args.service_name.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
+fn parse_show_instances_routes_and_binds_fields() {
+    check_cases(
+        [Case {
+            scenario: "show-instances with service ID",
+            input: &[
+                "extension-service",
+                "show-instances",
+                "--service-id",
+                "svc-123",
+            ][..],
+            expect: Yields(("svc-123".to_string(), None)),
+        }],
+        |argv| -> Result<(String, Option<String>), ()> {
+            match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+                Cmd::ShowInstances(args) => Ok((args.service_id, args.version)),
+                _ => panic!("expected ShowInstances variant"),
+            }
+        },
+    );
 }
 
-// parse_show_with_filters ensures show parses with
-// filter options.
+// Every malformed invocation is rejected at parse time.
 #[test]
-fn parse_show_with_filters() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "show",
-        "--id",
-        "svc-123",
-        "--type",
-        "kubernetes-pod",
-        "--name",
-        "my-service",
-    ])
-    .expect("should parse show with filters");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.id, Some("svc-123".to_string()));
-            assert_eq!(args.service_type, Some(ExtensionServiceType::KubernetesPod));
-            assert_eq!(args.service_name, Some("my-service".to_string()));
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "create without its required arguments" {
+            &["extension-service", "create"][..] => Fails,
         }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_get_version ensures get-version parses with
-// service ID.
-#[test]
-fn parse_get_version() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "get-version",
-        "--service-id",
-        "svc-123",
-    ])
-    .expect("should parse get-version");
-
-    match cmd {
-        Cmd::GetVersion(args) => {
-            assert_eq!(args.service_id, "svc-123");
-            assert!(args.versions.is_empty());
-        }
-        _ => panic!("expected GetVersion variant"),
-    }
-}
-
-// parse_show_instances ensures show-instances parses
-// with service ID.
-#[test]
-fn parse_show_instances() {
-    let cmd = Cmd::try_parse_from([
-        "extension-service",
-        "show-instances",
-        "--service-id",
-        "svc-123",
-    ])
-    .expect("should parse show-instances");
-
-    match cmd {
-        Cmd::ShowInstances(args) => {
-            assert_eq!(args.service_id, "svc-123");
-            assert!(args.version.is_none());
-        }
-        _ => panic!("expected ShowInstances variant"),
-    }
-}
-
-// parse_create_missing_required_fails ensures create
-// fails without required arguments.
-#[test]
-fn parse_create_missing_required_fails() {
-    let result = Cmd::try_parse_from(["extension-service", "create"]);
-    assert!(result.is_err(), "should fail without required arguments");
+    );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -274,19 +306,24 @@ fn parse_create_missing_required_fails() {
 // or fail otherwise.
 
 // extension_service_type_value_enum ensures ExtensionServiceType
-// parses from strings.
+// parses from strings ("k8s" is an alias for KubernetesPod, and an
+// unknown value is rejected).
 #[test]
 fn extension_service_type_value_enum() {
     use clap::ValueEnum;
 
-    assert!(matches!(
-        ExtensionServiceType::from_str("kubernetes-pod", false),
-        Ok(ExtensionServiceType::KubernetesPod)
-    ));
-    // "k8s" is an alias for KubernetesPod
-    assert!(matches!(
-        ExtensionServiceType::from_str("k8s", false),
-        Ok(ExtensionServiceType::KubernetesPod)
-    ));
-    assert!(ExtensionServiceType::from_str("invalid", false).is_err());
+    scenarios!(
+        run = |s| ExtensionServiceType::from_str(s, false).map_err(drop);
+        "canonical kubernetes-pod" {
+            "kubernetes-pod" => Yields(ExtensionServiceType::KubernetesPod),
+        }
+
+        "k8s alias maps to KubernetesPod" {
+            "k8s" => Yields(ExtensionServiceType::KubernetesPod),
+        }
+
+        "unknown value is rejected" {
+            "invalid" => Fails,
+        }
+    );
 }

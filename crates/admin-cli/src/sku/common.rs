@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all SKUs:
-    $ carbide-admin-cli sku show
+    $ nico-admin-cli sku show
 
 Show details for one SKU:
-    $ carbide-admin-cli sku show DGX-H100-640GB
+    $ nico-admin-cli sku show DGX-H100-640GB
 
 ")]
 pub struct ShowSkuOptions {
@@ -38,10 +38,10 @@ pub struct ShowSkuOptions {
 EXAMPLES:
 
 Create SKUs from a file:
-    $ carbide-admin-cli sku create ./skus.json
+    $ nico-admin-cli sku create ./skus.json
 
 Create from a file but override the SKU ID:
-    $ carbide-admin-cli sku create ./skus.json --id DGX-H100-640GB
+    $ nico-admin-cli sku create ./skus.json --id DGX-H100-640GB
 
 ")]
 pub struct CreateSkuOptions {

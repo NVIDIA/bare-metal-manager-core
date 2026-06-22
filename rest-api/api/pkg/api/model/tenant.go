@@ -28,7 +28,8 @@ type APITenant struct {
 	// CreatedAt indicates the ISO datetime string for when the entity was created
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
-	Updated      time.Time              `json:"updated"`
+	Updated time.Time `json:"updated"`
+	// Capabilities describes tenant-level feature flags
 	Capabilities *APITenantCapabilities `json:"capabilities"`
 }
 
@@ -83,7 +84,7 @@ func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
 
 // APITenantStats is the data structure to capture API representation of a Tenant Stats
 type APITenantStats struct {
-	// Instance is the data structure to capture API representation of an Instance Stats associated with tenant
+	// Instance holds aggregated instance status counts for the tenant.
 	Instance APIInstanceStats `json:"instance"`
 	// Vpc is the data structure to capture API representation of a Vpc Stats associated with tenant
 	Vpc APIVpcStats `json:"vpc"`
@@ -93,8 +94,8 @@ type APITenantStats struct {
 	TenantAccount APITenantAccountStats `json:"tenantAccount"`
 }
 
-// NewAPITenantStats accepts map that represents stats for the each objects and returns an API layer object
-func NewAPITenantStats(instancestatsmap map[string]int, vpcstatsmap map[string]int, subnetstatmap map[string]int, tastatsmap map[string]int) *APITenantStats {
+// NewAPITenantStats accepts stats for each object and returns an API layer object
+func NewAPITenantStats(instanceStats APIInstanceStats, vpcstatsmap map[string]int, subnetstatmap map[string]int, tastatsmap map[string]int) *APITenantStats {
 	ats := APITenantStats{
 		Vpc: APIVpcStats{
 			Total:        vpcstatsmap["total"],
@@ -104,15 +105,7 @@ func NewAPITenantStats(instancestatsmap map[string]int, vpcstatsmap map[string]i
 			Error:        vpcstatsmap[cdbm.VpcStatusError],
 			Deleting:     vpcstatsmap[cdbm.VpcStatusDeleting],
 		},
-		Instance: APIInstanceStats{
-			Total:       instancestatsmap["total"],
-			Pending:     instancestatsmap[cdbm.InstanceStatusPending],
-			Terminating: instancestatsmap[cdbm.InstanceStatusTerminating],
-			Ready:       instancestatsmap[cdbm.InstanceStatusReady],
-			Updating:    instancestatsmap[cdbm.InstanceStatusUpdating],
-			Registering: instancestatsmap[cdbm.InstanceStatusProvisioning],
-			Error:       instancestatsmap[cdbm.InstanceStatusError],
-		},
+		Instance: instanceStats,
 		Subnet: APISubnetStats{
 			Total:        subnetstatmap["total"],
 			Pending:      subnetstatmap[cdbm.SubnetStatusPending],

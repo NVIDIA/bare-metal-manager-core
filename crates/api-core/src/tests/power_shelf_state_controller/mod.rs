@@ -33,8 +33,8 @@ use crate::tests::common::api_fixtures::create_test_env;
 mod error_state;
 mod fixtures;
 mod maintenance;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
-use forge_secrets::test_support::credentials::TestCredentialManager;
 
 #[crate::sqlx_test]
 async fn test_power_shelf_state_transition_validation(
@@ -129,6 +129,7 @@ async fn test_power_shelf_deletion_with_state_controller(
                 db_pool: pool.clone(),
                 component_manager: None,
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: env.per_object_metrics_registry(),
             }
             .into(),
         )

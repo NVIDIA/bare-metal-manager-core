@@ -15,70 +15,67 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use libmlx::firmware::credentials::Credentials;
 
 // -- validate_http --
 
 #[test]
-fn test_bearer_token_valid_for_http() {
-    let cred = Credentials::bearer_token("my-token");
-    assert!(cred.validate_http().is_ok());
-}
+fn validate_http_accepts_http_creds_and_rejects_ssh_creds() {
+    scenarios!(
+        run = |cred| cred.validate_http().map_err(drop);
+        "bearer token is valid for http" {
+            Credentials::bearer_token("my-token") => Yields(()),
+        }
 
-#[test]
-fn test_basic_auth_valid_for_http() {
-    let cred = Credentials::basic_auth("user", "pass");
-    assert!(cred.validate_http().is_ok());
-}
+        "basic auth is valid for http" {
+            Credentials::basic_auth("user", "pass") => Yields(()),
+        }
 
-#[test]
-fn test_header_valid_for_http() {
-    let cred = Credentials::header("X-API-Key", "abc123");
-    assert!(cred.validate_http().is_ok());
-}
+        "header is valid for http" {
+            Credentials::header("X-API-Key", "abc123") => Yields(()),
+        }
 
-#[test]
-fn test_ssh_key_invalid_for_http() {
-    let cred = Credentials::ssh_key("/home/user/.ssh/id_rsa");
-    assert!(cred.validate_http().is_err());
-}
+        "ssh key is invalid for http" {
+            Credentials::ssh_key("/home/user/.ssh/id_rsa") => Fails,
+        }
 
-#[test]
-fn test_ssh_agent_invalid_for_http() {
-    let cred = Credentials::ssh_agent();
-    assert!(cred.validate_http().is_err());
+        "ssh agent is invalid for http" {
+            Credentials::ssh_agent() => Fails,
+        }
+    );
 }
 
 // -- validate_ssh --
 
 #[test]
-fn test_ssh_key_valid_for_ssh() {
-    let cred = Credentials::ssh_key("/home/user/.ssh/id_rsa");
-    assert!(cred.validate_ssh().is_ok());
-}
+fn validate_ssh_accepts_ssh_creds_and_rejects_http_creds() {
+    scenarios!(
+        run = |cred| cred.validate_ssh().map_err(drop);
+        "ssh key is valid for ssh" {
+            Credentials::ssh_key("/home/user/.ssh/id_rsa") => Yields(()),
+        }
 
-#[test]
-fn test_ssh_key_with_passphrase_valid_for_ssh() {
-    let cred = Credentials::ssh_key_with_passphrase("/home/user/.ssh/id_rsa", "my-passphrase");
-    assert!(cred.validate_ssh().is_ok());
-}
+        "ssh key with passphrase is valid for ssh" {
+            Credentials::ssh_key_with_passphrase(
+                "/home/user/.ssh/id_rsa",
+                "my-passphrase",
+            ) => Yields(()),
+        }
 
-#[test]
-fn test_ssh_agent_valid_for_ssh() {
-    let cred = Credentials::ssh_agent();
-    assert!(cred.validate_ssh().is_ok());
-}
+        "ssh agent is valid for ssh" {
+            Credentials::ssh_agent() => Yields(()),
+        }
 
-#[test]
-fn test_bearer_token_invalid_for_ssh() {
-    let cred = Credentials::bearer_token("my-token");
-    assert!(cred.validate_ssh().is_err());
-}
+        "bearer token is invalid for ssh" {
+            Credentials::bearer_token("my-token") => Fails,
+        }
 
-#[test]
-fn test_basic_auth_invalid_for_ssh() {
-    let cred = Credentials::basic_auth("user", "pass");
-    assert!(cred.validate_ssh().is_err());
+        "basic auth is invalid for ssh" {
+            Credentials::basic_auth("user", "pass") => Fails,
+        }
+    );
 }
 
 // -- serde roundtrip --

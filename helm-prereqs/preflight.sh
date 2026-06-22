@@ -31,7 +31,7 @@
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
 #   8. Registry connectivity    — registry host is reachable over HTTPS
-#   9. NICo REST repo            — found locally or offer to clone from GitHub
+#   9. NICo REST source/charts   — in-tree rest-api/ and helm/rest/ are present
 #
 # Configurable:
 #   PREFLIGHT_CHECK_IMAGE — image used for per-node pod checks (default: busybox:1.36)
@@ -67,6 +67,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # so we use _SOURCED inline at every exit point instead.
 _SOURCED=false
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && _SOURCED=true
+
+# ---------------------------------------------------------------------------
+# Standalone flags — when run directly (`./preflight.sh --skip-rest`) accept the
+# same skip flags as setup.sh so the checks match the install you intend to run.
+# When SOURCED by setup.sh these already arrive as exported SKIP_* env vars and
+# setup.sh has consumed its own args, so this block is a no-op there.
+# ---------------------------------------------------------------------------
+if ! ${_SOURCED}; then
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --skip-core)      SKIP_CORE=true ;;
+            --skip-rest)      SKIP_REST=true ;;
+            --skip-flow)      SKIP_FLOW=true ;;
+            -y|--yes)         AUTO_YES=true ;;
+            --core-values)    CORE_VALUES="$2"; shift ;;
+            --metallb-config) METALLB_CONFIG="$2"; shift ;;
+            *) ;;  # ignore unknown args when run standalone
+        esac
+        shift
+    done
+fi
 
 ERRORS=()
 WARNINGS=()
@@ -244,6 +265,163 @@ else
                 ERRORS+=("${_METALLB_CFG_LABEL}: ASN value is 0 — set a valid BGP ASN")
         fi
     done < <(printf '%s\n' "${_METALLB_RENDERED}")
+fi
+
+# ---------------------------------------------------------------------------
+# 3b. Site values completeness — every site-specific value must be populated.
+#     Fails on leftover EXAMPLE/placeholder tokens in ACTIVE (non-comment) lines of
+#     values.yaml + values/nico-core.yaml + values/metallb-config.yaml, and on a few
+#     required keys. (Comment lines and inline `# …` comments are stripped first.)
+# ---------------------------------------------------------------------------
+_SITE_VALUES_CFG="${SCRIPT_DIR}/values.yaml"
+_PLACEHOLDER_RE='EXAMPLE|examplesite|example\.com|TMP_SITE|REPLACE_WITH|<your-registry>|<yoursite>|your-site|changeme|REPLACE_ME'
+for _vf in "${_SITE_VALUES_CFG}" "${_CORE_VALUES_CFG}" "${_METALLB_CFG}"; do
+    [[ -f "${_vf}" ]] || continue
+    _hits="$(sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "${_vf}" | grep -nEi "${_PLACEHOLDER_RE}" || true)"
+    if [[ -n "${_hits}" ]]; then
+        ERRORS+=("${_vf##*/}: unpopulated placeholder value(s) — every site value must be set:"$'\n'"$(printf '%s\n' "${_hits}" | sed 's/^/          /')")
+    fi
+done
+
+# Empty-but-required site values — the committed templates ship BLANK (no site
+# data). Every active (uncommented) required value must be filled before install.
+# Comment lines + inline `# …` comments are stripped first.
+_strip_comments() { sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "$1"; }
+
+if [[ "${SKIP_CORE:-false}" != "true" && -f "${_CORE_VALUES_CFG}" ]]; then
+    # nico-api.hostname must be a real external hostname
+    if _strip_comments "${_CORE_VALUES_CFG}" | grep -qE '^[[:space:]]*hostname:[[:space:]]*("")?[[:space:]]*$'; then
+        ERRORS+=("${_CORE_VALUES_LABEL}: nico-api.hostname is empty — set your external nico-api hostname")
+    fi
+    # Every enabled externalService needs a VIP from the MetalLB pool
+    if _strip_comments "${_CORE_VALUES_CFG}" | grep -qE 'loadBalancerIPs:[[:space:]]*("")?[[:space:]]*$'; then
+        ERRORS+=("${_CORE_VALUES_LABEL}: one or more loadBalancerIPs are empty — assign each enabled externalService a VIP from your MetalLB pool")
+    fi
+fi
+
+# MetalLB: a pool declared with no CIDR/range entries
+if [[ -f "${_METALLB_CFG}" && ! -d "${_METALLB_CFG}" ]]; then
+    if _strip_comments "${_METALLB_CFG}" | grep -qE '^kind:[[:space:]]*IPAddressPool' && \
+       ! _strip_comments "${_METALLB_CFG}" | grep -qE '^[[:space:]]*-[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
+        ERRORS+=("${_METALLB_CFG_LABEL}: IPAddressPool has no addresses — add your VIP CIDR(s)/range(s)")
+    fi
+fi
+
+# siteName must be set and not the TMP_SITE default
+if [[ -f "${_SITE_VALUES_CFG}" ]]; then
+    _sn="$(grep -E '^siteName:' "${_SITE_VALUES_CFG}" | head -1 | sed -E 's/^siteName:[[:space:]]*//; s/["'\'' ]//g')"
+    [[ -z "${_sn}" || "${_sn}" == "TMP_SITE" ]] && \
+        ERRORS+=("values.yaml: siteName is not set (still '${_sn:-<empty>}')")
+fi
+
+# ---------------------------------------------------------------------------
+# 3c. IP / subnet validation — every service VIP must be a valid IPv4 that
+#     falls inside one of the MetalLB IPAddressPool CIDRs/ranges, and VIPs must
+#     not collide. Catches typos and pool/VIP mismatches before MetalLB silently
+#     fails to allocate (services stuck <pending>).
+# ---------------------------------------------------------------------------
+_ip2int() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (a<<24)+(b<<16)+(c<<8)+d )); }
+_is_ipv4() {
+    local ip="$1" a b c d
+    [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    a=${BASH_REMATCH[1]}; b=${BASH_REMATCH[2]}; c=${BASH_REMATCH[3]}; d=${BASH_REMATCH[4]}
+    (( a<=255 && b<=255 && c<=255 && d<=255 ))
+}
+# Does $1 (ip) fall within $2 (CIDR "a.b.c.d/n" or range "a.b.c.d-a.b.c.d")?
+_ip_in_block() {
+    local ip="$1" block="$2" ipi neti maskbits m start end
+    ipi=$(_ip2int "$ip")
+    if [[ "$block" == */* ]]; then
+        neti=$(_ip2int "${block%/*}"); maskbits="${block#*/}"
+        [[ "$maskbits" =~ ^[0-9]+$ ]] || return 2
+        m=$(( 0xffffffff ^ ((1 << (32 - maskbits)) - 1) ))
+        (( (ipi & m) == (neti & m) ))
+    elif [[ "$block" == *-* ]]; then
+        start=$(_ip2int "${block%-*}"); end=$(_ip2int "${block#*-}")
+        (( ipi >= start && ipi <= end ))
+    else
+        return 2
+    fi
+}
+
+if [[ "${SKIP_CORE:-false}" != "true" && -f "${_CORE_VALUES_CFG}" ]]; then
+    # Collect the MetalLB pool blocks (CIDRs + ranges) from the rendered config.
+    _POOL_BLOCKS=()
+    if [[ -n "${_METALLB_RENDERED}" ]]; then
+        while IFS= read -r _blk; do
+            [[ -n "${_blk}" ]] && _POOL_BLOCKS+=("${_blk}")
+        done < <(printf '%s\n' "${_METALLB_RENDERED}" | sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' \
+                  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+|-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)?' \
+                  | grep -E '/[0-9]+$|-' )
+    fi
+
+    # Collect every configured service VIP (non-empty loadBalancerIPs values).
+    _SEEN_VIPS=""
+    while IFS= read -r _vip; do
+        [[ -z "${_vip}" ]] && continue
+        if ! _is_ipv4 "${_vip}"; then
+            ERRORS+=("${_CORE_VALUES_LABEL}: loadBalancerIP '${_vip}' is not a valid IPv4 address")
+            continue
+        fi
+        # Duplicate VIP across services
+        if [[ " ${_SEEN_VIPS} " == *" ${_vip} "* ]]; then
+            WARNINGS+=("${_CORE_VALUES_LABEL}: VIP ${_vip} is assigned to more than one service — each service needs a unique IP")
+        fi
+        _SEEN_VIPS="${_SEEN_VIPS} ${_vip}"
+        # Containment in a MetalLB pool
+        if [[ ${#_POOL_BLOCKS[@]} -gt 0 ]]; then
+            _in_pool=false
+            for _blk in "${_POOL_BLOCKS[@]}"; do
+                if _ip_in_block "${_vip}" "${_blk}"; then _in_pool=true; break; fi
+            done
+            ${_in_pool} || \
+                ERRORS+=("${_CORE_VALUES_LABEL}: VIP ${_vip} is not within any MetalLB IPAddressPool (${_METALLB_CFG_LABEL}) — MetalLB cannot allocate it")
+        fi
+    done < <(sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" \
+              | grep -E 'loadBalancerIPs:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' )
+
+    # kea DHCP hook IPs (nameservers / ntpServer / provisioningServer) are handed
+    # to DPUs at boot — validate format + pool-containment (no dup check: these
+    # intentionally mirror the unbound/ntp/pxe VIPs above).
+    while IFS= read -r _kip; do
+        [[ -z "${_kip}" ]] && continue
+        if ! _is_ipv4 "${_kip}"; then
+            ERRORS+=("${_CORE_VALUES_LABEL}: kea hookParameters IP '${_kip}' is not a valid IPv4 address")
+        elif [[ ${#_POOL_BLOCKS[@]} -gt 0 ]]; then
+            _in_pool=false
+            for _blk in "${_POOL_BLOCKS[@]}"; do
+                if _ip_in_block "${_kip}" "${_blk}"; then _in_pool=true; break; fi
+            done
+            ${_in_pool} || \
+                WARNINGS+=("${_CORE_VALUES_LABEL}: kea hookParameters IP ${_kip} is not within any MetalLB pool — DPUs will be told to use an unreachable DNS/NTP/PXE endpoint")
+        fi
+    done < <(sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" \
+              | grep -E 'nameservers:|ntpServer:|provisioningServer:' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' )
+
+    # Validate MetalLB pool blocks are well-formed CIDR/range.
+    for _blk in "${_POOL_BLOCKS[@]}"; do
+        _net="${_blk%%[-/]*}"
+        if ! _is_ipv4 "${_net}"; then
+            ERRORS+=("${_METALLB_CFG_LABEL}: pool entry '${_blk}' is not a valid CIDR/range")
+        elif [[ "${_blk}" == */* ]]; then
+            _bits="${_blk#*/}"
+            { [[ "${_bits}" =~ ^[0-9]+$ ]] && (( _bits >= 0 && _bits <= 32 )); } || \
+                ERRORS+=("${_METALLB_CFG_LABEL}: pool entry '${_blk}' has an invalid CIDR prefix length")
+        fi
+    done
+fi
+
+# nico-core: bootArtifactContainers must be populated or DPU/host HTTP boot 404s
+if [[ -f "${_CORE_VALUES_CFG}" ]]; then
+    if ! sed -E '/^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" | grep -qE 'image:[[:space:]]*\S+.*boot-artifacts|boot-artifacts-'; then
+        WARNINGS+=("${_CORE_VALUES_LABEL}: bootArtifactContainers appears empty — DPU/host HTTP boot will 404 (set nico-pxe.bootArtifactContainers)")
+    fi
+    # If unbound is enabled, it must have localData and an external VIP for DPUs to resolve .forge
+    if sed -E '/^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" | grep -qE '^[[:space:]]*enabled:[[:space:]]*true' && \
+       sed -E '/^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" | grep -qE '^unbound:'; then
+        sed -E '/^[[:space:]]*#/d' "${_CORE_VALUES_CFG}" | grep -qE 'localData:' || \
+            WARNINGS+=("${_CORE_VALUES_LABEL}: unbound enabled but no localData (.forge records) set")
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -496,24 +674,32 @@ if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. NICo REST source tree (in-tree at ../rest-api)
+# 9. NICo REST source tree and Helm charts (in-tree)
 #
 # The REST stack lives in this repo under rest-api/. No separate clone is
 # supported any more; the legacy NICO_REST_REPO / NICO_REPO env vars and the
 # sibling-directory fallbacks were removed once rest-api/ became part of
-# core. If rest-api/ is missing the checkout is broken — error out so the
-# user fixes it rather than installing a half-stack.
+# core. The REST Helm charts live under helm/rest/. If either path is missing,
+# the checkout is broken — error out so the user fixes it rather than
+# installing a half-stack.
 # ---------------------------------------------------------------------------
 NICO_REST_DIR=""
+NICO_REST_HELM_DIR=""
 _NICO_REST_ENABLED=true
 [[ "${SKIP_REST:-false}" == "true" ]] && _NICO_REST_ENABLED=false
 
 if ${_NICO_REST_ENABLED}; then
     _NICO_REST_CANDIDATE="${SCRIPT_DIR}/../rest-api"
-    if [[ -d "${_NICO_REST_CANDIDATE}/helm/charts/nico-rest" ]]; then
+    _NICO_REST_HELM_CANDIDATE="${SCRIPT_DIR}/../helm/rest"
+    if [[ -d "${_NICO_REST_CANDIDATE}" ]]; then
         NICO_REST_DIR="$(cd "${_NICO_REST_CANDIDATE}" && pwd)"
     else
-        ERRORS+=("rest-api/ not found at ${_NICO_REST_CANDIDATE} (or missing helm/charts/nico-rest under it) — check out the full core repo, or pass --skip-rest if you only need the infra prereqs.")
+        ERRORS+=("rest-api/ not found at ${_NICO_REST_CANDIDATE} — check out the full core repo, or pass --skip-rest if you only need the infra prereqs.")
+    fi
+    if [[ -d "${_NICO_REST_HELM_CANDIDATE}/nico-rest" && -d "${_NICO_REST_HELM_CANDIDATE}/nico-rest-site-agent" ]]; then
+        NICO_REST_HELM_DIR="$(cd "${_NICO_REST_HELM_CANDIDATE}" && pwd)"
+    else
+        ERRORS+=("REST Helm charts not found under ${_NICO_REST_HELM_CANDIDATE} — expected nico-rest and nico-rest-site-agent charts.")
     fi
 fi
 
@@ -524,7 +710,7 @@ _print_separator() { echo "-----------------------------------------------------
 
 if [[ ${#ERRORS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 ]]; then
     if ${_NICO_REST_ENABLED}; then
-        echo "Pre-flight OK  (NICo REST source: ${NICO_REST_DIR})"
+        echo "Pre-flight OK  (NICo REST source: ${NICO_REST_DIR}, charts: ${NICO_REST_HELM_DIR})"
     else
         echo "Pre-flight OK  (NICo REST skipped)"
     fi

@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::vpc::VpcId;
 use db::dns::domain;
 use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
@@ -29,7 +30,9 @@ use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{NetworkDefinition, NetworkSegmentType, NewNetworkSegment};
-use model::vpc::{NewVpc, VpcStatus};
+use model::resource_pool;
+use model::resource_pool::ResourcePool;
+use model::vpc::{NewVpc, VpcDefinition, VpcStatus, VpcVirtualizationTypeCapabilities};
 use sqlx::{Pool, Postgres};
 
 use crate::CarbideError;
@@ -96,12 +99,37 @@ pub async fn create_initial_networks(
             tracing::debug!("Network segment {name} exists");
             continue;
         }
+
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
+        ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {
+            match db::vpc::find_by_name(&mut txn, vpc_name).await?.as_slice() {
+                [vpc] => {
+                    vpc.config
+                        .network_virtualization_type
+                        .ensure_supports_segment(&ns)?;
+                    Some(vpc.id)
+                }
+                [] => {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
+                    )));
+                }
+                _ => {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
+                    )));
+                }
+            }
+        } else {
+            None
+        };
+
         // Capture before `save` moves `ns`. `insert_network_def` needs
         // the id because `network_def.segment_id` is FK-bound to it.
         let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
+        tracing::info!("Creating network segment {name} from config: {ns:?}");
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         // Snapshot the network definition in the same transaction as the network_segment row,
         // so the two stay consistent across restarts.
@@ -115,11 +143,69 @@ pub async fn create_initial_networks(
     Ok(())
 }
 
+pub async fn create_initial_vpcs(
+    db_pool: &Pool<Postgres>,
+    vpcs: &HashMap<String, VpcDefinition>,
+    vni_pool: &ResourcePool<i32>,
+) -> Result<(), CarbideError> {
+    let mut txn = Transaction::begin(db_pool).await?;
+    for (name, def) in vpcs {
+        if db::vpc::find_by_name(&mut txn, name)
+            .await
+            .is_ok_and(|v| !v.is_empty())
+        {
+            tracing::debug!("VPC {name} exists");
+            continue;
+        }
+
+        let vpc_id = VpcId::new();
+        let tenant_organization_id = def
+            .organization_id
+            .clone()
+            .unwrap_or(uuid::Uuid::new_v4().into());
+
+        let vni = db::resource_pool::allocate(
+            vni_pool,
+            &mut txn,
+            resource_pool::OwnerType::Vpc,
+            vpc_id.to_string().as_ref(),
+            def.vni,
+        )
+        .await?;
+
+        let vpc = NewVpc {
+            id: vpc_id,
+            tenant_organization_id,
+            network_virtualization_type: def.network_virtualization_type,
+            metadata: Metadata {
+                name: name.to_owned(),
+                ..Default::default()
+            },
+            network_security_group_id: None,
+            routing_profile_type: def.routing_profile_type.clone(),
+            vni: Some(vni),
+        };
+
+        // Validation
+        if def.routing_profile_type.is_some() {
+            def.network_virtualization_type
+                .ensure_supports_routing_profiles()
+                .map_err(CarbideError::from)?;
+        }
+
+        db::vpc::persist(vpc, VpcStatus { vni: Some(vni) }, &mut txn).await?;
+        tracing::info!("Created VPC {name}");
+    }
+
+    txn.commit().await?;
+    Ok(())
+}
+
 /// Create the static-assignments anchor segment if it doesn't exist.
 /// This segment holds external static IP assignments that don't fall
-/// within any managed network prefix. The 169.254.254.254/32 prefix is
-/// a link-local placeholder -- the allocator will never hand out IPs
-/// from it, it exists only because the schema requires a prefix.
+/// within any managed network prefix. The placeholder prefixes are never
+/// handed out by the allocator; they exist because the schema requires
+/// segment prefixes and because static assignments can be IPv4 or IPv6.
 pub async fn ensure_static_assignments_segment(
     api: &Api,
     txn: &mut db::Transaction<'_>,
@@ -139,11 +225,20 @@ pub async fn ensure_static_assignments_segment(
         subdomain_id,
         vpc_id: None,
         mtu: 1500,
-        prefixes: vec![NewNetworkPrefix {
-            prefix: "169.254.254.254/32".parse().unwrap(),
-            gateway: None,
-            num_reserved: 1,
-        }],
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "169.254.254.254/32".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "100::/128".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+        ],
         vlan_id: None,
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
@@ -198,12 +293,13 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         };
 
         // SVI IP is needed only for FNN.
-        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+        if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {
             continue;
         }
 
-        // Already SVI IP is allocated.
-        if segment.prefixes.iter().any(|x| x.svi_ip.is_some()) {
+        // Already SVI IP is allocated for every prefix. Prefixless segments
+        // still fall through so allocate_svi_ip reports the invalid state.
+        if !segment.prefixes.is_empty() && segment.prefixes.iter().all(|x| x.svi_ip.is_some()) {
             continue;
         }
 
@@ -315,8 +411,8 @@ pub(crate) async fn create_admin_vpc(
     };
 
     if let Some(mut existing_vpc) = existing_vpc {
-        let existing_vni = existing_vpc.status.as_ref().and_then(|status| status.vni);
-        if existing_vni != Some(configured_vni) || existing_vpc.vni != Some(configured_vni) {
+        let existing_vni = existing_vpc.status.vni;
+        if existing_vni != Some(configured_vni) || existing_vpc.config.vni != Some(configured_vni) {
             if let Some(conflicting_vpc) = db::vpc::find_by_vni(&mut txn, configured_vni)
                 .await?
                 .into_iter()

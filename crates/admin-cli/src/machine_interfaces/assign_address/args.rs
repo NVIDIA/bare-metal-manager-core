@@ -25,7 +25,7 @@ use clap::Parser;
 EXAMPLES:
 
 Assign a static address to a machine interface:
-    $ carbide-admin-cli machine-interfaces assign-address 12345678-1234-5678-90ab-cdef01234567 192.0.2.20
+    $ nico-admin-cli machine-interfaces assign-address 12345678-1234-5678-90ab-cdef01234567 192.0.2.20
 
 ")]
 pub struct Args {

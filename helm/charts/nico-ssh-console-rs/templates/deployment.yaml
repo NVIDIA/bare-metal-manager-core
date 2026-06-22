@@ -23,7 +23,7 @@ spec:
         {{- include "nico-ssh-console-rs.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "nico-ssh-console-rs.name" . }}
-      {{- with .Values.imagePullSecrets }}
+      {{- with (.Values.imagePullSecrets | default .Values.global.imagePullSecrets) }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

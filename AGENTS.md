@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file provides guidance for AI coding agents working in the
-`ncx-infra-controller-core` repository.
+`infra-controller` repository.
 
 ## Project Overview
 
@@ -26,7 +26,7 @@ to fast-track building next-generation AI Cloud offerings.
 ## Repository Structure
 
 ```
-ncx-infra-controller-core/
+infra-controller/
 ├── crates/              # Rust crate implementations. To discover all crates
 │                        # and their purpose, run `ls crates/` or see the
 │                        # [workspace] members list in `Cargo.toml` — each
@@ -95,6 +95,11 @@ cargo test
 # Build prerequisites first, then test (recommended for integration tests)
 cargo make correctly-execute-tests
 ```
+
+When writing tests, prefer the **table-driven** style — see the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing).
+Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
+or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
+conversions, and the like.
 
 ### Linting and Formatting
 

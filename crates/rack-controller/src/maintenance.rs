@@ -19,6 +19,7 @@
 
 use carbide_rack::firmware_object::{
     ANY_RACK_HARDWARE_TYPE, profile_hardware_type_wire_value, rack_maintenance_access_token_key,
+    rms_access_token_or_noauth,
 };
 use carbide_rack::firmware_update::{
     RackFirmwareInventory, RackSwitchFirmwareInventory, build_new_node_info,
@@ -26,6 +27,7 @@ use carbide_rack::firmware_update::{
 };
 use carbide_rack::rack_manager_error;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
+use carbide_rack::rms_node_type::{compute_node_type_for_profile, switch_node_type_for_profile};
 use carbide_rack_controller::config::RmsConfig;
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
@@ -33,12 +35,12 @@ use carbide_rack_controller::fabric_manager::{
     persist_primary_switch, select_primary_switch, validate_switch_inventory_for_nmx_cluster,
 };
 use carbide_rack_controller::validating::strip_rv_labels;
+use carbide_secrets::credentials::{CredentialManager, Credentials};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{CredentialManager, Credentials};
 use librms::protos::rack_manager as rms;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus,
@@ -438,12 +440,13 @@ fn skip_configure_nmx_cluster_outcome(
 fn build_switch_device_info_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
+    node_type: rms::NodeType,
 ) -> rms::BatchGetNodeDeviceInfoRequest {
     rms::BatchGetNodeDeviceInfoRequest {
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, node_type))
                 .collect(),
         }),
     }
@@ -469,25 +472,25 @@ fn build_nmx_configure_rms_client(rms_config: &RmsConfig) -> Option<librms::Rack
 
 fn rms_component_filters_from_components(
     components: &[String],
-    include_machines: bool,
-    include_switches: bool,
+    compute_node_type: Option<rms::NodeType>,
+    switch_node_type: Option<rms::NodeType>,
 ) -> std::collections::HashMap<i32, rms::FirmwareObjectComponentFilter> {
     if components.is_empty() {
         return std::collections::HashMap::new();
     }
 
     let mut filters = std::collections::HashMap::new();
-    if include_machines {
+    if let Some(compute_node_type) = compute_node_type {
         filters.insert(
-            rms::NodeType::Compute as i32,
+            compute_node_type as i32,
             rms::FirmwareObjectComponentFilter {
                 components: components.to_vec(),
             },
         );
     }
-    if include_switches {
+    if let Some(switch_node_type) = switch_node_type {
         filters.insert(
-            rms::NodeType::Switch as i32,
+            switch_node_type as i32,
             rms::FirmwareObjectComponentFilter {
                 components: components.to_vec(),
             },
@@ -532,6 +535,7 @@ fn firmware_device_status(
 
 struct RmsFirmwareObjectJsonApply<'a> {
     rack_id: &'a RackId,
+    profile: &'a RackProfile,
     config_json: &'a str,
     access_token: &'a str,
     firmware_type: &'a str,
@@ -550,32 +554,65 @@ async fn rms_start_firmware_upgrade_from_json(
     let machine_count = request.machines.len();
     let switch_count = request.switches.len();
     let mut nodes = Vec::with_capacity(machine_count + switch_count);
-    nodes.extend(
-        request
-            .machines
-            .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Compute)),
-    );
-    nodes.extend(
-        request
-            .switches
-            .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Switch)),
-    );
+
+    // Resolve all required node types before constructing the RMS request so a
+    // mixed-device update fails before any partial firmware submission.
+    let compute_node_type = if machine_count > 0 {
+        Some(
+            compute_node_type_for_profile(request.profile).map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to resolve RMS compute node type: {}",
+                    error
+                ))
+            })?,
+        )
+    } else {
+        None
+    };
+    let switch_node_type = if switch_count > 0 {
+        Some(
+            switch_node_type_for_profile(request.profile).map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to resolve RMS switch node type: {}",
+                    error
+                ))
+            })?,
+        )
+    } else {
+        None
+    };
+
+    if let Some(node_type) = compute_node_type {
+        nodes.extend(
+            request
+                .machines
+                .iter()
+                .map(|device| build_new_node_info(request.rack_id, device, node_type)),
+        );
+    }
+
+    if let Some(node_type) = switch_node_type {
+        nodes.extend(
+            request
+                .switches
+                .iter()
+                .map(|device| build_new_node_info(request.rack_id, device, node_type)),
+        );
+    }
 
     let response = rms_client
         .apply_firmware_object(rms::ApplyFirmwareObjectRequest {
             rack_id: request.rack_id.to_string(),
             config_json: request.config_json.to_string(),
-            access_token: request.access_token.to_string(),
+            access_token: Some(rms_access_token_or_noauth(Some(request.access_token))),
             firmware_type: request.firmware_type.to_string(),
             hardware_type: request.hardware_type.to_string(),
             nodes: Some(rms::NodeSet { nodes }),
             force_update: request.force_update,
             component_filters: rms_component_filters_from_components(
                 request.components,
-                machine_count > 0,
-                switch_count > 0,
+                compute_node_type,
+                switch_node_type,
             ),
         })
         .await
@@ -848,12 +885,13 @@ async fn rms_start_nvos_update(
     source: NvosUpdateSource<'_>,
     software_type: &str,
     hardware_type: &str,
+    switch_node_type: rms::NodeType,
     switches: Vec<FirmwareUpgradeDeviceInfo>,
 ) -> Result<NvosUpdateJob, StateHandlerError> {
     let started_at = chrono::Utc::now();
     let nodes: Vec<_> = switches
         .iter()
-        .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+        .map(|switch| build_new_node_info(rack_id, switch, switch_node_type))
         .collect();
     let nodes = Some(rms::NodeSet { nodes });
     let NvosUpdateSource {
@@ -864,7 +902,7 @@ async fn rms_start_nvos_update(
         .apply_switch_system_image(rms::ApplySwitchSystemImageRequest {
             rack_id: rack_id.to_string(),
             config_json: config_json.to_string(),
-            access_token: access_token.to_string(),
+            access_token: Some(rms_access_token_or_noauth(Some(access_token))),
             software_type: software_type.to_string(),
             hardware_type: hardware_type.to_string(),
             nodes,
@@ -1136,7 +1174,8 @@ pub async fn handle_maintenance(
                         scope,
                     ));
                 };
-                // Defensive: older persisted maintenance state may predate API-side JSON validation.
+                // Defensive: older persisted maintenance state may predate API-side JSON
+                // validation.
                 let Some(config_json) = config_json.filter(|json| !json.trim().is_empty()) else {
                     return transition_to_rack_error(
                         id,
@@ -1203,6 +1242,24 @@ pub async fn handle_maintenance(
                     ));
                 }
 
+                let Some(profile) = profile else {
+                    // Keep this aligned with the NVOS missing-profile path.
+                    // Startup validation deliberately does not scan rack rows,
+                    // so this call-time error still owns token cleanup.
+                    delete_rack_maintenance_access_token(
+                        ctx.services.credential_manager.as_ref(),
+                        id,
+                    )
+                    .await;
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        "rack profile is missing or unknown; cannot resolve RMS node types",
+                        ctx,
+                    )
+                    .await;
+                };
+
                 tracing::info!(
                     rack_id = %id,
                     firmware_type = %firmware_type,
@@ -1217,6 +1274,7 @@ pub async fn handle_maintenance(
                     rms_client.as_ref(),
                     RmsFirmwareObjectJsonApply {
                         rack_id: id,
+                        profile,
                         config_json: &config_json,
                         access_token: &access_token,
                         firmware_type: &firmware_type,
@@ -1531,6 +1589,31 @@ pub async fn handle_maintenance(
                         maintenance_state: next,
                     }));
                 }
+                let Some(profile) = profile else {
+                    delete_rack_maintenance_access_token(
+                        ctx.services.credential_manager.as_ref(),
+                        id,
+                    )
+                    .await;
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        ctx,
+                    )
+                    .await;
+                };
+                let switch_node_type = match switch_node_type_for_profile(profile) {
+                    Ok(node_type) => node_type,
+                    Err(error) => {
+                        delete_rack_maintenance_access_token(
+                            ctx.services.credential_manager.as_ref(),
+                            id,
+                        )
+                        .await;
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                    }
+                };
 
                 tracing::info!(
                     rack_id = %id,
@@ -1571,6 +1654,7 @@ pub async fn handle_maintenance(
                     source,
                     software_type,
                     &rack_hardware_type,
+                    switch_node_type,
                     switch_inventory.switches,
                 )
                 .await;
@@ -1789,6 +1873,21 @@ pub async fn handle_maintenance(
                 {
                     return transition_to_rack_error(id, state, cause, ctx).await;
                 }
+                let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        ctx,
+                    )
+                    .await;
+                };
+                let switch_node_type = match switch_node_type_for_profile(profile) {
+                    Ok(node_type) => node_type,
+                    Err(error) => {
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                    }
+                };
 
                 tracing::info!(
                     rack_id = %id,
@@ -1801,9 +1900,7 @@ pub async fn handle_maintenance(
                             nodes: switch_inventory
                                 .switches
                                 .iter()
-                                .map(|switch| {
-                                    build_new_node_info(id, switch, rms::NodeType::Switch)
-                                })
+                                .map(|switch| build_new_node_info(id, switch, switch_node_type))
                                 .collect(),
                         }),
                         enabled: false,
@@ -1948,11 +2045,18 @@ pub async fn handle_maintenance(
                     )
                     .await;
                 };
+                let switch_node_type = match switch_node_type_for_profile(profile) {
+                    Ok(node_type) => node_type,
+                    Err(error) => {
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                    }
+                };
 
                 let response = match rms_client
                     .batch_get_node_device_info(build_switch_device_info_request(
                         id,
                         &switch_inventory.switches,
+                        switch_node_type,
                     ))
                     .await
                 {
@@ -1994,7 +2098,7 @@ pub async fn handle_maintenance(
                         node: Some(build_new_node_info(
                             id,
                             &primary_switch.device,
-                            rms::NodeType::Switch,
+                            switch_node_type,
                         )),
                         topology_type: topology_type.clone(),
                     })
@@ -2080,11 +2184,27 @@ pub async fn handle_maintenance(
                         scope,
                     ));
                 }
+                let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        ctx,
+                    )
+                    .await;
+                };
+                let switch_node_type = match switch_node_type_for_profile(profile) {
+                    Ok(node_type) => node_type,
+                    Err(error) => {
+                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                    }
+                };
 
                 let fabric_status_response = match batch_get_scale_up_fabric_service_status(
                     &ctx.services.site_config.rms,
                     id,
                     &switch_inventory.switches,
+                    switch_node_type,
                 )
                 .await
                 {
@@ -2163,6 +2283,7 @@ pub async fn handle_maintenance(
 #[cfg(test)]
 mod tests {
     use carbide_rack::firmware_update::RackFirmwareInventory;
+    use carbide_test_support::{Check, check_values};
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use model::rack::{
@@ -2335,224 +2456,172 @@ mod tests {
         assert_eq!(status.error_message.as_deref(), Some("invalid SOT JSON"));
     }
 
+    /// A firmware-upgrade activity with no version/components/force, the form
+    /// used by the maintenance-state transition tables.
+    fn firmware_upgrade() -> MaintenanceActivity {
+        MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+            force_update: false,
+        }
+    }
+
+    fn nvos_update() -> MaintenanceActivity {
+        MaintenanceActivity::NvosUpdate {
+            config_json: r#"{"Id":"fw-nvos"}"#.into(),
+        }
+    }
+
+    fn scope_of(activities: Vec<MaintenanceActivity>) -> MaintenanceScope {
+        MaintenanceScope {
+            activities,
+            ..Default::default()
+        }
+    }
+
+    fn firmware_start() -> RackMaintenanceState {
+        RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade: FirmwareUpgradeState::Start,
+        }
+    }
+
+    fn configure_start() -> RackMaintenanceState {
+        RackMaintenanceState::ConfigureNmxCluster {
+            configure_nmx_cluster: ConfigureNmxClusterState::Start,
+        }
+    }
+
+    fn nvos_start() -> RackMaintenanceState {
+        RackMaintenanceState::NVOSUpdate {
+            nvos_update: NvosUpdateState::Start,
+        }
+    }
+
+    fn powering_on() -> RackMaintenanceState {
+        RackMaintenanceState::PowerSequence {
+            rack_power: RackPowerState::PoweringOn,
+        }
+    }
+
     // ── first_maintenance_state ─────────────────────────────────────────
 
     #[test]
-    fn first_maintenance_state_all_activities() {
-        let scope = MaintenanceScope::default();
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::FirmwareUpgrade {
-                rack_firmware_upgrade: FirmwareUpgradeState::Start,
-            }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_only_firmware() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::FirmwareUpgrade {
-                firmware_version: None,
-                components: vec![],
-                force_update: false,
-            }],
-            ..Default::default()
-        };
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::FirmwareUpgrade { .. }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_only_configure() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::ConfigureNmxCluster],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn first_maintenance_state_only_nvos() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::NvosUpdate {
-                config_json: r#"{"Id":"fw-nvos"}"#.into(),
-            }],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::NVOSUpdate {
-                nvos_update: NvosUpdateState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn first_maintenance_state_only_power_sequence() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::PowerSequence],
-            ..Default::default()
-        };
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::PowerSequence {
-                rack_power: RackPowerState::PoweringOn,
-            }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_configure_and_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::ConfigureNmxCluster,
-                MaintenanceActivity::PowerSequence,
+    fn test_first_maintenance_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> firmware first",
+                    input: MaintenanceScope::default(),
+                    expect: firmware_start(),
+                },
+                Check {
+                    scenario: "only firmware -> firmware",
+                    input: scope_of(vec![firmware_upgrade()]),
+                    expect: firmware_start(),
+                },
+                Check {
+                    scenario: "only configure -> configure",
+                    input: scope_of(vec![MaintenanceActivity::ConfigureNmxCluster]),
+                    expect: configure_start(),
+                },
+                Check {
+                    scenario: "only nvos -> nvos",
+                    input: scope_of(vec![nvos_update()]),
+                    expect: nvos_start(),
+                },
+                Check {
+                    scenario: "only power sequence -> power",
+                    input: scope_of(vec![MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
+                },
+                Check {
+                    scenario: "configure and power -> configure first",
+                    input: scope_of(vec![
+                        MaintenanceActivity::ConfigureNmxCluster,
+                        MaintenanceActivity::PowerSequence,
+                    ]),
+                    expect: configure_start(),
+                },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
+            |scope| first_maintenance_state(&scope),
         );
     }
 
     // ── next_state_after_firmware ───────────────────────────────────────
 
     #[test]
-    fn after_firmware_all_activities_skips_nvos_without_explicit_json() {
-        let scope = MaintenanceScope::default();
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            next_state_after_nvos(&scope)
-        );
-    }
-
-    #[test]
-    fn after_firmware_without_configure_goes_to_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+    fn test_next_state_after_firmware() {
+        check_values(
+            [
+                // All activities: no explicit NVOS JSON, so NVOS is skipped and
+                // the scope falls through to ConfigureNmxCluster.
+                Check {
+                    scenario: "all activities skips nvos without explicit json -> configure",
+                    input: MaintenanceScope::default(),
+                    expect: configure_start(),
                 },
-                MaintenanceActivity::PowerSequence,
-            ],
-            ..Default::default()
-        };
-        assert!(matches!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::PowerSequence { .. }
-        ));
-    }
-
-    #[test]
-    fn after_firmware_only_firmware_goes_to_completed() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::FirmwareUpgrade {
-                firmware_version: None,
-                components: vec![],
-                force_update: false,
-            }],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::Completed,
-        );
-    }
-
-    #[test]
-    fn after_firmware_explicit_nvos_preserves_requested_firmware() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+                Check {
+                    scenario: "firmware and power, no configure -> power",
+                    input: scope_of(vec![firmware_upgrade(), MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
                 },
-                MaintenanceActivity::NvosUpdate {
-                    config_json: r#"{"Id":"fw-nvos"}"#.into(),
+                Check {
+                    scenario: "only firmware -> completed",
+                    input: scope_of(vec![firmware_upgrade()]),
+                    expect: RackMaintenanceState::Completed,
+                },
+                Check {
+                    scenario: "explicit nvos preserves requested firmware -> nvos",
+                    input: scope_of(vec![firmware_upgrade(), nvos_update()]),
+                    expect: nvos_start(),
                 },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::NVOSUpdate {
-                nvos_update: NvosUpdateState::Start,
-            },
+            |scope| next_state_after_firmware(&scope),
         );
     }
 
     // ── next_state_after_nvos ──────────────────────────────────────────
 
     #[test]
-    fn after_nvos_all_activities_goes_to_configure() {
-        let scope = MaintenanceScope::default();
-        assert_eq!(
-            next_state_after_nvos(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn after_nvos_without_configure_goes_to_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::NvosUpdate {
-                    config_json: r#"{"Id":"fw-nvos"}"#.into(),
+    fn test_next_state_after_nvos() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> configure",
+                    input: MaintenanceScope::default(),
+                    expect: configure_start(),
                 },
-                MaintenanceActivity::PowerSequence,
+                Check {
+                    scenario: "nvos and power, no configure -> power",
+                    input: scope_of(vec![nvos_update(), MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
+                },
             ],
-            ..Default::default()
-        };
-        assert!(matches!(
-            next_state_after_nvos(&scope),
-            RackMaintenanceState::PowerSequence { .. }
-        ));
+            |scope| next_state_after_nvos(&scope),
+        );
     }
 
     // ── next_state_after_configure ──────────────────────────────────────
 
     #[test]
-    fn after_configure_all_activities_goes_to_power() {
-        let scope = MaintenanceScope::default();
-        assert!(matches!(
-            next_state_after_configure(&scope),
-            RackMaintenanceState::PowerSequence {
-                rack_power: RackPowerState::PoweringOn,
-            }
-        ));
-    }
-
-    #[test]
-    fn after_configure_without_power_goes_to_completed() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+    fn test_next_state_after_configure() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> power",
+                    input: MaintenanceScope::default(),
+                    expect: powering_on(),
                 },
-                MaintenanceActivity::ConfigureNmxCluster,
+                Check {
+                    scenario: "firmware and configure, no power -> completed",
+                    input: scope_of(vec![
+                        firmware_upgrade(),
+                        MaintenanceActivity::ConfigureNmxCluster,
+                    ]),
+                    expect: RackMaintenanceState::Completed,
+                },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_configure(&scope),
-            RackMaintenanceState::Completed,
+            |scope| next_state_after_configure(&scope),
         );
     }
 }

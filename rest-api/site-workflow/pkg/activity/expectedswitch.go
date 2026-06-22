@@ -399,11 +399,6 @@ func expectedSwitchToFlowComponent(es *cwssaws.ExpectedSwitch) *flowv1.Component
 		component.Info.Description = es.Description
 	}
 
-	// Firmware version
-	if fv := es.GetFirmwareVersion(); fv != "" {
-		component.FirmwareVersion = fv
-	}
-
 	// Rack position
 	if es.SlotId != nil || es.TrayIdx != nil || es.HostId != nil {
 		pos := &flowv1.RackPosition{}

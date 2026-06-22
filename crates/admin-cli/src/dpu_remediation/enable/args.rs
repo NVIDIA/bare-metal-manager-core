@@ -24,7 +24,7 @@ use rpc::forge::EnableRemediationRequest;
 EXAMPLES:
 
 Enable a remediation:
-    $ carbide-admin-cli dpu-remediation enable --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu-remediation enable --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

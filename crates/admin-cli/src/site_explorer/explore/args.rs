@@ -27,10 +27,10 @@ use super::super::common::ExploreOptions;
 EXAMPLES:
 
 Explore a single host now and print the report (not stored):
-    $ carbide-admin-cli site-explorer explore 192.0.2.10
+    $ nico-admin-cli site-explorer explore 192.0.2.10
 
 Explore a host, supplying the MAC it sent DHCP from:
-    $ carbide-admin-cli site-explorer explore 192.0.2.10 --mac 00:11:22:33:44:55
+    $ nico-admin-cli site-explorer explore 192.0.2.10 --mac 00:11:22:33:44:55
 
 ")]
 pub struct Args {

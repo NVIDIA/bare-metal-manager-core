@@ -104,7 +104,13 @@ pub fn setup_logging(
 
     let (logfmt_stdout_filter, logfmt_stdout_reload_handle) =
         reload::Layer::new(initial_log_filter.clone());
-    let logfmt_stdout_formatter = logfmt::layer().with_event_fields(extra_logfmt_event_fields);
+    let mut event_fields = vec![logfmt::EventField::with_default("component", "nico-api")];
+    event_fields.extend(
+        extra_logfmt_event_fields
+            .into_iter()
+            .map(logfmt::EventField::new),
+    );
+    let logfmt_stdout_formatter = logfmt::layer().with_event_fields(event_fields);
     let spancount_layer = spancounter::layer();
     let spancount_reader = spancount_layer.reader();
 

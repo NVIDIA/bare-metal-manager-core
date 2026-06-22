@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -52,6 +52,10 @@ type RackComponent struct {
 	Bmcs []BMCInfo `json:"bmcs,omitempty"`
 	// Current power state of the component
 	PowerState *string `json:"powerState,omitempty"`
+	// Flow-derived operability phase of the component
+	OperationStatus *string `json:"operationStatus,omitempty"`
+	// Whether the component is considered leaking coolant
+	LeakStatus *string `json:"leakStatus,omitempty"`
 }
 
 // NewRackComponent instantiates a new RackComponent object
@@ -551,6 +555,70 @@ func (o *RackComponent) SetPowerState(v string) {
 	o.PowerState = &v
 }
 
+// GetOperationStatus returns the OperationStatus field value if set, zero value otherwise.
+func (o *RackComponent) GetOperationStatus() string {
+	if o == nil || IsNil(o.OperationStatus) {
+		var ret string
+		return ret
+	}
+	return *o.OperationStatus
+}
+
+// GetOperationStatusOk returns a tuple with the OperationStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *RackComponent) GetOperationStatusOk() (*string, bool) {
+	if o == nil || IsNil(o.OperationStatus) {
+		return nil, false
+	}
+	return o.OperationStatus, true
+}
+
+// HasOperationStatus returns a boolean if a field has been set.
+func (o *RackComponent) HasOperationStatus() bool {
+	if o != nil && !IsNil(o.OperationStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetOperationStatus gets a reference to the given string and assigns it to the OperationStatus field.
+func (o *RackComponent) SetOperationStatus(v string) {
+	o.OperationStatus = &v
+}
+
+// GetLeakStatus returns the LeakStatus field value if set, zero value otherwise.
+func (o *RackComponent) GetLeakStatus() string {
+	if o == nil || IsNil(o.LeakStatus) {
+		var ret string
+		return ret
+	}
+	return *o.LeakStatus
+}
+
+// GetLeakStatusOk returns a tuple with the LeakStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *RackComponent) GetLeakStatusOk() (*string, bool) {
+	if o == nil || IsNil(o.LeakStatus) {
+		return nil, false
+	}
+	return o.LeakStatus, true
+}
+
+// HasLeakStatus returns a boolean if a field has been set.
+func (o *RackComponent) HasLeakStatus() bool {
+	if o != nil && !IsNil(o.LeakStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetLeakStatus gets a reference to the given string and assigns it to the LeakStatus field.
+func (o *RackComponent) SetLeakStatus(v string) {
+	o.LeakStatus = &v
+}
+
 func (o RackComponent) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -605,6 +673,12 @@ func (o RackComponent) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.PowerState) {
 		toSerialize["powerState"] = o.PowerState
+	}
+	if !IsNil(o.OperationStatus) {
+		toSerialize["operationStatus"] = o.OperationStatus
+	}
+	if !IsNil(o.LeakStatus) {
+		toSerialize["leakStatus"] = o.LeakStatus
 	}
 	return toSerialize, nil
 }

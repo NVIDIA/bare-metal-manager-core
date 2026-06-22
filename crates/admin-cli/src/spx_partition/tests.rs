@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,44 +46,29 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all partitions).
+// `show` routes to the Show variant across its optional filters: no args leaves
+// every selector unset, while --tenant-org-id and --name each thread their value
+// through. Each row yields the (id, tenant_org_id, name) the originals asserted.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["ib-partition", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(args.tenant_org_id.is_none());
-            assert!(args.name.is_none());
+fn show_parses_optional_filters() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.id, args.tenant_org_id, args.name),
+                })
+                .map_err(drop)
+        };
+        "no args (all partitions)" {
+            &["ib-partition", "show"][..] => Yields((None, None, None)),
         }
-    }
-}
 
-// parse_show_with_tenant ensures show parses with
-// --tenant-org-id.
-#[test]
-fn parse_show_with_tenant() {
-    let cmd = Cmd::try_parse_from(["ib-partition", "show", "--tenant-org-id", "tenant-123"])
-        .expect("should parse show with tenant");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org_id, Some("tenant-123".to_string()));
+        "with --tenant-org-id" {
+            &["ib-partition", "show", "--tenant-org-id", "tenant-123"][..] => Yields((None, Some("tenant-123".to_string()), None)),
         }
-    }
-}
 
-// parse_show_with_name ensures show parses with --name.
-#[test]
-fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["ib-partition", "show", "--name", "my-partition"])
-        .expect("should parse show with name");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.name, Some("my-partition".to_string()));
+        "with --name" {
+            &["ib-partition", "show", "--name", "my-partition"][..] => Yields((None, None, Some("my-partition".to_string()))),
         }
-    }
+    );
 }

@@ -20,6 +20,7 @@
 
 use std::time::Duration;
 
+use carbide_test_support::value_scenarios;
 use libmlx::runner::result_types::{
     ComparisonResult, PlannedChange, QueriedDeviceInfo, QueriedVariable, QueryResult, SyncResult,
     VariableChange,
@@ -55,42 +56,45 @@ fn test_queried_variable_construction() {
     assert!(!queried_var.read_only);
 }
 
+// is_pending_change is true exactly when current_value differs from next_value.
+// Each row sets a (current, next) bool pair on a QueriedVariable and asserts the
+// predicate; the rest of the struct is held constant.
 #[test]
 fn test_queried_variable_pending_change_detection() {
+    struct Values {
+        current: bool,
+        next: bool,
+    }
+
     let registry = common::create_test_registry();
     let sriov_var = registry.get_variable("SRIOV_EN").unwrap().clone();
 
-    // Test case where current != next (pending change)
-    let current_value = sriov_var.with(false).unwrap();
-    let default_value = sriov_var.with(false).unwrap();
-    let next_value = sriov_var.with(true).unwrap();
+    value_scenarios!(
+        run = |Values { current, next }| {
+            QueriedVariable {
+                variable: sriov_var.clone(),
+                current_value: sriov_var.with(current).unwrap(),
+                default_value: sriov_var.with(false).unwrap(),
+                next_value: sriov_var.with(next).unwrap(),
+                modified: true,
+                read_only: false,
+            }
+            .is_pending_change()
+        };
+        "current != next is a pending change" {
+            Values {
+                current: false,
+                next: true,
+            } => true,
+        }
 
-    let queried_var_with_pending = QueriedVariable {
-        variable: sriov_var.clone(),
-        current_value,
-        default_value,
-        next_value,
-        modified: true,
-        read_only: false,
-    };
-
-    assert!(queried_var_with_pending.is_pending_change());
-
-    // Test case where current == next (no pending change)
-    let current_value = sriov_var.with(true).unwrap();
-    let next_value = sriov_var.with(true).unwrap();
-    let default_value = sriov_var.with(false).unwrap();
-
-    let queried_var_no_pending = QueriedVariable {
-        variable: sriov_var,
-        current_value,
-        default_value,
-        next_value,
-        modified: true,
-        read_only: false,
-    };
-
-    assert!(!queried_var_no_pending.is_pending_change());
+        "current == next is not a pending change" {
+            Values {
+                current: true,
+                next: true,
+            } => false,
+        }
+    );
 }
 
 #[test]

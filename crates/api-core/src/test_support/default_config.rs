@@ -53,6 +53,7 @@ pub fn get() -> CarbideConfig {
         enable_admin_ui: true,
         web_ui_sidebar_tools: vec![],
         log_history: Default::default(),
+        observability: Default::default(),
         bgp_leaf_session_password: None,
         rack_validation_config: RackValidationConfig {
             enabled: true,
@@ -85,6 +86,7 @@ pub fn get() -> CarbideConfig {
         auth: None,
         pools: None,
         networks: None,
+        vpcs: None,
         dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),
@@ -94,6 +96,7 @@ pub fn get() -> CarbideConfig {
         initial_dpu_agent_upgrade_policy: None,
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
+        retained_boot_interface_window: None,
         site_explorer: SiteExplorerConfig {
             enabled: Arc::new(false.into()),
             run_interval: std::time::Duration::from_secs(0),
@@ -122,19 +125,7 @@ pub fn get() -> CarbideConfig {
         )]
         .into_iter()
         .collect(),
-        machine_state_controller: MachineStateControllerConfig {
-            dpu_wait_time: Duration::seconds(1),
-            power_down_wait: Duration::seconds(1),
-            failure_retry_time: Duration::seconds(1),
-            dpu_up_threshold: Duration::weeks(52),
-            controller: StateControllerConfig::default(),
-            scout_reporting_timeout: Duration::weeks(52),
-            uefi_boot_wait: Duration::seconds(0),
-            max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
-            ),
-            polling_bios_setup_stuck_threshold:
-                MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
-        },
+        machine_state_controller: MachineStateControllerConfig::test_default(),
         network_segment_state_controller: NetworkSegmentStateControllerConfig {
             network_segment_drain_time: Duration::seconds(2),
             controller: StateControllerConfig::default(),
@@ -249,6 +240,7 @@ pub fn get() -> CarbideConfig {
         initial_objects_file: None,
         config_ctx: None,
         tracing: TracingConfig::default(),
+        ntp_servers: vec![],
     }
 }
 

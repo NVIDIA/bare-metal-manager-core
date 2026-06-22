@@ -19,6 +19,7 @@
 
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use base64::prelude::*;
@@ -159,10 +160,25 @@ pub struct LldpSwitchData {
     pub description: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub local_port: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ip_address: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_ip_addr_vec_lossy",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub ip_address: Vec<IpAddr>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remote_port: String,
+}
+
+fn deserialize_ip_addr_vec_lossy<'de, D>(deserializer: D) -> Result<Vec<IpAddr>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|address| address.parse::<IpAddr>().ok())
+        .collect())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -380,7 +396,20 @@ impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
 #[cfg(test)]
 mod tests {
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
+
+    // Build a `HardwareInfo` carrying only the architecture and `DmiData` fields
+    // the classification predicates look at, leaving everything else defaulted.
+    fn info_with_dmi(machine_type: CpuArchitecture, dmi: DmiData) -> HardwareInfo {
+        HardwareInfo {
+            machine_type,
+            dmi_data: Some(dmi),
+            ..Default::default()
+        }
+    }
 
     const DPU_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_info.json");
     const DPU_BF3_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_bf3_info.json");
@@ -406,6 +435,37 @@ mod tests {
         assert_eq!(
             json,
             r#"{"components":[{"name":"foo","version":"1.0","url":""},{"name":"bar","version":"2.0","url":"nvidia.com"}]}"#
+        );
+    }
+
+    // Deserialize an LLDP switch entry and project to the management `ip_address`
+    // list: invalid entries are dropped lossily and a null list defaults to empty.
+    #[test]
+    fn lldp_switch_data_management_addresses() {
+        scenarios!(
+            // serde_json::Error is not PartialEq, so deserialization failure would
+            // be Fails; here every row parses, so the error type is irrelevant.
+            run = |json| {
+                serde_json::from_str::<LldpSwitchData>(json)
+                    .map(|switch| switch.ip_address)
+                    .map_err(drop)
+            };
+            "filters invalid management addresses" {
+                r#"{
+                            "ip_address": [
+                                "192.0.2.10",
+                                "not-an-ip",
+                                "2001:db8::1"
+                            ]
+                        }"# => Yields(vec![
+                    "192.0.2.10".parse::<IpAddr>().unwrap(),
+                    "2001:db8::1".parse::<IpAddr>().unwrap(),
+                ]),
+            }
+
+            "defaults null management addresses to empty" {
+                r#"{"ip_address":null}"# => Yields(vec![]),
+            }
         );
     }
 
@@ -508,16 +568,35 @@ mod tests {
         );
     }
 
+    // Deserialize a HardwareInfo fixture and project to whether it is classified as
+    // a DPU: x86 hardware is not, both BlueField fixtures are.
     #[test]
-    fn deserialize_x86_info() {
-        let info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
-        assert!(!info.is_dpu());
+    fn deserialize_info_is_dpu() {
+        scenarios!(
+            // serde_json::Error is not PartialEq; every fixture parses, so the error
+            // type is irrelevant here.
+            run = |bytes| {
+                serde_json::from_slice::<HardwareInfo>(bytes)
+                    .map(|info| info.is_dpu())
+                    .map_err(drop)
+            };
+            "x86 host is not a DPU" {
+                X86_INFO_JSON => Yields(false),
+            }
+
+            "dpu info is a DPU" {
+                DPU_INFO_JSON => Yields(true),
+            }
+
+            "bf3 dpu info is a DPU" {
+                DPU_BF3_INFO_JSON => Yields(true),
+            }
+        );
     }
 
     #[test]
-    fn deserialize_dpu_info() {
+    fn deserialize_dpu_info_decodes_ch_64_mac() {
         let info = serde_json::from_slice::<HardwareInfo>(DPU_INFO_JSON).unwrap();
-        assert!(info.is_dpu());
 
         // Make sure deserialize_ch_64 works as expected, where
         // the source dpu_info.json file for this has ch:64 as
@@ -526,12 +605,6 @@ mod tests {
             info.network_interfaces[1].mac_address.to_string(),
             "00:00:00:00:00:64"
         );
-    }
-
-    #[test]
-    fn deserialize_dpu_bf3_info() {
-        let info = serde_json::from_slice::<HardwareInfo>(DPU_BF3_INFO_JSON).unwrap();
-        assert!(info.is_dpu());
     }
 
     #[test]
@@ -578,6 +651,446 @@ mod tests {
         assert_eq!(
             deserialized.cert.as_ref().map(|cert| cert.as_bytes()),
             Some(cert_data.as_slice())
+        );
+    }
+
+    // `is_dpu()` is true only when the architecture is Aarch64 *and* the DMI board
+    // name contains "bluefield" (case-insensitively). Both conditions must hold.
+    #[test]
+    fn hardware_info_is_dpu() {
+        value_scenarios!(
+            run = |info| info.is_dpu();
+            "aarch64 with bluefield board is a DPU" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        board_name: "BlueField-3".to_string(),
+                        ..Default::default()
+                    },
+                ) => true,
+            }
+
+            "board name match is case-insensitive" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        board_name: "MY-BLUEFIELD-CARD".to_string(),
+                        ..Default::default()
+                    },
+                ) => true,
+            }
+
+            "bluefield as a lowercase substring still matches" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        board_name: "prefix-bluefield-suffix".to_string(),
+                        ..Default::default()
+                    },
+                ) => true,
+            }
+
+            "aarch64 without bluefield board is not a DPU" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        board_name: "GenericBoard".to_string(),
+                        ..Default::default()
+                    },
+                ) => false,
+            }
+
+            "aarch64 with empty board name is not a DPU" {
+                info_with_dmi(CpuArchitecture::Aarch64, DmiData::default()) => false,
+            }
+
+            "x86_64 with bluefield board is not a DPU" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        board_name: "BlueField-3".to_string(),
+                        ..Default::default()
+                    },
+                ) => false,
+            }
+
+            "unknown arch with bluefield board is not a DPU" {
+                info_with_dmi(
+                    CpuArchitecture::Unknown,
+                    DmiData {
+                        board_name: "BlueField-3".to_string(),
+                        ..Default::default()
+                    },
+                ) => false,
+            }
+
+            "aarch64 with no dmi data at all is not a DPU" {
+                HardwareInfo {
+                    machine_type: CpuArchitecture::Aarch64,
+                    dmi_data: None,
+                    ..Default::default()
+                } => false,
+            }
+        );
+    }
+
+    // `factory_mac_address()` requires `dpu_info` and a parseable MAC string within
+    // it; its error type is not PartialEq, so failures are asserted as `Fails`.
+    #[test]
+    fn hardware_info_factory_mac_address() {
+        scenarios!(
+            // HardwareInfoError is not PartialEq, so drop the error to make the run
+            // closure's error type `()`.
+            run = |info| info.factory_mac_address().map_err(drop);
+            "valid mac in dpu info yields the address" {
+                HardwareInfo {
+                    dpu_info: Some(DpuData {
+                        factory_mac_address: "00:11:22:33:44:55".to_string(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                } => Yields(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
+            }
+
+            "missing dpu info fails" {
+                HardwareInfo::default() => Fails,
+            }
+
+            "empty mac string fails to parse" {
+                HardwareInfo {
+                    dpu_info: Some(DpuData {
+                        factory_mac_address: String::new(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                } => Fails,
+            }
+
+            "malformed mac string fails to parse" {
+                HardwareInfo {
+                    dpu_info: Some(DpuData {
+                        factory_mac_address: "not-a-mac".to_string(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                } => Fails,
+            }
+
+            "too-short mac string fails to parse" {
+                HardwareInfo {
+                    dpu_info: Some(DpuData {
+                        factory_mac_address: "00:11:22".to_string(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                } => Fails,
+            }
+        );
+    }
+
+    // `bmc_vendor()` maps the DMI `sys_vendor` string through `from_udev_dmi`, and
+    // falls back to `Unknown` when there is no DMI data at all.
+    #[test]
+    fn hardware_info_bmc_vendor() {
+        value_scenarios!(
+            run = |info| info.bmc_vendor();
+            "lenovo sys vendor" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "Lenovo".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Lenovo,
+            }
+
+            "dell sys vendor" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "Dell Inc.".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Dell,
+            }
+
+            "nvidia sys vendor" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        sys_vendor: "NVIDIA".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Nvidia,
+            }
+
+            "mellanox url maps to nvidia" {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        sys_vendor: "https://www.mellanox.com".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Nvidia,
+            }
+
+            "supermicro sys vendor" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "Supermicro".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Supermicro,
+            }
+
+            "hpe sys vendor" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "HPE".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Hpe,
+            }
+
+            "unrecognized sys vendor is unknown" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "Acme Corp".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Unknown,
+            }
+
+            "case-sensitive: lowercase dell is unknown" {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: "dell inc.".to_string(),
+                        ..Default::default()
+                    },
+                ) => bmc_vendor::BMCVendor::Unknown,
+            }
+
+            "no dmi data is unknown" {
+                HardwareInfo::default() => bmc_vendor::BMCVendor::Unknown,
+            }
+        );
+    }
+
+    // `is_gbx00()` checks for a "GB200" substring in the product name; `is_dgx_h100()`
+    // wants an exact NVIDIA / DGXH100 pairing.
+    #[test]
+    fn hardware_info_product_predicates() {
+        value_scenarios!(
+            run = |(product_name, _)| {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        product_name: product_name.to_string(),
+                        ..Default::default()
+                    },
+                )
+                .is_gbx00()
+            };
+            "exact GB200 product name" {
+                ("GB200", false) => true,
+            }
+
+            "GB200 as a substring" {
+                ("NVIDIA GB200 NVL72", false) => true,
+            }
+
+            "different product is not gbx00" {
+                ("GB300", false) => false,
+            }
+
+            "empty product name is not gbx00" {
+                ("", false) => false,
+            }
+
+            "case-sensitive: lowercase gb200 is not gbx00" {
+                ("gb200", false) => false,
+            }
+        );
+    }
+
+    // `is_dgx_h100()` requires both sys_vendor == "NVIDIA" and product_name == "DGXH100".
+    #[test]
+    fn hardware_info_is_dgx_h100() {
+        value_scenarios!(
+            run = |(sys_vendor, product_name)| {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: sys_vendor.to_string(),
+                        product_name: product_name.to_string(),
+                        ..Default::default()
+                    },
+                )
+                .is_dgx_h100()
+            };
+            "nvidia vendor and dgxh100 product" {
+                ("NVIDIA", "DGXH100") => true,
+            }
+
+            "wrong product is not a dgx h100" {
+                ("NVIDIA", "DGXH200") => false,
+            }
+
+            "wrong vendor is not a dgx h100" {
+                ("Supermicro", "DGXH100") => false,
+            }
+
+            "both empty is not a dgx h100" {
+                ("", "") => false,
+            }
+
+            "product as substring is rejected (exact match required)" {
+                ("NVIDIA", "DGXH100-rev2") => false,
+            }
+        );
+    }
+
+    // `all_mac_addresses()` projects each network interface's MAC, in order.
+    #[test]
+    fn hardware_info_all_mac_addresses() {
+        let iface = |mac: &str| NetworkInterface {
+            mac_address: MacAddress::from_str(mac).unwrap(),
+            pci_properties: None,
+        };
+        value_scenarios!(
+            run = |network_interfaces| {
+                HardwareInfo {
+                    network_interfaces,
+                    ..Default::default()
+                }
+                .all_mac_addresses()
+            };
+            "no interfaces yields an empty list" {
+                vec![] => vec![],
+            }
+
+            "one interface yields its mac" {
+                vec![iface("00:11:22:33:44:55")] => vec![MacAddress::from_str("00:11:22:33:44:55").unwrap()],
+            }
+
+            "several interfaces preserve order" {
+                vec![iface("00:11:22:33:44:55"), iface("aa:bb:cc:dd:ee:ff")] => vec![
+                    MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+                    MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+                ],
+            }
+        );
+    }
+
+    // `Display` for a software component renders as `url/name:version`, including
+    // the empty-url case.
+    #[test]
+    fn machine_inventory_component_display() {
+        value_scenarios!(
+            run = |(url, name, version)| {
+                MachineInventorySoftwareComponent {
+                    name: name.to_string(),
+                    version: version.to_string(),
+                    url: url.to_string(),
+                }
+                .to_string()
+            };
+            "all fields populated" {
+                ("nvidia.com", "bar", "2.0") => "nvidia.com/bar:2.0".to_string(),
+            }
+
+            "empty url keeps the leading slash" {
+                ("", "foo", "1.0") => "/foo:1.0".to_string(),
+            }
+
+            "all fields empty" {
+                ("", "", "") => "/:".to_string(),
+            }
+        );
+    }
+
+    // `TpmEkCertificate` round-trips its bytes through `From`, `as_bytes`, and
+    // `into_bytes`, including the empty-certificate case.
+    #[test]
+    fn tpm_ek_certificate_byte_accessors() {
+        value_scenarios!(
+            run = |bytes: Vec<u8>| {
+                let cert = TpmEkCertificate::from(bytes.clone());
+                assert_eq!(cert.as_bytes(), bytes.as_slice());
+                cert.into_bytes()
+            };
+            "non-empty certificate round-trips" {
+                vec![1u8, 2, 3, 4] => vec![1u8, 2, 3, 4],
+            }
+
+            "empty certificate round-trips" {
+                vec![] => vec![],
+            }
+        );
+    }
+
+    // `NvLinkGpu::from` pulls tray/slot from `location_info` (defaulting to 0 when
+    // absent or unset) and copies device_id / device_uid straight across.
+    #[test]
+    fn nvlink_gpu_from_nmxm_gpu() {
+        value_scenarios!(
+            run = |json| {
+                let gpu = serde_json::from_str::<libnmxm::nmxm_model::Gpu>(json).unwrap();
+                NvLinkGpu::from(gpu)
+            };
+            "full location info is carried through" {
+                r#"{
+                            "LocationInfo": {"TrayIndex": 3, "SlotID": 7},
+                            "DeviceUID": 42,
+                            "DeviceID": 5,
+                            "DevicePcieID": 0,
+                            "SystemUID": 0,
+                            "VendorID": 0,
+                            "ALIDList": []
+                        }"# => NvLinkGpu {
+                    tray_index: 3,
+                    slot_id: 7,
+                    device_id: 5,
+                    guid: 42,
+                },
+            }
+
+            "absent location info defaults tray and slot to zero" {
+                r#"{
+                            "DeviceUID": 99,
+                            "DeviceID": 1,
+                            "DevicePcieID": 0,
+                            "SystemUID": 0,
+                            "VendorID": 0,
+                            "ALIDList": []
+                        }"# => NvLinkGpu {
+                    tray_index: 0,
+                    slot_id: 0,
+                    device_id: 1,
+                    guid: 99,
+                },
+            }
+
+            "partial location info defaults the missing field" {
+                r#"{
+                            "LocationInfo": {"TrayIndex": 2},
+                            "DeviceUID": 0,
+                            "DeviceID": 0,
+                            "DevicePcieID": 0,
+                            "SystemUID": 0,
+                            "VendorID": 0,
+                            "ALIDList": []
+                        }"# => NvLinkGpu {
+                    tray_index: 2,
+                    slot_id: 0,
+                    device_id: 0,
+                    guid: 0,
+                },
+            }
         );
     }
 }

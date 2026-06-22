@@ -620,7 +620,21 @@ func ComponentTo(c *component.Component) *pb.Component {
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
 		PowerState:      c.PowerState,
-		Status:          ComponentStatusTo(c.Status),
+		Status:          ComponentOperationStatusTo(c.Status),
+		LeakStatus:      LeakStatusTo(c.LeakStatus),
+	}
+}
+
+// LeakStatusTo converts the Flow-internal LeakStatus to its protobuf
+// counterpart. An unset or unrecognized value maps to LEAK_STATUS_UNKNOWN.
+func LeakStatusTo(s types.LeakStatus) pb.LeakStatus {
+	switch s {
+	case types.LeakStatusDetected:
+		return pb.LeakStatus_LEAK_STATUS_DETECTED
+	case types.LeakStatusNotDetected:
+		return pb.LeakStatus_LEAK_STATUS_NOT_DETECTED
+	default:
+		return pb.LeakStatus_LEAK_STATUS_UNKNOWN
 	}
 }
 
@@ -656,10 +670,10 @@ func operationTypeFromTypesTo(op types.OperationType) pb.OperationType {
 	}
 }
 
-// ComponentStatusTo converts the Flow-internal ComponentStatus to the
+// ComponentOperationStatusTo converts the Flow-internal ComponentOperationStatus to the
 // protobuf form. Returns nil if the input is nil so callers transparently
 // surface "no status yet" rather than a default-valued message.
-func ComponentStatusTo(s *types.ComponentStatus) *pb.ComponentStatus {
+func ComponentOperationStatusTo(s *types.ComponentOperationStatus) *pb.ComponentOperationStatus {
 	if s == nil {
 		return nil
 	}
@@ -670,7 +684,7 @@ func ComponentStatusTo(s *types.ComponentStatus) *pb.ComponentStatus {
 			blocked = append(blocked, operationTypeFromTypesTo(op))
 		}
 	}
-	return &pb.ComponentStatus{
+	return &pb.ComponentOperationStatus{
 		Phase:             PhaseTo(s.Phase),
 		Reason:            s.Reason,
 		BlockedOperations: blocked,
@@ -1218,8 +1232,8 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation:               operations.PowerOperationPowerOn,
-			OverrideAssignmentCheck: r.PowerOn.GetOverrideAssignmentCheck(),
+			Operation:              operations.PowerOperationPowerOn,
+			OverrideReadinessCheck: r.PowerOn.GetOverrideReadinessCheck(),
 		}, ts, r.PowerOn.GetQueueOptions(), r.PowerOn.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerOff:
@@ -1236,9 +1250,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation:               powerOp,
-			Forced:                  r.PowerOff.GetForced(),
-			OverrideAssignmentCheck: r.PowerOff.GetOverrideAssignmentCheck(),
+			Operation:              powerOp,
+			Forced:                 r.PowerOff.GetForced(),
+			OverrideReadinessCheck: r.PowerOff.GetOverrideReadinessCheck(),
 		}, ts, r.PowerOff.GetQueueOptions(), r.PowerOff.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerReset:
@@ -1255,9 +1269,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation:               powerOp,
-			Forced:                  r.PowerReset.GetForced(),
-			OverrideAssignmentCheck: r.PowerReset.GetOverrideAssignmentCheck(),
+			Operation:              powerOp,
+			Forced:                 r.PowerReset.GetForced(),
+			OverrideReadinessCheck: r.PowerReset.GetOverrideReadinessCheck(),
 		}, ts, r.PowerReset.GetQueueOptions(), r.PowerReset.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_BringUp:
@@ -1269,7 +1283,7 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.BringUpTaskInfo{
-			OverrideAssignmentCheck: r.BringUp.GetOverrideAssignmentCheck(),
+			OverrideReadinessCheck: r.BringUp.GetOverrideReadinessCheck(),
 		}, ts, nil, r.BringUp.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_Ingest:
@@ -1284,10 +1298,10 @@ func ScheduledOperationFrom(
 
 	case *pb.ScheduledOperation_UpgradeFirmware:
 		info := &operations.FirmwareControlTaskInfo{
-			Operation:               operations.FirmwareOperationUpgrade,
-			TargetVersion:           r.UpgradeFirmware.GetTargetVersion(),
-			SubTargets:              r.UpgradeFirmware.GetSubTargets(),
-			OverrideAssignmentCheck: r.UpgradeFirmware.GetOverrideAssignmentCheck(),
+			Operation:              operations.FirmwareOperationUpgrade,
+			TargetVersion:          r.UpgradeFirmware.GetTargetVersion(),
+			SubTargets:             r.UpgradeFirmware.GetSubTargets(),
+			OverrideReadinessCheck: r.UpgradeFirmware.GetOverrideReadinessCheck(),
 		}
 
 		if r.UpgradeFirmware.GetStartTime() != nil {

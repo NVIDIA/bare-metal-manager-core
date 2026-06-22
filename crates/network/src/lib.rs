@@ -32,6 +32,10 @@ pub mod virtualization;
 
 #[doc(inline)]
 pub use base_mac::BaseMac;
+// Lets the database round-trip tests use `#[crate::sqlx_test]` to get a per-test
+// Postgres pool from the shared harness (DATABASE_URL via .envrc).
+#[cfg(all(test, feature = "sqlx"))]
+pub(crate) use carbide_macros::sqlx_test;
 
 const STRIPPED_MAC_LENGTH: usize = 12;
 
@@ -165,68 +169,184 @@ pub fn deserialize_input_mac_to_address(input_value: &str) -> Result<MacAddress,
 }
 #[cfg(test)]
 mod tests {
-    use super::{MELLANOX_SF_VF_MAC_ADDRESS_OUT, deserialize_input_mac_to_address, sanitized_mac};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
 
+    use super::*;
+
+    // `sanitized_mac` returns `eyre::Result`, whose error does not implement
+    // `PartialEq`, so error rows use `Fails` and the run closure maps the
+    // success arm to the canonical `to_string()` form (and drops the error).
     #[test]
-    fn test_gross_redfish_mac() {
-        let gross_redfish_mac = "\"a088c2    460c68\"";
-        assert_eq!(
-            &sanitized_mac(gross_redfish_mac).unwrap().to_string(),
-            "A0:88:C2:46:0C:68"
+    fn sanitized_mac_normalizes_or_rejects() {
+        check_cases(
+            [
+                // The motivating example: a quoted Redfish MAC riddled with
+                // interior whitespace, normalized to a colon-grouped MAC.
+                Case {
+                    scenario: "gross redfish mac with quotes and spaces",
+                    input: "\"a088c2    460c68\"",
+                    expect: Yields("A0:88:C2:46:0C:68".to_string()),
+                },
+                Case {
+                    scenario: "smashed hex, no separators",
+                    input: "000000ABC789",
+                    expect: Yields("00:00:00:AB:C7:89".to_string()),
+                },
+                Case {
+                    scenario: "already clean, colon-separated",
+                    input: "DE:ED:0F:BE:EF:99",
+                    expect: Yields("DE:ED:0F:BE:EF:99".to_string()),
+                },
+                Case {
+                    scenario: "mixed case, no separators (uppercased out)",
+                    input: "AabBCcdDEefF",
+                    expect: Yields("AA:BB:CC:DD:EE:FF".to_string()),
+                },
+                Case {
+                    scenario: "all zeros",
+                    input: "000000000000",
+                    expect: Yields("00:00:00:00:00:00".to_string()),
+                },
+                Case {
+                    scenario: "all f's, lowercase in",
+                    input: "ffffffffffff",
+                    expect: Yields("FF:FF:FF:FF:FF:FF".to_string()),
+                },
+                Case {
+                    scenario: "dash-separated separators stripped",
+                    input: "a0-88-c2-46-0c-68",
+                    expect: Yields("A0:88:C2:46:0C:68".to_string()),
+                },
+                Case {
+                    scenario: "dot-separated (cisco style) separators stripped",
+                    input: "a088.c246.0c68",
+                    expect: Yields("A0:88:C2:46:0C:68".to_string()),
+                },
+                Case {
+                    scenario: "leading and trailing whitespace",
+                    input: "  a088c2460c68  ",
+                    expect: Yields("A0:88:C2:46:0C:68".to_string()),
+                },
+                Case {
+                    scenario: "embedded non-hex letters dropped but length stays valid",
+                    input: "a0g88hc2460c68",
+                    expect: Yields("A0:88:C2:46:0C:68".to_string()),
+                },
+                // Error arms: any stripped length other than 12 hex digits.
+                Case {
+                    scenario: "empty input — zero hex digits",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "no hex digits at all",
+                    input: "ghijklmnopqr",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too short — eleven hex digits",
+                    input: "a088c2460c6",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too short by one — ten hex digits",
+                    input: "a088c2460c",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too long — thirteen hex digits",
+                    input: "a088c2460c688",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "way too long with junk",
+                    input: "aabbccddeeffgg00112233445566778899",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "only whitespace",
+                    input: "        ",
+                    expect: Fails,
+                },
+            ],
+            |input| {
+                sanitized_mac(input)
+                    .map(|mac| mac.to_string())
+                    .map_err(drop)
+            },
         );
     }
 
+    // `deserialize_input_mac_to_address` returns `Result<_, MacParseError>`;
+    // mapping the success arm to `to_string()` and dropping the error keeps the
+    // error type as `()`, so reject rows use `Fails`.
     #[test]
-    fn test_smashed_mac() {
-        let smashed_mac = "000000ABC789";
-        assert_eq!(
-            &sanitized_mac(smashed_mac).unwrap().to_string(),
-            "00:00:00:AB:C7:89"
+    fn deserialize_input_mac_rewrites_or_rejects() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ordinary colon-separated mac passes through",
+                    input: "00:11:22:33:44:55",
+                    expect: Yields("00:11:22:33:44:55".to_string()),
+                },
+                Case {
+                    scenario: "mellanox ch:64 sentinel rewritten to the OUT form",
+                    input: MELLANOX_SF_VF_MAC_ADDRESS_IN,
+                    expect: Yields(MELLANOX_SF_VF_MAC_ADDRESS_OUT.to_string()),
+                },
+                Case {
+                    scenario: "empty string rewritten to the all-zero mac",
+                    input: "",
+                    expect: Yields("00:00:00:00:00:00".to_string()),
+                },
+                Case {
+                    scenario: "uppercase hex normalized on parse",
+                    input: "AA:BB:CC:DD:EE:FF",
+                    expect: Yields("AA:BB:CC:DD:EE:FF".to_string()),
+                },
+                Case {
+                    scenario: "lowercase hex uppercased on display",
+                    input: "aa:bb:cc:dd:ee:ff",
+                    expect: Yields("AA:BB:CC:DD:EE:FF".to_string()),
+                },
+                Case {
+                    scenario: "dash-separated mac parses",
+                    input: "00-11-22-33-44-55",
+                    expect: Yields("00:11:22:33:44:55".to_string()),
+                },
+                // Reject arms: real garbage that isn't the ch:64/empty sentinels.
+                Case {
+                    scenario: "non-sentinel garbage rejected",
+                    input: "not-a-mac",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too few octets",
+                    input: "00:11:22:33:44",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too many octets",
+                    input: "00:11:22:33:44:55:66",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "octet out of hex range",
+                    input: "zz:11:22:33:44:55",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "bare 12-hex parses and renders with colons",
+                    input: "001122334455",
+                    expect: Yields("00:11:22:33:44:55".to_string()),
+                },
+            ],
+            |input| {
+                deserialize_input_mac_to_address(input)
+                    .map(|mac| mac.to_string())
+                    .map_err(drop)
+            },
         );
-    }
-
-    #[test]
-    fn test_clean_mac() {
-        let clean_mac = "DE:ED:0F:BE:EF:99";
-        assert_eq!(
-            &sanitized_mac(clean_mac).unwrap().to_string(),
-            "DE:ED:0F:BE:EF:99"
-        );
-    }
-
-    #[test]
-    fn test_casey_mac() {
-        let casey_mac = "AabBCcdDEefF".to_string();
-        assert_eq!(
-            &sanitized_mac(&casey_mac).unwrap().to_string(),
-            "AA:BB:CC:DD:EE:FF"
-        );
-    }
-
-    #[test]
-    fn test_too_long_mac() {
-        let too_long_mac = "aabbccddeeffgg00112233445566778899";
-        assert!(sanitized_mac(too_long_mac).is_err());
-    }
-
-    #[test]
-    fn test_deserialize_happy_mac() {
-        let happy_mac = "00:11:22:33:44:55".to_string();
-        let mac_address = deserialize_input_mac_to_address(&happy_mac).unwrap();
-        assert_eq!(happy_mac, mac_address.to_string());
-    }
-
-    #[test]
-    fn test_deserialize_ch64_mac() {
-        let silly_mac = "ch:64".to_string();
-        let mac_address = deserialize_input_mac_to_address(&silly_mac).unwrap();
-        assert_eq!(MELLANOX_SF_VF_MAC_ADDRESS_OUT, mac_address.to_string());
-    }
-
-    #[test]
-    fn test_deserialize_empty_mac() {
-        let empty_mac = "".to_string();
-        let mac_address = deserialize_input_mac_to_address(&empty_mac).unwrap();
-        assert_eq!("00:00:00:00:00:00", mac_address.to_string());
     }
 }

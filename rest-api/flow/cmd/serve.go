@@ -24,6 +24,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	cmbuiltin "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/builtin"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	temporalmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/manager"
 	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -215,10 +216,33 @@ func doServe() {
 		log.Fatal().Msgf("failed to initialize provider registry: %v", err)
 	}
 
+	// Open a DB session for the readiness gate. The gate consults the
+	// persisted ComponentOperationStatus inventorysync writes to the component
+	// table, so it must share the same database the service will migrate
+	// on startup. The deferred Close runs after doServe returns, i.e.
+	// after the service has fully stopped.
+	//
+	// This is a separate pool from the one svc.New opens. Consolidating
+	// onto a single shared session is tracked as follow-up cleanup; the
+	// gate's query footprint is negligible so a second pool is acceptable
+	// in the interim.
+	readinessSession, err := cdb.NewSessionFromConfig(ctx, dbConf)
+	if err != nil {
+		log.Fatal().Msgf("failed to open DB session for readiness gate: %v", err)
+	}
+	defer readinessSession.Close()
+
+	readinessGate := readiness.NewDBGate(
+		readiness.NewDBReader(readinessSession.DB),
+		readiness.DefaultWaitTimeout,
+		readiness.DefaultPollInterval,
+	)
+
 	// Initialize component manager registry
 	cmRegistry, err := cmbuiltin.NewComponentManagerRegistry(
 		cmConfig,
 		providerRegistry,
+		readinessGate,
 	)
 	if err != nil {
 		log.Fatal().Msgf("failed to initialize component manager registry: %v", err)

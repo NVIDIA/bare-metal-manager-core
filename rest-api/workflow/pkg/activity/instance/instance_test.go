@@ -176,7 +176,9 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 	require.Empty(t, nvlis)
 
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(dbSession)
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cutil.GetPtr(paginator.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		InstanceIDs: []uuid.UUID{instance.ID},
+	}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	require.NoError(t, err)
 	require.Empty(t, skgias)
 
@@ -2065,7 +2067,9 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 				assert.Equal(t, false, uMachine.IsAssigned)
 
 				// Check that SSH Key Group Instance associations were deleted
-				_, skgiaCnt, err := skgiaDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{instance.ID}, nil, nil, nil, nil)
+				_, skgiaCnt, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+					InstanceIDs: []uuid.UUID{instance.ID},
+				}, paginator.PageInput{}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 0, skgiaCnt)
 			}

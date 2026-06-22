@@ -26,11 +26,11 @@ use crate::errors::CarbideCliError;
 EXAMPLES:
 
 Create a compute allocation:
-    $ carbide-admin-cli compute-allocation create --tenant-organization-id fds34511233a \
+    $ nico-admin-cli compute-allocation create --tenant-organization-id fds34511233a \
     --instance-type-id DGX-H100-640GB --count 8
 
 Create a named, labelled allocation with an explicit ID:
-    $ carbide-admin-cli compute-allocation create --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli compute-allocation create --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --instance-type-id DGX-H100-640GB --count 8 \
     --name \"training-pool\" --labels '{\"team\":\"research\"}'
 

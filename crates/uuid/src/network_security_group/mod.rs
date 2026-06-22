@@ -178,3 +178,100 @@ impl<'de> Deserialize<'de> for NetworkSecurityGroupId {
         Ok(id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Empty,
+    }
+
+    fn parse_network_security_group_id(input: &str) -> Result<String, ParseFailure> {
+        NetworkSecurityGroupId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                NetworkSecurityGroupIdParseError::Invalid(_) => {
+                    unreachable!("parser only rejects empty")
+                }
+                NetworkSecurityGroupIdParseError::Empty => ParseFailure::Empty,
+            })
+    }
+
+    fn deserialize_network_security_group_id(input: &str) -> Result<String, ()> {
+        serde_json::from_str::<NetworkSecurityGroupId>(input)
+            .map(|id| id.to_string())
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn test_network_security_group_id_parse_cases() {
+        scenarios!(
+            run = parse_network_security_group_id;
+            "arbitrary security group name" {
+                "tenant-edge" => Yields("tenant-edge".to_string()),
+            }
+
+            "UUID-backed security group name" {
+                "00000000-0000-0000-0000-000000000000" => Yields("00000000-0000-0000-0000-000000000000".to_string()),
+            }
+
+            "empty value" {
+                "" => FailsWith(ParseFailure::Empty),
+            }
+        );
+    }
+
+    #[test]
+    fn test_network_security_group_id_from_uuid() {
+        value_scenarios!(
+            run = |uuid| NetworkSecurityGroupId::from(uuid).to_string();
+            "nil UUID" {
+                Uuid::nil() => "00000000-0000-0000-0000-000000000000".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_network_security_group_id_serde_cases() {
+        scenarios!(
+            run = deserialize_network_security_group_id;
+            "valid string" {
+                "\"tenant-edge\"" => Yields("tenant-edge".to_string()),
+            }
+
+            "empty string" {
+                "\"\"" => Fails,
+            }
+
+            "non-string JSON" {
+                "42" => Fails,
+            }
+        );
+
+        let serialized = serde_json::to_string(
+            &NetworkSecurityGroupId::from_str("tenant-edge")
+                .expect("valid network security group ID"),
+        )
+        .expect("failed to serialize network security group ID");
+        assert_eq!(serialized, "\"tenant-edge\"");
+    }
+
+    #[test]
+    fn test_network_security_group_id_parse_error_value() {
+        value_scenarios!(
+            run = NetworkSecurityGroupIdParseError::value;
+            "invalid" {
+                NetworkSecurityGroupIdParseError::Invalid("bad".to_string()) => "bad".to_string(),
+            }
+
+            "empty" {
+                NetworkSecurityGroupIdParseError::Empty => String::new(),
+            }
+        );
+    }
+}

@@ -24,6 +24,8 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -45,116 +47,109 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_config_apply_network_segment ensures config
-// apply parses with network-segment mode.
+// config apply routes to Cmd::Config(Apply) for every accepted invocation:
+// the long --mode/-m forms, the kebab-case mode values, and the visible `c`
+// (config) and `a` (apply) aliases. Each row yields the parsed (path, mode).
 #[test]
-fn parse_config_apply_network_segment() {
-    let cmd = Cmd::try_parse_from([
-        "devenv",
-        "config",
-        "apply",
-        "/path/to/config.toml",
-        "--mode",
-        "network-segment",
-    ])
-    .expect("should parse config apply");
-
-    match cmd {
-        Cmd::Config(config::Cmd::Apply(args)) => {
-            assert_eq!(args.path, "/path/to/config.toml");
-            assert_eq!(args.mode, config::NetworkChoice::NetworkSegment);
+fn config_apply_parses_path_and_mode() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Config(config::Cmd::Apply(args)) => (args.path, args.mode),
+                })
+                .map_err(drop)
+        };
+        "network-segment mode parses path and mode" {
+            &[
+                "devenv",
+                "config",
+                "apply",
+                "/path/to/config.toml",
+                "--mode",
+                "network-segment",
+            ][..] => Yields((
+                "/path/to/config.toml".to_string(),
+                config::NetworkChoice::NetworkSegment,
+            )),
         }
-    }
-}
 
-// parse_config_apply_vpc_prefix ensures config apply
-// parses with vpc-prefix mode.
-#[test]
-fn parse_config_apply_vpc_prefix() {
-    let cmd = Cmd::try_parse_from([
-        "devenv",
-        "config",
-        "apply",
-        "/path/to/config.toml",
-        "--mode",
-        "vpc-prefix",
-    ])
-    .expect("should parse config apply with vpc-prefix");
-
-    match cmd {
-        Cmd::Config(config::Cmd::Apply(args)) => {
-            assert_eq!(args.mode, config::NetworkChoice::VpcPrefix);
+        "vpc-prefix mode parses" {
+            &[
+                "devenv",
+                "config",
+                "apply",
+                "/path/to/config.toml",
+                "--mode",
+                "vpc-prefix",
+            ][..] => Yields((
+                "/path/to/config.toml".to_string(),
+                config::NetworkChoice::VpcPrefix,
+            )),
         }
-    }
-}
 
-// parse_config_apply_short_mode ensures config apply
-// parses with -m short flag.
-#[test]
-fn parse_config_apply_short_mode() {
-    let cmd = Cmd::try_parse_from([
-        "devenv",
-        "config",
-        "apply",
-        "/path/to/config.toml",
-        "-m",
-        "network-segment",
-    ])
-    .expect("should parse with -m");
-
-    match cmd {
-        Cmd::Config(config::Cmd::Apply(args)) => {
-            assert_eq!(args.mode, config::NetworkChoice::NetworkSegment);
+        "-m short flag parses" {
+            &[
+                "devenv",
+                "config",
+                "apply",
+                "/path/to/config.toml",
+                "-m",
+                "network-segment",
+            ][..] => Yields((
+                "/path/to/config.toml".to_string(),
+                config::NetworkChoice::NetworkSegment,
+            )),
         }
-    }
+
+        "config alias 'c' routes to apply" {
+            &[
+                "devenv",
+                "c",
+                "apply",
+                "/path/to/config.toml",
+                "-m",
+                "network-segment",
+            ][..] => Yields((
+                "/path/to/config.toml".to_string(),
+                config::NetworkChoice::NetworkSegment,
+            )),
+        }
+
+        "apply alias 'a' routes to apply" {
+            &[
+                "devenv",
+                "config",
+                "a",
+                "/path/to/config.toml",
+                "-m",
+                "network-segment",
+            ][..] => Yields((
+                "/path/to/config.toml".to_string(),
+                config::NetworkChoice::NetworkSegment,
+            )),
+        }
+    );
 }
 
-// parse_config_alias ensures config has visible alias 'c'.
+// config apply requires both its positional path and its --mode flag; either
+// one missing is rejected at parse time.
 #[test]
-fn parse_config_alias() {
-    let cmd = Cmd::try_parse_from([
-        "devenv",
-        "c",
-        "apply",
-        "/path/to/config.toml",
-        "-m",
-        "network-segment",
-    ])
-    .expect("should parse via config alias");
+fn config_apply_rejects_missing_required_args() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "missing path" {
+            &["devenv", "config", "apply", "-m", "network-segment"][..] => Fails,
+        }
 
-    assert!(matches!(cmd, Cmd::Config(_)));
-}
-
-// parse_apply_alias ensures apply has visible alias 'a'.
-#[test]
-fn parse_apply_alias() {
-    let cmd = Cmd::try_parse_from([
-        "devenv",
-        "config",
-        "a",
-        "/path/to/config.toml",
-        "-m",
-        "network-segment",
-    ])
-    .expect("should parse via apply alias");
-
-    assert!(matches!(cmd, Cmd::Config(config::Cmd::Apply(_))));
-}
-
-// parse_missing_path_fails ensures config apply
-// requires path.
-#[test]
-fn parse_missing_path_fails() {
-    let result = Cmd::try_parse_from(["devenv", "config", "apply", "-m", "network-segment"]);
-    assert!(result.is_err(), "should fail without path");
-}
-
-// parse_missing_mode_fails ensures config apply
-// requires --mode.
-#[test]
-fn parse_missing_mode_fails() {
-    let result = Cmd::try_parse_from(["devenv", "config", "apply", "/path/to/config.toml"]);
-    assert!(result.is_err(), "should fail without --mode");
+        "missing --mode" {
+            &["devenv", "config", "apply", "/path/to/config.toml"][..] => Fails,
+        }
+    );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -165,19 +160,24 @@ fn parse_missing_mode_fails() {
 // values correctly convert back into their expected variant,
 // or fail otherwise.
 
-// network_choice_value_enum ensures NetworkChoice parses
-// from kebab-case strings.
+// NetworkChoice parses from its kebab-case ValueEnum strings and rejects
+// anything else.
 #[test]
 fn network_choice_value_enum() {
     use clap::ValueEnum;
 
-    assert!(matches!(
-        config::NetworkChoice::from_str("network-segment", false),
-        Ok(config::NetworkChoice::NetworkSegment)
-    ));
-    assert!(matches!(
-        config::NetworkChoice::from_str("vpc-prefix", false),
-        Ok(config::NetworkChoice::VpcPrefix)
-    ));
-    assert!(config::NetworkChoice::from_str("invalid", false).is_err());
+    scenarios!(
+        run = |s| config::NetworkChoice::from_str(s, false).map_err(drop);
+        "network-segment" {
+            "network-segment" => Yields(config::NetworkChoice::NetworkSegment),
+        }
+
+        "vpc-prefix" {
+            "vpc-prefix" => Yields(config::NetworkChoice::VpcPrefix),
+        }
+
+        "invalid value" {
+            "invalid" => Fails,
+        }
+    );
 }

@@ -23,14 +23,14 @@ use clap::Parser;
 EXAMPLES:
 
 Reboot an instance:
-    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567
 
 Reboot and apply any pending firmware updates:
-    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
     --apply-updates-on-reboot
 
 Reboot into the custom PXE flow:
-    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
     --custom-pxe
 
 ")]

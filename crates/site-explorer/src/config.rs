@@ -39,6 +39,13 @@ pub struct SiteExplorerConfig {
         serialize_with = "serialize_arc_atomic_bool"
     )]
     pub enabled: Arc<AtomicBool>,
+    /// How long a retained boot interface pair stays applicable (`None` =
+    /// forever). Deliberately not part of the `[site_explorer]` section
+    /// (serde skips it): setup copies the top-level
+    /// `retained_boot_interface_window` here so site-explorer's ingest paths
+    /// honor the same knob as DHCP.
+    #[serde(skip)]
+    pub retained_boot_interface_window: Option<chrono::Duration>,
     /// The interval at which site explorer runs.
     /// Defaults to 5 Minutes if not specified.
     #[serde(
@@ -192,6 +199,7 @@ impl Default for SiteExplorerConfig {
     fn default() -> Self {
         SiteExplorerConfig {
             enabled: Arc::new(true.into()),
+            retained_boot_interface_window: None,
             run_interval: Self::default_run_interval(),
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),

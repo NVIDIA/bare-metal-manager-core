@@ -96,7 +96,8 @@ pub struct ExpectedHostNic {
     pub nic_type: Option<String>,
     pub fixed_ip: Option<IpAddr>,
     pub fixed_mask: Option<String>,
-    pub fixed_gateway: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_ip_addr_lossy")]
+    pub fixed_gateway: Option<IpAddr>,
     /// When true, `primary` flags this NIC as the host's boot (primary)
     /// interface. At most one NIC per ExpectedMachine may be marked primary
     /// (which is enforced in the API). This ultimately propagates into the
@@ -106,6 +107,14 @@ pub struct ExpectedHostNic {
     /// interface accordingly).
     #[serde(default)]
     pub primary: Option<bool>,
+}
+
+fn deserialize_optional_ip_addr_lossy<'de, D>(deserializer: D) -> Result<Option<IpAddr>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?
+        .and_then(|address| address.parse::<IpAddr>().ok()))
 }
 
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
@@ -160,6 +169,22 @@ pub struct ExpectedMachineData {
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
+
+impl ExpectedMachineData {
+    /// The MAC the operator declared as this host's boot interface via
+    /// `ExpectedHostNic.primary`. This is the single source of declared boot
+    /// intent the writers consult -- site-explorer ingestion, DHCP, and
+    /// prediction promotion -- so they all agree on which NIC wins. The API
+    /// enforces at most one `primary` host NIC, so the first match is the
+    /// declaration. `None` leaves the boot interface to today's automation
+    /// (DPU takeover during ingestion, else the `pick_boot_interface` fallback).
+    pub fn declared_primary_mac(&self) -> Option<MacAddress> {
+        self.host_nics
+            .iter()
+            .find(|nic| nic.primary == Some(true))
+            .map(|nic| nic.mac_address)
+    }
+}
 
 /// Per-host lifecycle profile for settings that affect state-machine progression.
 /// `Option<bool>` fields support CLI patch semantics (`None` = not specified,
@@ -225,7 +250,7 @@ pub struct LinkedExpectedMachine {
     pub serial_number: String,
     pub bmc_mac_address: MacAddress, // from expected_machines table
     pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
-    pub address: Option<String>,     // The explored endpoint
+    pub address: Option<IpAddr>,     // The explored endpoint
     pub machine_id: Option<MachineId>, // The machine
     pub expected_machine_id: Option<Uuid>, // The expected machine ID
 }
@@ -244,6 +269,9 @@ pub struct UnexpectedMachine {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
     use super::*;
 
     /// Nothing set anywhere -- the host falls back to the absolute
@@ -344,33 +372,60 @@ mod tests {
         assert!(!DpuMode::NoDpu.is_dpu_managed());
     }
 
+    /// JSON deserialization of `ExpectedMachine`, projecting to the
+    /// `host_lifecycle_profile.disable_lockdown` field under test. A missing
+    /// `host_lifecycle_profile` defaults to `None` (equivalent to
+    /// `HostLifecycleProfile::default()`, whose only field is `disable_lockdown`).
     #[test]
-    fn host_lifecycle_profile_defaults_when_missing_from_json() {
-        let json = r#"{
-            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-            "bmc_username": "root",
-            "bmc_password": "pass",
-            "serial_number": "SN-1"
-        }"#;
-        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            em.data.host_lifecycle_profile,
-            HostLifecycleProfile::default()
+    fn host_lifecycle_profile_deserializes_from_json() {
+        scenarios!(
+            // serde_json::Error is not PartialEq, so discard it on the error path.
+            run = |json| {
+                serde_json::from_str::<ExpectedMachine>(json)
+                    .map(|em| em.data.host_lifecycle_profile.disable_lockdown)
+                    .map_err(drop)
+            };
+            "missing host_lifecycle_profile defaults to None" {
+                r#"{
+                            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                            "bmc_username": "root",
+                            "bmc_password": "pass",
+                            "serial_number": "SN-1"
+                        }"# => Yields(None),
+            }
+
+            "present host_lifecycle_profile parses disable_lockdown" {
+                r#"{
+                            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                            "bmc_username": "root",
+                            "bmc_password": "pass",
+                            "serial_number": "SN-1",
+                            "host_lifecycle_profile": {"disable_lockdown": true}
+                        }"# => Yields(Some(true)),
+            }
         );
-        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, None);
     }
 
     #[test]
-    fn host_lifecycle_profile_parses_from_json_when_present() {
+    fn expected_host_nic_deserializes_valid_fixed_gateway() {
         let json = r#"{
-            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-            "bmc_username": "root",
-            "bmc_password": "pass",
-            "serial_number": "SN-1",
-            "host_lifecycle_profile": {"disable_lockdown": true}
+            "mac_address": "AA:BB:CC:DD:EE:FF",
+            "fixed_gateway": "2001:db8::1"
         }"#;
-        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
-        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, Some(true));
+        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+
+        assert_eq!(nic.fixed_gateway, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn expected_host_nic_drops_invalid_fixed_gateway_on_deserialize() {
+        let json = r#"{
+            "mac_address": "AA:BB:CC:DD:EE:FF",
+            "fixed_gateway": "not-an-ip"
+        }"#;
+        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+
+        assert_eq!(nic.fixed_gateway, None);
     }
 
     #[test]
@@ -387,5 +442,41 @@ mod tests {
             disable_lockdown: Some(false),
         };
         assert!(!hlp.is_empty());
+    }
+
+    /// `declared_primary_mac` returns the MAC of the one NIC flagged
+    /// `primary: Some(true)`, and `None` when nothing is declared. `primary:
+    /// Some(false)` is an explicit non-primary, not a declaration.
+    #[test]
+    fn declared_primary_mac_returns_the_flagged_nic() {
+        let mac_a: MacAddress = "AA:BB:CC:00:00:01".parse().unwrap();
+        let mac_b: MacAddress = "AA:BB:CC:00:00:02".parse().unwrap();
+
+        let nic = |mac: MacAddress, primary: Option<bool>| ExpectedHostNic {
+            mac_address: mac,
+            primary,
+            ..Default::default()
+        };
+
+        // Nothing declared -- empty, or only explicit non-primaries.
+        assert_eq!(ExpectedMachineData::default().declared_primary_mac(), None);
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, None), nic(mac_b, Some(false))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            None
+        );
+
+        // The declared NIC wins.
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, Some(false)), nic(mac_b, Some(true))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            Some(mac_b)
+        );
     }
 }

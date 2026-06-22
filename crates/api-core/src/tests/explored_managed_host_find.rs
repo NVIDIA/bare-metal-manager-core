@@ -118,45 +118,6 @@ async fn test_find_explored_managed_hosts_by_ids(
     Ok(())
 }
 
-#[crate::sqlx_test()]
-async fn test_find_explored_managed_hosts_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-
-    // create vector of IDs with more than max allowed
-    // it does not matter if these are real or not, since we are testing an error back for passing more than max
-    let end_index: u32 = env.config.max_find_by_ids + 1;
-    let host_ids: Vec<String> = (1..=end_index).map(|i| format!("141.219.24.{i}")).collect();
-
-    let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest { host_ids });
-
-    let response = env.api.find_explored_managed_hosts_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing too many IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-}
-
-#[crate::sqlx_test()]
-async fn test_find_explored_managed_hosts_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest::default());
-
-    let response = env.api.find_explored_managed_hosts_by_ids(request).await;
-    // validate
-    assert!(response.is_err(), "expected an error when passing no IDs");
-    assert_eq!(
-        response.err().unwrap().message(),
-        "at least one ID must be provided",
-    );
-}
+// The empty-list and over-max guards for `find_explored_managed_hosts_by_ids` are
+// shared API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.

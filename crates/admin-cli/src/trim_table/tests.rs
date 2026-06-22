@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,66 +46,52 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_measured_boot ensures measured-boot parses with keep_entries.
+// measured-boot routes to the MeasuredBoot variant and threads --keep-entries
+// through verbatim: a typical count, zero, and a large value all parse.
 #[test]
-fn parse_measured_boot() {
-    let cmd = Cmd::try_parse_from(["trim-table", "measured-boot", "--keep-entries", "100"])
-        .expect("should parse measured-boot");
-
-    match cmd {
-        Cmd::MeasuredBoot(args) => {
-            assert_eq!(args.keep_entries, 100);
+fn parse_measured_boot_keep_entries() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::MeasuredBoot(args) => args.keep_entries,
+                })
+                .map_err(drop)
+        };
+        "typical count" {
+            &["trim-table", "measured-boot", "--keep-entries", "100"][..] => Yields(100),
         }
-    }
-}
 
-// parse_measured_boot_zero ensures measured-boot accepts zero entries.
-#[test]
-fn parse_measured_boot_zero() {
-    let cmd = Cmd::try_parse_from(["trim-table", "measured-boot", "--keep-entries", "0"])
-        .expect("should parse with zero");
-
-    match cmd {
-        Cmd::MeasuredBoot(args) => {
-            assert_eq!(args.keep_entries, 0);
+        "zero entries" {
+            &["trim-table", "measured-boot", "--keep-entries", "0"][..] => Yields(0),
         }
-    }
-}
 
-// parse_measured_boot_large_value ensures measured-boot
-// accepts large values.
-#[test]
-fn parse_measured_boot_large_value() {
-    let cmd = Cmd::try_parse_from(["trim-table", "measured-boot", "--keep-entries", "1000000"])
-        .expect("should parse large value");
-
-    match cmd {
-        Cmd::MeasuredBoot(args) => {
-            assert_eq!(args.keep_entries, 1000000);
+        "large value" {
+            &["trim-table", "measured-boot", "--keep-entries", "1000000"][..] => Yields(1000000),
         }
-    }
+    );
 }
 
-// parse_measured_boot_missing_arg_fails ensures
-// measured-boot requires --keep-entries.
+// Malformed measured-boot invocations are rejected at parse time: the missing
+// required --keep-entries, a non-numeric value, and a negative value.
 #[test]
-fn parse_measured_boot_missing_arg_fails() {
-    let result = Cmd::try_parse_from(["trim-table", "measured-boot"]);
-    assert!(result.is_err(), "should fail without --keep-entries");
-}
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "missing --keep-entries" {
+            &["trim-table", "measured-boot"][..] => Fails,
+        }
 
-// parse_measured_boot_invalid_value_fails ensures
-// measured-boot fails with non-numeric value.
-#[test]
-fn parse_measured_boot_invalid_value_fails() {
-    let result = Cmd::try_parse_from(["trim-table", "measured-boot", "--keep-entries", "abc"]);
-    assert!(result.is_err(), "should fail with non-numeric value");
-}
+        "non-numeric value" {
+            &["trim-table", "measured-boot", "--keep-entries", "abc"][..] => Fails,
+        }
 
-// parse_measured_boot_negative_fails ensures measured-boot
-// fails with negative value.
-#[test]
-fn parse_measured_boot_negative_fails() {
-    let result = Cmd::try_parse_from(["trim-table", "measured-boot", "--keep-entries", "-1"]);
-    assert!(result.is_err(), "should fail with negative value");
+        "negative value" {
+            &["trim-table", "measured-boot", "--keep-entries", "-1"][..] => Fails,
+        }
+    );
 }

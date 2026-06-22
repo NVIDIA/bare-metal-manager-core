@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show what is attached to a network security group:
-    $ carbide-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567
 
 Include objects inheriting the group from a parent:
-    $ carbide-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567 \
     --include-indirect
 
 ")]

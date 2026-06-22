@@ -545,13 +545,21 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 			// Create a single allocation with a constraint > 0
 			if i == 1 {
-				_, serr := acDAO.CreateFromParams(ctx, nil, at1.ID, AllocationResourceTypeInstanceType, it.ID, AllocationConstraintTypeReserved, 5, nil, user.ID)
+				_, serr := acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+					AllocationID: at1.ID, ResourceType: AllocationResourceTypeInstanceType,
+					ResourceTypeID: it.ID, ConstraintType: AllocationConstraintTypeReserved,
+					ConstraintValue: 5, CreatedBy: user.ID,
+				})
 				assert.NoError(t, serr)
 			}
 
 			// Create an allocation but with no real constraint.  An allocation that exists but is empty.
 			if i == 3 {
-				_, serr := acDAO.CreateFromParams(ctx, nil, at2.ID, AllocationResourceTypeInstanceType, it.ID, AllocationConstraintTypeReserved, 0, nil, user.ID)
+				_, serr := acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+					AllocationID: at2.ID, ResourceType: AllocationResourceTypeInstanceType,
+					ResourceTypeID: it.ID, ConstraintType: AllocationConstraintTypeReserved,
+					ConstraintValue: 0, CreatedBy: user.ID,
+				})
 				assert.NoError(t, serr)
 			}
 

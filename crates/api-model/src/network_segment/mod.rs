@@ -79,8 +79,15 @@ pub struct NetworkDefinition {
     pub segment_type: NetworkDefinitionSegmentType,
     /// CIDR notation
     pub prefix: IpNetwork,
+    /// Optional IPv6 CIDR for dual-stack config-seeded segments.
+    #[serde(default)]
+    pub prefix_v6: Option<IpNetwork>,
     /// Usually the first IP in the prefix range
     pub gateway: IpAddr,
+    /// DHCPv6 relay link-address used to identify this segment. It may
+    /// be outside `prefix_v6`, so it is modeled separately from gateway.
+    #[serde(default)]
+    pub dhcpv6_link_address: Option<IpAddr>,
     /// Typically 9000 for admin network, 1500 for underlay
     pub mtu: i32,
     /// How many addresses to skip before allocating
@@ -93,15 +100,35 @@ pub struct NetworkDefinition {
     /// behavior of Carbide + carbide-dhcp.
     #[serde(default)]
     pub allocation_strategy: AllocationStrategy,
+    /// Set to the name of a VPC to attach this network segment to a VPC on creation. Will fail if
+    /// the VPC is not defined. You probably want to add a vpc with a corresponding name to the
+    /// config via `[vpcs.<name>]` for this to work when data is initially being seeded.
+    pub vpc_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkDefinitionSegmentType {
     Admin,
     Underlay,
     HostInband,
     // Tenant networks are created via the API, not the config file
+}
+
+impl From<NetworkDefinitionSegmentType> for crate::network_segment::NetworkSegmentType {
+    fn from(value: NetworkDefinitionSegmentType) -> Self {
+        match value {
+            NetworkDefinitionSegmentType::Admin => {
+                crate::network_segment::NetworkSegmentType::Admin
+            }
+            NetworkDefinitionSegmentType::Underlay => {
+                crate::network_segment::NetworkSegmentType::Underlay
+            }
+            NetworkDefinitionSegmentType::HostInband => {
+                crate::network_segment::NetworkSegmentType::HostInband
+            }
+        }
+    }
 }
 
 /// Returns the SLA for the current state
@@ -321,25 +348,77 @@ impl NewNetworkSegment {
         domain_id: DomainId,
         value: &NetworkDefinition,
     ) -> Result<Self, ModelError> {
-        let prefix = NewNetworkPrefix {
+        // Validate the optional IPv6-specific config before expanding it
+        // into persisted prefix rows.
+        if let Some(prefix_v6) = value.prefix_v6
+            && !prefix_v6.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.prefix_v6 must be an IPv6 prefix.".to_string(),
+            ));
+        }
+
+        if let Some(link_address) = value.dhcpv6_link_address
+            && !link_address.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.dhcpv6_link_address must be an IPv6 address.".to_string(),
+            ));
+        }
+
+        // Keep the one-prefix-per-family invariant explicit before the
+        // database unique index has to reject the insert.
+        if let Some(prefix_v6) = value.prefix_v6
+            && value.prefix.is_ipv6() == prefix_v6.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition cannot contain more than one prefix from the same address family."
+                    .to_string(),
+            ));
+        }
+
+        // A DHCPv6 link-address only has meaning when there is a v6 prefix row
+        // to carry it.
+        if value.prefix.is_ipv4()
+            && value.prefix_v6.is_none()
+            && value.dhcpv6_link_address.is_some()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.dhcpv6_link_address requires an IPv6 prefix.".to_string(),
+            ));
+        }
+
+        // Expand the config definition into one row for the primary prefix and
+        // an optional second row for the dual-stack IPv6 prefix.
+        let mut prefixes = vec![NewNetworkPrefix {
             prefix: value.prefix,
-            gateway: Some(value.gateway),
+            gateway: value.prefix.is_ipv4().then_some(value.gateway),
+            dhcpv6_link_address: if value.prefix.is_ipv6() {
+                value.dhcpv6_link_address
+            } else {
+                None
+            },
             num_reserved: value.reserve_first,
-        };
+        }];
+        if let Some(prefix_v6) = value.prefix_v6 {
+            prefixes.push(NewNetworkPrefix {
+                prefix: prefix_v6,
+                gateway: None,
+                dhcpv6_link_address: value.dhcpv6_link_address,
+                num_reserved: value.reserve_first,
+            });
+        }
+
         Ok(NewNetworkSegment {
             id: uuid::Uuid::new_v4().into(),
             name: name.to_string(), // Set by the caller later
             subdomain_id: Some(domain_id),
             vpc_id: None,
             mtu: value.mtu,
-            prefixes: vec![prefix],
+            prefixes,
             vlan_id: None,
             vni: None,
-            segment_type: match value.segment_type {
-                NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
-                NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
-                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
-            },
+            segment_type: value.segment_type.into(),
             can_stretch: None,
             allocation_strategy: value.allocation_strategy,
         })
@@ -348,40 +427,368 @@ impl NewNetworkSegment {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
 
+    fn drain_state() -> NetworkSegmentControllerState {
+        let delete_at: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
+        NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { delete_at },
+        }
+    }
+
+    fn dbdelete_state() -> NetworkSegmentControllerState {
+        NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DBDelete,
+        }
+    }
+
     #[test]
-    fn serialize_controller_state() {
-        let state = NetworkSegmentControllerState::Provisioning {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"provisioning\"}");
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
-        );
+    fn controller_state_serializes_to_tagged_json() {
+        scenarios!(
+            run = |state| serde_json::to_string(&state).map_err(drop);
+            "provisioning" {
+                NetworkSegmentControllerState::Provisioning => Yields(r#"{"state":"provisioning"}"#.to_string()),
+            }
 
-        let state = NetworkSegmentControllerState::Ready {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"ready\"}");
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
-        );
+            "ready" {
+                NetworkSegmentControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
+            }
 
-        let deletion_time: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
-        let state = NetworkSegmentControllerState::Deleting {
-            deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
-                delete_at: deletion_time,
-            },
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            "{\"state\":\"deleting\",\"deletion_state\":{\"state\":\"drainallocatedips\",\"delete_at\":\"2022-12-13T04:41:38Z\"}}"
+            "deleting / drain allocated ips" {
+                drain_state() => Yields(
+                    r#"{"state":"deleting","deletion_state":{"state":"drainallocatedips","delete_at":"2022-12-13T04:41:38Z"}}"#
+                        .to_string(),
+                ),
+            }
+
+            "deleting / db delete" {
+                dbdelete_state() => Yields(
+                    r#"{"state":"deleting","deletion_state":{"state":"dbdelete"}}"#.to_string(),
+                ),
+            }
         );
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    #[test]
+    fn controller_state_round_trips_through_json() {
+        scenarios!(
+            run = |state| {
+                let json = serde_json::to_string(&state).map_err(drop)?;
+                serde_json::from_str::<NetworkSegmentControllerState>(&json).map_err(drop)
+            };
+            "provisioning" {
+                NetworkSegmentControllerState::Provisioning => Yields(NetworkSegmentControllerState::Provisioning),
+            }
+
+            "ready" {
+                NetworkSegmentControllerState::Ready => Yields(NetworkSegmentControllerState::Ready),
+            }
+
+            "deleting / drain allocated ips" {
+                drain_state() => Yields(drain_state()),
+            }
+
+            "deleting / db delete" {
+                dbdelete_state() => Yields(dbdelete_state()),
+            }
+        );
+    }
+
+    #[test]
+    fn segment_type_parses_from_db_string() {
+        scenarios!(
+            run = |s| NetworkSegmentType::from_str(s).map_err(drop);
+            "tenant" {
+                "tenant" => Yields(NetworkSegmentType::Tenant),
+            }
+
+            "admin" {
+                "admin" => Yields(NetworkSegmentType::Admin),
+            }
+
+            "tor maps to underlay" {
+                "tor" => Yields(NetworkSegmentType::Underlay),
+            }
+
+            "host_inband" {
+                "host_inband" => Yields(NetworkSegmentType::HostInband),
+            }
+
+            "unknown token" {
+                "bogus" => Fails,
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "wrong-case admin" {
+                "Admin" => Fails,
+            }
+
+            "display name underlay, not parse name" {
+                "underlay" => Fails,
+            }
+
+            "whitespace padded" {
+                " tenant " => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn segment_type_parse_error_names_the_input() {
+        scenarios!(
+            run = |(s, tokens)| {
+                let msg = NetworkSegmentType::from_str(s)
+                    .map(|_| String::new())
+                    .unwrap_or_else(|e| e.to_string());
+                Ok::<_, ()>(tokens.iter().all(|t| msg.contains(t)))
+            };
+            "error mentions the offending token" {
+                ("bogus", &["Invalid segment type", "bogus"][..]) => Yields(true),
+            }
+
+            "error mentions an empty token" {
+                ("", &["Invalid segment type"][..]) => Yields(true),
+            }
+        );
+    }
+
+    #[test]
+    fn segment_type_round_trips_through_display_and_parse() {
+        scenarios!(
+            run = |ty| NetworkSegmentType::from_str(&ty.to_string()).map_err(drop);
+            "tenant" {
+                NetworkSegmentType::Tenant => Yields(NetworkSegmentType::Tenant),
+            }
+
+            "admin" {
+                NetworkSegmentType::Admin => Yields(NetworkSegmentType::Admin),
+            }
+
+            "underlay" {
+                NetworkSegmentType::Underlay => Yields(NetworkSegmentType::Underlay),
+            }
+
+            "host_inband" {
+                NetworkSegmentType::HostInband => Yields(NetworkSegmentType::HostInband),
+            }
+        );
+    }
+
+    #[test]
+    fn segment_type_displays_its_db_token() {
+        value_scenarios!(
+            run = |ty| ty.to_string();
+            "tenant" {
+                NetworkSegmentType::Tenant => "tenant".to_string(),
+            }
+
+            "admin" {
+                NetworkSegmentType::Admin => "admin".to_string(),
+            }
+
+            "underlay renders as tor" {
+                NetworkSegmentType::Underlay => "tor".to_string(),
+            }
+
+            "host_inband" {
+                NetworkSegmentType::HostInband => "host_inband".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn is_tenant_is_true_for_tenant_facing_segments() {
+        value_scenarios!(
+            run = |ty| ty.is_tenant();
+            "tenant is tenant-facing" {
+                NetworkSegmentType::Tenant => true,
+            }
+
+            "host_inband is tenant-facing" {
+                NetworkSegmentType::HostInband => true,
+            }
+
+            "admin is not tenant-facing" {
+                NetworkSegmentType::Admin => false,
+            }
+
+            "underlay is not tenant-facing" {
+                NetworkSegmentType::Underlay => false,
+            }
+        );
+    }
+
+    #[test]
+    fn segment_type_converts_from_definition_type() {
+        value_scenarios!(
+            run = NetworkSegmentType::from;
+            "admin" {
+                NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
+            }
+
+            "underlay" {
+                NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
+            }
+
+            "host_inband" {
+                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
+            }
+        );
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct BuiltPrefix {
+        prefix: String,
+        gateway: Option<String>,
+        dhcpv6_link_address: Option<String>,
+        num_reserved: i32,
+    }
+
+    /// Builds a config network definition for segment expansion tests.
+    fn definition(
+        prefix: &str,
+        prefix_v6: Option<&str>,
+        dhcpv6_link_address: Option<&str>,
+    ) -> NetworkDefinition {
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::Admin,
+            prefix: prefix.parse().unwrap(),
+            prefix_v6: prefix_v6.map(|prefix| prefix.parse().unwrap()),
+            gateway: prefix.parse::<IpNetwork>().unwrap().network(),
+            dhcpv6_link_address: dhcpv6_link_address.map(|addr| addr.parse().unwrap()),
+            mtu: 1500,
+            reserve_first: 5,
+            allocation_strategy: AllocationStrategy::Dynamic,
+            vpc_name: None,
+        }
+    }
+
+    /// Expands a network definition and returns the persisted prefix shape.
+    fn build_definition_prefixes(value: NetworkDefinition) -> Result<Vec<BuiltPrefix>, String> {
+        NewNetworkSegment::build_from("test-segment", uuid::Uuid::new_v4().into(), &value)
+            .map(|segment| {
+                segment
+                    .prefixes
+                    .into_iter()
+                    .map(|prefix| BuiltPrefix {
+                        prefix: prefix.prefix.to_string(),
+                        gateway: prefix.gateway.map(|addr| addr.to_string()),
+                        dhcpv6_link_address: prefix
+                            .dhcpv6_link_address
+                            .map(|addr| addr.to_string()),
+                        num_reserved: prefix.num_reserved,
+                    })
+                    .collect()
+            })
+            .map_err(|err| err.to_string())
+    }
+
+    /// Verifies config-seeded segments expand to at most one prefix per family.
+    #[test]
+    fn build_from_network_definition_expands_dual_stack_prefixes() {
+        scenarios!(
+            // Build the config-seeded segment and project the prefix rows that
+            // will be persisted.
+            run = build_definition_prefixes;
+            "v4-only keeps the legacy gateway row" {
+                definition("192.0.2.0/24", None, None) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "192.0.2.0/24".to_string(),
+                        gateway: Some("192.0.2.0".to_string()),
+                        dhcpv6_link_address: None,
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "v6-only has no gateway and carries the dhcpv6 link-address" {
+                definition("2001:db8::/64", None, Some("2001:db8:ffff::1")) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "2001:db8::/64".to_string(),
+                        gateway: None,
+                        dhcpv6_link_address: Some("2001:db8:ffff::1".to_string()),
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "dual-stack builds one row per family" {
+                definition("192.0.2.0/24", Some("2001:db8::/64"), Some("2001:db8:ffff::1")) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "192.0.2.0/24".to_string(),
+                        gateway: Some("192.0.2.0".to_string()),
+                        dhcpv6_link_address: None,
+                        num_reserved: 5,
+                    },
+                    BuiltPrefix {
+                        prefix: "2001:db8::/64".to_string(),
+                        gateway: None,
+                        dhcpv6_link_address: Some("2001:db8:ffff::1".to_string()),
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "prefix_v6 must be IPv6" {
+                definition("192.0.2.0/24", Some("198.51.100.0/24"), None) => Fails,
+            }
+
+            "two IPv6 prefixes are rejected" {
+                definition("2001:db8:1::/64", Some("2001:db8:2::/64"), None) => Fails,
+            }
+
+            "dhcpv6 link-address must be IPv6" {
+                definition("192.0.2.0/24", Some("2001:db8::/64"), Some("192.0.2.1")) => Fails,
+            }
+
+            "dhcpv6 link-address requires a v6 prefix" {
+                definition("192.0.2.0/24", None, Some("2001:db8::1")) => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn allocation_strategy_round_trips_through_json() {
+        scenarios!(
+            run = |s| serde_json::to_string(&s).map_err(drop);
+            "dynamic serializes to its snake-case token" {
+                AllocationStrategy::Dynamic => Yields(r#""dynamic""#.to_string()),
+            }
+
+            "reserved serializes to its snake-case token" {
+                AllocationStrategy::Reserved => Yields(r#""reserved""#.to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn allocation_strategy_defaults_to_dynamic() {
+        value_scenarios!(
+            run = |()| AllocationStrategy::default();
+            "default" {
+                () => AllocationStrategy::Dynamic,
+            }
+        );
+    }
+
+    #[test]
+    fn is_marked_as_deleted_follows_the_deleted_timestamp() {
+        let stamp: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
+        value_scenarios!(
+            run = |deleted| deleted.is_some();
+            "no timestamp means live" {
+                None => false,
+            }
+
+            "timestamp means deleted" {
+                Some(stamp) => true,
+            }
         );
     }
 }

@@ -547,6 +547,8 @@ func TestVpcPrefixHandler_Create(t *testing.T) {
 			assert.Nil(t, err)
 			// Validate response fields
 			assert.Equal(t, len(resp.StatusHistory), 1)
+			assert.Equal(t, cdbm.VpcPrefixStatusProvisioning, resp.Status)
+			assert.Equal(t, cdbm.VpcPrefixStatusProvisioning, resp.StatusHistory[0].Status)
 			// Validate prefix
 			assert.NotNil(t, resp.Prefix)
 			assert.Equal(t, tc.expectedPrefix, *resp.Prefix)
@@ -728,7 +730,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 		sid, _ := uuid.Parse(apiVpcPrefix.ID)
 		s, err := vpDAO.GetByID(ctx, nil, sid, nil)
 		assert.Nil(t, err)
-		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.VpcPrefixStatusReady, cutil.GetPtr("VpcPrefix has been provisioned on Site"))
+		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.VpcPrefixStatusProvisioning, cutil.GetPtr("VPC Prefix is being provisioned on Site"))
 		ss = append(ss, *s)
 	}
 
@@ -942,7 +944,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "success when query search status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cutil.GetPtr("ready"),
+			querySearch:    cutil.GetPtr("provisioning"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,

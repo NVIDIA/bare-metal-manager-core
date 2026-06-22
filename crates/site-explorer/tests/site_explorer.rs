@@ -23,7 +23,6 @@ use std::sync::Arc;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
-use carbide_test_harness::test_support::endpoint_explorer::MockEndpointExplorer;
 use carbide_test_harness::test_support::fixture_config::{
     DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
 };
@@ -31,22 +30,22 @@ use db::ObjectFilter;
 use db::sku::CURRENT_SKU_VERSION;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::metadata::Metadata;
 use model::site_explorer::{
     ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredManagedHost, PreingestionState, UefiDevicePath,
+    ExploredManagedHost, NicMode, PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
 use rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
-use tonic::{IntoRequest, Request};
+use tonic::Request;
 
-use crate::env::{Env, new_site_explorer};
+use crate::env::Env;
 
 mod env;
 
@@ -68,16 +67,9 @@ impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, api: &Api) -> Result<(), Box<dyn std::error::Error>> {
         let response = api
             .discover_dhcp(
-                rpc::forge::DhcpDiscovery {
-                    mac_address: self.mac.to_string(),
-                    relay_address: self.segment.relay_address.to_string(),
-                    vendor_string: Some(self.dhcp_vendor.clone()),
-                    link_address: None,
-                    circuit_id: None,
-                    remote_id: None,
-                    desired_address: None,
-                }
-                .into_request(),
+                rpc::forge::DhcpDiscovery::builder(self.mac, self.segment.relay_address)
+                    .vendor_string(&self.dhcp_vendor)
+                    .tonic_request(),
             )
             .await?
             .into_inner();
@@ -159,8 +151,17 @@ async fn test_handle_redfish_error_powers_on_machine(
     .await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_result(
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_result(
         bmc_ip,
         Err(EndpointExplorationError::RedfishError {
             details: "transient redfish failure".to_string(),
@@ -168,26 +169,18 @@ async fn test_handle_redfish_error_powers_on_machine(
             response_code: Some(500),
         }),
     );
-    endpoint_explorer
+    explorer
+        .endpoint_explorer()
         .power_states
         .lock()
         .unwrap()
         .insert(bmc_ip, libredfish::PowerState::Off);
 
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
-
     explorer.run_single_iteration().await?;
 
     {
-        let calls = endpoint_explorer
+        let calls = explorer
+            .endpoint_explorer()
             .redfish_power_control_calls
             .lock()
             .unwrap();
@@ -239,8 +232,17 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
 
     // BMC report with no PCIe devices / no chassis -- the gate sees
     // zero DPUs.
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![(
         machine.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -252,16 +254,6 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
             ..Default::default()
         }),
     )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     // First iteration populates `explored_endpoints`; second runs
@@ -331,8 +323,17 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
     .await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![(
         machine.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -344,16 +345,6 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
             ..Default::default()
         }),
     )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -406,8 +397,17 @@ async fn test_site_explorer_ingests_no_dpu_host(
     .await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![(
         machine.ip.parse().unwrap(),
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -419,16 +419,6 @@ async fn test_site_explorer_ingests_no_dpu_host(
             ..Default::default()
         }),
     )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -468,17 +458,9 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
     );
     txn.commit().await.unwrap();
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    endpoint_explorer.insert_endpoint_result(
-        machine.ip.parse().unwrap(),
-        Err(EndpointExplorationError::UnsupportedVendor {
-            vendor: "Unknown".to_string(),
-        }),
-    );
-
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -491,7 +473,13 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_result(
+        machine.ip.parse().unwrap(),
+        Err(EndpointExplorationError::UnsupportedVendor {
+            vendor: "Unknown".to_string(),
+        }),
+    );
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -510,7 +498,7 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         })
     );
 
-    let guard = endpoint_explorer.reports.lock().unwrap();
+    let guard = explorer.endpoint_explorer().reports.lock().unwrap();
     let res = guard.get(&report.address).unwrap().as_ref();
     assert!(res.is_err());
     assert_eq!(
@@ -667,11 +655,25 @@ async fn test_expected_machine_device_type_metrics(
 
     txn.commit().await?;
 
-    // Set up endpoint explorer with mock results for our machines
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 3, // Explore our 3 machines
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(false.into()),
+        allocate_secondary_vtep_ip: true,
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
 
+    let explorer = env.test_site_explorer(explorer_config);
     // Mock exploration results for each machine
-    endpoint_explorer.insert_endpoint_results(vec![
+    explorer.insert_endpoint_results(vec![
         (
             machines[0].ip.parse().unwrap(),
             Ok(EndpointExplorationReport {
@@ -751,23 +753,6 @@ async fn test_expected_machine_device_type_metrics(
             }),
         ),
     ]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 3, // Explore our 3 machines
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(false.into()),
-        allocate_secondary_vtep_ip: true,
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     // Run site explorer to collect metrics
@@ -853,23 +838,22 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     );
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let mock_host = machines[0].as_mock_host(vec![]);
-
-    endpoint_explorer.insert_endpoint_results(vec![(
-        machines[0].ip.parse().unwrap(),
-        Ok(mock_host.clone().into()),
-    )]);
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![(
+        machines[0].ip.parse().unwrap(),
+        Ok(mock_host.clone().into()),
+    )]);
 
     // check the ingestion state of the machine
     let response = env
@@ -1048,10 +1032,24 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     .await?;
     txn.commit().await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let mock_dpu = machines[0].as_mock_dpu();
 
-    endpoint_explorer.insert_endpoint_results(vec![
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+    let explorer = env::test_site_explorer(&test_harness, explorer_config);
+    explorer.insert_endpoint_results(vec![
         (machines[0].ip.parse().unwrap(), Ok(mock_dpu.clone().into())),
         (
             machines[1].ip.parse().unwrap(),
@@ -1091,21 +1089,6 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
             }),
         ),
     ]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = new_site_explorer(&test_harness, explorer_config, &endpoint_explorer);
     let test_meter = &test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -1119,7 +1102,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
 
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
@@ -1184,7 +1167,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     let mut versions = Vec::new();
     for report in &explored {
         versions.push(report.report_version.version_nr());
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
@@ -1240,7 +1223,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     // Now make 1 previously existing endpoint unreachable and 1 previously unreachable
     // endpoint reachable and show the managed host.
     // Both changes should show up after 2 updates
-    endpoint_explorer.insert_endpoint_results(vec![
+    explorer.insert_endpoint_results(vec![
         (
             machines[0].ip.parse().unwrap(),
             Err(EndpointExplorationError::Unreachable {
@@ -1445,10 +1428,35 @@ async fn test_site_explorer_audit_exploration_results(
 
     // Make a mock host for machines[4] to generate the report
     // This serial is from the create_expected_machine.sql seed.
-    let machine_4_host = ManagedHostConfig::with_serial("VVG121GJ".to_string());
+    let machine_4_host = ManagedHostConfig::default().with_serial("VVG121GJ".to_string());
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoints(vec![
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 7,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        machines_created_per_run: 1,
+        override_target_ip: None,
+        override_target_port: None,
+        allow_changing_bmc_proxy: None,
+        bmc_proxy: Arc::default(),
+        reset_rate_limit: chrono::Duration::hours(1),
+        admin_segment_type_non_dpu: Arc::new(false.into()),
+        allocate_secondary_vtep_ip: false,
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        rotate_switch_nvos_credentials: Arc::new(false.into()),
+        dpu_mode: None,
+        // Tests use MockEndpointExplorer. So this doesn't affect anything.
+        explore_mode: SiteExplorerExploreMode::NvRedfish,
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoints(vec![
         (
             machines[0].ip.parse().unwrap(),
             DpuConfig::with_serial("VVG121GL".to_string()).into(),
@@ -1578,32 +1586,6 @@ async fn test_site_explorer_audit_exploration_results(
             machine_4_host.dpus[0].clone().into(),
         ),
     ]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 7,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        machines_created_per_run: 1,
-        override_target_ip: None,
-        override_target_port: None,
-        allow_changing_bmc_proxy: None,
-        bmc_proxy: Arc::default(),
-        reset_rate_limit: chrono::Duration::hours(1),
-        admin_segment_type_non_dpu: Arc::new(false.into()),
-        allocate_secondary_vtep_ip: false,
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        rotate_switch_nvos_credentials: Arc::new(false.into()),
-        dpu_mode: None,
-        // Tests use MockEndpointExplorer. So this doesn't affect anything.
-        explore_mode: SiteExplorerExploreMode::NvRedfish,
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
     let test_meter = &env.test_harness.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
@@ -1650,7 +1632,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     for report in &explored {
         assert_eq!(report.report_version.version_nr(), 2);
-        let guard = endpoint_explorer.reports.lock().unwrap();
+        let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
             assert_eq!(
@@ -1769,8 +1751,23 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     );
     txn.commit().await.unwrap();
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(false.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
         (
             machines[0].ip.parse().unwrap(),
             Ok(DpuConfig::default().into()),
@@ -1784,22 +1781,6 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
             }),
         ),
     ]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(false.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
@@ -2039,8 +2020,6 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(api).await?;
     }
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
     // Create a host and dpu reports && host has no dpu_serial
     let host1_dpu_report = DpuConfig {
         serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
@@ -2051,16 +2030,9 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         bmc_mac_address: HOST1_BMC_MAC.parse()?,
         ..ManagedHostConfig::default()
     };
-    endpoint_explorer.insert_endpoint_results(vec![
-        (
-            host1_dpu_bmc.ip.parse().unwrap(),
-            Ok(host1_dpu_report.into()),
-        ),
-        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
-    ]);
-
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -2073,7 +2045,14 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let explorer = new_site_explorer(&test_harness, explorer_config, &endpoint_explorer);
+    let explorer = env::test_site_explorer(&test_harness, explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
+        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
+    ]);
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = pool.begin().await?;
@@ -2235,8 +2214,9 @@ async fn test_fetch_host_primary_interface_mac(
             .unwrap(),
     );
 
-    let host_report: EndpointExplorationReport =
-        ManagedHostConfig::with_dpus(mock_dpus.clone()).into();
+    let host_report: EndpointExplorationReport = ManagedHostConfig::default()
+        .with_dpus(mock_dpus.clone())
+        .into();
 
     const NUM_DPUS: usize = 2;
 
@@ -2272,11 +2252,55 @@ async fn test_fetch_host_primary_interface_mac(
         });
     }
 
+    // No declaration: the automatic pick stands -- the lowest-PCI DPU host-PF
+    // (the second mock DPU, given the device paths set above).
     let expected_mac: MacAddress = mock_dpus[1].host_mac_address;
     let mac = host_report
-        .fetch_host_primary_interface_mac(&explored_dpus)
+        .fetch_host_primary_interface_mac(&explored_dpus, None)
         .unwrap();
     assert_eq!(mac, expected_mac);
+
+    // A declared primary on a DPU host-PF wins over the automatic pick -- here
+    // the first DPU, which the PCI ordering would NOT have chosen.
+    let declared_dpu_pf = mock_dpus[0].host_mac_address;
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(declared_dpu_pf))
+            .unwrap(),
+        declared_dpu_pf,
+    );
+
+    // The headline case: a declared *integrated* NIC -- which the DPU-only
+    // automatic pick can never name -- becomes the explored default.
+    let integrated_nic = host_report
+        .systems
+        .first()
+        .unwrap()
+        .ethernet_interfaces
+        .iter()
+        .filter_map(|e| e.mac_address)
+        .find(|mac| {
+            !explored_dpus
+                .iter()
+                .any(|d| d.host_pf_mac_address == Some(*mac))
+        })
+        .expect("the fixture host should have a non-DPU integrated NIC");
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(integrated_nic))
+            .unwrap(),
+        integrated_nic,
+    );
+
+    // A declared MAC absent from this report is ignored -- the automatic pick
+    // stands.
+    let absent_mac: MacAddress = "de:ad:be:ef:00:01".parse().unwrap();
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(absent_mac))
+            .unwrap(),
+        expected_mac,
+    );
     Ok(())
 }
 
@@ -2299,8 +2323,6 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
         machine.discover_dhcp(env.api()).await?;
     }
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
     // Create a host and dpu reports && host has no dpu_serial
     let host1_dpu_report = DpuConfig {
         serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
@@ -2311,16 +2333,9 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         bmc_mac_address: HOST1_BMC_MAC.parse()?,
         ..ManagedHostConfig::default()
     };
-    endpoint_explorer.insert_endpoint_results(vec![
-        (
-            host1_dpu_bmc.ip.parse().unwrap(),
-            Ok(host1_dpu_report.into()),
-        ),
-        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
-    ]);
-
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -2333,7 +2348,14 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (
+            host1_dpu_bmc.ip.parse().unwrap(),
+            Ok(host1_dpu_report.into()),
+        ),
+        (host1_bmc.ip.parse().unwrap(), Ok(host1_report.into())),
+    ]);
     let test_meter = &env.test_harness.test_meter;
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -2454,7 +2476,8 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
         nic_mode: Some(NicMode::Dpu),
         ..DpuConfig::default()
     };
-    let mock_host = model::test_support::ManagedHostConfig::with_dpus(vec![dpu_config.clone()]);
+    let mock_host =
+        model::test_support::ManagedHostConfig::default().with_dpus(vec![dpu_config.clone()]);
     let host_bmc_mac = mock_host.bmc_mac_address;
 
     // Seed an ExpectedMachine with `dpu_mode: NicMode` that matches the
@@ -2485,21 +2508,20 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     host_bmc.discover_dhcp(env.api()).await?;
     dpu_bmc.discover_dhcp(env.api()).await?;
 
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![
-        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
-        (host_bmc.ip.parse().unwrap(), Ok(mock_host.into())),
-    ]);
-
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(mock_host.into())),
+    ]);
 
     // First iteration: initial endpoint exploration.
     explorer.run_single_iteration().await.unwrap();
@@ -2511,10 +2533,424 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     // Second iteration: per-host DPU matching + check_and_configure_dpu_mode.
     explorer.run_single_iteration().await.unwrap();
 
-    let calls = endpoint_explorer.set_nic_mode_calls.lock().unwrap();
+    let calls = explorer
+        .endpoint_explorer()
+        .set_nic_mode_calls
+        .lock()
+        .unwrap();
     assert!(
         calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
         "expected at least one set_nic_mode(Nic) call triggered by the operator's NicMode declaration; calls so far: {calls:?}"
+    );
+
+    Ok(())
+}
+
+/// A queued `set_nic_mode` only takes effect after a host power cycle, and
+/// site-explorer drives that power cycle itself for every vendor -- the
+/// Redfish `ComputerSystem.Reset` action is standard across BMCs. This is
+/// the non-Dell guard for that behavior: a Lenovo host whose DPU needs the
+/// mode correction gets an automatic `PowerCycle` on its host BMC in the
+/// same pass that issued `set_nic_mode`, rather than parking on a manual
+/// power cycle.
+#[sqlx_test]
+async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    // DPU hardware reports DPU mode; the operator-declared NicMode override
+    // is what forces the correction (and therefore the power cycle).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config.clone()],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-866-NIC-POWERCYCLE".to_string(),
+                metadata: Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    db::explored_endpoints::set_preingestion_complete(dpu_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    // Second iteration: the matching loop issues `set_nic_mode` and,
+    // with the DPU now needing reconfiguration, power-cycles the host
+    // so the queued mode change applies.
+    explorer.run_single_iteration().await.unwrap();
+
+    let nic_mode_calls = explorer
+        .endpoint_explorer()
+        .set_nic_mode_calls
+        .lock()
+        .unwrap();
+    assert!(
+        nic_mode_calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+        "expected set_nic_mode(Nic) before the power cycle; calls so far: {nic_mode_calls:?}"
+    );
+
+    let power_calls = explorer
+        .endpoint_explorer()
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    assert!(
+        power_calls
+            .iter()
+            .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+        "expected an automatic host PowerCycle on the non-Dell (Lenovo) host to apply the queued NIC mode change; power calls so far: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// `PowerCycle` is implemented only by Dell and the DPU BMCs; other vendors --
+/// and Vikings -- refuse it. When that happens, site-explorer falls back to a
+/// cold `ACPowercycle` so the queued NIC-mode change still applies without an
+/// operator, rather than parking immediately on `ManualPowerCycleRequired`.
+#[sqlx_test]
+async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    // DPU reports DPU mode; the operator-declared NicMode override forces the
+    // correction (and therefore the reset).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config.clone()],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2635-AC-FALLBACK".to_string(),
+                metadata: Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    // This vendor refuses `PowerCycle` (like a Viking); the reset must fall
+    // back to the cold `ACPowercycle`.
+    explorer
+        .endpoint_explorer()
+        .fail_power_control(libredfish::SystemPowerControl::PowerCycle);
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    db::explored_endpoints::set_preingestion_complete(dpu_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    // Second iteration: matching issues `set_nic_mode`, then the reset path
+    // tries `PowerCycle`, gets refused, and falls back to `ACPowercycle`.
+    explorer.run_single_iteration().await.unwrap();
+
+    let power_calls = explorer
+        .endpoint_explorer()
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    let powercycle_pos = power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle));
+    let acpowercycle_pos = power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::ACPowercycle));
+    assert!(
+        powercycle_pos.is_some(),
+        "expected `PowerCycle` to be attempted; power calls so far: {power_calls:?}"
+    );
+    assert!(
+        acpowercycle_pos.is_some(),
+        "expected the `ACPowercycle` fallback after `PowerCycle` was refused; power calls so far: {power_calls:?}"
+    );
+    // A fallback is only correct if `PowerCycle` is the one tried first.
+    assert!(
+        powercycle_pos < acpowercycle_pos,
+        "expected `PowerCycle` (at {powercycle_pos:?}) before the `ACPowercycle` fallback (at {acpowercycle_pos:?}); power calls: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// Regression guard for the fallback-serial path (#2631): a DPU paired only
+/// through `fallback_dpu_serial_numbers` must get the same NIC-mode enforcement
+/// as a host-reported one. The host BMC here enumerates no DPU over PCIe -- the
+/// usual reason the fallback exists (e.g. a GB200 that drops a DPU from its
+/// inventory) -- so the only link is the operator-listed serial, and the DPU is
+/// still reporting DPU mode against a `NicMode` host.
+///
+/// Before the fix the fallback path trusted the match as already-configured: it
+/// attached the DPU without a mode check, then dropped it to zero-DPU, so the
+/// host registered as a NIC-mode host while the BlueField stayed in DPU mode and
+/// `set_nic_mode` was never issued. Now the flip is issued, the host is
+/// power-cycled to apply it, and the host waits instead of settling this pass.
+#[sqlx_test]
+async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = Env::new(pool).await;
+
+    const FALLBACK_DPU_SERIAL: &str = "fallback-only-dpu-serial";
+    // DPU reports DPU mode; the host report carries no DPU device, so the
+    // serial is the only thing that can pair them.
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        serial: FALLBACK_DPU_SERIAL.to_string(),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig::default();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    // Operator declares the host NIC mode and lists the DPU's serial as a
+    // pairing fallback.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2631-FALLBACK-NIC".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                fallback_dpu_serial_numbers: vec![FALLBACK_DPU_SERIAL.to_string()],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(mock_host.into())),
+    ]);
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    // Second iteration: per-host matching falls through to the fallback-serial
+    // path, which must enforce the declared NIC mode.
+    explorer.run_single_iteration().await.unwrap();
+
+    {
+        let calls = explorer
+            .endpoint_explorer()
+            .set_nic_mode_calls
+            .lock()
+            .unwrap();
+        assert!(
+            calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+            "fallback-matched DPU on a NicMode host should get set_nic_mode(Nic); calls so far: {calls:?}"
+        );
+    }
+
+    // The host must not settle as a zero-DPU managed host until the flip has
+    // applied -- otherwise the database reads "NIC-mode host" while the
+    // BlueField is still physically in DPU mode.
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert!(
+        explored_managed_hosts.is_empty(),
+        "host should wait for the queued NIC-mode flip to apply, not register as zero-DPU this pass"
+    );
+
+    // The reset path fires even though the host BMC never enumerated the DPU
+    // over PCIe (`expected_managed_dpus_total == 0`), so the queued flip can
+    // actually apply.
+    {
+        let power_calls = explorer
+            .endpoint_explorer()
+            .redfish_power_control_calls
+            .lock()
+            .unwrap();
+        assert!(
+            power_calls
+                .iter()
+                .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+            "host should be power-cycled to apply the queued NIC-mode flip; power calls so far: {power_calls:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// A managed host's DPU-facing `machine_interface` is created (via DHCP) with
+/// just a MAC and no `boot_interface_id`. The exploration that ingests the host
+/// then backfills the vendor-specific Redfish interface id onto that row, matched
+/// by MAC, at which the primary interface ends up with a full `MachineBootInterface`.
+/// This is the same backfill path any DHCP-derived interface takes (the capture is
+/// keyed on MAC, not on how the row was created).
+#[sqlx_test]
+async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let test_harness = TestHarness::builder(pool).build().await;
+    let domain = test_harness.test_domain().await;
+    let network_controller = test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env::test_site_explorer(&test_harness, explorer_config);
+
+    let dpu = DpuConfig::default();
+    let host_pf_mac = dpu.host_mac_address;
+    let managed_host = ManagedHostConfig::default().with_dpus(vec![dpu]);
+    let (created_host, _) = test_harness
+        .managed_host_builder(&explorer, underlay_segment)
+        .with_config(managed_host)
+        .build()
+        .await;
+
+    // TestManagedHostBuilder runs initial endpoint exploration and marks
+    // preingestion complete. Its second iteration creates the predicted host-PF
+    // interface with the Redfish boot interface id from the endpoint report.
+    created_host
+        .host
+        .dhcp_discover_primary_iface(admin_segment)
+        .await;
+
+    // Third iteration: the DHCP-created row is matched by MAC and receives
+    // the boot interface id from the predicted interface.
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = test_harness.db_txn().await;
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[created_host.host.id]).await?;
+    txn.commit().await?;
+    let primary = interfaces
+        .get(&created_host.host.id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.primary_interface)
+        .expect("ingested host should have a primary machine_interface");
+
+    // The primary row is the DPU host-PF interface (same factory MAC), now
+    // holding both halves of the pair: its MAC plus the Redfish interface id the
+    // host report named for it. The `ManagedHostConfig` fixture ids its DPU
+    // interfaces "NIC.Slot.{index + 5}-1", so the first DPU is "NIC.Slot.5-1".
+    assert_eq!(primary.mac_address, host_pf_mac);
+    assert_eq!(
+        primary.boot_interface_id.as_deref(),
+        Some("NIC.Slot.5-1"),
+        "exploration should backfill the Redfish interface id onto the machine_interface row",
     );
 
     Ok(())

@@ -236,3 +236,84 @@ pub struct ExtensionServiceObservabilityConfig {
 pub struct ExtensionServiceObservability {
     pub configs: Vec<ExtensionServiceObservabilityConfig>,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
+    use super::*;
+
+    // ExtensionServiceType parses case-insensitively from its wire form, and an
+    // unknown string is rejected.
+    #[test]
+    fn extension_service_type_from_str() {
+        scenarios!(
+            run = |s| ExtensionServiceType::from_str(s).map_err(drop);
+            "canonical kubernetes_pod" {
+                "kubernetes_pod" => Yields(ExtensionServiceType::KubernetesPod),
+            }
+
+            "mixed case is normalized" {
+                "Kubernetes_Pod" => Yields(ExtensionServiceType::KubernetesPod),
+            }
+
+            "unknown type is rejected" {
+                "virtual_machine" => Fails,
+            }
+        );
+    }
+
+    // Display is the inverse of from_str: each variant's wire form parses back to it.
+    #[test]
+    fn extension_service_type_display_round_trips() {
+        scenarios!(
+            run = |t| ExtensionServiceType::from_str(&t.to_string()).map_err(drop);
+            "kubernetes_pod" {
+                ExtensionServiceType::KubernetesPod => Yields(ExtensionServiceType::KubernetesPod),
+            }
+        );
+    }
+
+    // The observability config tree round-trips through JSON for each variant,
+    // exercising the nested enum and its Prometheus / Logging payloads.
+    #[test]
+    fn observability_config_json_round_trip() {
+        let prometheus = ExtensionServiceObservability {
+            configs: vec![ExtensionServiceObservabilityConfig {
+                name: Some("metrics".to_string()),
+                config: ExtensionServiceObservabilityConfigType::Prometheus(
+                    ExtensionServiceObservabilityConfigTypePrometheus {
+                        scrape_interval_seconds: 30,
+                        endpoint: "/metrics".to_string(),
+                    },
+                ),
+            }],
+        };
+        let logging = ExtensionServiceObservability {
+            configs: vec![ExtensionServiceObservabilityConfig {
+                name: None,
+                config: ExtensionServiceObservabilityConfigType::Logging(
+                    ExtensionServiceObservabilityConfigTypeLogging {
+                        path: "/var/log/svc.log".to_string(),
+                    },
+                ),
+            }],
+        };
+        scenarios!(
+            run = |obs| {
+                let json = serde_json::to_string(&obs).map_err(drop)?;
+                serde_json::from_str::<ExtensionServiceObservability>(&json).map_err(drop)
+            };
+            "prometheus config" {
+                prometheus.clone() => Yields(prometheus),
+            }
+
+            "logging config" {
+                logging.clone() => Yields(logging),
+            }
+        );
+    }
+}

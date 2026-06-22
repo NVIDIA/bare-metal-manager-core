@@ -4,7 +4,7 @@ inputs:
   rust-version:
     description: 'Rust toolchain version to install'
     required: false
-    default: '1.90.0'
+    default: '1.96.0'
   arch:
     description: 'Target architecture (x86_64 or aarch64)'
     required: false

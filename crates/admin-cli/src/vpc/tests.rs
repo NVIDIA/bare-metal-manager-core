@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases, scenarios};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -46,126 +48,111 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no arguments.
+// `show` accepts every selector slot as optional: bare, by id, and by each
+// of --tenant-org-id, --name, and the --label-key/--label-value pair. Each
+// row checks whether `id` is present plus the four optional string filters.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["vpc", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(args.tenant_org_id.is_none());
-            assert!(args.name.is_none());
-            assert!(args.label_key.is_none());
-            assert!(args.label_value.is_none());
+fn parse_show_routes_and_captures_filters() {
+    fn show_fields(
+        argv: &[&str],
+    ) -> (
+        bool,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        match Cmd::try_parse_from(argv.iter().copied()).expect("should parse show") {
+            Cmd::Show(args) => (
+                args.id.is_some(),
+                args.tenant_org_id,
+                args.name,
+                args.label_key,
+                args.label_value,
+            ),
+            _ => panic!("expected Show variant"),
         }
-        _ => panic!("expected Show variant"),
     }
+
+    check_cases(
+        [
+            Case {
+                scenario: "no arguments",
+                input: &["vpc", "show"][..],
+                expect: Yields((false, None, None, None, None)),
+            },
+            Case {
+                scenario: "with VPC id",
+                input: &["vpc", "show", TEST_VPC_ID][..],
+                expect: Yields((true, None, None, None, None)),
+            },
+            Case {
+                scenario: "with --tenant-org-id",
+                input: &["vpc", "show", "--tenant-org-id", "org-123"][..],
+                expect: Yields((false, Some("org-123".to_string()), None, None, None)),
+            },
+            Case {
+                scenario: "with --name",
+                input: &["vpc", "show", "--name", "my-vpc"][..],
+                expect: Yields((false, None, Some("my-vpc".to_string()), None, None)),
+            },
+            Case {
+                scenario: "with label key and value",
+                input: &["vpc", "show", "--label-key", "env", "--label-value", "prod"][..],
+                expect: Yields((
+                    false,
+                    None,
+                    None,
+                    Some("env".to_string()),
+                    Some("prod".to_string()),
+                )),
+            },
+        ],
+        |argv| Ok::<_, ()>(show_fields(argv)),
+    );
 }
 
-// parse_show_with_id ensures show parses with VPC ID.
+// `set-virtualizer` takes a VPC id and a virtualizer name; fnn, etv, and
+// etv_nvue all parse to the SetVirtualizer variant carrying the id.
 #[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["vpc", "show", TEST_VPC_ID]).expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_some());
+fn parse_set_virtualizer_routes_with_id() {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied())
+            .expect("should parse set-virtualizer")
+        {
+            Cmd::SetVirtualizer(args) => Ok::<_, ()>(args.id.to_string()),
+            _ => panic!("expected SetVirtualizer variant"),
+        };
+        "fnn virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "fnn"][..] => Yields(TEST_VPC_ID.to_string()),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_tenant_org_id ensures show parses with
-// --tenant-org-id.
-#[test]
-fn parse_show_with_tenant_org_id() {
-    let cmd = Cmd::try_parse_from(["vpc", "show", "--tenant-org-id", "org-123"])
-        .expect("should parse show with tenant-org-id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org_id, Some("org-123".to_string()));
+        "etv virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "etv"][..] => Yields(TEST_VPC_ID.to_string()),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_name ensures show parses with --name.
-#[test]
-fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["vpc", "show", "--name", "my-vpc"])
-        .expect("should parse show with name");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.name, Some("my-vpc".to_string()));
+        "etv_nvue virtualizer" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "etv_nvue"][..] => Yields(TEST_VPC_ID.to_string()),
         }
-        _ => panic!("expected Show variant"),
-    }
+    );
 }
 
-// parse_show_with_label ensures show parses with label
-// key and value.
+// Malformed `set-virtualizer` invocations are rejected at parse time:
+// missing both positional arguments, or an unknown virtualizer name.
 #[test]
-fn parse_show_with_label() {
-    let cmd = Cmd::try_parse_from(["vpc", "show", "--label-key", "env", "--label-value", "prod"])
-        .expect("should parse show with labels");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.label_key, Some("env".to_string()));
-            assert_eq!(args.label_value, Some("prod".to_string()));
+fn invalid_set_virtualizer_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "missing id and virtualizer" {
+            &["vpc", "set-virtualizer"][..] => Fails,
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_set_virtualizer ensures set-virtualizer parses
-// with id and virtualizer.
-#[test]
-fn parse_set_virtualizer() {
-    let cmd = Cmd::try_parse_from(["vpc", "set-virtualizer", TEST_VPC_ID, "fnn"])
-        .expect("should parse set-virtualizer");
-
-    match cmd {
-        Cmd::SetVirtualizer(args) => {
-            assert_eq!(args.id.to_string(), TEST_VPC_ID);
+        "invalid virtualizer name" {
+            &["vpc", "set-virtualizer", TEST_VPC_ID, "invalid"][..] => Fails,
         }
-        _ => panic!("expected SetVirtualizer variant"),
-    }
-}
-
-// parse_set_virtualizer_etv ensures set-virtualizer parses with etv.
-#[test]
-fn parse_set_virtualizer_etv() {
-    let cmd = Cmd::try_parse_from(["vpc", "set-virtualizer", TEST_VPC_ID, "etv"])
-        .expect("should parse set-virtualizer etv");
-
-    assert!(matches!(cmd, Cmd::SetVirtualizer(_)));
-}
-
-// parse_set_virtualizer_etv_nvue ensures set-virtualizer parses with etv_nvue.
-#[test]
-fn parse_set_virtualizer_etv_nvue() {
-    let cmd = Cmd::try_parse_from(["vpc", "set-virtualizer", TEST_VPC_ID, "etv_nvue"])
-        .expect("should parse set-virtualizer etv_nvue");
-
-    assert!(matches!(cmd, Cmd::SetVirtualizer(_)));
-}
-
-// parse_set_virtualizer_missing_args_fails ensures
-// set-virtualizer fails without args.
-#[test]
-fn parse_set_virtualizer_missing_args_fails() {
-    let result = Cmd::try_parse_from(["vpc", "set-virtualizer"]);
-    assert!(result.is_err(), "should fail without id and virtualizer");
-}
-
-// parse_set_virtualizer_invalid_virtualizer_fails ensures
-// set-virtualizer fails with invalid virtualizer.
-#[test]
-fn parse_set_virtualizer_invalid_virtualizer_fails() {
-    let result = Cmd::try_parse_from(["vpc", "set-virtualizer", TEST_VPC_ID, "invalid"]);
-    assert!(result.is_err(), "should fail with invalid virtualizer");
+    );
 }

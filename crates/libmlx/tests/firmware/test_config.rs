@@ -15,7 +15,14 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::firmware::config::FirmwareFlasherProfile;
+
+// Parse `toml` into a profile, panicking with the scenario label if it doesn't.
+fn profile(scenario: &str, toml: &str) -> FirmwareFlasherProfile {
+    FirmwareFlasherProfile::from_toml(toml).unwrap_or_else(|e| panic!("{scenario}: {e}"))
+}
 
 #[test]
 fn test_minimal_config() {
@@ -59,78 +66,117 @@ verify_version = true
     assert_eq!(profile.flash_options.reset_level, 3); // default
 }
 
+// Every credential block parses into a present `firmware_credentials`, regardless
+// of auth scheme (bearer token, basic auth, SSH key, SSH agent).
 #[test]
-fn test_config_with_bearer_token() {
-    let toml = r#"
-part_number = "900-9D3B4-00CV-TA0"
-psid = "MT_0000000884"
-version = "32.43.1014"
-firmware_url = "https://artifacts.example.com/fw/prod.signed.bin"
+fn credentials_block_populates_firmware_credentials() {
+    value_scenarios!(
+        run = |toml| {
+            profile("credentials", toml)
+                .flash_spec
+                .firmware_credentials
+                .is_some()
+        };
+        "bearer token" {
+            r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "https://artifacts.example.com/fw/prod.signed.bin"
 
-[firmware_credentials]
-type = "bearer_token"
-token = "my-secret-token"
-"#;
+                [firmware_credentials]
+                type = "bearer_token"
+                token = "my-secret-token"
+                "# => true,
+        }
 
-    let profile = FirmwareFlasherProfile::from_toml(toml).unwrap();
-    assert!(profile.flash_spec.firmware_credentials.is_some());
+        "basic auth" {
+            r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "https://internal.example.com/fw/prod.signed.bin"
 
-    let source = profile.flash_spec.build_firmware_source().unwrap();
-    assert!(source.description().contains("http:"));
+                [firmware_credentials]
+                type = "basic_auth"
+                username = "deploy"
+                password = "s3cret"
+                "# => true,
+        }
+
+        "ssh key" {
+            r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin"
+
+                [firmware_credentials]
+                type = "ssh_key"
+                path = "/home/deploy/.ssh/id_ed25519"
+                "# => true,
+        }
+
+        "ssh agent" {
+            r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin"
+
+                [firmware_credentials]
+                type = "ssh_agent"
+                "# => true,
+        }
+    );
 }
 
+// The firmware source built from the flash spec describes the transport scheme of
+// its `firmware_url` -- http for an https URL, ssh for an ssh URL. Each row pairs a
+// config with the scheme its source description must contain.
 #[test]
-fn test_config_with_basic_auth() {
-    let toml = r#"
-part_number = "900-9D3B4-00CV-TA0"
-psid = "MT_0000000884"
-version = "32.43.1014"
-firmware_url = "https://internal.example.com/fw/prod.signed.bin"
+fn firmware_source_describes_its_transport_scheme() {
+    value_scenarios!(
+        run = |(toml, scheme)| {
+            profile("transport scheme", toml)
+                .flash_spec
+                .build_firmware_source()
+                .unwrap()
+                .description()
+                .contains(scheme)
+        };
+        "https url -> http source" {
+            (
+                                r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "https://artifacts.example.com/fw/prod.signed.bin"
 
-[firmware_credentials]
-type = "basic_auth"
-username = "deploy"
-password = "s3cret"
-"#;
+                [firmware_credentials]
+                type = "bearer_token"
+                token = "my-secret-token"
+                "#,
+                                "http:",
+                            ) => true,
+        }
 
-    let profile = FirmwareFlasherProfile::from_toml(toml).unwrap();
-    assert!(profile.flash_spec.firmware_credentials.is_some());
-}
+        "ssh url -> ssh source" {
+            (
+                                r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                firmware_url = "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin"
 
-#[test]
-fn test_config_with_ssh_key() {
-    let toml = r#"
-part_number = "900-9D3B4-00CV-TA0"
-psid = "MT_0000000884"
-version = "32.43.1014"
-firmware_url = "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin"
-
-[firmware_credentials]
-type = "ssh_key"
-path = "/home/deploy/.ssh/id_ed25519"
-"#;
-
-    let profile = FirmwareFlasherProfile::from_toml(toml).unwrap();
-    assert!(profile.flash_spec.firmware_credentials.is_some());
-
-    let source = profile.flash_spec.build_firmware_source().unwrap();
-    assert!(source.description().contains("ssh://"));
-}
-
-#[test]
-fn test_config_with_ssh_agent() {
-    let toml = r#"
-part_number = "900-9D3B4-00CV-TA0"
-psid = "MT_0000000884"
-version = "32.43.1014"
-firmware_url = "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin"
-
-[firmware_credentials]
-type = "ssh_agent"
-"#;
-
-    let profile = FirmwareFlasherProfile::from_toml(toml).unwrap();
-    assert!(profile.flash_spec.firmware_credentials.is_some());
+                [firmware_credentials]
+                type = "ssh_key"
+                path = "/home/deploy/.ssh/id_ed25519"
+                "#,
+                                "ssh://",
+                            ) => true,
+        }
+    );
 }
 
 #[test]
@@ -180,24 +226,27 @@ firmware_url = "/opt/firmware/prod.signed.bin"
     assert!(conf_source.is_none());
 }
 
+// Malformed or incomplete TOML is rejected by `from_toml`.
 #[test]
-fn test_config_invalid_toml() {
-    let toml = r#"
-firmware_url = "missing closing quote
-"#;
+fn from_toml_rejects_malformed_or_incomplete_input() {
+    scenarios!(
+        run = |toml| {
+            FirmwareFlasherProfile::from_toml(toml)
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "unterminated string literal" {
+            r#"
+                firmware_url = "missing closing quote
+                "# => Fails,
+        }
 
-    let result = FirmwareFlasherProfile::from_toml(toml);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_config_missing_required_field() {
-    let toml = r#"
-part_number = "900-9D3B4-00CV-TA0"
-psid = "MT_0000000884"
-version = "32.43.1014"
-"#;
-
-    let result = FirmwareFlasherProfile::from_toml(toml);
-    assert!(result.is_err());
+        "missing required firmware_url" {
+            r#"
+                part_number = "900-9D3B4-00CV-TA0"
+                psid = "MT_0000000884"
+                version = "32.43.1014"
+                "# => Fails,
+        }
+    );
 }

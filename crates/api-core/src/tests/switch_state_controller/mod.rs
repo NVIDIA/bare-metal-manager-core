@@ -18,13 +18,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
-use component_manager::compute_tray_manager::Backend;
+use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
+use component_manager::nv_switch_manager::Backend as NvSwitchBackend;
+use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::switch as db_switch;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
@@ -32,7 +34,7 @@ use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 
 use crate::tests::common;
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
 
 mod fixtures;
 mod maintenance;
@@ -44,25 +46,27 @@ async fn build_test_component_manager(
 ) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
     let config = ComponentManagerConfig {
         nv_switch_backend: if rms_client.is_some() {
-            "rms".into()
+            NvSwitchBackend::Rms
         } else {
-            "mock".into()
+            NvSwitchBackend::Mock
         },
-        power_shelf_backend: "mock".into(),
-        compute_tray_backend: Backend::Mock,
+        power_shelf_backend: PowerShelfBackend::Mock,
+        compute_tray_backend: ComputeBackend::Mock,
         nv_switch_use_state_controller: true,
         ..Default::default()
     };
-    component_manager::component_manager::build_component_manager(
+    let component_manager = component_manager::component_manager::build_component_manager(
         &config,
+        get_config_with_rack_profiles().rack_profiles,
         rms_client,
         None,
         Some(env.pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new)
+    .expect("test component manager should build");
+
+    Some(Arc::new(component_manager))
 }
 
 #[crate::sqlx_test]
@@ -139,6 +143,10 @@ async fn test_switch_deletion_with_state_controller(
         db_pool: pool.clone(),
         component_manager: None,
         credential_manager: Arc::new(TestCredentialManager::default()),
+        per_object_metrics_registry: carbide_health_metrics::PerObjectMetricsRegistry::new(
+            Vec::new(),
+            std::time::Duration::from_secs(60),
+        ),
     });
 
     let cancel_token = CancellationToken::new();
@@ -244,6 +252,7 @@ async fn test_switch_entire_state_transition_flow(
                 component_manager: build_test_component_manager(&env, env.rms_sim.as_rms_client())
                     .await,
                 credential_manager: env.test_credential_manager.clone(),
+                per_object_metrics_registry: env.per_object_metrics_registry(),
             }
             .into(),
         )

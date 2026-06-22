@@ -19,6 +19,9 @@ use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
 use carbide_rack_controller::metrics::RackMetrics;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialReader, Credentials,
+};
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
@@ -26,7 +29,6 @@ use db::db_read::DbReader;
 use db::{
     ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
@@ -38,7 +40,8 @@ use model::rack::{
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProfile, RackProfileConfig,
+    RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProductFamily, RackProfile,
+    RackProfileConfig,
 };
 use model::switch::{NewSwitch, SwitchConfig};
 use model::test_support::ManagedHostConfig;
@@ -46,7 +49,7 @@ use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::Request;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches, new_host};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
@@ -57,19 +60,19 @@ fn test_capabilities() -> RackCapabilitiesSet {
         compute: RackCapabilityCompute {
             name: None,
             count: 2,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 1,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 1,
-            vendor: None,
+            vendor: Some("LiteOn".to_string()),
             slot_ids: None,
         },
     }
@@ -80,19 +83,19 @@ fn simple_capabilities() -> RackCapabilitiesSet {
         compute: RackCapabilityCompute {
             name: None,
             count: 2,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 0,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 0,
-            vendor: None,
+            vendor: Some("LiteOn".to_string()),
             slot_ids: None,
         },
     }
@@ -103,19 +106,19 @@ fn single_capabilities() -> RackCapabilitiesSet {
         compute: RackCapabilityCompute {
             name: None,
             count: 1,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 0,
-            vendor: None,
+            vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 0,
-            vendor: None,
+            vendor: Some("LiteOn".to_string()),
             slot_ids: None,
         },
     }
@@ -128,6 +131,8 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "NVL72".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
+                    rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_capabilities: test_capabilities(),
                     ..Default::default()
                 },
@@ -135,19 +140,21 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
             (
                 "Simple".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
+                    rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
                     rack_capabilities: simple_capabilities(),
-                    ..Default::default()
                 },
             ),
             (
                 "Single".to_string(),
                 RackProfile {
+                    product_family: Some(RackProductFamily::Gb200),
+                    rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
                     rack_capabilities: single_capabilities(),
-                    ..Default::default()
                 },
             ),
             ("Empty".to_string(), RackProfile::default()),
@@ -163,7 +170,9 @@ fn config_with_nmx_cluster_profile() -> crate::cfg::file::CarbideConfig {
     config.rack_profiles.rack_profiles.insert(
         "NmxCluster".to_string(),
         RackProfile {
+            product_family: Some(RackProductFamily::Gb200),
             rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+            rack_capabilities: test_capabilities(),
             ..Default::default()
         },
     );
@@ -188,7 +197,7 @@ async fn create_single_compute_rack(
 
     let host = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),
@@ -223,7 +232,7 @@ async fn create_two_compute_rack(
 
     let host_a = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),
@@ -231,7 +240,7 @@ async fn create_two_compute_rack(
     .await?;
     let host_b = new_host(
         env,
-        ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
             rack_id: Some(rack_id.clone()),
             ..Default::default()
         }),
@@ -341,7 +350,7 @@ async fn create_ready_rack_with_switch(
     db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("Empty")),
+        Some(&RackProfileId::new("NVL72")),
         &RackConfig::default(),
         None,
     )
@@ -602,7 +611,7 @@ async fn test_on_demand_rack_maintenance_defaults_missing_access_token_to_noauth
         token_credentials,
         Credentials::UsernamePassword {
             username: "access_token".to_string(),
-            password: "NOAUTH".to_string(),
+            password: carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN.to_string(),
         }
     );
 
@@ -751,7 +760,6 @@ fn test_nvos_polling_unknown_state_preserves_status_and_sets_error() {
 /// test_expected_incomplete_device_counts_stays verifies that a rack with a
 /// topology expecting more devices than currently exist stays in Created.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_incomplete_device_counts_stays(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -794,8 +802,8 @@ async fn test_expected_incomplete_device_counts_stays(
         .await?;
 
     assert!(
-        matches!(outcome, StateHandlerOutcome::DoNothing { .. }),
-        "Rack with incomplete device counts should stay in Expected"
+        matches!(outcome, StateHandlerOutcome::Wait { .. }),
+        "Rack with incomplete device counts should wait in Created"
     );
 
     Ok(())
@@ -862,7 +870,6 @@ async fn test_expected_counts_match_but_not_linked_stays(
 /// test_expected_zero_topology_transitions_to_discovering verifies that a rack
 /// with zero expected devices in topology immediately transitions to Discovering.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_zero_topology_transitions_to_discovering(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -879,18 +886,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create rack with a profile expecting 2 compute, 0 switches, 0 PS.
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("Empty")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-
-    // Simulate that both compute trays are already linked by setting
-    // compute_trays to have 2 entries matching expected_compute_trays.
+    // Create the rack with the "Empty" profile, which expects zero devices.
     db_rack::create(
         &mut txn,
         &rack_id,
@@ -938,9 +934,11 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 }
 
 /// test_expected_more_discovered_than_expected_transitions verifies that a
-/// rack with more discovered compute trays than expected still transitions.
+/// rack with more compute hosts present than the profile expects still
+/// transitions out of Created: the Created handler only waits while counts
+/// are below the expected minimum, so an over-count satisfies the threshold
+/// and advances to Discovering.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_more_discovered_than_expected_transitions(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -954,12 +952,11 @@ async fn test_expected_more_discovered_than_expected_transitions(
     )
     .await;
 
+    // Rack profile "Single" expects 1 compute, 0 switches, 0 PS. Seed two
+    // host machines tied to the rack so the actual compute count (2) exceeds
+    // the expected count (1), exercising the over-discovery path.
     let rack_id = new_rack_id();
-    // let mac1 = MacAddress::new([0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50]);
-
     let mut txn = pool.acquire().await?;
-
-    // Rack type "Single" expects 1 compute, 0 switches, 0 PS.
     db_rack::create(
         &mut txn,
         &rack_id,
@@ -968,10 +965,24 @@ async fn test_expected_more_discovered_than_expected_transitions(
         None,
     )
     .await?;
+    drop(txn);
 
-    // Simulate more compute_trays discovered than expected_compute_trays.
-
-    db_rack::update(&mut txn, &rack_id, &RackConfig::default()).await?;
+    new_host(
+        &env,
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        }),
+    )
+    .await?;
+    new_host(
+        &env,
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        }),
+    )
+    .await?;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
 
@@ -989,7 +1000,6 @@ async fn test_expected_more_discovered_than_expected_transitions(
         .handle_object_state(&rack_id, &mut rack, &RackState::Created, &mut ctx)
         .await?;
 
-    // The Ordering::Less branch treats this as compute_done = true.
     match outcome {
         StateHandlerOutcome::Transition { next_state, .. } => {
             assert!(
@@ -1007,11 +1017,11 @@ async fn test_expected_more_discovered_than_expected_transitions(
     Ok(())
 }
 
-/// test_discovering_waits_for_compute_ready verifies that the handler
-/// reports an error for the Discovering state when managed hosts are missing.
+/// test_discovering_waits_when_compute_not_ready verifies that the Discovering
+/// handler waits (rather than erroring) when the rack does not yet have enough
+/// Ready/Assigned compute hosts to satisfy the expected count.
 #[crate::sqlx_test]
-#[ignore]
-async fn test_discovering_waits_for_compute_ready(
+async fn test_discovering_waits_when_compute_not_ready(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = config_with_rack_profiles();
@@ -1027,9 +1037,8 @@ async fn test_discovering_waits_for_compute_ready(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create a rack in Discovering state with a compute tray that doesn't
-    // have a managed host record yet.
-
+    // Create a rack whose profile expects compute hosts but register none of
+    // them, so no host has reached a Ready/Assigned state.
     let mut rack = db_rack::create(
         &mut txn,
         &rack_id,
@@ -1049,13 +1058,15 @@ async fn test_discovering_waits_for_compute_ready(
         pending_db_writes: &mut db_writes,
     };
 
-    // The Discovering state should fail because the managed host doesn't exist.
-    let result = handler
+    // The Discovering handler waits (does not fault) while not enough compute
+    // hosts are Ready/Assigned.
+    let outcome = handler
         .handle_object_state(&rack_id, &mut rack, &RackState::Discovering, &mut ctx)
-        .await;
+        .await?;
     assert!(
-        result.is_err(),
-        "Discovering should error when managed host is missing"
+        matches!(outcome, StateHandlerOutcome::Wait { .. }),
+        "Discovering should wait when compute hosts are not yet ready, got {:?}",
+        std::mem::discriminant(&outcome)
     );
 
     Ok(())
@@ -1459,7 +1470,7 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
     let requests = env.rms_sim.submitted_apply_firmware_object_requests().await;
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-json"}"#);
-    assert_eq!(requests[0].access_token, "token");
+    assert_eq!(requests[0].access_token.as_deref(), Some("token"));
     assert_eq!(requests[0].firmware_type, "prod");
     assert!(requests[0].force_update);
     assert_eq!(requests[0].nodes.as_ref().unwrap().nodes.len(), 1);
@@ -1471,6 +1482,101 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         })
         .await
         .expect("credential lookup should succeed");
+    assert!(token_after.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_firmware_upgrade_start_missing_profile_deletes_access_token(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_rack_profiles()),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let rack_id = new_rack_id();
+    let mut txn = pool.acquire().await?;
+    db_rack::create(&mut txn, &rack_id, None, &RackConfig::default(), None).await?;
+    drop(txn);
+
+    let switch_id = attach_switch_with_nvos_credentials(&env, &rack_id).await?;
+    let config = RackConfig {
+        maintenance_requested: Some(MaintenanceScope {
+            switch_ids: vec![switch_id],
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some(r#"{"Id":"fw-json"}"#.to_string()),
+                components: vec!["BMC".to_string()],
+                force_update: false,
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut txn = pool.acquire().await?;
+    db_rack::update(&mut txn, &rack_id, &config).await?;
+    drop(txn);
+
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::RackMaintenanceAccessToken {
+                rack_id: rack_id.clone(),
+            },
+            &Credentials::UsernamePassword {
+                username: "access_token".to_string(),
+                password: "token".to_string(),
+            },
+        )
+        .await
+        .map_err(|error| eyre::eyre!("failed to set maintenance access token: {}", error))?;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let handler_instance = RackStateHandler::default();
+    let mut services = env.rack_state_handler_services();
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let fw_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade: FirmwareUpgradeState::Start,
+        },
+    };
+    let mut outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &fw_state, &mut ctx)
+        .await?;
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    assert!(
+        matches!(
+            outcome,
+            StateHandlerOutcome::Transition {
+                next_state: RackState::Error { .. },
+                ..
+            }
+        ),
+        "expected missing rack profile to transition to Error"
+    );
+    let token_after = env
+        .test_credential_manager
+        .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
+            rack_id: rack_id.clone(),
+        })
+        .await
+        .map_err(|error| eyre::eyre!("failed to get maintenance access token: {}", error))?;
+
     assert!(token_after.is_none());
 
     Ok(())
@@ -2017,14 +2123,21 @@ async fn test_firmware_upgrade_wait_for_complete_retries_on_transient_poll_error
 async fn test_nvos_update_start_transitions_to_wait_for_complete(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_nmx_cluster_profile()),
+            ..Default::default()
+        },
+    )
+    .await;
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
     db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("Empty")),
+        Some(&RackProfileId::new("NmxCluster")),
         &RackConfig::default(),
         None,
     )
@@ -2106,7 +2219,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
         "NVOSUpdate(Start) should submit ApplySwitchSystemImage"
     );
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-nvos-default"}"#);
-    assert_eq!(requests[0].access_token, "token");
+    assert_eq!(requests[0].access_token.as_deref(), Some("token"));
     let mut txn = pool.acquire().await?;
     let switch = db_switch::find_by_id(&mut txn, &switch_id)
         .await?
@@ -2223,14 +2336,21 @@ async fn test_configure_nmx_cluster_start_advances_to_disable_scale_up_fabric_st
 async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_switches(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_nmx_cluster_profile()),
+            ..Default::default()
+        },
+    )
+    .await;
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
     db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("Empty")),
+        Some(&RackProfileId::new("NmxCluster")),
         &RackConfig::default(),
         None,
     )
@@ -2785,14 +2905,21 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
 async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_failure_stops_flow(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_nmx_cluster_profile()),
+            ..Default::default()
+        },
+    )
+    .await;
 
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
     db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("Empty")),
+        Some(&RackProfileId::new("NmxCluster")),
         &RackConfig::default(),
         None,
     )

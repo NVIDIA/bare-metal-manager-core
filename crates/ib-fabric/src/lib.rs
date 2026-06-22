@@ -1270,108 +1270,141 @@ fn is_pkey_in_managed_range(pkey: PartitionKey, fabric_definition: &IbFabricDefi
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
-    fn test_parse_num() {
-        assert_eq!(0, parse_num("0x0000000000000000").unwrap());
-        assert_eq!(1, parse_num("0x0000000000000001").unwrap());
-        assert_eq!(0, parse_num("0x00").unwrap());
-        assert_eq!(1, parse_num("0x01").unwrap());
-    }
+    fn parses_numbers() {
+        value_scenarios!(parse_num:
+            "hex" {
+                "0x0000000000000000" => Some(0),
+                "0x0000000000000001" => Some(1),
+                "0x00" => Some(0),
+                "0x01" => Some(1),
+                "0xff" => Some(255),
+            }
 
-    // ============================================================
-    // Unit Tests for parse_guids_from_alert
-    // ============================================================
+            "decimal" {
+                "0" => Some(0),
+                "1" => Some(1),
+                "2303" => Some(2303),
+            }
 
-    #[test]
-    fn test_parse_guids_single() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "946dae03006104f8");
-    }
-
-    #[test]
-    fn test_parse_guids_multiple() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8; abc123def4567890; fedcba9876543210";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0], "946dae03006104f8");
-        assert_eq!(result[1], "abc123def4567890");
-        assert_eq!(result[2], "fedcba9876543210");
+            "invalid" {
+                "" => None,
+                "0x" => None,
+                "not-a-number" => None,
+            }
+        );
     }
 
     #[test]
-    fn test_parse_guids_wrong_prefix() {
-        let message = "Wrong prefix message";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 0);
-    }
+    fn parses_cleanup_alert_guids() {
+        value_scenarios!(parse_guids_from_alert:
+            "valid alerts" {
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8" => vec![
+                    "946dae03006104f8".to_string(),
+                ],
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: 946dae03006104f8; abc123def4567890; fedcba9876543210" => vec![
+                    "946dae03006104f8".to_string(),
+                    "abc123def4567890".to_string(),
+                    "fedcba9876543210".to_string(),
+                ],
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs:  abc  ;  def  " => vec![
+                    "abc".to_string(),
+                    "def".to_string(),
+                ],
+            }
 
-    #[test]
-    fn test_parse_guids_empty() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs: ";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_guids_with_whitespace() {
-        let message = "IB port cleanup pending - IB Monitor will unbind. GUIDs:  abc  ;  def  ";
-        let result = parse_guids_from_alert(message);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "abc");
-        assert_eq!(result[1], "def");
+            "ignored messages" {
+                "Wrong prefix message" => Vec::<String>::new(),
+                "IB port cleanup pending - IB Monitor will unbind. GUIDs: " => Vec::<String>::new(),
+            }
+        );
     }
 
     // ============================================================
     // Unit Tests for HealthProbeAlert::ib_port_down
     // ============================================================
 
-    #[test]
-    fn test_ib_port_down_alert_single_port() {
-        let alert =
-            health_report::HealthProbeAlert::ib_port_down(vec!["946dae03006104f8".to_string()], 8);
+    // What a built `ib_port_down` alert is expected to expose. The alert type
+    // isn't PartialEq and its message is free-form, so the table projects each
+    // alert onto these checked properties -- the id, that the message names the
+    // "<down> of <total>" count and every down GUID, that the alert prevents
+    // allocations, and that the tenant message is present and counts the ports.
+    #[derive(Debug, PartialEq)]
+    struct PortDownAlertView {
+        id: String,
+        message_names_count: bool,
+        message_names_all_guids: bool,
+        prevents_allocations: bool,
+        tenant_message_counts_ports: bool,
+    }
 
-        assert_eq!(alert.id.as_str(), "IbPortDown");
-        assert!(alert.message.contains("1 of 8"));
-        assert!(alert.message.contains("946dae03006104f8"));
-        assert!(
-            alert
-                .classifications
-                .contains(&health_report::HealthAlertClassification::prevent_allocations())
-        );
+    // One row of inputs to `ib_port_down`: the down GUIDs and the host's total
+    // port count.
+    struct PortDownAlert {
+        down_guids: Vec<String>,
+        total_ports: usize,
     }
 
     #[test]
-    fn test_ib_port_down_alert_multiple_ports() {
-        let alert = health_report::HealthProbeAlert::ib_port_down(
-            vec![
-                "946dae03006104f8".to_string(),
-                "abc123def4567890".to_string(),
-            ],
-            8,
+    fn ib_port_down_alert_reports_down_ports() {
+        fn view(input: PortDownAlert) -> PortDownAlertView {
+            let alert = health_report::HealthProbeAlert::ib_port_down(
+                input.down_guids.clone(),
+                input.total_ports,
+            );
+            let count_phrase = format!("{} of {}", input.down_guids.len(), input.total_ports);
+            PortDownAlertView {
+                id: alert.id.as_str().to_string(),
+                message_names_count: alert.message.contains(&count_phrase),
+                message_names_all_guids: input
+                    .down_guids
+                    .iter()
+                    .all(|guid| alert.message.contains(guid)),
+                prevents_allocations: alert
+                    .classifications
+                    .contains(&health_report::HealthAlertClassification::prevent_allocations()),
+                tenant_message_counts_ports: alert
+                    .tenant_message
+                    .as_ref()
+                    .is_some_and(|m| m.contains(&format!("{} port(s)", input.down_guids.len()))),
+            }
+        }
+
+        value_scenarios!(
+            run = view;
+            "single down port" {
+                PortDownAlert {
+                    down_guids: vec!["946dae03006104f8".to_string()],
+                    total_ports: 8,
+                } => PortDownAlertView {
+                    id: "IbPortDown".to_string(),
+                    message_names_count: true,
+                    message_names_all_guids: true,
+                    prevents_allocations: true,
+                    tenant_message_counts_ports: true,
+                },
+            }
+
+            "multiple down ports" {
+                PortDownAlert {
+                    down_guids: vec![
+                        "946dae03006104f8".to_string(),
+                        "abc123def4567890".to_string(),
+                    ],
+                    total_ports: 8,
+                } => PortDownAlertView {
+                    id: "IbPortDown".to_string(),
+                    message_names_count: true,
+                    message_names_all_guids: true,
+                    prevents_allocations: true,
+                    tenant_message_counts_ports: true,
+                },
+            }
         );
-
-        assert_eq!(alert.id.as_str(), "IbPortDown");
-        assert!(alert.message.contains("2 of 8"));
-        assert!(alert.message.contains("946dae03006104f8"));
-        assert!(alert.message.contains("abc123def4567890"));
-        assert!(
-            alert
-                .classifications
-                .contains(&health_report::HealthAlertClassification::prevent_allocations())
-        );
-    }
-
-    #[test]
-    fn test_ib_port_down_alert_has_tenant_message() {
-        let alert =
-            health_report::HealthProbeAlert::ib_port_down(vec!["946dae03006104f8".to_string()], 8);
-
-        assert!(alert.tenant_message.is_some());
-        assert!(alert.tenant_message.as_ref().unwrap().contains("1 port(s)"));
     }
 
     // ============================================================
@@ -1394,294 +1427,195 @@ mod tests {
     }
 
     #[test]
-    fn test_pkey_in_range_decimal() {
-        let fabric = make_fabric_definition(vec![("256", "2303")]);
-        // 0x100 = 256, should be in range
-        let pkey = PartitionKey::try_from(256u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
+    fn checks_managed_pkey_ranges() {
+        value_scenarios!(
+            run = |(pkey, ranges): (u16, Vec<(&str, &str)>)| {
+                let fabric = make_fabric_definition(ranges);
+                let pkey = PartitionKey::try_from(pkey).unwrap();
+                is_pkey_in_managed_range(pkey, &fabric)
+            };
+            "decimal range" {
+                (256, vec![("256", "2303")]) => true,
+                (2302, vec![("256", "2303")]) => true,
+                (1280, vec![("256", "2303")]) => true,
+                (255, vec![("256", "2303")]) => false,
+                (2303, vec![("256", "2303")]) => false,
+                (0x5000, vec![("256", "2303")]) => false,
+            }
 
-        // 0x8FE = 2302, should be in range (end is exclusive)
-        let pkey = PartitionKey::try_from(2302u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
+            "hex range" {
+                (0x100, vec![("0x100", "0x8FF")]) => true,
+                (0x8FE, vec![("0x100", "0x8FF")]) => true,
+                (0x8FF, vec![("0x100", "0x8FF")]) => false,
+            }
 
-        // 0x500 = 1280, should be in range
-        let pkey = PartitionKey::try_from(1280u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-    }
+            "multiple ranges" {
+                (150, vec![("100", "200"), ("500", "600")]) => true,
+                (550, vec![("100", "200"), ("500", "600")]) => true,
+                (300, vec![("100", "200"), ("500", "600")]) => false,
+            }
 
-    #[test]
-    fn test_pkey_outside_range() {
-        let fabric = make_fabric_definition(vec![("256", "2303")]);
-
-        // 0x5000 = 20480, should be OUTSIDE range
-        let pkey = PartitionKey::try_from(0x5000u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-
-        // 255 is just below range
-        let pkey = PartitionKey::try_from(255u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-
-        // 2303 is the exclusive end, should be OUTSIDE range
-        let pkey = PartitionKey::try_from(2303u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_in_range_hex() {
-        let fabric = make_fabric_definition(vec![("0x100", "0x8FF")]);
-
-        // 0x100 = 256, should be in range
-        let pkey = PartitionKey::try_from(0x100u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // 0x8FE = 2302, should be in range (end is exclusive)
-        let pkey = PartitionKey::try_from(0x8FEu16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_multiple_ranges() {
-        let fabric = make_fabric_definition(vec![("100", "200"), ("500", "600")]);
-
-        // In first range
-        let pkey = PartitionKey::try_from(150u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // In second range
-        let pkey = PartitionKey::try_from(550u16).unwrap();
-        assert!(is_pkey_in_managed_range(pkey, &fabric));
-
-        // Between ranges (not managed)
-        let pkey = PartitionKey::try_from(300u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
-    }
-
-    #[test]
-    fn test_pkey_empty_ranges() {
-        let fabric = make_fabric_definition(vec![]);
-
-        // No ranges configured, nothing is managed
-        let pkey = PartitionKey::try_from(256u16).unwrap();
-        assert!(!is_pkey_in_managed_range(pkey, &fabric));
+            "empty or invalid ranges" {
+                (256, vec![]) => false,
+                (256, vec![("not-a-number", "300")]) => false,
+                (256, vec![("100", "not-a-number")]) => false,
+            }
+        );
     }
 
     // ============================================================
     // Unit Tests for should_track_port_as_down
     // ============================================================
 
-    // --- SKU takes precedence when present ---
+    // One row for `should_track_port_as_down`: the GUID under test, the
+    // GUID->index map of the host's ports, and the two optional precedence
+    // inputs -- the SKU's expected-inactive port indices and the instance's
+    // configured GUIDs. Owned here so the closure can hand out the borrows the
+    // function takes.
+    struct TrackPortDown {
+        guid: &'static str,
+        guid_to_index: &'static [(&'static str, u32)],
+        expected_inactive: Option<&'static [u32]>,
+        instance_guids: Option<&'static [&'static str]>,
+    }
 
     #[test]
-    fn test_should_track_port_with_sku_not_in_inactive() {
-        let guid_to_index: HashMap<String, u32> =
-            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
-                .into_iter()
+    fn should_track_port_as_down_follows_sku_then_instance_precedence() {
+        fn track(row: TrackPortDown) -> bool {
+            let guid_to_index: HashMap<String, u32> = row
+                .guid_to_index
+                .iter()
+                .map(|(g, i)| (g.to_string(), *i))
                 .collect();
-        let expected_inactive: HashSet<u32> = [2, 3].into_iter().collect();
+            let expected_inactive: Option<HashSet<u32>> = row
+                .expected_inactive
+                .map(|indices| indices.iter().copied().collect());
+            let instance_guids: Option<HashSet<String>> = row
+                .instance_guids
+                .map(|guids| guids.iter().map(|g| g.to_string()).collect());
 
-        assert!(should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            Some(&expected_inactive),
-            None,
-        ));
-    }
+            should_track_port_as_down(
+                row.guid,
+                &guid_to_index,
+                expected_inactive.as_ref(),
+                instance_guids.as_ref(),
+            )
+        }
 
-    #[test]
-    fn test_should_track_port_with_sku_in_inactive() {
-        let guid_to_index: HashMap<String, u32> = [
-            ("guid1".to_string(), 0),
-            ("guid2".to_string(), 1),
-            ("guid3".to_string(), 2),
-        ]
-        .into_iter()
-        .collect();
-        let expected_inactive: HashSet<u32> = [2].into_iter().collect();
+        value_scenarios!(
+            run = track;
+            // --- SKU takes precedence when present ---
+            "SKU present, port not in inactive set -> track" {
+                TrackPortDown {
+                    guid: "guid1",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1)],
+                    expected_inactive: Some(&[2, 3]),
+                    instance_guids: None,
+                } => true,
+            }
 
-        assert!(!should_track_port_as_down(
-            "guid3",
-            &guid_to_index,
-            Some(&expected_inactive),
-            None,
-        ));
-    }
+            "SKU present, port in inactive set -> do not track" {
+                TrackPortDown {
+                    guid: "guid3",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1), ("guid3", 2)],
+                    expected_inactive: Some(&[2]),
+                    instance_guids: None,
+                } => false,
+            }
 
-    #[test]
-    fn test_should_track_port_sku_overrides_instance() {
-        // SKU says port should be up, even though instance doesn't use it -> should track
-        let guid_to_index: HashMap<String, u32> = [
-            ("guid1".to_string(), 0),
-            ("guid2".to_string(), 1),
-            ("guid3".to_string(), 2),
-        ]
-        .into_iter()
-        .collect();
-        let expected_inactive: HashSet<u32> = HashSet::new();
-        let instance_guids: HashSet<String> = ["guid1".to_string(), "guid2".to_string()]
-            .into_iter()
-            .collect();
+            "SKU says up overrides instance not using it -> track" {
+                TrackPortDown {
+                    guid: "guid3",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1), ("guid3", 2)],
+                    expected_inactive: Some(&[]),
+                    instance_guids: Some(&["guid1", "guid2"]),
+                } => true,
+            }
 
-        // guid3 not used by instance, but SKU says it should be up
-        assert!(should_track_port_as_down(
-            "guid3",
-            &guid_to_index,
-            Some(&expected_inactive),
-            Some(&instance_guids),
-        ));
-    }
+            "SKU says inactive overrides instance using it -> do not track" {
+                TrackPortDown {
+                    guid: "guid2",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1)],
+                    expected_inactive: Some(&[1]),
+                    instance_guids: Some(&["guid1", "guid2"]),
+                } => false,
+            }
 
-    #[test]
-    fn test_should_track_port_sku_inactive_overrides_instance() {
-        // SKU says port is intentionally inactive, even though instance uses it -> should NOT track
-        let guid_to_index: HashMap<String, u32> =
-            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
-                .into_iter()
-                .collect();
-        let expected_inactive: HashSet<u32> = [1].into_iter().collect();
-        let instance_guids: HashSet<String> = ["guid1".to_string(), "guid2".to_string()]
-            .into_iter()
-            .collect();
+            "all ports inactive by SKU, guid1 -> do not track" {
+                TrackPortDown {
+                    guid: "guid1",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1)],
+                    expected_inactive: Some(&[0, 1]),
+                    instance_guids: None,
+                } => false,
+            }
 
-        assert!(!should_track_port_as_down(
-            "guid2",
-            &guid_to_index,
-            Some(&expected_inactive),
-            Some(&instance_guids),
-        ));
-    }
+            "all ports inactive by SKU, guid2 -> do not track" {
+                TrackPortDown {
+                    guid: "guid2",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1)],
+                    expected_inactive: Some(&[0, 1]),
+                    instance_guids: None,
+                } => false,
+            }
 
-    #[test]
-    fn test_should_track_port_all_ports_inactive_by_sku() {
-        let guid_to_index: HashMap<String, u32> =
-            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
-                .into_iter()
-                .collect();
-        let expected_inactive: HashSet<u32> = [0, 1].into_iter().collect();
+            "unknown GUID with SKU gets u32::MAX, not inactive -> track (fail-open)" {
+                TrackPortDown {
+                    guid: "unknown_guid",
+                    guid_to_index: &[],
+                    expected_inactive: Some(&[0, 1, 2]),
+                    instance_guids: None,
+                } => true,
+            }
 
-        assert!(!should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            Some(&expected_inactive),
-            None,
-        ));
-        assert!(!should_track_port_as_down(
-            "guid2",
-            &guid_to_index,
-            Some(&expected_inactive),
-            None,
-        ));
-    }
+            // --- Instance fallback when no SKU ---
+            "no SKU, instance uses this port -> track" {
+                TrackPortDown {
+                    guid: "guid1",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1)],
+                    expected_inactive: None,
+                    instance_guids: Some(&["guid1", "guid2"]),
+                } => true,
+            }
 
-    #[test]
-    fn test_should_track_port_unknown_guid_with_sku() {
-        // Unknown GUID gets u32::MAX which won't be in inactive_devices -> should track (fail-open)
-        let guid_to_index: HashMap<String, u32> = HashMap::new();
-        let expected_inactive: HashSet<u32> = [0, 1, 2].into_iter().collect();
+            "no SKU, instance does not use this port -> do not track" {
+                TrackPortDown {
+                    guid: "guid3",
+                    guid_to_index: &[("guid1", 0), ("guid2", 1), ("guid3", 2)],
+                    expected_inactive: None,
+                    instance_guids: Some(&["guid1", "guid2"]),
+                } => false,
+            }
 
-        assert!(should_track_port_as_down(
-            "unknown_guid",
-            &guid_to_index,
-            Some(&expected_inactive),
-            None,
-        ));
-    }
+            "no SKU, instance match is case-insensitive -> track" {
+                TrackPortDown {
+                    guid: "GUID1",
+                    guid_to_index: &[("GUID1", 0)],
+                    expected_inactive: None,
+                    instance_guids: Some(&["guid1"]),
+                } => true,
+            }
 
-    // --- Instance fallback when no SKU ---
+            "no SKU, empty instance config -> do not track" {
+                TrackPortDown {
+                    guid: "guid1",
+                    guid_to_index: &[("guid1", 0)],
+                    expected_inactive: None,
+                    instance_guids: Some(&[]),
+                } => false,
+            }
 
-    #[test]
-    fn test_should_track_port_no_sku_instance_port_in_config() {
-        // No SKU, but instance uses this port -> should track
-        let guid_to_index: HashMap<String, u32> =
-            [("guid1".to_string(), 0), ("guid2".to_string(), 1)]
-                .into_iter()
-                .collect();
-        let instance_guids: HashSet<String> = ["guid1".to_string(), "guid2".to_string()]
-            .into_iter()
-            .collect();
-
-        assert!(should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            None,
-            Some(&instance_guids),
-        ));
-    }
-
-    #[test]
-    fn test_should_track_port_no_sku_instance_port_not_in_config() {
-        // No SKU, instance doesn't use this port -> should NOT track
-        let guid_to_index: HashMap<String, u32> = [
-            ("guid1".to_string(), 0),
-            ("guid2".to_string(), 1),
-            ("guid3".to_string(), 2),
-        ]
-        .into_iter()
-        .collect();
-        let instance_guids: HashSet<String> = ["guid1".to_string(), "guid2".to_string()]
-            .into_iter()
-            .collect();
-
-        assert!(!should_track_port_as_down(
-            "guid3",
-            &guid_to_index,
-            None,
-            Some(&instance_guids),
-        ));
-    }
-
-    #[test]
-    fn test_should_track_port_no_sku_instance_case_insensitive() {
-        let guid_to_index: HashMap<String, u32> = [("GUID1".to_string(), 0)].into_iter().collect();
-        let instance_guids: HashSet<String> = ["guid1".to_string()].into_iter().collect();
-
-        assert!(should_track_port_as_down(
-            "GUID1",
-            &guid_to_index,
-            None,
-            Some(&instance_guids),
-        ));
-    }
-
-    #[test]
-    fn test_should_track_port_no_sku_empty_instance_config() {
-        // No SKU, instance has empty IB config -> should NOT track
-        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
-        let instance_guids: HashSet<String> = HashSet::new();
-
-        assert!(!should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            None,
-            Some(&instance_guids),
-        ));
-    }
-
-    // --- Neither SKU nor instance ---
-
-    #[test]
-    fn test_should_track_port_no_sku_no_instance() {
-        // Neither SKU nor instance -> should NOT track
-        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
-
-        assert!(!should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            None,
-            None,
-        ));
-    }
-
-    #[test]
-    fn test_should_track_port_sku_no_ib_devices_no_instance() {
-        // SKU has no IB devices (None), no instance -> should NOT track
-        let guid_to_index: HashMap<String, u32> = [("guid1".to_string(), 0)].into_iter().collect();
-
-        assert!(!should_track_port_as_down(
-            "guid1",
-            &guid_to_index,
-            None,
-            None,
-        ));
+            // --- Neither SKU nor instance (a SKU present but with no IB devices
+            // reaches this the same way -- both arrive as `expected_inactive: None`) ---
+            "neither SKU nor instance -> do not track" {
+                TrackPortDown {
+                    guid: "guid1",
+                    guid_to_index: &[("guid1", 0)],
+                    expected_inactive: None,
+                    instance_guids: None,
+                } => false,
+            }
+        );
     }
 
     // ============================================================

@@ -72,3 +72,88 @@ impl Display for PxeRequestError {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy, Debug)]
+    enum ErrorCase {
+        MissingClientConfig,
+        MissingMachineId,
+        InvalidBuildArch,
+        MalformedMachineId,
+        MalformedBuildArch,
+    }
+
+    fn error_for(case: ErrorCase) -> PxeRequestError {
+        match case {
+            ErrorCase::MissingClientConfig => PxeRequestError::MissingClientConfig,
+            ErrorCase::MissingMachineId => PxeRequestError::MissingMachineId,
+            ErrorCase::InvalidBuildArch => PxeRequestError::InvalidBuildArch,
+            ErrorCase::MalformedMachineId => {
+                PxeRequestError::MalformedMachineId("bad uuid".to_string())
+            }
+            ErrorCase::MalformedBuildArch => {
+                PxeRequestError::MalformedBuildArch("bad arch".to_string())
+            }
+        }
+    }
+
+    fn display_error(case: ErrorCase) -> String {
+        error_for(case).to_string()
+    }
+
+    fn debug_matches_display(case: ErrorCase) -> bool {
+        let error = error_for(case);
+        format!("{error:?}") == error.to_string()
+    }
+
+    fn response_status(case: ErrorCase) -> StatusCode {
+        error_for(case).into_response().status()
+    }
+
+    #[test]
+    fn formats_pxe_request_errors() {
+        value_scenarios!(display_error:
+            "missing inputs" {
+                ErrorCase::MissingClientConfig => "Missing client configuration from server config (should not reach this case)".to_string(),
+                ErrorCase::MissingMachineId => "Missing Machine Identifier (UUID) specified in URI parameter uuid".to_string(),
+                ErrorCase::InvalidBuildArch => "Invalid build arch specified in URI parameter buildarch".to_string(),
+            }
+
+            "malformed inputs" {
+                ErrorCase::MalformedMachineId => "Malformed Machine UUID: bad uuid".to_string(),
+                ErrorCase::MalformedBuildArch => "Malformed build arch: bad arch".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn debug_matches_display_for_pxe_request_errors() {
+        value_scenarios!(debug_matches_display:
+            "debug" {
+                ErrorCase::MissingClientConfig => true,
+                ErrorCase::MissingMachineId => true,
+                ErrorCase::InvalidBuildArch => true,
+                ErrorCase::MalformedMachineId => true,
+                ErrorCase::MalformedBuildArch => true,
+            }
+        );
+    }
+
+    #[test]
+    fn converts_pxe_request_errors_to_bad_request_responses() {
+        value_scenarios!(response_status:
+            "response status" {
+                ErrorCase::MissingClientConfig => StatusCode::BAD_REQUEST,
+                ErrorCase::MissingMachineId => StatusCode::BAD_REQUEST,
+                ErrorCase::InvalidBuildArch => StatusCode::BAD_REQUEST,
+                ErrorCase::MalformedMachineId => StatusCode::BAD_REQUEST,
+                ErrorCase::MalformedBuildArch => StatusCode::BAD_REQUEST,
+            }
+        );
+    }
+}

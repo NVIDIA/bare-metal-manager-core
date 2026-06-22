@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,57 +46,34 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all partitions).
+// show routes to the Show variant and binds its optional filters: a bare
+// invocation leaves id empty and both --tenant-org-id/--name unset, while each
+// of the positional id, --tenant-org-id, and --name lands on its field.
+// Each row yields the (id, tenant_org_id, name) the originals asserted.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_empty());
-            assert!(args.tenant_org_id.is_none());
-            assert!(args.name.is_none());
+fn show_parses_filters() {
+    fn show_filters(argv: &[&str]) -> Result<(String, Option<String>, Option<String>), ()> {
+        match Cmd::try_parse_from(argv.iter().copied()).map_err(drop)? {
+            Cmd::Show(args) => Ok((args.id, args.tenant_org_id, args.name)),
         }
     }
-}
 
-// parse_show_with_tenant ensures show parses with
-// --tenant-org-id.
-#[test]
-fn parse_show_with_tenant() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "--tenant-org-id", "tenant-123"])
-        .expect("should parse show with tenant");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org_id, Some("tenant-123".to_string()));
+    scenarios!(
+        run = show_filters;
+        "no arguments (all partitions)" {
+            &["nvl-partition", "show"][..] => Yields((String::new(), None, None)),
         }
-    }
-}
 
-// parse_show_with_name ensures show parses with --name.
-#[test]
-fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "--name", "my-partition"])
-        .expect("should parse show with name");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.name, Some("my-partition".to_string()));
+        "with --tenant-org-id" {
+            &["nvl-partition", "show", "--tenant-org-id", "tenant-123"][..] => Yields((String::new(), Some("tenant-123".to_string()), None)),
         }
-    }
-}
 
-// parse_show_with_id ensures show parses with positional ID.
-#[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["nvl-partition", "show", "partition-123"])
-        .expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.id, "partition-123");
+        "with --name" {
+            &["nvl-partition", "show", "--name", "my-partition"][..] => Yields((String::new(), None, Some("my-partition".to_string()))),
         }
-    }
+
+        "with positional id" {
+            &["nvl-partition", "show", "partition-123"][..] => Yields(("partition-123".to_string(), None, None)),
+        }
+    );
 }

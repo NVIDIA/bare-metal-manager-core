@@ -24,7 +24,7 @@ use super::collector_metrics::metrics_service_client::MetricsServiceClient;
 use super::convert::build_metrics_export_request;
 use crate::collectors::{BackoffConfig, ExponentialBackoff};
 use crate::sink::otlp::OtlpMetricsQueue;
-use crate::sink::{EventContext, SensorHealthData};
+use crate::sink::{EventContext, MetricSample};
 
 pub(crate) struct OtlpMetricsDrainTask {
     queue: Arc<OtlpMetricsQueue>,
@@ -48,7 +48,7 @@ impl OtlpMetricsDrainTask {
         }
     }
 
-    fn drain_batch(&self, batch: &mut Vec<(EventContext, SensorHealthData)>) {
+    fn drain_batch(&self, batch: &mut Vec<(EventContext, MetricSample)>) {
         let remaining = self.batch_size.saturating_sub(batch.len());
         for _ in 0..remaining {
             match self.queue.pop() {
@@ -127,7 +127,7 @@ impl OtlpMetricsDrainTask {
     async fn flush(
         &self,
         client: &mut MetricsServiceClient<Channel>,
-        batch: &mut Vec<(EventContext, SensorHealthData)>,
+        batch: &mut Vec<(EventContext, MetricSample)>,
     ) {
         if batch.is_empty() {
             return;

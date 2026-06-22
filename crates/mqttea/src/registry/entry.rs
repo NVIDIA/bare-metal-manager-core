@@ -155,3 +155,180 @@ impl MqttRegistryEntry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use carbide_test_support::value_scenarios;
+    use rumqttc::QoS;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum EntryBuild {
+        DefaultJson,
+        QosOverride,
+        RetainOverride,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EntrySummary {
+        type_name: String,
+        patterns: Vec<String>,
+        publish_options: Option<(Option<QoS>, Option<bool>)>,
+        qos: Option<QoS>,
+        retain: Option<bool>,
+        format: SerializationFormat,
+        pattern_count: usize,
+        has_alpha: bool,
+        has_missing: bool,
+        uses_qos_override: bool,
+        effective_qos: QoS,
+        is_json: bool,
+        debug_mentions_type: bool,
+        debug_hides_handlers: bool,
+    }
+
+    fn string_entry(
+        publish_options: Option<PublishOptions>,
+        format: SerializationFormat,
+    ) -> MqttRegistryEntry {
+        MqttRegistryEntry {
+            message_type_info: MessageTypeInfo {
+                type_name: "String".to_string(),
+                patterns: vec!["alpha".to_string(), "beta".to_string()],
+                publish_options,
+                format,
+            },
+            serialize_handler: Box::new(|message| {
+                message
+                    .downcast_ref::<String>()
+                    .map(|message| message.as_bytes().to_vec())
+                    .ok_or_else(|| MqtteaClientError::raw_message_error("expected String"))
+            }),
+            deserialize_handler: Box::new(|bytes| {
+                String::from_utf8(bytes.to_vec())
+                    .map(|message| Box::new(message) as Box<dyn Any + Send>)
+                    .map_err(|err| MqtteaClientError::invalid_utf8(err.to_string()))
+            }),
+        }
+    }
+
+    fn entry_from(build: EntryBuild) -> MqttRegistryEntry {
+        match build {
+            EntryBuild::DefaultJson => string_entry(None, SerializationFormat::Json),
+            EntryBuild::QosOverride => string_entry(
+                Some(PublishOptions::default().with_qos(QoS::ExactlyOnce)),
+                SerializationFormat::Raw,
+            ),
+            EntryBuild::RetainOverride => string_entry(
+                Some(PublishOptions::default().with_retain(true)),
+                SerializationFormat::Yaml,
+            ),
+        }
+    }
+
+    fn summarize(entry: MqttRegistryEntry) -> EntrySummary {
+        EntrySummary {
+            type_name: entry.type_name().to_string(),
+            patterns: entry.patterns().to_vec(),
+            publish_options: entry
+                .publish_options()
+                .map(|options| (options.qos, options.retain)),
+            qos: entry.qos(),
+            retain: entry.retain(),
+            format: entry.format(),
+            pattern_count: entry.pattern_count(),
+            has_alpha: entry.has_pattern("alpha"),
+            has_missing: entry.has_pattern("missing"),
+            uses_qos_override: entry.uses_qos_override(),
+            effective_qos: entry.effective_qos(QoS::AtMostOnce),
+            is_json: entry.is_format(SerializationFormat::Json),
+            debug_mentions_type: format!("{entry:?}").contains("String"),
+            debug_hides_handlers: format!("{entry:?}").contains("<function>"),
+        }
+    }
+
+    #[test]
+    fn test_registry_entry_accessors() {
+        value_scenarios!(
+            run = |build| summarize(entry_from(build));
+            "default JSON entry" {
+                EntryBuild::DefaultJson => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: None,
+                    qos: None,
+                    retain: None,
+                    format: SerializationFormat::Json,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    is_json: true,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
+                },
+            }
+
+            "QoS override" {
+                EntryBuild::QosOverride => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: Some((Some(QoS::ExactlyOnce), None)),
+                    qos: Some(QoS::ExactlyOnce),
+                    retain: None,
+                    format: SerializationFormat::Raw,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: true,
+                    effective_qos: QoS::ExactlyOnce,
+                    is_json: false,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
+                },
+            }
+
+            "retain override" {
+                EntryBuild::RetainOverride => EntrySummary {
+                    type_name: "String".to_string(),
+                    patterns: vec!["alpha".to_string(), "beta".to_string()],
+                    publish_options: Some((None, Some(true))),
+                    qos: None,
+                    retain: Some(true),
+                    format: SerializationFormat::Yaml,
+                    pattern_count: 2,
+                    has_alpha: true,
+                    has_missing: false,
+                    uses_qos_override: false,
+                    effective_qos: QoS::AtMostOnce,
+                    is_json: false,
+                    debug_mentions_type: true,
+                    debug_hides_handlers: true,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn test_registry_entry_handlers() {
+        let entry = entry_from(EntryBuild::DefaultJson);
+        let message = "hello".to_string();
+
+        assert_eq!(entry.serialize(&message).expect("serialize"), b"hello");
+
+        let restored = entry
+            .deserialize(b"hello")
+            .expect("deserialize")
+            .downcast::<String>()
+            .expect("restored String");
+        assert_eq!(*restored, "hello");
+
+        assert!(entry.validate_serialization_round_trip(&message).is_ok());
+        assert!(entry.serialize(&42usize).is_err());
+        assert!(entry.deserialize(&[0xff]).is_err());
+    }
+}

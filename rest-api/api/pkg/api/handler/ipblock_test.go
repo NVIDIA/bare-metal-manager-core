@@ -205,7 +205,11 @@ func testIPBlockBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 func testIPBlockBuildAllocationConstraint(t *testing.T, dbSession *cdb.Session, allocationID uuid.UUID, resourceType string, resourceTypeID uuid.UUID, constraintType string, constraintValue int, derivedResourceID *uuid.UUID, createdBy uuid.UUID) *cdbm.AllocationConstraint {
 	alcDAO := cdbm.NewAllocationConstraintDAO(dbSession)
 
-	alc, err := alcDAO.CreateFromParams(context.Background(), nil, allocationID, resourceType, resourceTypeID, constraintType, constraintValue, derivedResourceID, createdBy)
+	alc, err := alcDAO.Create(context.Background(), nil, cdbm.AllocationConstraintCreateInput{
+		AllocationID: allocationID, ResourceType: resourceType, ResourceTypeID: resourceTypeID,
+		ConstraintType: constraintType, ConstraintValue: constraintValue,
+		DerivedResourceID: derivedResourceID, CreatedBy: createdBy,
+	})
 	assert.Nil(t, err)
 
 	return alc

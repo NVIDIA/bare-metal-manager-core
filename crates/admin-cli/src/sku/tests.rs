@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -46,228 +48,215 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no arguments.
+// show parses with no arguments (sku_id absent) and with a
+// positional sku_id (present).
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["sku", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.sku_id.is_none());
+fn parse_show() {
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Show(args)) => Ok(args.sku_id),
+            Ok(_) => panic!("expected Show variant"),
+            Err(_) => Err(()),
+        };
+        "no args leaves sku_id unset" {
+            &["sku", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
+
+        "positional sku_id is captured" {
+            &["sku", "show", "sku-123"][..] => Yields(Some("sku-123".to_string())),
+        }
+    );
 }
 
-// parse_show_with_sku_id ensures show parses with sku_id.
-#[test]
-fn parse_show_with_sku_id() {
-    let cmd =
-        Cmd::try_parse_from(["sku", "show", "sku-123"]).expect("should parse show with sku_id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.sku_id, Some("sku-123".to_string()));
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_show_machines ensures show-machines parses.
+// show-machines parses with a positional sku_id, captured on the
+// inner args.
 #[test]
 fn parse_show_machines() {
-    let cmd = Cmd::try_parse_from(["sku", "show-machines", "sku-123"])
-        .expect("should parse show-machines");
-
-    match cmd {
-        Cmd::ShowMachines(args) => {
-            assert_eq!(args.inner.sku_id, Some("sku-123".to_string()));
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::ShowMachines(args)) => Ok(args.inner.sku_id),
+            Ok(_) => panic!("expected ShowMachines variant"),
+            Err(_) => Err(()),
+        };
+        "positional sku_id is captured on inner" {
+            &["sku", "show-machines", "sku-123"][..] => Yields(Some("sku-123".to_string())),
         }
-        _ => panic!("expected ShowMachines variant"),
-    }
+    );
 }
 
-// parse_generate ensures generate parses with machine_id.
+// generate parses with a required machine_id and an optional --id
+// override; the tuple is (machine_id, id).
 #[test]
 fn parse_generate() {
-    let cmd =
-        Cmd::try_parse_from(["sku", "generate", TEST_MACHINE_ID]).expect("should parse generate");
-
-    match cmd {
-        Cmd::Generate(args) => {
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
-            assert!(args.id.is_none());
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Generate(args)) => Ok((args.machine_id.to_string(), args.id)),
+            Ok(_) => panic!("expected Generate variant"),
+            Err(_) => Err(()),
+        };
+        "machine_id only leaves id unset" {
+            &["sku", "generate", TEST_MACHINE_ID][..] => Yields((TEST_MACHINE_ID.to_string(), None)),
         }
-        _ => panic!("expected Generate variant"),
-    }
+
+        "--id override is captured" {
+            &["sku", "generate", TEST_MACHINE_ID, "--id", "custom-sku"][..] => Yields((TEST_MACHINE_ID.to_string(), Some("custom-sku".to_string()))),
+        }
+    );
 }
 
-// parse_generate_with_id_override ensures generate parses
-// with --id override.
-#[test]
-fn parse_generate_with_id_override() {
-    let cmd = Cmd::try_parse_from(["sku", "generate", TEST_MACHINE_ID, "--id", "custom-sku"])
-        .expect("should parse generate with id");
-
-    match cmd {
-        Cmd::Generate(args) => {
-            assert_eq!(args.id, Some("custom-sku".to_string()));
-        }
-        _ => panic!("expected Generate variant"),
-    }
-}
-
-// parse_create ensures create parses with filename.
+// create parses with a positional filename; --id defaults to unset.
+// The tuple is (filename, id).
 #[test]
 fn parse_create() {
-    let cmd = Cmd::try_parse_from(["sku", "create", "sku.json"]).expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.filename, "sku.json");
-            assert!(args.id.is_none());
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Create(args)) => Ok((args.filename, args.id)),
+            Ok(_) => panic!("expected Create variant"),
+            Err(_) => Err(()),
+        };
+        "filename captured, id unset" {
+            &["sku", "create", "sku.json"][..] => Yields(("sku.json".to_string(), None)),
         }
-        _ => panic!("expected Create variant"),
-    }
+    );
 }
 
-// parse_delete ensures delete parses with sku_id.
+// delete parses with a positional sku_id.
 #[test]
 fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["sku", "delete", "sku-123"]).expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.sku_id, "sku-123");
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Delete(args)) => Ok(args.sku_id),
+            Ok(_) => panic!("expected Delete variant"),
+            Err(_) => Err(()),
+        };
+        "positional sku_id is captured" {
+            &["sku", "delete", "sku-123"][..] => Yields("sku-123".to_string()),
         }
-        _ => panic!("expected Delete variant"),
-    }
+    );
 }
 
-// parse_assign ensures assign parses with sku_id and machine_id.
+// assign parses with sku_id and machine_id, with an optional --force
+// flag. The tuple is (sku_id, machine_id, force).
 #[test]
 fn parse_assign() {
-    let cmd = Cmd::try_parse_from(["sku", "assign", "sku-123", TEST_MACHINE_ID])
-        .expect("should parse assign");
-
-    match cmd {
-        Cmd::Assign(args) => {
-            assert_eq!(args.sku_id, "sku-123");
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
-            assert!(!args.force);
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Assign(args)) => Ok((args.sku_id, args.machine_id.to_string(), args.force)),
+            Ok(_) => panic!("expected Assign variant"),
+            Err(_) => Err(()),
+        };
+        "force defaults off" {
+            &["sku", "assign", "sku-123", TEST_MACHINE_ID][..] => Yields(("sku-123".to_string(), TEST_MACHINE_ID.to_string(), false)),
         }
-        _ => panic!("expected Assign variant"),
-    }
+
+        "--force flag sets force" {
+            &["sku", "assign", "sku-123", TEST_MACHINE_ID, "--force"][..] => Yields(("sku-123".to_string(), TEST_MACHINE_ID.to_string(), true)),
+        }
+    );
 }
 
-// parse_assign_with_force ensures assign parses with --force flag.
-#[test]
-fn parse_assign_with_force() {
-    let cmd = Cmd::try_parse_from(["sku", "assign", "sku-123", TEST_MACHINE_ID, "--force"])
-        .expect("should parse assign with force");
-
-    match cmd {
-        Cmd::Assign(args) => {
-            assert!(args.force);
-        }
-        _ => panic!("expected Assign variant"),
-    }
-}
-
-// parse_unassign ensures unassign parses with machine_id.
+// unassign parses with a machine_id; --force defaults off. The tuple
+// is (machine_id, force).
 #[test]
 fn parse_unassign() {
-    let cmd =
-        Cmd::try_parse_from(["sku", "unassign", TEST_MACHINE_ID]).expect("should parse unassign");
-
-    match cmd {
-        Cmd::Unassign(args) => {
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
-            assert!(!args.force);
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Unassign(args)) => Ok((args.machine_id.to_string(), args.force)),
+            Ok(_) => panic!("expected Unassign variant"),
+            Err(_) => Err(()),
+        };
+        "machine_id captured, force defaults off" {
+            &["sku", "unassign", TEST_MACHINE_ID][..] => Yields((TEST_MACHINE_ID.to_string(), false)),
         }
-        _ => panic!("expected Unassign variant"),
-    }
+    );
 }
 
-// parse_verify ensures verify parses with machine_id.
+// verify parses with a machine_id.
 #[test]
 fn parse_verify() {
-    let cmd = Cmd::try_parse_from(["sku", "verify", TEST_MACHINE_ID]).expect("should parse verify");
-
-    match cmd {
-        Cmd::Verify(args) => {
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Verify(args)) => Ok(args.machine_id.to_string()),
+            Ok(_) => panic!("expected Verify variant"),
+            Err(_) => Err(()),
+        };
+        "machine_id is captured" {
+            &["sku", "verify", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }
-        _ => panic!("expected Verify variant"),
-    }
+    );
 }
 
-// parse_update_metadata ensures update-metadata parses
-// with required args.
+// update-metadata parses with a sku_id and a --description; --device-type
+// defaults to unset. The tuple is (sku_id, description, device_type).
 #[test]
 fn parse_update_metadata() {
-    let cmd = Cmd::try_parse_from([
-        "sku",
-        "update-metadata",
-        "sku-123",
-        "--description",
-        "New desc",
-    ])
-    .expect("should parse update-metadata");
-
-    match cmd {
-        Cmd::UpdateMetadata(args) => {
-            assert_eq!(args.sku_id, "sku-123");
-            assert_eq!(args.description, Some("New desc".to_string()));
-            assert!(args.device_type.is_none());
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::UpdateMetadata(args)) => {
+                Ok((args.sku_id, args.description, args.device_type.is_none()))
+            }
+            Ok(_) => panic!("expected UpdateMetadata variant"),
+            Err(_) => Err(()),
+        };
+        "sku_id and description captured, device_type unset" {
+            &[
+                "sku",
+                "update-metadata",
+                "sku-123",
+                "--description",
+                "New desc",
+            ][..] => Yields(("sku-123".to_string(), Some("New desc".to_string()), true)),
         }
-        _ => panic!("expected UpdateMetadata variant"),
-    }
+    );
 }
 
-// parse_bulk_update_metadata ensures bulk-update-metadata
-// parses with filename.
+// bulk-update-metadata parses with a positional filename.
 #[test]
 fn parse_bulk_update_metadata() {
-    let cmd = Cmd::try_parse_from(["sku", "bulk-update-metadata", "updates.csv"])
-        .expect("should parse bulk-update-metadata");
-
-    match cmd {
-        Cmd::BulkUpdateMetadata(args) => {
-            assert_eq!(args.filename, "updates.csv");
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::BulkUpdateMetadata(args)) => Ok(args.filename),
+            Ok(_) => panic!("expected BulkUpdateMetadata variant"),
+            Err(_) => Err(()),
+        };
+        "filename is captured" {
+            &["sku", "bulk-update-metadata", "updates.csv"][..] => Yields("updates.csv".to_string()),
         }
-        _ => panic!("expected BulkUpdateMetadata variant"),
-    }
+    );
 }
 
-// parse_replace ensures replace parses with filename.
+// replace parses with a positional filename, captured on the inner args.
 #[test]
 fn parse_replace() {
-    let cmd = Cmd::try_parse_from(["sku", "replace", "sku.json"]).expect("should parse replace");
-
-    match cmd {
-        Cmd::Replace(args) => {
-            assert_eq!(args.inner.filename, "sku.json");
+    scenarios!(
+        run = |argv| match Cmd::try_parse_from(argv.iter().copied()) {
+            Ok(Cmd::Replace(args)) => Ok(args.inner.filename),
+            Ok(_) => panic!("expected Replace variant"),
+            Err(_) => Err(()),
+        };
+        "filename is captured on inner" {
+            &["sku", "replace", "sku.json"][..] => Yields("sku.json".to_string()),
         }
-        _ => panic!("expected Replace variant"),
-    }
+    );
 }
 
-// parse_generate_missing_machine_id_fails ensures generate
-// fails without machine_id.
+// Every malformed invocation is rejected at parse time -- generate
+// without its required machine_id, and update-metadata with neither a
+// description nor a device_type to change.
 #[test]
-fn parse_generate_missing_machine_id_fails() {
-    let result = Cmd::try_parse_from(["sku", "generate"]);
-    assert!(result.is_err(), "should fail without machine_id");
-}
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "generate without machine_id" {
+            &["sku", "generate"][..] => Fails,
+        }
 
-// parse_update_metadata_missing_field_fails ensures
-// update-metadata fails without description or device_type.
-#[test]
-fn parse_update_metadata_missing_field_fails() {
-    let result = Cmd::try_parse_from(["sku", "update-metadata", "sku-123"]);
-    assert!(
-        result.is_err(),
-        "should fail without description or device_type"
+        "update-metadata without description or device_type" {
+            &["sku", "update-metadata", "sku-123"][..] => Fails,
+        }
     );
 }

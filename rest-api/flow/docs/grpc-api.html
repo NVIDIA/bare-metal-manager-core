@@ -239,7 +239,7 @@
                 </li>
               
                 <li>
-                  <a href="#v1.ComponentStatus"><span class="badge">M</span>ComponentStatus</a>
+                  <a href="#v1.ComponentOperationStatus"><span class="badge">M</span>ComponentOperationStatus</a>
                 </li>
               
                 <li>
@@ -668,6 +668,10 @@
                 </li>
               
                 <li>
+                  <a href="#v1.LeakStatus"><span class="badge">E</span>LeakStatus</a>
+                </li>
+              
+                <li>
                   <a href="#v1.OperationType"><span class="badge">E</span>OperationType</a>
                 </li>
               
@@ -959,14 +963,15 @@
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, allow the bring-up sequence (which may power-cycle hosts
 and reset rack-scoped components) to proceed even if any host in
-scope is still in the Assigned/* lifecycle state. Intended for
-operator-supervised maintenance where tenant impact has been
-acknowledged out-of-band; the bypass is recorded in the server log. </p></td>
+scope is reported as not ready for the operation by its persisted
+ComponentOperationStatus. Intended for operator-supervised maintenance where
+tenant impact has been acknowledged out-of-band; the bypass is
+recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -1187,9 +1192,16 @@ not returned as a conflict against the proposed replacement operation. </p></td>
               
                 <tr>
                   <td>status</td>
-                  <td><a href="#v1.ComponentStatus">ComponentStatus</a></td>
+                  <td><a href="#v1.ComponentOperationStatus">ComponentOperationStatus</a></td>
                   <td></td>
                   <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>leak_status</td>
+                  <td><a href="#v1.LeakStatus">LeakStatus</a></td>
+                  <td></td>
+                  <td><p>Coolant leak detection status (set by the leak-detection loop) </p></td>
                 </tr>
               
             </tbody>
@@ -1258,8 +1270,8 @@ not returned as a conflict against the proposed replacement operation. </p></td>
 
         
       
-        <h3 id="v1.ComponentStatus">ComponentStatus</h3>
-        <p>ComponentStatus is Flow's view of a component's operability. The</p><p>inventory loop computes it on every sync from core's controller_state.</p>
+        <h3 id="v1.ComponentOperationStatus">ComponentOperationStatus</h3>
+        <p>ComponentOperationStatus is Flow's view of a component's operability. The</p><p>inventory loop computes it on every sync from core's controller_state.</p>
 
         
           <table class="field-table">
@@ -2912,6 +2924,18 @@ a component not on the given rack is not an error; it yields an
 empty result. </p></td>
                 </tr>
               
+                <tr>
+                  <td>with_report</td>
+                  <td><a href="#bool">bool</a></td>
+                  <td></td>
+                  <td><p>When true, populate Task.report on each returned task. Defaults to
+false because report bodies can be several KB and would otherwise
+be persisted in every Temporal activity / workflow result payload
+along the caller&#39;s path even when the caller never reads them.
+GetTasksByIDs and CancelTask always return the report and do not
+accept this flag. </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -3400,14 +3424,15 @@ empty result. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the power-off even if one or more target
-hosts (or, for rack-scoped components, any host on the owning rack)
-are still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentOperationStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -3456,14 +3481,15 @@ out-of-band; the bypass is recorded in the server log. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the power-on even if one or more target
-hosts (or, for rack-scoped components, any host on the owning rack)
-are still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentOperationStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -3519,14 +3545,15 @@ out-of-band; the bypass is recorded in the server log. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
-                  <td><p>When true, proceed with the reset even if one or more target hosts
-(or, for rack-scoped components, any host on the owning rack) are
-still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+                  <td><p>When true, proceed with the reset even if one or more target
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentOperationStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -4672,16 +4699,17 @@ downstream component manager. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the firmware update even if one or more
-target hosts (or, for rack-scoped components, any host on the
-owning rack) are still in the Assigned/* lifecycle state. The flag
-is intended for operator-supervised maintenance windows where the
-tenant impact has been acknowledged out-of-band; setting it bypasses
-the safety gate that would otherwise block disruptive operations
-against tenanted hardware. The bypass is recorded in the server log. </p></td>
+target components (or, for rack-scoped components, any host on the
+owning rack) are reported as not ready for the operation by their
+persisted ComponentOperationStatus. The flag is intended for operator-
+supervised maintenance windows where the tenant impact has been
+acknowledged out-of-band; setting it bypasses the readiness gate
+that would otherwise block disruptive operations against tenanted
+hardware. The bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -5031,6 +5059,35 @@ Wire value 1 preserves backward compatibility with the former bool true (queue).
                 <td>DIFF_TYPE_MISMATCH</td>
                 <td>3</td>
                 <td><p>In both but with field differences</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+      
+        <h3 id="v1.LeakStatus">LeakStatus</h3>
+        <p>LeakStatus is Flow's view of whether coolant leak detection has fired for</p><p>a component. The leak-detection loop sets it from core's tray-leak-detection</p><p>health alert; LEAK_STATUS_UNKNOWN is the resting value for components the</p><p>loop has not yet evaluated.</p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>LEAK_STATUS_UNKNOWN</td>
+                <td>0</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>LEAK_STATUS_DETECTED</td>
+                <td>1</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>LEAK_STATUS_NOT_DETECTED</td>
+                <td>2</td>
+                <td><p></p></td>
               </tr>
             
           </tbody>

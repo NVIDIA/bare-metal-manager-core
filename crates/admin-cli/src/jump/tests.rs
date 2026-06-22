@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::Cmd;
@@ -44,39 +46,46 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_with_machine_id ensures parses machine ID format.
+// The positional id accepts any identifier format -- machine ID, IP address,
+// UUID, or MAC address -- and round-trips it verbatim onto `cmd.id`.
 #[test]
-fn parse_with_machine_id() {
-    let cmd = Cmd::try_parse_from(["jump", "machine-123"]).expect("should parse machine ID");
-    assert_eq!(cmd.id, "machine-123");
+fn parse_accepts_any_id_format() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| cmd.id)
+                .map_err(drop)
+        };
+        "machine ID" {
+            &["jump", "machine-123"][..] => Yields("machine-123".to_string()),
+        }
+
+        "IP address" {
+            &["jump", "192.168.1.100"][..] => Yields("192.168.1.100".to_string()),
+        }
+
+        "UUID" {
+            &["jump", "550e8400-e29b-41d4-a716-446655440000"][..] => Yields("550e8400-e29b-41d4-a716-446655440000".to_string()),
+        }
+
+        "MAC address" {
+            &["jump", "00:11:22:33:44:55"][..] => Yields("00:11:22:33:44:55".to_string()),
+        }
+    );
 }
 
-// parse_with_ip_address ensures parses IP address format.
+// The positional id is required: an invocation without it is rejected at parse
+// time.
 #[test]
-fn parse_with_ip_address() {
-    let cmd = Cmd::try_parse_from(["jump", "192.168.1.100"]).expect("should parse IP");
-    assert_eq!(cmd.id, "192.168.1.100");
-}
-
-// parse_with_uuid ensures parses UUID format.
-#[test]
-fn parse_with_uuid() {
-    let cmd = Cmd::try_parse_from(["jump", "550e8400-e29b-41d4-a716-446655440000"])
-        .expect("should parse UUID");
-    assert_eq!(cmd.id, "550e8400-e29b-41d4-a716-446655440000");
-}
-
-// parse_with_mac_address ensures parses MAC address format.
-#[test]
-fn parse_with_mac_address() {
-    let cmd = Cmd::try_parse_from(["jump", "00:11:22:33:44:55"]).expect("should parse MAC");
-    assert_eq!(cmd.id, "00:11:22:33:44:55");
-}
-
-// parse_requires_id_argument ensures fails without
-// required id.
-#[test]
-fn parse_requires_id_argument() {
-    let result = Cmd::try_parse_from(["jump"]);
-    assert!(result.is_err(), "should fail without required id argument");
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "no id argument" {
+            &["jump"][..] => Fails,
+        }
+    );
 }

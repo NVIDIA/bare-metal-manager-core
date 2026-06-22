@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -44,39 +46,35 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_with_no_args ensures parses with no arguments
-// (optional filename).
+// The optional inventory filename parses from none, the long --filename and the
+// short -f flags, and across absolute and relative path spellings -- each
+// invocation lands in `cmd.filename`.
 #[test]
-fn parse_with_no_args() {
-    let cmd = Cmd::try_parse_from(["inventory"]).expect("should parse with no args");
-    assert!(cmd.filename.is_none());
-}
+fn parses_optional_filename() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| cmd.filename)
+                .map_err(drop)
+        };
+        "no arguments leaves filename unset" {
+            &["inventory"][..] => Yields(None),
+        }
 
-// parse_with_filename ensures parses with --filename option.
-#[test]
-fn parse_with_filename() {
-    let cmd = Cmd::try_parse_from(["inventory", "--filename", "output.json"])
-        .expect("should parse with filename");
-    assert_eq!(cmd.filename, Some("output.json".to_string()));
-}
+        "--filename long flag" {
+            &["inventory", "--filename", "output.json"][..] => Yields(Some("output.json".to_string())),
+        }
 
-// parse_with_short_flag ensures parses with -f short flag.
-#[test]
-fn parse_with_short_flag() {
-    let cmd =
-        Cmd::try_parse_from(["inventory", "-f", "output.json"]).expect("should parse with -f");
-    assert_eq!(cmd.filename, Some("output.json".to_string()));
-}
+        "-f short flag" {
+            &["inventory", "-f", "output.json"][..] => Yields(Some("output.json".to_string())),
+        }
 
-// parse_with_various_filenames ensures parses various
-// filename formats.
-#[test]
-fn parse_with_various_filenames() {
-    let cmd1 = Cmd::try_parse_from(["inventory", "-f", "/tmp/inventory.json"])
-        .expect("should parse absolute path");
-    assert_eq!(cmd1.filename, Some("/tmp/inventory.json".to_string()));
+        "absolute path" {
+            &["inventory", "-f", "/tmp/inventory.json"][..] => Yields(Some("/tmp/inventory.json".to_string())),
+        }
 
-    let cmd2 = Cmd::try_parse_from(["inventory", "-f", "./relative/path.csv"])
-        .expect("should parse relative path");
-    assert_eq!(cmd2.filename, Some("./relative/path.csv".to_string()));
+        "relative path" {
+            &["inventory", "-f", "./relative/path.csv"][..] => Yields(Some("./relative/path.csv".to_string())),
+        }
+    );
 }

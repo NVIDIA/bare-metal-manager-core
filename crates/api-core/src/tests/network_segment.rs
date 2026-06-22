@@ -24,6 +24,7 @@ use std::time::Duration;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
@@ -41,7 +42,7 @@ use model::network_segment::{
 };
 use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use model::vpc::UpdateVpcVirtualization;
+use model::vpc::{NewVpc, UpdateVpcVirtualization, VpcDefinition, VpcStatus};
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
@@ -55,6 +56,70 @@ use crate::tests::common::api_fixtures::{
     get_vpc_fixture_id,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
+
+/// Creates a VPC with one stretchable segment for direct SVI allocation tests.
+async fn create_stretchable_segment_for_svi_test(
+    txn: &mut sqlx::PgTransaction<'_>,
+    name: &str,
+    prefixes: Vec<NewNetworkPrefix>,
+) -> Result<(VpcId, NetworkSegmentId), db::DatabaseError> {
+    create_stretchable_segment_for_svi_test_with_vpc_type(
+        txn,
+        name,
+        VpcVirtualizationType::Flat,
+        prefixes,
+    )
+    .await
+}
+
+async fn create_stretchable_segment_for_svi_test_with_vpc_type(
+    txn: &mut sqlx::PgTransaction<'_>,
+    name: &str,
+    network_virtualization_type: VpcVirtualizationType,
+    prefixes: Vec<NewNetworkPrefix>,
+) -> Result<(VpcId, NetworkSegmentId), db::DatabaseError> {
+    // Seed a VPC that can be updated through the same DB path used by handlers.
+    let vpc_id = uuid::Uuid::new_v4().into();
+    db::vpc::persist(
+        NewVpc {
+            id: vpc_id,
+            tenant_organization_id: "tenant".to_string(),
+            network_virtualization_type,
+            metadata: model::metadata::Metadata {
+                name: format!("{name}-vpc"),
+                ..Default::default()
+            },
+            network_security_group_id: None,
+            routing_profile_type: None,
+            vni: None,
+        },
+        VpcStatus { vni: None },
+        txn.as_mut(),
+    )
+    .await?;
+
+    // Attach a stretchable segment whose prefixes should receive SVI IPs.
+    let segment = db::network_segment::persist(
+        NewNetworkSegment {
+            id: uuid::Uuid::new_v4().into(),
+            name: name.to_string(),
+            subdomain_id: None,
+            vpc_id: Some(vpc_id),
+            mtu: 1500,
+            prefixes,
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Admin,
+            can_stretch: Some(true),
+            allocation_strategy: Default::default(),
+        },
+        txn.as_mut(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+
+    Ok((vpc_id, segment.id))
+}
 
 #[crate::sqlx_test]
 async fn test_advance_network_prefix_state(
@@ -94,11 +159,13 @@ async fn test_advance_network_prefix_state(
                 NewNetworkPrefix {
                     prefix: "192.0.2.1/24".parse().expect("can't parse network"),
                     gateway: "192.0.2.1".parse().ok(),
+                    dhcpv6_link_address: None,
                     num_reserved: 1,
                 },
                 NewNetworkPrefix {
                     prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
                     gateway: None,
+                    dhcpv6_link_address: None,
                     num_reserved: 100,
                 },
             ],
@@ -162,6 +229,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
     txn.commit().await.unwrap();
@@ -497,10 +565,13 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
         (
@@ -508,10 +579,13 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
         (
@@ -519,10 +593,13 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
                 prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
     ]);
@@ -574,6 +651,125 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
         num_before, num_after,
         "second create_initial_networks should not have created any segments"
     );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+pub async fn test_create_initial_vpc_and_attached_network(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let vpcs = HashMap::from([(
+        "zero-dpu-vpc".to_string(),
+        VpcDefinition {
+            organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+            network_virtualization_type: VpcVirtualizationType::Flat,
+            routing_profile_type: None,
+            vni: None,
+        },
+    )]);
+    let networks = HashMap::from([(
+        "ZERO-DPU-HOST-01-SWP7".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::HostInband,
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            prefix_v6: None,
+            gateway: "10.217.18.193".parse().unwrap(),
+            dhcpv6_link_address: None,
+            mtu: 1500,
+            reserve_first: 1,
+            allocation_strategy: Default::default(),
+            vpc_name: Some("zero-dpu-vpc".to_string()),
+        },
+    )]);
+
+    crate::db_init::create_initial_vpcs(
+        &env.pool,
+        &vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await?;
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let seeded_vpcs = db::vpc::find_by_name(txn.as_mut(), "zero-dpu-vpc").await?;
+    assert_eq!(seeded_vpcs.len(), 1);
+    let seeded_vpc = &seeded_vpcs[0];
+    assert_eq!(
+        seeded_vpc.config.tenant_organization_id,
+        "2829bbe3-c169-4cd9-8b2a-19a8b1618a93"
+    );
+    assert_eq!(
+        seeded_vpc.config.network_virtualization_type,
+        VpcVirtualizationType::Flat
+    );
+
+    let host_inband = db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7").await?;
+    assert_eq!(
+        host_inband.config.segment_type,
+        NetworkSegmentType::HostInband
+    );
+    assert_eq!(host_inband.config.vpc_id, Some(seeded_vpc.id));
+    txn.commit().await?;
+
+    crate::db_init::create_initial_vpcs(
+        &env.pool,
+        &vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await?;
+    let seeded_vpcs = db::vpc::find_by_name(&env.pool, "zero-dpu-vpc").await?;
+    assert_eq!(
+        seeded_vpcs.len(),
+        1,
+        "second create_initial_vpcs should not create duplicate VPCs"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+pub async fn test_create_initial_network_fails_for_missing_vpc_name(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let networks = HashMap::from([(
+        "ZERO-DPU-HOST-01-SWP7".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::HostInband,
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            prefix_v6: None,
+            gateway: "10.217.18.193".parse().unwrap(),
+            dhcpv6_link_address: None,
+            mtu: 1500,
+            reserve_first: 1,
+            allocation_strategy: Default::default(),
+            vpc_name: Some("missing-vpc".to_string()),
+        },
+    )]);
+
+    let err = crate::db_init::create_initial_networks(&env.api, &env.pool, &networks)
+        .await
+        .expect_err("missing VPC references must fail before creating a network segment");
+
+    assert!(
+        err.to_string().contains("missing-vpc"),
+        "error should name the missing VPC: {err}"
+    );
+
+    let mut txn = db_pool.begin().await?;
+    assert!(
+        db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7")
+            .await
+            .is_err(),
+        "network segment should not be created when its VPC reference is invalid"
+    );
+    txn.commit().await?;
+
     Ok(())
 }
 
@@ -1024,6 +1220,194 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// Verifies that converting a VPC to FNN allocates SVI IPs for every prefix
+/// on a dual-stack segment, not just the IPv4 prefix.
+#[crate::sqlx_test]
+async fn test_update_svi_ip_dual_stack_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let (vpc_id, segment_id) = create_stretchable_segment_for_svi_test(
+        &mut txn,
+        "dual-stack-svi",
+        vec![
+            NewNetworkPrefix {
+                prefix: "198.18.40.0/24".parse().unwrap(),
+                gateway: Some("198.18.40.1".parse().unwrap()),
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:4040::/64".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+        ],
+    )
+    .await?;
+
+    // Update virtualization through the DB path that refreshes SVI IPs.
+    let update_request = UpdateVpcVirtualization {
+        id: vpc_id,
+        if_version_match: None,
+        network_virtualization_type: VpcVirtualizationType::Fnn,
+    };
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    txn.commit().await?;
+
+    // Re-read the segment to verify both prefix families persisted SVI IPs.
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    assert_eq!(segment.prefixes.len(), 2);
+    assert!(
+        segment
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv4() && prefix.svi_ip.is_some())
+    );
+    assert!(
+        segment
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv6() && prefix.svi_ip.is_some())
+    );
+
+    Ok(())
+}
+
+/// Verifies that startup SVI backfill repairs partially populated dual-stack
+/// segments instead of skipping them when one prefix already has an SVI IP.
+#[crate::sqlx_test]
+async fn test_update_network_segments_svi_ip_backfills_partial_dual_stack_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    // Create the segment as FNN up front so this test covers the startup
+    // backfill path, not the VPC virtualization update path.
+    let (_vpc_id, segment_id) = create_stretchable_segment_for_svi_test_with_vpc_type(
+        &mut txn,
+        "partial-dual-stack-svi",
+        VpcVirtualizationType::Fnn,
+        vec![
+            NewNetworkPrefix {
+                prefix: "198.18.42.0/24".parse().unwrap(),
+                gateway: Some("198.18.42.1".parse().unwrap()),
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:4042::/64".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+        ],
+    )
+    .await?;
+
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    let ipv4_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv4())
+        .unwrap();
+    // Seed the partial state produced by older dual-stack behavior: IPv4 has
+    // an SVI, while the IPv6 prefix still needs to be backfilled on startup.
+    let ipv4_svi_ip = "198.18.42.2".parse().unwrap();
+    db::network_prefix::set_svi_ip(txn.as_mut(), ipv4_prefix.id, &ipv4_svi_ip).await?;
+    txn.commit().await?;
+
+    // This used to skip the segment because any prefix already had an SVI.
+    // The desired behavior is to allocate SVI addresses for missing prefixes.
+    db_init::update_network_segments_svi_ip(&pool).await?;
+
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    txn.rollback().await?;
+
+    let ipv4_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv4())
+        .unwrap();
+    let ipv6_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv6())
+        .unwrap();
+    assert_eq!(ipv4_prefix.svi_ip, Some(ipv4_svi_ip));
+    // The IPv6 SVI is the third address in the IPv6 prefix, matching the
+    // normal SVI allocation rule used for both address families.
+    assert_eq!(ipv6_prefix.svi_ip.unwrap().to_string(), "2001:db8:4042::2");
+
+    Ok(())
+}
+
+/// Verifies that the FNN SVI allocation path supports IPv6-only segments.
+///
+/// This protects against reintroducing the old requirement that every
+/// stretchable segment must have an IPv4 prefix before SVI allocation.
+#[crate::sqlx_test]
+async fn test_update_svi_ip_ipv6_only_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let (vpc_id, segment_id) = create_stretchable_segment_for_svi_test(
+        &mut txn,
+        "ipv6-only-svi",
+        vec![NewNetworkPrefix {
+            prefix: "2001:db8:4041::/64".parse().unwrap(),
+            gateway: None,
+            dhcpv6_link_address: None,
+            num_reserved: 3,
+        }],
+    )
+    .await?;
+
+    // Update virtualization; the old IPv4 precheck rejected this segment.
+    let update_request = UpdateVpcVirtualization {
+        id: vpc_id,
+        if_version_match: None,
+        network_virtualization_type: VpcVirtualizationType::Fnn,
+    };
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    txn.commit().await?;
+
+    // Re-read the segment to verify the IPv6 SVI IP persisted.
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    assert_eq!(segment.prefixes.len(), 1);
+    assert!(segment.prefixes[0].prefix.is_ipv6());
+    assert!(segment.prefixes[0].svi_ip.is_some());
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_update_svi_ip_admin_segment(
     pool: sqlx::PgPool,
@@ -1044,7 +1428,7 @@ async fn test_update_svi_ip_admin_segment(
         )
         .await?;
         assert_eq!(
-            admin_vpc[0].network_virtualization_type,
+            admin_vpc[0].config.network_virtualization_type,
             VpcVirtualizationType::Fnn
         );
     }
@@ -1596,4 +1980,196 @@ async fn etv_vpc_rejects_host_inband_segment(
     );
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_host_inband_segment_to_flat_vpc_succeeds(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat".to_string(), None).await;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_HOST_INBAND",
+        "198.51.100.0/24",
+        "198.51.100.1",
+        rpc::forge::NetworkSegmentType::HostInband,
+    )
+    .await?;
+
+    let attached = attach_network_segment_to_vpc(&env, segment.id.unwrap(), vpc_id, false)
+        .await?
+        .into_inner();
+
+    assert_eq!(attached.config.unwrap().vpc_id, Some(vpc_id));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_host_inband_segment_to_same_vpc_is_idempotent(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat".to_string(), None).await;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_HOST_INBAND_IDEMPOTENT",
+        "198.51.101.0/24",
+        "198.51.101.1",
+        rpc::forge::NetworkSegmentType::HostInband,
+    )
+    .await?;
+    let segment_id = segment.id.unwrap();
+
+    let first = attach_network_segment_to_vpc(&env, segment_id, vpc_id, false)
+        .await?
+        .into_inner();
+    let second = attach_network_segment_to_vpc(&env, segment_id, vpc_id, false)
+        .await?
+        .into_inner();
+
+    assert_eq!(second.config.unwrap().vpc_id, Some(vpc_id));
+    assert_eq!(second.version, first.version);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_host_inband_segment_to_non_flat_vpc_fails(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_vpc(&env, "etv".to_string(), None, None).await;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_HOST_INBAND_TO_ETV",
+        "198.51.102.0/24",
+        "198.51.102.1",
+        rpc::forge::NetworkSegmentType::HostInband,
+    )
+    .await?;
+
+    let err = attach_network_segment_to_vpc(&env, segment.id.unwrap(), vpc_id, false)
+        .await
+        .expect_err("HostInband segments must not attach to non-Flat VPCs");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument, "got: {err}");
+    assert!(
+        err.message().contains("etv") && err.message().contains("host_inband"),
+        "error should mention etv VPC rejecting host_inband segment, got: {}",
+        err.message()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_non_host_inband_segment_fails(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat".to_string(), None).await;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_ADMIN_REJECTED",
+        "198.51.103.0/24",
+        "198.51.103.1",
+        rpc::forge::NetworkSegmentType::Admin,
+    )
+    .await?;
+
+    let err = attach_network_segment_to_vpc(&env, segment.id.unwrap(), vpc_id, false)
+        .await
+        .expect_err("non-HostInband segments must be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument, "got: {err}");
+    assert!(
+        err.message().contains("host_inband"),
+        "error should mention host_inband validation, got: {}",
+        err.message()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn attach_to_different_vpc_requires_force(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let (first_vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat-1".to_string(), None).await;
+    let (second_vpc_id, _vpc) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "flat-2".to_string(), None).await;
+    let segment = create_unattached_segment(
+        &env,
+        "ATTACH_HOST_INBAND_REPLACE",
+        "198.51.104.0/24",
+        "198.51.104.1",
+        rpc::forge::NetworkSegmentType::HostInband,
+    )
+    .await?;
+    let segment_id = segment.id.unwrap();
+
+    attach_network_segment_to_vpc(&env, segment_id, first_vpc_id, false).await?;
+
+    let err = attach_network_segment_to_vpc(&env, segment_id, second_vpc_id, false)
+        .await
+        .expect_err("reassignment without force must fail");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition, "got: {err}");
+
+    let attached = attach_network_segment_to_vpc(&env, segment_id, second_vpc_id, true)
+        .await?
+        .into_inner();
+    assert_eq!(attached.config.unwrap().vpc_id, Some(second_vpc_id));
+
+    Ok(())
+}
+
+async fn create_unattached_segment(
+    env: &common::api_fixtures::TestEnv,
+    name: &str,
+    prefix: &str,
+    gateway: &str,
+    segment_type: rpc::forge::NetworkSegmentType,
+) -> Result<rpc::forge::NetworkSegment, tonic::Status> {
+    env.api
+        .create_network_segment(Request::new(rpc::forge::NetworkSegmentCreationRequest {
+            id: None,
+            mtu: Some(1500),
+            name: name.to_string(),
+            prefixes: vec![rpc::forge::NetworkPrefix {
+                id: None,
+                prefix: prefix.to_string(),
+                gateway: Some(gateway.to_string()),
+                reserve_first: 3,
+                free_ip_count: 0,
+                svi_ip: None,
+            }],
+            subdomain_id: None,
+            vpc_id: None,
+            segment_type: segment_type as i32,
+        }))
+        .await
+        .map(|response| response.into_inner())
+}
+
+async fn attach_network_segment_to_vpc(
+    env: &common::api_fixtures::TestEnv,
+    network_segment_id: NetworkSegmentId,
+    vpc_id: VpcId,
+    allow_replace: bool,
+) -> Result<tonic::Response<rpc::forge::NetworkSegment>, tonic::Status> {
+    env.api
+        .attach_network_segment_to_vpc(Request::new(rpc::forge::AttachNetworkSegmentToVpcRequest {
+            network_segment_id: Some(network_segment_id),
+            vpc_id: Some(vpc_id),
+            allow_replace,
+        }))
+        .await
 }

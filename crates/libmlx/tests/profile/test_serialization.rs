@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_test_support::value_scenarios;
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
@@ -25,6 +26,59 @@ use libmlx::profile::serialization::{
 use libmlx::registry::registries;
 use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
 use serde::{Deserialize, Serialize};
+
+// assert_same_profile checks the four identity fields (name, registry, description,
+// and the config size) line up between two profiles. Every roundtrip test below --
+// YAML/JSON/TOML, file or string, protobuf -- ends with this same comparison, so it
+// lives here once.
+fn assert_same_profile(got: &SerializableProfile, want: &SerializableProfile) {
+    assert_eq!(got.name, want.name);
+    assert_eq!(got.registry_name, want.registry_name);
+    assert_eq!(got.description, want.description);
+    assert_eq!(got.config.len(), want.config.len());
+}
+
+// to_proto mirrors the TryInto conversion: each YAML config value is serialized to a
+// trimmed string. The real conversion lives in the crate; the tests re-create it so
+// they can assert the wire shape independently.
+fn to_proto(profile: &SerializableProfile) -> SerializableMlxConfigProfilePb {
+    let config = profile
+        .config
+        .iter()
+        .map(|(key, yaml_value)| {
+            let value_str = serde_yaml::to_string(yaml_value).expect("Should serialize YAML value");
+            (key.clone(), value_str.trim().to_string())
+        })
+        .collect();
+
+    SerializableMlxConfigProfilePb {
+        name: profile.name.clone(),
+        registry_name: profile.registry_name.clone(),
+        description: profile.description.clone(),
+        config,
+    }
+}
+
+// from_proto mirrors the TryFrom conversion: each stringified config value is parsed
+// back into a YAML value.
+fn from_proto(proto: SerializableMlxConfigProfilePb) -> SerializableProfile {
+    let config = proto
+        .config
+        .into_iter()
+        .map(|(key, value_str)| {
+            let yaml_value: serde_yaml::Value =
+                serde_yaml::from_str(&value_str).expect("Should parse YAML value");
+            (key, yaml_value)
+        })
+        .collect();
+
+    SerializableProfile {
+        name: proto.name,
+        registry_name: proto.registry_name,
+        description: proto.description,
+        config,
+    }
+}
 
 #[test]
 fn test_serializable_profile_creation() {
@@ -62,14 +116,9 @@ fn test_yaml_serialization_roundtrip() {
     assert!(yaml.contains("INT_VAR: 123"));
     assert!(yaml.contains("STRING_VAR: hello"));
 
-    // Deserialize back from YAML
+    // Deserialize back from YAML and verify round-trip integrity
     let deserialized = SerializableProfile::from_yaml(&yaml).expect("Should deserialize from YAML");
-
-    // Verify round-trip integrity
-    assert_eq!(deserialized.name, original.name);
-    assert_eq!(deserialized.registry_name, original.registry_name);
-    assert_eq!(deserialized.description, original.description);
-    assert_eq!(deserialized.config.len(), original.config.len());
+    assert_same_profile(&deserialized, &original);
 }
 
 #[test]
@@ -87,13 +136,9 @@ fn test_json_serialization_roundtrip() {
     assert!(json.contains(r#""BOOL_VAR": false"#));
     assert!(json.contains(r#""INT_VAR": 456"#));
 
-    // Deserialize back from JSON
+    // Deserialize back from JSON and verify round-trip integrity
     let deserialized = SerializableProfile::from_json(&json).expect("Should deserialize from JSON");
-
-    // Verify round-trip integrity
-    assert_eq!(deserialized.name, original.name);
-    assert_eq!(deserialized.registry_name, original.registry_name);
-    assert_eq!(deserialized.config.len(), original.config.len());
+    assert_same_profile(&deserialized, &original);
 }
 
 #[test]
@@ -159,11 +204,7 @@ this is not valid yaml: [
 "#;
 
     let result = SerializableProfile::from_yaml(invalid_yaml);
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        MlxProfileError::YamlParsing { .. }
-    ));
+    assert!(matches!(result, Err(MlxProfileError::YamlParsing { .. })));
 }
 
 #[test]
@@ -171,11 +212,7 @@ fn test_invalid_json() {
     let invalid_json = r#"{"name": "broken", "missing_comma" "value"}"#;
 
     let result = SerializableProfile::from_json(invalid_json);
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        MlxProfileError::JsonParsing { .. }
-    ));
+    assert!(matches!(result, Err(MlxProfileError::JsonParsing { .. })));
 }
 
 #[test]
@@ -194,20 +231,7 @@ fn test_try_from_protobuf_basic() {
         config: proto_config,
     };
 
-    // Simulate the TryFrom conversion logic
-    let mut config = HashMap::new();
-    for (key, value_str) in proto.config {
-        let yaml_value: serde_yaml::Value =
-            serde_yaml::from_str(&value_str).expect("Should parse YAML value");
-        config.insert(key, yaml_value);
-    }
-
-    let profile = SerializableProfile {
-        name: proto.name,
-        registry_name: proto.registry_name,
-        description: proto.description, // Both are Option<String> now
-        config,
-    };
+    let profile = from_proto(proto);
 
     assert_eq!(profile.name, "proto_test");
     assert_eq!(profile.registry_name, "test_registry");
@@ -217,19 +241,29 @@ fn test_try_from_protobuf_basic() {
     );
     assert_eq!(profile.config.len(), 3);
 
-    // Verify the config values were parsed correctly
-    assert!(matches!(
-        profile.config.get("BOOL_VAR"),
-        Some(serde_yaml::Value::Bool(true))
-    ));
-    assert!(matches!(
-        profile.config.get("INT_VAR"),
-        Some(serde_yaml::Value::Number(_))
-    ));
-    assert!(matches!(
-        profile.config.get("STRING_VAR"),
-        Some(serde_yaml::Value::String(_))
-    ));
+    // Each config string parses into the YAML value variant its content implies.
+    fn variant(value: Option<&serde_yaml::Value>) -> &'static str {
+        match value {
+            Some(serde_yaml::Value::Bool(_)) => "bool",
+            Some(serde_yaml::Value::Number(_)) => "number",
+            Some(serde_yaml::Value::String(_)) => "string",
+            _ => "other",
+        }
+    }
+    value_scenarios!(
+        run = |key| variant(profile.config.get(key));
+        "BOOL_VAR parses to a bool" {
+            "BOOL_VAR" => "bool",
+        }
+
+        "INT_VAR parses to a number" {
+            "INT_VAR" => "number",
+        }
+
+        "STRING_VAR parses to a string" {
+            "STRING_VAR" => "string",
+        }
+    );
 }
 
 #[test]
@@ -240,19 +274,7 @@ fn test_try_into_protobuf_basic() {
         .with_config("INT_VAR", 789)
         .with_config("STRING_VAR", "proto_value");
 
-    // Simulate the TryInto conversion logic
-    let mut config = HashMap::new();
-    for (key, yaml_value) in &original.config {
-        let value_str = serde_yaml::to_string(yaml_value).expect("Should serialize YAML value");
-        config.insert(key.clone(), value_str.trim().to_string());
-    }
-
-    let proto = SerializableMlxConfigProfilePb {
-        name: original.name.clone(),
-        registry_name: original.registry_name.clone(),
-        description: original.description.clone(),
-        config,
-    };
+    let proto = to_proto(&original);
 
     assert_eq!(proto.name, "proto_test");
     assert_eq!(proto.registry_name, "test_registry");
@@ -279,40 +301,9 @@ fn test_protobuf_roundtrip() {
         .with_config("INT_VAR", 42)
         .with_config("STRING_VAR", "test_value");
 
-    // Convert to protobuf (TryInto simulation)
-    let mut proto_config = HashMap::new();
-    for (key, yaml_value) in &original.config {
-        let value_str = serde_yaml::to_string(yaml_value).expect("Should serialize");
-        proto_config.insert(key.clone(), value_str.trim().to_string());
-    }
-
-    let proto = SerializableMlxConfigProfilePb {
-        name: original.name.clone(),
-        registry_name: original.registry_name.clone(),
-        description: original.description.clone(),
-        config: proto_config,
-    };
-
-    // Convert back from protobuf (TryFrom simulation)
-    let mut config = HashMap::new();
-    for (key, value_str) in proto.config {
-        let yaml_value: serde_yaml::Value =
-            serde_yaml::from_str(&value_str).expect("Should deserialize");
-        config.insert(key, yaml_value);
-    }
-
-    let roundtrip = SerializableProfile {
-        name: proto.name,
-        registry_name: proto.registry_name,
-        description: proto.description, // Both are Option<String>
-        config,
-    };
-
-    // Verify roundtrip integrity
-    assert_eq!(roundtrip.name, original.name);
-    assert_eq!(roundtrip.registry_name, original.registry_name);
-    assert_eq!(roundtrip.description, original.description);
-    assert_eq!(roundtrip.config.len(), original.config.len());
+    // Convert to protobuf and back, then verify roundtrip integrity.
+    let roundtrip = from_proto(to_proto(&original));
+    assert_same_profile(&roundtrip, &original);
 }
 
 #[test]
@@ -398,29 +389,18 @@ fn test_protobuf_with_sparse_arrays() {
 
 #[test]
 fn test_protobuf_empty_description() {
-    let original =
-        SerializableProfile::new("no_desc_test", "test_registry").with_config("VAR", "value");
-    // Note: no description set, so it should be None
-
-    // Convert to protobuf format
     let proto = SerializableMlxConfigProfilePb {
-        name: original.name.clone(),
-        registry_name: original.registry_name.clone(),
+        name: "no_desc_test".to_string(),
+        registry_name: "test_registry".to_string(),
         description: None,      // No description set, so it should be None
         config: HashMap::new(), // Simplified for this test
     };
 
     assert_eq!(proto.description, None); // None in protobuf
 
-    // Convert back from protobuf
-    let converted_back = SerializableProfile {
-        name: proto.name,
-        registry_name: proto.registry_name,
-        description: proto.description, // Both are Option<String>
-        config: HashMap::new(),
-    };
-
-    assert_eq!(converted_back.description, None); // Should still be None
+    // Convert back from protobuf -- None should survive the round trip.
+    let converted_back = from_proto(proto);
+    assert_eq!(converted_back.description, None);
 }
 
 #[test]
@@ -437,12 +417,11 @@ fn test_edge_cases() {
     let yaml = no_desc.to_yaml().expect("Should serialize");
     assert!(!yaml.contains("description:"));
 
-    // Test profile with empty description (should be treated as None)
+    // An explicitly-empty description is retained as Some("") on the profile.
     let empty_desc = SerializableProfile::new("empty_desc", "registry")
         .with_description("")
         .with_config("VAR", "value");
-    // Empty descriptions should be skipped in serialization
-    assert!(empty_desc.description == Some("".to_string()));
+    assert_eq!(empty_desc.description, Some("".to_string()));
 }
 
 #[test]
@@ -467,14 +446,9 @@ fn test_toml_serialization_roundtrip() {
     assert!(toml.contains("INT_VAR = 123"));
     assert!(toml.contains(r#"STRING_VAR = "hello""#));
 
-    // Deserialize back from TOML
+    // Deserialize back from TOML and verify round-trip integrity
     let deserialized = SerializableProfile::from_toml(&toml).expect("Should deserialize from TOML");
-
-    // Verify round-trip integrity
-    assert_eq!(deserialized.name, original.name);
-    assert_eq!(deserialized.registry_name, original.registry_name);
-    assert_eq!(deserialized.description, original.description);
-    assert_eq!(deserialized.config.len(), original.config.len());
+    assert_same_profile(&deserialized, &original);
 }
 
 #[test]
@@ -784,14 +758,9 @@ this is not valid toml syntax [
 missing quotes and brackets
 "#;
 
-    let result = SerializableProfile::from_toml(invalid_toml);
-    assert!(result.is_err());
     // TOML errors get wrapped in MlxProfileError::Serialization
-    if let Err(MlxProfileError::Serialization { .. }) = result {
-        // This is what we expect
-    } else {
-        panic!("Expected MlxProfileError::Serialization for invalid TOML");
-    }
+    let result = SerializableProfile::from_toml(invalid_toml);
+    assert!(matches!(result, Err(MlxProfileError::Serialization { .. })));
 }
 
 #[test]
@@ -813,10 +782,7 @@ fn test_toml_file_operations() {
 
     let loaded_toml =
         SerializableProfile::from_toml_file(&toml_path).expect("Should read TOML file");
-    assert_eq!(loaded_toml.name, profile.name);
-    assert_eq!(loaded_toml.registry_name, profile.registry_name);
-    assert_eq!(loaded_toml.description, profile.description);
-    assert_eq!(loaded_toml.config.len(), profile.config.len());
+    assert_same_profile(&loaded_toml, &profile);
 }
 
 #[test]
@@ -837,17 +803,10 @@ fn test_toml_vs_yaml_compatibility() {
     let from_yaml =
         SerializableProfile::from_yaml(&yaml_str).expect("Should deserialize from YAML");
 
-    // Both should be equivalent to original
-    assert_eq!(from_toml.name, original.name);
-    assert_eq!(from_yaml.name, original.name);
-    assert_eq!(from_toml.config.len(), original.config.len());
-    assert_eq!(from_yaml.config.len(), original.config.len());
-
-    // And equivalent to each other
-    assert_eq!(from_toml.name, from_yaml.name);
-    assert_eq!(from_toml.registry_name, from_yaml.registry_name);
-    assert_eq!(from_toml.description, from_yaml.description);
-    assert_eq!(from_toml.config.len(), from_yaml.config.len());
+    // Both should be equivalent to original, and so to each other.
+    assert_same_profile(&from_toml, &original);
+    assert_same_profile(&from_yaml, &original);
+    assert_same_profile(&from_toml, &from_yaml);
 }
 
 #[test]
@@ -874,15 +833,10 @@ fn test_yaml_file_operations() {
     assert!(file_content.contains("name: yaml_file_test"));
     assert!(file_content.contains("BOOL_VAR: true"));
 
-    // Load back from file
+    // Load back from file and verify round-trip integrity
     let loaded_profile =
         SerializableProfile::from_yaml_file(&yaml_path).expect("Should read YAML file");
-
-    // Verify round-trip integrity
-    assert_eq!(loaded_profile.name, profile.name);
-    assert_eq!(loaded_profile.registry_name, profile.registry_name);
-    assert_eq!(loaded_profile.description, profile.description);
-    assert_eq!(loaded_profile.config.len(), profile.config.len());
+    assert_same_profile(&loaded_profile, &profile);
 
     // Verify specific config values
     assert!(loaded_profile.config.contains_key("BOOL_VAR"));
@@ -914,15 +868,10 @@ fn test_json_file_operations() {
     assert!(file_content.contains(r#""name": "json_file_test""#));
     assert!(file_content.contains(r#""BOOL_VAR": false"#));
 
-    // Load back from file
+    // Load back from file and verify round-trip integrity
     let loaded_profile =
         SerializableProfile::from_json_file(&json_path).expect("Should read JSON file");
-
-    // Verify round-trip integrity
-    assert_eq!(loaded_profile.name, profile.name);
-    assert_eq!(loaded_profile.registry_name, profile.registry_name);
-    assert_eq!(loaded_profile.description, profile.description);
-    assert_eq!(loaded_profile.config.len(), profile.config.len());
+    assert_same_profile(&loaded_profile, &profile);
 
     // Verify specific config values
     assert!(loaded_profile.config.contains_key("BOOL_VAR"));
@@ -972,19 +921,13 @@ fn test_all_file_formats_compatibility() {
     // All should be equivalent to original
     let profiles = [&from_yaml, &from_json, &from_toml];
     for profile in &profiles {
-        assert_eq!(profile.name, original.name);
-        assert_eq!(profile.registry_name, original.registry_name);
-        assert_eq!(profile.description, original.description);
-        assert_eq!(profile.config.len(), original.config.len());
+        assert_same_profile(profile, &original);
     }
 
     // All should be equivalent to each other
     for (i, profile1) in profiles.iter().enumerate() {
         for profile2 in profiles.iter().skip(i + 1) {
-            assert_eq!(profile1.name, profile2.name);
-            assert_eq!(profile1.registry_name, profile2.registry_name);
-            assert_eq!(profile1.description, profile2.description);
-            assert_eq!(profile1.config.len(), profile2.config.len());
+            assert_same_profile(profile1, profile2);
         }
     }
 }
@@ -1075,10 +1018,7 @@ fn test_file_error_handling() {
     assert!(SerializableProfile::from_json_file(&missing_json).is_err());
     assert!(SerializableProfile::from_toml_file(&missing_toml).is_err());
 
-    // Test writing to invalid paths (read-only directory)
-    // Note: This test might be platform-specific, so we'll create a simple version
-
-    // Create files with invalid content and test parsing
+    // Create files with invalid content and confirm parsing fails.
     let invalid_yaml = temp_dir.path().join("invalid.yaml");
     let invalid_json = temp_dir.path().join("invalid.json");
     let invalid_toml = temp_dir.path().join("invalid.toml");
@@ -1089,7 +1029,6 @@ fn test_file_error_handling() {
         .expect("Should write invalid JSON");
     std::fs::write(&invalid_toml, "invalid = toml content [[[").expect("Should write invalid TOML");
 
-    // These should all fail to parse
     assert!(SerializableProfile::from_yaml_file(&invalid_yaml).is_err());
     assert!(SerializableProfile::from_json_file(&invalid_json).is_err());
     assert!(SerializableProfile::from_toml_file(&invalid_toml).is_err());

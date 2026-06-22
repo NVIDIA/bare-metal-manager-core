@@ -28,7 +28,9 @@ use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
-use model::site_explorer::{ExploredEndpoint, NicMode, PreingestionState};
+use model::machine_boot_interface::MachineBootInterface;
+use model::predicted_machine_interface::PredictedMachineInterface;
+use model::site_explorer::{NicMode, PreingestionState};
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -36,24 +38,142 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 
-/// Resolve how to target a host's boot interface for an admin Redfish action.
+/// Resolve the boot interface an admin Redfish action should target, the same
+/// way the machine-controller resolves it.
 ///
-/// If the operator entered the host's stored boot MAC (or entered nothing), use
-/// the stored, fully-captured boot interface so the MAC-first / interface-id
-/// fallback applies. If the operator entered some other MAC, target exactly that
-/// MAC.
+/// When a machine exists for the endpoint, its interfaces alone decide:
+/// `pick_boot_interface` selects the machine's primary interface -- the same
+/// row the machine-controller configures boot from -- and the row's own
+/// captured id completes the [`MachineBootInterface`], or the action targets
+/// the MAC alone ([`BootInterfaceTarget::MacOnly`], no id fallback), exactly
+/// like the controller's `boot_interface_target`.
+///
+/// A machine with no `machine_interfaces` rows yet (a zero-DPU/NIC-mode
+/// machine awaiting its first DHCP lease) resolves from its
+/// `predicted_machine_interfaces` instead: the predicted NIC's MAC and
+/// recorded Redfish interface id form the same [`MachineBootInterface`] the
+/// real row will hold once the lease promotes it. The candidate is chosen by
+/// the shared `pick_boot_prediction` -- the declared `ExpectedHostNic.primary`
+/// (recorded on the prediction), else the sole non-underlay prediction. With
+/// several (e.g. a host whose report lists SuperNICs alongside the boot NIC) and
+/// none declared primary the boot NIC is unknowable; resolution refuses to guess
+/// and the action keeps requiring an explicit MAC, which the matching
+/// prediction's recorded id completes. The machine-controller resolves the same
+/// way, through the same `pick_boot_prediction`.
+///
+/// Site-explorer's stored default (`ExploredEndpoint::boot_interface()`)
+/// answers only for endpoints no machine owns. An owned machine resolves
+/// from its own rows and predictions alone -- when neither offers an
+/// unambiguous candidate, there is no target and the action requires an
+/// explicit MAC, matching the machine-controller (which never consults the
+/// explored default either).
+///
+/// An explicitly entered MAC is always honored as given, never redirected to
+/// another NIC; any of the stores may complete it with the id recorded for
+/// that exact MAC.
 fn resolve_admin_boot_interface_target(
-    stored: Option<&ExploredEndpoint>,
+    stored: Option<MachineBootInterface>,
+    candidates: Option<&BootInterfaceCandidates>,
     entered_mac: Option<MacAddress>,
 ) -> Option<BootInterfaceTarget> {
-    let stored = stored.and_then(|ep| ep.boot_interface());
-    match (entered_mac, stored) {
-        (None, stored) => stored.map(BootInterfaceTarget::Pair),
-        (Some(mac), Some(boot_interface)) if boot_interface.mac_address == mac => {
-            Some(BootInterfaceTarget::Pair(boot_interface))
+    // The machine's `MachineBootInterface` for `mac`, if known -- its own row
+    // first, then its predictions.
+    let known_pair_for = |mac: MacAddress| -> Option<MachineBootInterface> {
+        let candidates = candidates?;
+        candidates
+            .interfaces
+            .iter()
+            .find(|row| row.mac_address == mac)
+            .and_then(MachineInterfaceSnapshot::boot_interface)
+            .or_else(|| {
+                candidates
+                    .predicted
+                    .iter()
+                    .find(|predicted| predicted.mac_address == mac)
+                    .and_then(PredictedMachineInterface::boot_interface)
+            })
+    };
+    // Resolution chose `mac`; its `MachineBootInterface` is the target, or the
+    // MAC alone when no interface id has been captured (no id fallback).
+    let target_for = |mac: MacAddress, pair: Option<MachineBootInterface>| -> BootInterfaceTarget {
+        pair.map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
+    };
+
+    match entered_mac {
+        Some(mac) => Some(target_for(
+            mac,
+            known_pair_for(mac).or_else(|| stored.filter(|pair| pair.mac_address == mac)),
+        )),
+        None => {
+            let Some(candidates) = candidates else {
+                // No machine owns the endpoint -- the explored default
+                // answers, when site-explorer has recorded one.
+                return stored.map(BootInterfaceTarget::Pair);
+            };
+            if let Some(picked) = model::machine::pick_boot_interface(&candidates.interfaces) {
+                // The machine's own row decides, exactly like the
+                // machine-controller's boot_interface_target.
+                return Some(target_for(picked.mac_address, picked.boot_interface()));
+            }
+            // The rows offered no boot candidate: the machine's predicted NICs
+            // answer, via the shared `pick_boot_prediction` -- the declared
+            // primary, else the sole non-underlay prediction. With several and
+            // none declared primary the boot NIC is unknowable, so it returns
+            // `None` and the action keeps requiring an explicit MAC.
+            if let Some(predicted) = model::machine::pick_boot_prediction(&candidates.predicted) {
+                return Some(target_for(
+                    predicted.mac_address,
+                    predicted.boot_interface(),
+                ));
+            }
+            // An owned machine resolves from its own data alone: no
+            // unambiguous candidate means no target, and the action requires
+            // an explicit MAC -- never a guess from the explored default.
+            None
         }
-        (Some(mac), _) => Some(BootInterfaceTarget::MacOnly(mac)),
     }
+}
+
+/// What a host machine offers boot-interface resolution to select from: its
+/// real `machine_interfaces` rows, and -- for the window before a NIC's first
+/// DHCP lease creates a real row -- its `predicted_machine_interfaces`.
+pub(crate) struct BootInterfaceCandidates {
+    /// The machine's non-BMC `machine_interfaces` rows. When they offer a
+    /// boot candidate (the machine-controller's own `pick_boot_interface`
+    /// selection), it alone decides.
+    pub interfaces: Vec<MachineInterfaceSnapshot>,
+    /// The machine's predicted interfaces, consulted only when the rows
+    /// offer no boot candidate -- none exist yet (zero-DPU/NIC-mode machines
+    /// awaiting their first lease), or none are selectable (e.g. only
+    /// underlay-typed declared NICs).
+    pub predicted: Vec<PredictedMachineInterface>,
+}
+
+/// Load what boot-interface resolution selects from, when the BMC endpoint
+/// belongs to a (predicted or confirmed) host machine.
+///
+/// Returns `None` -- meaning resolution falls through to the explored
+/// default -- for endpoints with no machine, and for DPU machines, whose own
+/// setup runs without a boot-interface target, exactly like the
+/// machine-controller path. A host machine always gets `Some`, though both
+/// lists can be empty (`find_by_machine_ids` filters BMC rows, so a host
+/// whose only discovered interface is its BMC offers no real candidates).
+pub(crate) async fn boot_interface_candidates(
+    txn: &mut PgConnection,
+    machine_id: Option<MachineId>,
+) -> Result<Option<BootInterfaceCandidates>, CarbideError> {
+    let Some(machine_id) = machine_id.filter(|id| !id.machine_type().is_dpu()) else {
+        return Ok(None);
+    };
+    let interfaces = db::machine_interface::find_by_machine_ids(txn, &[machine_id])
+        .await?
+        .remove(&machine_id)
+        .unwrap_or_default();
+    let predicted = db::predicted_machine_interface::find_by_machine_id(txn, &machine_id).await?;
+    Ok(Some(BootInterfaceCandidates {
+        interfaces,
+        predicted,
+    }))
 }
 
 pub(crate) async fn admin_bmc_reset(
@@ -300,9 +420,10 @@ pub(crate) async fn machine_setup(
 
     let mut txn = api.txn_begin().await?;
 
-    let (bmc_endpoint_request, _) =
+    let (bmc_endpoint_request, owning_machine_id) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
             .await?;
+    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
 
     txn.commit().await?;
 
@@ -324,8 +445,10 @@ pub(crate) async fn machine_setup(
     let stored = db::explored_endpoints::find_by_ips(&api.database_connection, vec![bmc_addr.ip()])
         .await?
         .into_iter()
-        .next();
-    let boot_interface = resolve_admin_boot_interface_target(stored.as_ref(), entered_mac);
+        .next()
+        .and_then(|ep| ep.boot_interface());
+    let boot_interface =
+        resolve_admin_boot_interface_target(stored, candidates.as_ref(), entered_mac);
 
     api.endpoint_explorer
         .machine_setup(bmc_addr, &machine_interface, boot_interface.as_ref())
@@ -353,9 +476,10 @@ pub(crate) async fn set_dpu_first_boot_order(
 
     let mut txn = api.txn_begin().await?;
 
-    let (bmc_endpoint_request, _) =
+    let (bmc_endpoint_request, owning_machine_id) =
         validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
             .await?;
+    let candidates = boot_interface_candidates(&mut txn, owning_machine_id).await?;
 
     txn.commit().await?;
 
@@ -381,13 +505,17 @@ pub(crate) async fn set_dpu_first_boot_order(
     let stored = db::explored_endpoints::find_by_ips(&api.database_connection, vec![bmc_addr.ip()])
         .await?
         .into_iter()
-        .next();
-    let boot_interface = resolve_admin_boot_interface_target(stored.as_ref(), entered_mac)
-        .ok_or_else(|| {
-            CarbideError::InvalidArgument(
-                "no boot interface available: enter a MAC or explore the host first".to_string(),
-            )
-        })?;
+        .next()
+        .and_then(|ep| ep.boot_interface());
+    let boot_interface =
+        resolve_admin_boot_interface_target(stored, candidates.as_ref(), entered_mac).ok_or_else(
+            || {
+                CarbideError::InvalidArgument(
+                    "no boot interface available: enter a MAC or explore the host first"
+                        .to_string(),
+                )
+            },
+        )?;
 
     api.endpoint_explorer
         .set_boot_order_dpu_first(bmc_addr, &machine_interface, &boot_interface)
@@ -985,5 +1113,310 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         _ => Err(CarbideError::InvalidArgument(
             "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use model::network_segment::NetworkSegmentType;
+
+    use super::*;
+
+    fn row(mac: &str, primary: bool, boot_interface_id: Option<&str>) -> MachineInterfaceSnapshot {
+        let mut row = MachineInterfaceSnapshot::mock_with_mac(mac.parse().unwrap());
+        row.primary_interface = primary;
+        row.boot_interface_id = boot_interface_id.map(String::from);
+        row
+    }
+
+    fn predicted(mac: &str, boot_interface_id: Option<&str>) -> PredictedMachineInterface {
+        PredictedMachineInterface {
+            id: uuid::Uuid::nil(),
+            // Any valid machine id -- the resolver never reads it.
+            machine_id: "fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0"
+                .parse()
+                .unwrap(),
+            mac_address: mac.parse().unwrap(),
+            expected_network_segment_type: NetworkSegmentType::HostInband,
+            boot_interface_id: boot_interface_id.map(String::from),
+            primary_interface: false,
+        }
+    }
+
+    fn pair(mac: &str, interface_id: &str) -> MachineBootInterface {
+        MachineBootInterface {
+            mac_address: mac.parse().unwrap(),
+            interface_id: interface_id.to_string(),
+        }
+    }
+
+    #[test]
+    fn entered_mac_upgrades_to_a_pair_from_the_machines_own_row() {
+        // The operator picked a NIC; its machine_interface row holds the Redfish
+        // id, so the target is the full pair -- even though the explored default
+        // names a different NIC.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![
+                row("00:00:5e:00:53:01", true, Some("NIC.Integrated.1-1-1")),
+                row("00:00:5e:00:53:02", false, Some("NIC.Slot.7-1-1")),
+            ],
+            predicted: vec![],
+        };
+        let stored = Some(pair("00:00:5e:00:53:01", "NIC.Integrated.1-1-1"));
+        let target = resolve_admin_boot_interface_target(
+            stored,
+            Some(&c),
+            Some("00:00:5e:00:53:02".parse().unwrap()),
+        );
+        assert_eq!(
+            target,
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:02",
+                "NIC.Slot.7-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn entered_mac_upgrades_to_a_pair_from_a_predicted_interface() {
+        // The named NIC has no machine_interfaces row yet (its first lease is
+        // still pending), but the machine's prediction for it recorded the
+        // Redfish id -- the entered MAC is completed from there.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![predicted("00:00:5e:00:53:02", Some("NIC.Embedded.1-1-1"))],
+        };
+        let target = resolve_admin_boot_interface_target(
+            None,
+            Some(&c),
+            Some("00:00:5e:00:53:02".parse().unwrap()),
+        );
+        assert_eq!(
+            target,
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:02",
+                "NIC.Embedded.1-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn entered_mac_falls_back_to_the_explored_default_then_mac_only() {
+        // No machine: the explored default completes the pair only when it
+        // names the entered MAC; any other entered MAC is targeted alone.
+        let stored = pair("00:00:5e:00:53:01", "NIC.Integrated.1-1-1");
+        assert_eq!(
+            resolve_admin_boot_interface_target(
+                Some(stored.clone()),
+                None,
+                Some("00:00:5e:00:53:01".parse().unwrap()),
+            ),
+            Some(BootInterfaceTarget::Pair(stored.clone())),
+        );
+        assert_eq!(
+            resolve_admin_boot_interface_target(
+                Some(stored),
+                None,
+                Some("00:00:5e:00:53:99".parse().unwrap()),
+            ),
+            Some(BootInterfaceTarget::MacOnly(
+                "00:00:5e:00:53:99".parse().unwrap()
+            )),
+        );
+    }
+
+    #[test]
+    fn no_mac_prefers_the_machines_designation_over_the_explored_default() {
+        // The machine's primary row is the authority; the explored default
+        // (site-explorer's automatic pick) names a different NIC and loses.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![
+                row("00:00:5e:00:53:01", false, Some("NIC.Integrated.1-1-1")),
+                row("00:00:5e:00:53:02", true, Some("NIC.Slot.7-1-1")),
+            ],
+            predicted: vec![],
+        };
+        let stored = Some(pair("00:00:5e:00:53:01", "NIC.Integrated.1-1-1"));
+        assert_eq!(
+            resolve_admin_boot_interface_target(stored, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:02",
+                "NIC.Slot.7-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn no_mac_real_rows_beat_predicted_interfaces() {
+        // Once any real machine_interfaces row exists, predictions are out of
+        // the running -- even a fully-populated one.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![row("00:00:5e:00:53:02", true, Some("NIC.Slot.7-1-1"))],
+            predicted: vec![predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1"))],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:02",
+                "NIC.Slot.7-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn no_mac_machine_row_without_an_id_targets_the_mac_alone() {
+        // The designated row hasn't captured an id yet: the action targets the
+        // MAC alone, exactly like the machine-controller's
+        // boot_interface_target. The explored default is not consulted for an
+        // owned machine -- even when it holds an id for the very same NIC.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![row("00:00:5e:00:53:02", true, None)],
+            predicted: vec![],
+        };
+        for stored in [
+            Some(pair("00:00:5e:00:53:02", "NIC.Slot.7-1-1")),
+            Some(pair("00:00:5e:00:53:01", "NIC.Integrated.1-1-1")),
+            None,
+        ] {
+            assert_eq!(
+                resolve_admin_boot_interface_target(stored, Some(&c), None),
+                Some(BootInterfaceTarget::MacOnly(
+                    "00:00:5e:00:53:02".parse().unwrap()
+                )),
+            );
+        }
+    }
+
+    #[test]
+    fn no_mac_a_sole_prediction_decides_when_no_rows_exist() {
+        // A machine awaiting its first lease resolves from its prediction when
+        // there is exactly one: the recorded id completes the pair, and a
+        // prediction without an id is targeted by MAC alone.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1"))],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:01",
+                "NIC.Embedded.1-1-1"
+            ))),
+        );
+
+        let idless = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![predicted("00:00:5e:00:53:01", None)],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&idless), None),
+            Some(BootInterfaceTarget::MacOnly(
+                "00:00:5e:00:53:01".parse().unwrap()
+            )),
+        );
+    }
+
+    #[test]
+    fn no_mac_multiple_predictions_refuse_to_guess_a_boot_device() {
+        // These predictions are non-primary and this resolver doesn't consult
+        // the primary flag yet, so with several (a report listing SuperNICs
+        // alongside the boot NIC) the declared intent is unknowable: resolution
+        // refuses to guess rather than silently programming boot order against
+        // whichever NIC sorts lowest. The operator's explicit MAC still
+        // resolves, completed from the matching prediction.
+        let c = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![
+                predicted("00:00:5e:00:53:02", Some("NIC.Slot.7-1-1")),
+                predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1")),
+            ],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&c), None),
+            None
+        );
+        let stored = Some(pair("00:00:5e:00:53:09", "NIC.Other.9-9-9"));
+        assert_eq!(
+            resolve_admin_boot_interface_target(stored, Some(&c), None),
+            None,
+            "an explored default must never answer for an owned machine",
+        );
+        assert_eq!(
+            resolve_admin_boot_interface_target(
+                None,
+                Some(&c),
+                Some("00:00:5e:00:53:02".parse().unwrap()),
+            ),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:02",
+                "NIC.Slot.7-1-1"
+            ))),
+        );
+    }
+
+    // A declared-primary prediction disambiguates a multi-prediction host:
+    // `pick_boot_prediction` selects it, so resolution targets the declared NIC
+    // rather than refusing. (Multiple NON-primary predictions still refuse --
+    // see `no_mac_multiple_predictions_refuse_to_guess_a_boot_device`.)
+    #[test]
+    fn no_mac_declared_primary_prediction_wins_over_other_predictions() {
+        let declared_primary = PredictedMachineInterface {
+            primary_interface: true,
+            ..predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1"))
+        };
+        let other = predicted("00:00:5e:00:53:02", Some("NIC.Slot.7-1-1"));
+        let c = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![other, declared_primary],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:01",
+                "NIC.Embedded.1-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn no_mac_underlay_only_rows_let_a_sole_prediction_answer() {
+        // Real rows exist but none is a boot candidate (declared bmc/oob NICs
+        // land on Underlay segments); the sole prediction answers, ahead of
+        // the explored default.
+        let mut underlay = row("00:00:5e:00:53:09", false, None);
+        underlay.network_segment_type = Some(NetworkSegmentType::Underlay);
+        let c = BootInterfaceCandidates {
+            interfaces: vec![underlay],
+            predicted: vec![predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1"))],
+        };
+        let stored = Some(pair("00:00:5e:00:53:09", "NIC.Other.9-9-9"));
+        assert_eq!(
+            resolve_admin_boot_interface_target(stored, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:01",
+                "NIC.Embedded.1-1-1"
+            ))),
+        );
+    }
+
+    #[test]
+    fn no_mac_only_an_unowned_endpoint_uses_the_explored_default() {
+        // The explored default answers for endpoints no machine owns. An
+        // owned machine resolves from its own data alone: with no candidate
+        // at all there is no target, even when a stored default exists.
+        let stored = pair("00:00:5e:00:53:01", "NIC.Integrated.1-1-1");
+        assert_eq!(
+            resolve_admin_boot_interface_target(Some(stored.clone()), None, None),
+            Some(BootInterfaceTarget::Pair(stored.clone())),
+        );
+        let empty = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(Some(stored), Some(&empty), None),
+            None,
+        );
+        assert_eq!(resolve_admin_boot_interface_target(None, None, None), None);
     }
 }

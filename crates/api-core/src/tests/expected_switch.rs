@@ -19,133 +19,12 @@ use std::default::Default;
 use carbide_uuid::rack::RackId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::site_explorer::create_expected_switches;
-use db::DatabaseError;
 use mac_address::MacAddress;
-use model::expected_switch::ExpectedSwitch;
-use model::metadata::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedSwitchList, ExpectedSwitchRequest};
 
 use crate::tests::common;
 
-#[crate::sqlx_test]
-async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let switches = create_expected_switches(&mut txn).await;
-
-    assert_eq!(switches[0].serial_number, "SW-SN-001");
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let switches = create_expected_switches(&mut txn).await;
-    txn.commit().await.unwrap();
-    let switch = &switches[0];
-    let mut txn = env.pool.begin().await.unwrap();
-    let new_switch = db::expected_switch::create(
-        &mut txn,
-        ExpectedSwitch {
-            expected_switch_id: None,
-            bmc_mac_address: switch.bmc_mac_address,
-            nvos_mac_addresses: switch.nvos_mac_addresses.clone(),
-            bmc_username: "ADMIN3".into(),
-            bmc_password: "hmm".into(),
-            serial_number: "DUPLICATE".into(),
-            bmc_ip_address: None,
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-            nvos_ip_address: None,
-            nvos_username: None,
-            nvos_password: None,
-        },
-    )
-    .await;
-
-    assert!(matches!(
-        new_switch,
-        Err(DatabaseError::ExpectedHostDuplicateMacAddress(_))
-    ));
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let switches = create_expected_switches(&mut txn).await;
-    txn.commit().await.unwrap();
-    let mut switch = switches[0].clone();
-
-    assert_eq!(switch.serial_number, "SW-SN-001");
-    assert_eq!(switch.bmc_username, "ADMIN");
-    assert_eq!(switch.bmc_password, "Pwd2023x0x0x0x7");
-    let mut txn = env.pool.begin().await.unwrap();
-    switch.bmc_username = "ADMIN2".to_string();
-    switch.bmc_password = "wysiwyg".to_string();
-    db::expected_switch::update(&mut txn, &switch)
-        .await
-        .expect("Error updating bmc username/password");
-
-    txn.commit().await.expect("Failed to commit transaction");
-
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    let switch =
-        db::expected_switch::find_by_bmc_mac_address(&mut txn, switches[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .expect("Expected switch not found");
-
-    assert_eq!(switch.bmc_username, "ADMIN2");
-    assert_eq!(switch.bmc_password, "wysiwyg");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_delete(pool: sqlx::PgPool) -> () {
-    let env = create_test_env(pool.clone()).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let switches = create_expected_switches(&mut txn).await;
-    txn.commit().await.unwrap();
-
-    let switch = &switches[0];
-
-    assert_eq!(switch.serial_number, "SW-SN-001");
-
-    let mut txn = env.pool.begin().await.unwrap();
-    db::expected_switch::delete_by_mac(&mut txn, switch.bmc_mac_address)
-        .await
-        .expect("Error deleting expected_switch");
-
-    txn.commit().await.expect("Failed to commit transaction");
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    assert!(
-        db::expected_switch::find_by_bmc_mac_address(&mut txn, switches[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .is_none()
-    )
-}
-
-// Test API functionality
 #[crate::sqlx_test()]
 async fn test_add_expected_switch(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -926,6 +805,40 @@ async fn test_find_all_linked_joins_on_bmc_mac(pool: sqlx::PgPool) {
     );
 }
 
+#[crate::sqlx_test]
+async fn test_find_one_linked_returns_explored_endpoint_address(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    create_expected_switches(&mut txn).await;
+
+    let linked = db::expected_switch::find_one_linked(&mut txn)
+        .await
+        .unwrap()
+        .expect("expected a linked switch row");
+    assert_eq!(linked.address, None);
+
+    let address =
+        db::machine_interface::lookup_bmc_ip_by_mac_address(&mut *txn, linked.bmc_mac_address)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("expected a BMC interface address");
+
+    db::explored_endpoints::insert(address, &Default::default(), false, &mut txn)
+        .await
+        .unwrap();
+
+    let linked = db::expected_switch::find_one_linked(&mut txn)
+        .await
+        .unwrap()
+        .expect("expected a linked switch row");
+    assert_eq!(linked.address, Some(address));
+
+    txn.commit().await.unwrap();
+}
+
 /// Verify that update persists nvos_mac_addresses.
 #[crate::sqlx_test]
 async fn test_update_persists_nvos_mac_addresses(pool: sqlx::PgPool) {
@@ -996,6 +909,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
         bmc_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_switch BMC",
+        None,
     )
     .await;
 

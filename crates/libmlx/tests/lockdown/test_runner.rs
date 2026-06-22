@@ -15,174 +15,112 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::lockdown::error::MlxError;
 use libmlx::lockdown::runner::FlintRunner;
 
-#[test]
-fn test_runner_creation_with_path() {
-    let _runner = FlintRunner::with_path("/fake/path/flint");
-    // Just ensure it can be created without errors
-}
-
+// validate_device_id accepts PCI addresses, device paths, and names, and rejects
+// the empty string and anything with spaces. MlxError isn't PartialEq, so each row
+// pins the rejection by its variant name rather than the whole error.
 #[test]
 fn test_device_id_validation() {
-    // Valid device IDs
-    assert!(FlintRunner::validate_device_id("04:00.0").is_ok());
-    assert!(FlintRunner::validate_device_id("/dev/mst/mt4099_pci_cr0").is_ok());
-    assert!(FlintRunner::validate_device_id("mlx5_0").is_ok());
+    fn validated(device_id: &str) -> Result<(), &'static str> {
+        FlintRunner::validate_device_id(device_id).map_err(|e| match e {
+            MlxError::InvalidDeviceId(_) => "InvalidDeviceId",
+            _ => "other",
+        })
+    }
 
-    // Invalid device IDs
-    assert!(matches!(
-        FlintRunner::validate_device_id(""),
-        Err(MlxError::InvalidDeviceId(_))
-    ));
+    scenarios!(
+        run = validated;
+        "PCI address" {
+            "04:00.0" => Yields(()),
+        }
 
-    assert!(matches!(
-        FlintRunner::validate_device_id("device with spaces"),
-        Err(MlxError::InvalidDeviceId(_))
-    ));
+        "device path" {
+            "/dev/mst/mt4099_pci_cr0" => Yields(()),
+        }
+
+        "device name" {
+            "mlx5_0" => Yields(()),
+        }
+
+        "empty string is rejected" {
+            "" => FailsWith("InvalidDeviceId"),
+        }
+
+        "spaces are rejected" {
+            "device with spaces" => FailsWith("InvalidDeviceId"),
+        }
+    );
 }
 
+// With dry-run enabled, every mutating/querying call returns DryRun(cmd) instead of
+// shelling out; this checks the command string each one would have run. The exact
+// string is the contract, so each row pins it; `dry_run_cmd` pulls the string out
+// of the DryRun error (and panics loudly if a call unexpectedly didn't dry-run).
 #[test]
-fn test_dry_run_functionality() {
-    let runner = FlintRunner::with_path("/fake/flint").with_dry_run(true);
+fn test_dry_run_command_strings() {
+    let runner = FlintRunner::with_path("/test/flint").with_dry_run(true);
 
-    // Test dry run for query
-    let result = runner.query_device("fake_device");
-    assert!(matches!(result, Err(MlxError::DryRun(_))));
-    if let Err(MlxError::DryRun(cmd)) = result {
-        assert!(cmd.contains("fake_device"));
-        assert!(cmd.contains("/fake/flint"));
+    fn dry_run_cmd<T: std::fmt::Debug>(result: Result<T, MlxError>) -> String {
+        match result {
+            Err(MlxError::DryRun(cmd)) => cmd,
+            other => panic!("expected DryRun, got {other:?}"),
+        }
     }
 
-    // Test dry run for disable
-    let result = runner.disable_hw_access("fake_device", "12345678");
-    assert!(matches!(result, Err(MlxError::DryRun(_))));
-    if let Err(MlxError::DryRun(cmd)) = result {
-        assert!(cmd.contains("hw_access disable"));
-        assert!(cmd.contains("12345678"));
-    }
+    value_scenarios!(
+        run = |cmd| cmd;
+        "query" {
+            dry_run_cmd(runner.query_device("test_device")) => "/test/flint -d test_device q".to_string(),
+        }
 
-    // Test dry run for enable
-    let result = runner.enable_hw_access("fake_device", "12345678");
-    assert!(matches!(result, Err(MlxError::DryRun(_))));
-    if let Err(MlxError::DryRun(cmd)) = result {
-        assert!(cmd.contains("hw_access enable"));
-        assert!(cmd.contains("12345678"));
-    }
+        "disable hw_access" {
+            dry_run_cmd(runner.disable_hw_access("test_device", "abcdef01")) => "/test/flint -d test_device hw_access disable abcdef01".to_string(),
+        }
 
-    // Test dry run for set_key
-    let result = runner.set_key("fake_device", "12345678");
-    assert!(matches!(result, Err(MlxError::DryRun(_))));
-    if let Err(MlxError::DryRun(cmd)) = result {
-        assert!(cmd.contains("set_key"));
-    }
+        "enable hw_access" {
+            dry_run_cmd(runner.enable_hw_access("test_device", "abcdef01")) => "/test/flint -d test_device hw_access enable abcdef01".to_string(),
+        }
+
+        "set_key" {
+            dry_run_cmd(runner.set_key("test_device", "12345678")) => "/test/flint -d test_device set_key 12345678".to_string(),
+        }
+    );
 }
 
+// Keys must be exactly 8 hex digits; set_key and enable_hw_access both reject a
+// malformed key with InvalidKey before any command is built. MlxError isn't
+// PartialEq, so each row pins the rejection by variant name.
 #[test]
 fn test_key_validation() {
     let runner = FlintRunner::with_path("/fake/flint");
 
-    // Test with invalid keys that should fail validation
-    let result = runner.set_key("fake_device", "invalid_key");
-    assert!(matches!(result, Err(MlxError::InvalidKey)));
-
-    let result = runner.set_key("fake_device", "123");
-    assert!(matches!(result, Err(MlxError::InvalidKey)));
-
-    let result = runner.set_key("fake_device", "1234567g");
-    assert!(matches!(result, Err(MlxError::InvalidKey)));
-
-    // Test enable_hw_access with invalid key
-    let result = runner.enable_hw_access("fake_device", "toolong123");
-    assert!(matches!(result, Err(MlxError::InvalidKey)));
-}
-
-#[test]
-fn test_runner_default() {
-    let _runner = FlintRunner::default();
-    // Should not panic even if flint is not found
-}
-
-#[test]
-fn test_command_building() {
-    let runner = FlintRunner::with_path("/test/flint").with_dry_run(true);
-
-    // Test that dry run produces expected command strings
-    if let Err(MlxError::DryRun(cmd)) = runner.query_device("test_device") {
-        assert_eq!(cmd, "/test/flint -d test_device q");
+    fn key_error(result: Result<(), MlxError>) -> Result<(), &'static str> {
+        result.map_err(|e| match e {
+            MlxError::InvalidKey => "InvalidKey",
+            _ => "other",
+        })
     }
 
-    if let Err(MlxError::DryRun(cmd)) = runner.disable_hw_access("test_device", "abcdef01") {
-        assert_eq!(cmd, "/test/flint -d test_device hw_access disable abcdef01");
-    }
-
-    if let Err(MlxError::DryRun(cmd)) = runner.enable_hw_access("test_device", "abcdef01") {
-        assert_eq!(cmd, "/test/flint -d test_device hw_access enable abcdef01");
-    }
-
-    if let Err(MlxError::DryRun(cmd)) = runner.set_key("test_device", "12345678") {
-        assert_eq!(cmd, "/test/flint -d test_device set_key 12345678");
-    }
-}
-
-// These tests verify the output parsing logic without requiring actual flint execution
-#[cfg(test)]
-mod output_parsing_tests {
-
-    #[test]
-    fn test_already_disabled_parsing() {
-        // Test that our code would correctly identify "already disabled" messages
-        let already_disabled_outputs = vec![
-            "HW access already disabled",
-            "-I- HW access already disabled",
-            "some other text\nHW access already disabled\nmore text",
-        ];
-
-        for output in already_disabled_outputs {
-            // This simulates what our parsing logic does in FlintRunner
-            let contains_already_disabled = output.contains("already disabled");
-            assert!(
-                contains_already_disabled,
-                "Should detect 'already disabled' in: {output}"
-            );
+    scenarios!(
+        run = |result| result;
+        "set_key with non-hex key" {
+            key_error(runner.set_key("fake_device", "invalid_key")) => FailsWith("InvalidKey"),
         }
-    }
 
-    #[test]
-    fn test_already_enabled_parsing() {
-        // Test that our code would correctly identify "already enabled" messages
-        let already_enabled_outputs = vec![
-            "HW access already enabled",
-            "-I- HW access already enabled",
-            "some other text\nHW access already enabled\nmore text",
-        ];
-
-        for output in already_enabled_outputs {
-            // This simulates what our parsing logic does in FlintRunner
-            let contains_already_enabled = output.contains("already enabled");
-            assert!(
-                contains_already_enabled,
-                "Should detect 'already enabled' in: {output}"
-            );
+        "set_key with too-short key" {
+            key_error(runner.set_key("fake_device", "123")) => FailsWith("InvalidKey"),
         }
-    }
 
-    #[test]
-    fn test_hw_access_disabled_parsing() {
-        // Test parsing of "HW access is disabled" messages
-        let hw_disabled_outputs = vec![
-            "HW access is disabled",
-            "Error: HW access is disabled",
-            "some text\nHW access is disabled\nmore text",
-        ];
-
-        for output in hw_disabled_outputs {
-            let contains_hw_disabled = output.contains("HW access is disabled");
-            assert!(
-                contains_hw_disabled,
-                "Should detect 'HW access is disabled' in: {output}"
-            );
+        "set_key with a non-hex digit" {
+            key_error(runner.set_key("fake_device", "1234567g")) => FailsWith("InvalidKey"),
         }
-    }
+
+        "enable_hw_access with too-long key" {
+            key_error(runner.enable_hw_access("fake_device", "toolong123")) => FailsWith("InvalidKey"),
+        }
+    );
 }

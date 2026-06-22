@@ -78,7 +78,7 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
     env.run_network_segment_controller_iteration().await;
 
     let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::with_dpus(vec![])).await?;
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
 
     let result = env
         .api

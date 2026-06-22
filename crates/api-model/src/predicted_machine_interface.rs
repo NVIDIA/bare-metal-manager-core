@@ -19,6 +19,7 @@ use mac_address::MacAddress;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use crate::machine_boot_interface::MachineBootInterface;
 use crate::network_segment::NetworkSegmentType;
 
 #[derive(Debug, Clone, FromRow)]
@@ -27,6 +28,26 @@ pub struct PredictedMachineInterface {
     pub machine_id: MachineId,
     pub mac_address: MacAddress,
     pub expected_network_segment_type: NetworkSegmentType,
+    /// The last known vendor-named Redfish `EthernetInterface.Id` for this
+    /// MAC, handed to the `machine_interfaces` row at DHCP promotion so
+    /// the host's boot target is a full pair from its first owned interface.
+    pub boot_interface_id: Option<String>,
+    /// The declared `ExpectedHostNic.primary` intent, carried so promotion into
+    /// `machine_interfaces` lands the operator's chosen boot interface as
+    /// `primary_interface`. `false` when nothing is declared -- promotion then
+    /// leaves the row non-primary and the boot interface falls to the
+    /// `pick_boot_interface` automation.
+    pub primary_interface: bool,
+}
+
+impl PredictedMachineInterface {
+    /// The predicted [`MachineBootInterface`]: this NIC's MAC plus its last
+    /// recorded Redfish interface id -- the same pair the promoted
+    /// `machine_interfaces` row holds once the NIC's first lease lands.
+    /// `None` until the id has been captured from an exploration report.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        MachineBootInterface::for_mac(self.mac_address, self.boot_interface_id.clone())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -34,4 +55,7 @@ pub struct NewPredictedMachineInterface<'a> {
     pub machine_id: &'a MachineId,
     pub mac_address: MacAddress,
     pub expected_network_segment_type: NetworkSegmentType,
+    pub boot_interface_id: Option<String>,
+    /// See [`PredictedMachineInterface::primary_interface`].
+    pub primary_interface: bool,
 }

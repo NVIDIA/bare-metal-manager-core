@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use carbide_uuid::switch::SwitchId;
 use clap::{CommandFactory, Parser};
 
@@ -45,80 +47,87 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all switches).
+// show parses with or without an identifier: with no positional it leaves
+// switch_id unset (all switches); given a SwitchId it parses that exact id.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["switch", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.switch_id.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_show_with_identifier ensures show parses with identifier.
-#[test]
-fn parse_show_with_identifier() {
+fn parse_show_routes_to_show() {
     use std::str::FromStr;
+
     let switch_id = "sw100nsmnq69j4ntqlj162fnnbvg747gfqbicaa6tqgq6spocirfle7rom0";
-    let cmd = Cmd::try_parse_from(["switch", "show", switch_id])
-        .expect("should parse show with identifier");
 
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.switch_id.is_some());
-            assert_eq!(args.switch_id, Some(SwitchId::from_str(switch_id).unwrap()));
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.switch_id,
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no args parses with no switch id" {
+            &["switch", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_list ensures list parses with no arguments.
-#[test]
-fn parse_list() {
-    let cmd = Cmd::try_parse_from(["switch", "list"]).expect("should parse list");
-
-    assert!(matches!(cmd, Cmd::List(_)));
-}
-
-// parse_list_with_filters ensures list parses with filter flags.
-#[test]
-fn parse_list_with_filters() {
-    let cmd = Cmd::try_parse_from([
-        "switch",
-        "list",
-        "--deleted",
-        "only",
-        "--controller-state",
-        "ready",
-        "--bmc-mac",
-        "AA:BB:CC:DD:EE:FF",
-    ])
-    .expect("should parse list with filters");
-
-    match cmd {
-        Cmd::List(args) => {
-            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Only));
-            assert_eq!(args.controller_state, Some("ready".to_string()));
-            assert!(args.bmc_mac.is_some());
+        "an identifier parses to that switch id" {
+            &["switch", "show", switch_id][..] => Yields(Some(SwitchId::from_str(switch_id).unwrap())),
         }
-        _ => panic!("expected List variant"),
-    }
+    );
 }
 
-// parse_list_invalid_deleted ensures invalid deleted value is rejected.
+// list parses with no arguments, and with its optional filter flags: bare
+// `list` leaves the filters at their defaults, while the flags set deleted,
+// controller-state, and bmc-mac. The tuple is
+// (deleted == Only, controller_state, bmc_mac.is_some()).
 #[test]
-fn parse_list_invalid_deleted() {
-    let result = Cmd::try_parse_from(["switch", "list", "--deleted", "bogus"]);
-    assert!(result.is_err());
+fn parse_list_routes_to_list() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::List(args) => (
+                        matches!(args.deleted, rpc::forge::DeletedFilter::Only),
+                        args.controller_state,
+                        args.bmc_mac.is_some(),
+                    ),
+                    _ => panic!("expected List variant"),
+                })
+                .map_err(drop)
+        };
+        "no args parses with default filters" {
+            &["switch", "list"][..] => Yields((false, None, false)),
+        }
+
+        "filter flags parse onto the args" {
+            &[
+                "switch",
+                "list",
+                "--deleted",
+                "only",
+                "--controller-state",
+                "ready",
+                "--bmc-mac",
+                "AA:BB:CC:DD:EE:FF",
+            ][..] => Yields((true, Some("ready".to_string()), true)),
+        }
+    );
 }
 
-// parse_list_invalid_bmc_mac ensures invalid MAC is rejected.
+// Every malformed list invocation is rejected at parse time -- an out-of-range
+// `--deleted` value, or a `--bmc-mac` that isn't a MAC address.
 #[test]
-fn parse_list_invalid_bmc_mac() {
-    let result = Cmd::try_parse_from(["switch", "list", "--bmc-mac", "not-a-mac"]);
-    assert!(result.is_err());
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "list with an invalid --deleted value" {
+            &["switch", "list", "--deleted", "bogus"][..] => Fails,
+        }
+
+        "list with an invalid --bmc-mac" {
+            &["switch", "list", "--bmc-mac", "not-a-mac"][..] => Fails,
+        }
+    );
 }

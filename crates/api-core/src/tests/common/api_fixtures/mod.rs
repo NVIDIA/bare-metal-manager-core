@@ -51,8 +51,14 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
+use carbide_secrets::credentials::{
+    CompositeCredentialManager, CredentialManager, CredentialReader,
+};
+use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -74,9 +80,6 @@ use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
-use forge_secrets::credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
-use forge_secrets::test_support::credentials::TestCredentialManager;
-use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
@@ -92,6 +95,10 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
+use model::rack_type::{
+    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
+    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
+};
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
@@ -131,13 +138,12 @@ use crate::test_support::fixture_config::{
 };
 use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
+pub use crate::test_support::network_segment;
 use crate::test_support::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
-pub use crate::test_support::{endpoint_explorer, network_segment};
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub mod dpu;
@@ -325,7 +331,22 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
+            per_object_metrics_registry: self.per_object_metrics_registry(),
         }
+    }
+
+    /// Creates a per-object metrics registry from this test environment's
+    /// observability config (disabled unless the config opts in).
+    pub fn per_object_metrics_registry(
+        &self,
+    ) -> std::sync::Arc<carbide_health_metrics::PerObjectMetricsRegistry> {
+        carbide_health_metrics::PerObjectMetricsRegistry::new(
+            self.config
+                .observability
+                .per_object_metrics_for_classifications
+                .clone(),
+            std::time::Duration::from_secs(60),
+        )
     }
 
     /// Creates an instance of RackStateHandlerServices that are suitable for this
@@ -342,6 +363,7 @@ impl TestEnv {
             .into(),
             switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
+            per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
 
@@ -995,6 +1017,78 @@ pub fn get_config() -> CarbideConfig {
     default_config::get()
 }
 
+/// Rack profile ID used by RMS-ready test fixtures.
+pub const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
+
+/// Returns the default test config plus an RMS-ready NVL72 rack profile.
+pub fn get_config_with_rack_profiles() -> CarbideConfig {
+    let mut config = get_config();
+    config.rack_profiles = RackProfileConfig {
+        rack_profiles: [(
+            TEST_RMS_RACK_PROFILE_ID.to_string(),
+            RackProfile {
+                product_family: Some(RackProductFamily::Gb200),
+                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+                rack_capabilities: RackCapabilitiesSet {
+                    compute: RackCapabilityCompute {
+                        count: 18,
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    switch: RackCapabilitySwitch {
+                        count: 9,
+                        vendor: Some("NVIDIA".to_string()),
+                        ..Default::default()
+                    },
+                    power_shelf: RackCapabilityPowerShelf {
+                        count: 8,
+                        vendor: Some("LiteOn".to_string()),
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+    };
+
+    config
+}
+
+fn extend_component_manager_rms_profiles(
+    target: &mut RackProfileConfig,
+    source: &RackProfileConfig,
+) {
+    // This fixture builds component-manager with RMS switch and power shelf
+    // backends. Include custom RMS-ready profiles so tests exercise the profile
+    // IDs used by API paths, but keep intentionally incomplete profiles for
+    // call-time negative tests out of startup validation.
+    target.rack_profiles.extend(
+        source
+            .rack_profiles
+            .iter()
+            .filter(|(_, profile)| is_component_manager_rms_ready_profile(profile))
+            .map(|(profile_id, profile)| (profile_id.clone(), profile.clone())),
+    );
+}
+
+fn is_component_manager_rms_ready_profile(profile: &RackProfile) -> bool {
+    profile.product_family.is_some()
+        && profile
+            .rack_capabilities
+            .switch
+            .vendor
+            .as_deref()
+            .is_some_and(|vendor| !vendor.trim().is_empty())
+        && profile
+            .rack_capabilities
+            .power_shelf
+            .vendor
+            .as_deref()
+            .is_some_and(|vendor| !vendor.trim().is_empty())
+}
+
 /// crate::sqlx_test shares the pool with all testcases in a file. If there are many testcases in a file,
 /// test cases will start getting PoolTimedOut error. To avoid it, each test case will be assigned
 /// its own pool.
@@ -1026,6 +1120,33 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     create_test_env_with_overrides(db_pool, Default::default()).await
+}
+
+/// `create_test_env` with the fixture admin + host-inband site prefixes
+/// routable and the host-inband network segment created -- the standard
+/// setup for zero-DPU / NicMode ingestion tests.
+pub async fn create_test_env_with_host_inband(db_pool: sqlx::PgPool) -> TestEnv {
+    let env = create_test_env_with_overrides(
+        db_pool,
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    network_segment::FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    network_segment::FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    network_segment::FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    network_segment::FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    network_segment::create_host_inband_network_segment(&env.api, None).await;
+    env
 }
 
 #[derive(Debug, Default)]
@@ -1179,7 +1300,7 @@ pub async fn create_test_env_with_overrides(
 
     let eth_virt_data = EthVirtData {
         asn: 65535,
-        dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
+        dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()],
         deny_prefixes: vec![],
         site_fabric_prefixes,
     };
@@ -1201,22 +1322,34 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager = ib_fabric_test_manager(&config, composite_manager.clone());
 
     let rms_sim = Arc::new(RmsSim::default());
+    let mut component_manager_rack_profiles = get_config_with_rack_profiles().rack_profiles;
+    extend_component_manager_rms_profiles(
+        &mut component_manager_rack_profiles,
+        &config.rack_profiles,
+    );
+
+    let mut site_explorer_rack_profiles = component_manager_rack_profiles.clone();
+    site_explorer_rack_profiles
+        .rack_profiles
+        .extend(config.rack_profiles.rack_profiles.clone());
+
     let test_component_manager = component_manager::component_manager::build_component_manager(
         &component_manager::config::ComponentManagerConfig {
-            nv_switch_backend: "rms".into(),
-            power_shelf_backend: "rms".into(),
+            nv_switch_backend: component_manager::nv_switch_manager::Backend::Rms,
+            power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
             ..Default::default()
         },
+        component_manager_rack_profiles,
         rms_sim.as_rms_client(),
         None,
         Some(db_pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new);
+    .expect("test component manager should build");
+    let test_component_manager = Some(Arc::new(test_component_manager));
 
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
@@ -1318,6 +1451,14 @@ pub async fn create_test_env_with_overrides(
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
 
+    let per_object_metrics_registry = carbide_health_metrics::PerObjectMetricsRegistry::new(
+        config
+            .observability
+            .per_object_metrics_for_classifications
+            .clone(),
+        std::time::Duration::from_secs(60),
+    );
+
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_machines", test_meter.meter())
@@ -1329,6 +1470,7 @@ pub async fn create_test_env_with_overrides(
                 redfish_client_pool: redfish_sim.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1433,6 +1575,7 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1449,6 +1592,7 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1472,6 +1616,7 @@ pub async fn create_test_env_with_overrides(
                 .into(),
                 switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1483,6 +1628,7 @@ pub async fn create_test_env_with_overrides(
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
         redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
+        power_control_failures: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
@@ -1495,6 +1641,7 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         SiteExplorerConfig {
             enabled: Arc::new(true.into()),
+            retained_boot_interface_window: None,
             // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,
@@ -1523,6 +1670,7 @@ pub async fn create_test_env_with_overrides(
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
+        site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
     );
@@ -1787,7 +1935,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
             username: "root".to_string(),
             password: "hostredfish_sitedefault".to_string(),
         }),
-        machine_identity: Some(forge_secrets::MachineIdentityConfig { encryption_keys }),
+        machine_identity: Some(carbide_secrets::MachineIdentityConfig { encryption_keys }),
         ..Default::default()
     }
 }
@@ -2199,7 +2347,7 @@ pub async fn create_managed_host_with_dpf_multi(
             DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON))
         })
         .collect();
-    let mh_config = ManagedHostConfig::with_dpus(dpu_configs);
+    let mh_config = ManagedHostConfig::default().with_dpus(dpu_configs);
     let mh = site_explorer::new_mock_host_with_dpf(env, mh_config)
         .await
         .expect("Failed to create a new host");
@@ -2222,8 +2370,7 @@ pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestM
 /// Create a managed host with `dpu_count` DPUs (default config)
 pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> TestManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
-    let config =
-        ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    let config = ManagedHostConfig::default().with_dpu_count(dpu_count);
     create_managed_host_with_config(env, config).await
 }
 
@@ -2269,7 +2416,7 @@ pub async fn create_managed_host_with_hardware_info_template(
     hardware_info_template: HardwareInfoTemplate,
 ) -> TestManagedHost {
     insert_nvlink_nmxc_endpoint_from_managed_host(env, &hardware_info_template).await;
-    let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
+    let config = ManagedHostConfig::default().with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
     TestManagedHost {
         id: mh.host_snapshot.id,
@@ -2590,6 +2737,7 @@ pub async fn update_machine_validation_run(
             validation_id,
             duration_to_complete,
             total,
+            selected_tests: Vec::new(),
         }))
         .await
         .unwrap()

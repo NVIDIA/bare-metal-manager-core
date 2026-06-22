@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -47,69 +49,65 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all interfaces).
+// show parses with any combination of its optional args; each row yields the
+// observed (interface_id present, --all, --more) so the no-args, --more, and
+// interface-id cases are all checked against one parse.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["machine-interface", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.interface_id.is_none());
-            assert!(!args.all);
-            assert!(!args.more);
+fn parse_show_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.interface_id.is_some(), args.all, args.more),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no arguments (all interfaces)" {
+            &["machine-interface", "show"][..] => Yields((false, false, false)),
         }
-        _ => panic!("expected Show variant"),
-    }
+
+        "--more flag" {
+            &["machine-interface", "show", "--more"][..] => Yields((false, false, true)),
+        }
+
+        "with an interface ID" {
+            &["machine-interface", "show", TEST_INTERFACE_ID][..] => Yields((true, false, false)),
+        }
+    );
 }
 
-// parse_show_with_more ensures show parses with --more flag.
+// delete parses with an interface ID and routes to the Delete variant,
+// round-tripping the ID through its string form.
 #[test]
-fn parse_show_with_more() {
-    let cmd = Cmd::try_parse_from(["machine-interface", "show", "--more"])
-        .expect("should parse show --more");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.more);
+fn parse_delete_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => args.interface_id.to_string(),
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        };
+        "with an interface ID" {
+            &["machine-interface", "delete", TEST_INTERFACE_ID][..] => Yields(TEST_INTERFACE_ID.to_string()),
         }
-        _ => panic!("expected Show variant"),
-    }
+    );
 }
 
-// parse_show_with_interface_id ensures show parses
-// with interface ID.
+// Every malformed invocation is rejected at parse time -- e.g. delete left
+// without its required interface ID.
 #[test]
-fn parse_show_with_interface_id() {
-    let cmd = Cmd::try_parse_from(["machine-interface", "show", TEST_INTERFACE_ID])
-        .expect("should parse show with interface ID");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.interface_id.is_some());
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "delete without an interface ID" {
+            &["machine-interface", "delete"][..] => Fails,
         }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_delete ensures delete parses with interface ID.
-#[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["machine-interface", "delete", TEST_INTERFACE_ID])
-        .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.interface_id.to_string(), TEST_INTERFACE_ID);
-        }
-        _ => panic!("expected Delete variant"),
-    }
-}
-
-// parse_delete_missing_id_fails ensures delete fails
-// without interface ID.
-#[test]
-fn parse_delete_missing_id_fails() {
-    let result = Cmd::try_parse_from(["machine-interface", "delete"]);
-    assert!(result.is_err(), "should fail without interface ID");
+    );
 }

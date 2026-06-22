@@ -28,6 +28,10 @@ pub(crate) fn not_found() -> Response {
     json!("").into_response(StatusCode::NOT_FOUND)
 }
 
+pub(crate) fn bad_request(message: &str) -> Response {
+    json!({ "error": message }).into_response(StatusCode::BAD_REQUEST)
+}
+
 pub(crate) fn ok_no_content() -> Response {
     StatusCode::NO_CONTENT.into_response()
 }

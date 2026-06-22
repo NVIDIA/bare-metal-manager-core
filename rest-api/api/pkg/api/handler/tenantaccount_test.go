@@ -263,6 +263,8 @@ func TestTenantAccountHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	okBody3, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantOrg: cutil.GetPtr(tnOrg3)})
 	assert.Nil(t, err)
+	okBodyInferIP, err := json.Marshal(model.APITenantAccountCreateRequest{TenantOrg: cutil.GetPtr("test-tn-org-infer")})
+	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -383,6 +385,15 @@ func TestTenantAccountHandler_Create(t *testing.T) {
 			name:             "success case when tenant org specified and Tenant does not exist",
 			reqOrgName:       ipOrg1,
 			reqBody:          string(okBody3),
+			user:             ipu,
+			expectedErr:      false,
+			expectedStatus:   http.StatusCreated,
+			expectedTenantID: nil,
+		},
+		{
+			name:             "success when infrastructureProviderId is omitted (inferred from org)",
+			reqOrgName:       ipOrg1,
+			reqBody:          string(okBodyInferIP),
 			user:             ipu,
 			expectedErr:      false,
 			expectedStatus:   http.StatusCreated,
@@ -801,14 +812,6 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			expectedStatus: http.StatusInternalServerError,
 		},
 		{
-			name:           "error when infrastructure provider and tenant not specified",
-			reqOrgName:     tnOrg1,
-			user:           tnUser,
-			taID:           ta11.ID.String(),
-			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
 			name:           "error when tenant account id is invalid uuid",
 			reqOrgName:     tnOrg1,
 			user:           tnUser,
@@ -825,15 +828,6 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			expectedStatus: http.StatusNotFound,
 		},
 		{
-			name:                          "error when infrastructure provider not valid uuid",
-			reqOrgName:                    ipOrg1,
-			user:                          ipUser,
-			taID:                          ta11.ID.String(),
-			queryInfrastructureProviderID: cutil.GetPtr("non-uuid"),
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
 			name:                          "error when infrastructure provider not found for org",
 			reqOrgName:                    ipOrg3,
 			user:                          ipUser,
@@ -843,31 +837,13 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			expectedStatus:                http.StatusBadRequest,
 		},
 		{
-			name:                          "error when infrastructure provider in url doesnt match org",
-			reqOrgName:                    ipOrg1,
-			user:                          ipUser,
-			taID:                          ta11.ID.String(),
-			queryInfrastructureProviderID: cutil.GetPtr(uuid.New().String()),
-			expectedErr:                   true,
-			expectedStatus:                http.StatusNotFound,
-		},
-		{
 			name:                          "error when infrastructure provider in org doesnt match infrastructure provider in tenant account",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
 			taID:                          ta21.ID.String(),
 			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                   true,
-			expectedStatus:                http.StatusNotFound,
-		},
-		{
-			name:           "error when tenant id not valid uuid",
-			reqOrgName:     ipOrg1,
-			user:           ipUser,
-			taID:           ta11.ID.String(),
-			queryTenantID:  cutil.GetPtr("non-uuid"),
-			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus:                http.StatusForbidden,
 		},
 		{
 			name:           "error when tenant not found for org",
@@ -885,7 +861,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			taID:           ta11.ID.String(),
 			queryTenantID:  cutil.GetPtr(tn1.ID.String()),
 			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "error when tenant in org doesnt match tenant in tenant account",
@@ -894,7 +870,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			taID:           ta12.ID.String(),
 			queryTenantID:  cutil.GetPtr(tn1.ID.String()),
 			expectedErr:    true,
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:                     "error when tenant id is not found",
@@ -1094,6 +1070,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 
 	st1 := testTenantAccountBuildSite(t, dbSession, ip1, "site1", ipUser)
 	assert.NotNil(t, st1)
+	st2 := testTenantAccountBuildSite(t, dbSession, ip2, "site2", ipUser)
+	assert.NotNil(t, st2)
 
 	tns := []cdbm.Tenant{}
 	tas := []cdbm.TenantAccount{}
@@ -1105,6 +1083,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 
 		allocation := testTenantAccountBuildAllocation(t, dbSession, st1, tn, "Test Allocation", ipUser)
 		assert.NotNil(t, allocation)
+		allocation2 := testTenantAccountBuildAllocation(t, dbSession, st2, tn, "Test Allocation 2", ipUser)
+		assert.NotNil(t, allocation2)
 
 		ta1 := testTenantAccountBuildTenantAccount(t, dbSession, fmt.Sprintf("test-tenant-account-%02d", i), ip1, tn, tn.Org, cdbm.TenantAccountStatusInvited, ipUser.ID, contactUser1.ID)
 		assert.NotNil(t, ta1)
@@ -1173,71 +1153,11 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			expectedStatus:                http.StatusInternalServerError,
 		},
 		{
-			name:                          "error when infrastructure provider and tenant not specified",
-			reqOrgName:                    tnOrgs[0],
-			user:                          tnUser,
-			queryInfrastructureProviderID: nil,
-			queryTenantID:                 nil,
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
-			name:                          "error when infrastructure provider not valid uuid",
-			reqOrgName:                    ipOrg1,
-			user:                          ipUser,
-			queryInfrastructureProviderID: cutil.GetPtr("non-uuid"),
-			queryTenantID:                 nil,
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
 			name:                          "error when infrastructure provider not found for org",
 			reqOrgName:                    ipOrg3,
 			user:                          ipUser,
 			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                 nil,
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
-			name:                          "error when infrastructure provider in url doesnt match org",
-			reqOrgName:                    ipOrg1,
-			user:                          ipUser,
-			queryInfrastructureProviderID: cutil.GetPtr(uuid.New().String()),
-			queryTenantID:                 nil,
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
-			name:                          "error when tenant id not valid uuid",
-			reqOrgName:                    tnOrgs[0],
-			user:                          tnUser,
-			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cutil.GetPtr("non-uuid"),
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
-			name:                          "error when tenant not found for org",
-			reqOrgName:                    tnOrgs[0],
-			user:                          tnUser,
-			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cutil.GetPtr(tn15.ID.String()),
-			queryIncludeRelations1:        nil,
-			expectedErr:                   true,
-			expectedStatus:                http.StatusBadRequest,
-		},
-		{
-			name:                          "error when tenant id in url doesnt match org",
-			reqOrgName:                    tnOrgs[0],
-			user:                          tnUser,
-			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cutil.GetPtr(uuid.New().String()),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,

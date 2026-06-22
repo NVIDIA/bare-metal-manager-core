@@ -37,7 +37,7 @@ pub enum Args {
 EXAMPLES:
 
 Show a machine's metadata:
-    $ carbide-admin-cli machine metadata show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine metadata show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct MachineMetadataCommandShow {
@@ -50,7 +50,7 @@ pub struct MachineMetadataCommandShow {
 EXAMPLES:
 
 Set a machine's name and description:
-    $ carbide-admin-cli machine metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine metadata set 12345678-1234-5678-90ab-cdef01234567 \
     --name gpu-node-01 --description \"Rack 4, tray 2\"
 
 ")]
@@ -68,10 +68,10 @@ pub struct MachineMetadataCommandSet {
 EXAMPLES:
 
 Add a key-only label:
-    $ carbide-admin-cli machine metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+    $ nico-admin-cli machine metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
 
 Add a key/value label:
-    $ carbide-admin-cli machine metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
     --key rack --value 4
 
 ")]
@@ -89,7 +89,7 @@ pub struct MachineMetadataCommandAddLabel {
 EXAMPLES:
 
 Remove one or more labels by key:
-    $ carbide-admin-cli machine metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
     --keys rack --keys edge
 
 ")]
@@ -105,10 +105,10 @@ pub struct MachineMetadataCommandRemoveLabels {
 EXAMPLES:
 
 Fill in missing metadata from the expected-machine (leaving existing values intact):
-    $ carbide-admin-cli machine metadata from-expected-machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine metadata from-expected-machine 12345678-1234-5678-90ab-cdef01234567
 
 Overwrite the machine's metadata with the expected-machine's values:
-    $ carbide-admin-cli machine metadata from-expected-machine 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine metadata from-expected-machine 12345678-1234-5678-90ab-cdef01234567 \
     --replace-all
 
 ")]

@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use db::db_read::PgPoolReader;
@@ -47,6 +48,8 @@ pub struct MachineStateHandlerServices {
     pub ipmi_tool: Arc<dyn IPMITool>,
     /// Configuration used by MachineStateHandler.
     pub site_config: Arc<MachineStateHandlerSiteConfig>,
+    /// Shared registry backing the generic per-object health metrics.
+    pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }
 
 impl MachineStateHandlerServices {

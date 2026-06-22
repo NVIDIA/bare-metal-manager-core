@@ -73,13 +73,13 @@ type PowerControlTaskInfo struct {
 	Operation PowerOperation `json:"operation"`
 	Forced    bool           `json:"forced"`
 	RuleID    string         `json:"rule_id,omitempty"`
-	// OverrideAssignmentCheck, when true, instructs the component manager
-	// to skip the host-assignment safety gate that normally blocks power
-	// operations against hardware whose hosts are still in the Assigned/*
-	// lifecycle state. The bypass is intended for operator-supervised
-	// maintenance windows and is recorded as a warning log on the worker
-	// that executes the task; authorisation lives upstream.
-	OverrideAssignmentCheck bool `json:"override_assignment_check,omitempty"`
+	// OverrideReadinessCheck, when true, instructs the component manager
+	// to skip the readiness gate that normally blocks power operations
+	// against components whose persisted ComponentOperationStatus reports them as
+	// not ready for the operation. The bypass is intended for operator-
+	// supervised maintenance windows and is recorded as a warning log on
+	// the worker that executes the task; authorisation lives upstream.
+	OverrideReadinessCheck bool `json:"override_readiness_check,omitempty"`
 }
 
 func (t *PowerControlTaskInfo) Validate() error {
@@ -155,13 +155,13 @@ func (t *InjectExpectationTaskInfo) CodeString() string {
 type BringUpTaskInfo struct {
 	RuleID string `json:"rule_id,omitempty"`
 	OpCode string `json:"op_code,omitempty"`
-	// OverrideAssignmentCheck, when true, propagates through the bring-up
+	// OverrideReadinessCheck, when true, propagates through the bring-up
 	// rule's synthesised PowerControl / FirmwareControl / BringUpControl
-	// sub-actions so they each skip the host-assignment safety gate.
-	// Equivalent to setting the field on every sub-task; intended for
-	// operator-supervised maintenance and recorded as a warning log on
-	// the worker that executes each sub-task.
-	OverrideAssignmentCheck bool `json:"override_assignment_check,omitempty"`
+	// sub-actions so they each skip the readiness gate. Equivalent to
+	// setting the field on every sub-task; intended for operator-
+	// supervised maintenance and recorded as a warning log on the worker
+	// that executes each sub-task.
+	OverrideReadinessCheck bool `json:"override_readiness_check,omitempty"`
 }
 
 func (t *BringUpTaskInfo) Validate() error {
@@ -227,13 +227,13 @@ type FirmwareControlTaskInfo struct {
 	// these strings to component-manager-specific enums is done in each
 	// FirmwareControl implementation (see pkg/common/firmwarecomponents).
 	SubTargets []string `json:"sub_targets,omitempty"`
-	// OverrideAssignmentCheck, when true, instructs the component manager
-	// to skip the host-assignment safety gate that normally blocks
-	// firmware updates against hardware whose hosts are still in the
-	// Assigned/* lifecycle state. Intended for operator-supervised
+	// OverrideReadinessCheck, when true, instructs the component manager
+	// to skip the readiness gate that normally blocks firmware updates
+	// against components whose persisted ComponentOperationStatus reports them as
+	// not ready for the operation. Intended for operator-supervised
 	// maintenance windows and recorded as a warning log on the worker
 	// that executes the task; authorisation lives upstream.
-	OverrideAssignmentCheck bool `json:"override_assignment_check,omitempty"`
+	OverrideReadinessCheck bool `json:"override_readiness_check,omitempty"`
 }
 
 func (t *FirmwareControlTaskInfo) Validate() error {

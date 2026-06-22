@@ -27,6 +27,9 @@ use super::super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
+#[cfg(test)]
+mod test_create_domain;
+
 /// Validates a domain name according to DNS standards
 fn validate_domain_name(name: &str) -> Result<(), DatabaseError> {
     if name != name.to_lowercase() {

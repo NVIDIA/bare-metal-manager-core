@@ -30,9 +30,9 @@ use ::rpc::forge::{
     TenantIdentityConfigResponse, TenantIdentitySigningKey, TokenDelegationRequest,
     TokenDelegationResponse, token_delegation,
 };
+use carbide_secrets::credentials::CredentialReader;
+use carbide_secrets::key_encryption;
 use db::{WithTransaction, tenant, tenant_identity_config};
-use forge_secrets::credentials::CredentialReader;
-use forge_secrets::key_encryption;
 use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
 use model::tenant::{
     EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, EncryptionKeyId,

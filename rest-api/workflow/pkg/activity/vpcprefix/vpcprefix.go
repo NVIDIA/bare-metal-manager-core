@@ -56,6 +56,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 	}
 
 	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(mvp.dbSession)
+	sdDAO := cdbm.NewStatusDetailDAO(mvp.dbSession)
 
 	existingVpcPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -113,11 +114,26 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 			}
 		}
 
-		// If VPC Prefix is not in Deleting state, then update status to Ready
-		if vpcPrefix.Status != cdbm.VpcPrefixStatusDeleting && vpcPrefix.Status != cdbm.VpcPrefixStatusReady {
-			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cwutil.GetPtr(cdbm.VpcPrefixStatusReady), cwutil.GetPtr("VPC Prefix has been re-detected on Site"))
+		// Update local status from the Controller tenant state reported in inventory.
+		status, statusMessage := getControllerVpcPrefixStatus(controllerVpcPrefix.GetStatus())
+		if vpcPrefix.Status == cdbm.VpcPrefixStatusDeleting && status != cdbm.VpcPrefixStatusDeleting && status != cdbm.VpcPrefixStatusDeleted {
+			continue
+		}
+
+		if vpcPrefix.Status != status {
+			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, &status, &statusMessage)
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
+			}
+		} else {
+			latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, vpcPrefix.ID.String(), nil, cwutil.GetPtr(1), nil)
+			if serr != nil {
+				slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for VPC Prefix")
+			} else if len(latestsd) == 0 || latestsd[0].Message == nil || *latestsd[0].Message != statusMessage {
+				err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, &status, &statusMessage)
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
+				}
 			}
 		}
 
@@ -143,8 +159,8 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 	for _, vpcPrefix := range vpcPrefixesToDelete {
 		slogger := logger.With().Str("VPC Prefix ID", vpcPrefix.ID.String()).Logger()
 
-		// If the VpcPrefix was already being deleted, we can proceed with removing it from the DB
-		if vpcPrefix.Status == cdbm.VpcPrefixStatusDeleting {
+		// If the VpcPrefix was already deleting or deleted, we can remove it from the DB.
+		if vpcPrefix.Status == cdbm.VpcPrefixStatusDeleting || vpcPrefix.Status == cdbm.VpcPrefixStatusDeleted {
 			// Retrieve Subnet with IPBlock
 			curVpcPrefix, serr := vpcPrefixDAO.GetByID(ctx, nil, vpcPrefix.ID, []string{cdbm.IPBlockRelationName})
 			if serr != nil {
@@ -193,6 +209,31 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 	}
 
 	return nil
+}
+
+// getControllerVpcPrefixStatus maps Controller VPC Prefix tenant state into REST status and status-detail text.
+func getControllerVpcPrefixStatus(status *cwssaws.VpcPrefixStatus) (string, string) {
+	// Older Controller builds did not report status; inventory presence meant ready.
+	if status == nil {
+		return cdbm.VpcPrefixStatusReady, "VPC Prefix is ready for use"
+	}
+
+	switch status.GetTenantState() {
+	case cwssaws.TenantState_PROVISIONING:
+		return cdbm.VpcPrefixStatusProvisioning, "VPC Prefix is being provisioned on Site"
+	case cwssaws.TenantState_READY:
+		return cdbm.VpcPrefixStatusReady, "VPC Prefix is ready for use"
+	case cwssaws.TenantState_CONFIGURING:
+		return cdbm.VpcPrefixStatusProvisioning, "VPC Prefix is being configured on Site"
+	case cwssaws.TenantState_TERMINATING:
+		return cdbm.VpcPrefixStatusDeleting, "VPC Prefix is being deleted on Site"
+	case cwssaws.TenantState_TERMINATED:
+		return cdbm.VpcPrefixStatusDeleted, "VPC Prefix has been deleted on Site"
+	case cwssaws.TenantState_FAILED:
+		return cdbm.VpcPrefixStatusError, "VPC Prefix is in error state"
+	default:
+		return cdbm.VpcPrefixStatusError, "VPC Prefix status is unknown"
+	}
 }
 
 // deleteVpcPrefixFromDB is a helper function to delete VPC Prefix from DB

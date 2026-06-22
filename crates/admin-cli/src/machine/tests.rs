@@ -24,6 +24,8 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 use metadata::args::Args as MachineMetadataCommand;
 use network::args::Args as NetworkCommand;
@@ -51,56 +53,35 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all machines).
+// `show` parses with no arguments and with each of its flags, capturing the
+// machine/all/dpus/hosts state in each case.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["machine", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.machine.is_none());
-            assert!(!args.all);
-            assert!(!args.dpus);
-            assert!(!args.hosts);
+fn parse_show_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.machine.is_some(), args.all, args.dpus, args.hosts),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no arguments (all machines)" {
+            &["machine", "show"][..] => Yields((false, false, false, false)),
         }
-        _ => panic!("expected Show variant"),
-    }
+
+        "--dpus flag" {
+            &["machine", "show", "--dpus"][..] => Yields((false, false, true, false)),
+        }
+
+        "--hosts flag" {
+            &["machine", "show", "--hosts"][..] => Yields((false, false, false, true)),
+        }
+    );
 }
 
-// parse_show_with_dpus ensures show parses with
-// --dpus flag.
-#[test]
-fn parse_show_with_dpus() {
-    let cmd = Cmd::try_parse_from(["machine", "show", "--dpus"]).expect("should parse show --dpus");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.dpus);
-            assert!(!args.hosts);
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_show_with_hosts ensures show parses with
-// --hosts flag.
-#[test]
-fn parse_show_with_hosts() {
-    let cmd =
-        Cmd::try_parse_from(["machine", "show", "--hosts"]).expect("should parse show --hosts");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.hosts);
-            assert!(!args.dpus);
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_network_status ensures network status
-// parses.
+// network status routes to the Status variant; network config parses with a
+// machine ID and exposes it.
 #[test]
 fn parse_network_status() {
     let cmd =
@@ -130,33 +111,29 @@ fn parse_network_config() {
     }
 }
 
-// parse_health_report_show ensures health-report show parses.
+// health-report show parses, and the legacy health-override alias routes to the
+// same Show variant; both expose the machine ID.
 #[test]
-fn parse_health_report_show() {
-    let cmd = Cmd::try_parse_from(["machine", "health-report", "show", TEST_MACHINE_ID])
-        .expect("should parse health-report show");
-
-    match cmd {
-        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
-            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+fn parse_health_report_show_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
+                        machine_id.to_string()
+                    }
+                    _ => panic!("expected HealthReport Show variant"),
+                })
+                .map_err(drop)
+        };
+        "health-report show" {
+            &["machine", "health-report", "show", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }
-        _ => panic!("expected HealthReport Show variant"),
-    }
-}
 
-// parse_health_override_show ensures the legacy
-// health-override alias still parses.
-#[test]
-fn parse_health_override_show() {
-    let cmd = Cmd::try_parse_from(["machine", "health-override", "show", TEST_MACHINE_ID])
-        .expect("should parse health-override show");
-
-    match cmd {
-        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
-            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+        "legacy health-override show alias" {
+            &["machine", "health-override", "show", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }
-        _ => panic!("expected HealthReport Show variant"),
-    }
+    );
 }
 
 // parse_health_override_add_with_template ensures the
@@ -238,8 +215,8 @@ fn parse_auto_update_enable() {
     }
 }
 
-// parse_metadata_show ensures metadata show parses
-// with machine ID.
+// metadata show exposes the machine ID; metadata set exposes the parsed
+// --name option.
 #[test]
 fn parse_metadata_show() {
     let cmd = Cmd::try_parse_from(["machine", "metadata", "show", TEST_MACHINE_ID])
@@ -297,35 +274,89 @@ fn parse_positions() {
 // values correctly convert back into their expected variant,
 // or fail otherwise.
 
-// health_override_templates_value_enum ensures HealthReportTemplates
-// parses from strings.
+// Each HealthReportTemplates string round-trips to its variant, and an unknown
+// string is rejected. The variant isn't PartialEq, so the closure projects the
+// parsed variant through an EXHAUSTIVE `template_name` (no wildcard arm) and each
+// row's expected is that same projection applied to the variant it names -- the
+// variant, not a hand-copied string, is the source of truth. The exhaustive match
+// also means a newly-added HealthReportTemplates variant fails to compile here
+// rather than silently slipping past, so it has to be given a string and a row.
 #[test]
 fn health_override_templates_value_enum() {
+    use HealthReportTemplates as T;
     use clap::ValueEnum;
 
-    assert!(matches!(
-        HealthReportTemplates::from_str("host-update", false),
-        Ok(HealthReportTemplates::HostUpdate)
-    ));
-    assert!(matches!(
-        HealthReportTemplates::from_str("internal-maintenance", false),
-        Ok(HealthReportTemplates::InternalMaintenance)
-    ));
-    assert!(matches!(
-        HealthReportTemplates::from_str("out-for-repair", false),
-        Ok(HealthReportTemplates::OutForRepair)
-    ));
-    assert!(matches!(
-        HealthReportTemplates::from_str("degraded", false),
-        Ok(HealthReportTemplates::Degraded)
-    ));
-    assert!(matches!(
-        HealthReportTemplates::from_str("validation", false),
-        Ok(HealthReportTemplates::Validation)
-    ));
-    assert!(matches!(
-        HealthReportTemplates::from_str("request-online-repair", false),
-        Ok(HealthReportTemplates::RequestOnlineRepair)
-    ));
-    assert!(HealthReportTemplates::from_str("invalid", false).is_err());
+    fn template_name(t: &HealthReportTemplates) -> &'static str {
+        match t {
+            T::HostUpdate => "host-update",
+            T::InternalMaintenance => "internal-maintenance",
+            T::OutForRepair => "out-for-repair",
+            T::Degraded => "degraded",
+            T::Validation => "validation",
+            T::SuppressExternalAlerting => "suppress-external-alerting",
+            T::MarkHealthy => "mark-healthy",
+            T::StopRebootForAutomaticRecoveryFromStateMachine => {
+                "stop-reboot-for-automatic-recovery-from-state-machine"
+            }
+            T::TenantReportedIssue => "tenant-reported-issue",
+            T::RequestOnlineRepair => "request-online-repair",
+            T::RequestRepair => "request-repair",
+        }
+    }
+
+    scenarios!(
+        run = |s| {
+            HealthReportTemplates::from_str(s, false)
+                .map(|t| template_name(&t))
+                .map_err(drop)
+        };
+        "host-update" {
+            "host-update" => Yields(template_name(&T::HostUpdate)),
+        }
+
+        "internal-maintenance" {
+            "internal-maintenance" => Yields(template_name(&T::InternalMaintenance)),
+        }
+
+        "out-for-repair" {
+            "out-for-repair" => Yields(template_name(&T::OutForRepair)),
+        }
+
+        "degraded" {
+            "degraded" => Yields(template_name(&T::Degraded)),
+        }
+
+        "validation" {
+            "validation" => Yields(template_name(&T::Validation)),
+        }
+
+        "suppress-external-alerting" {
+            "suppress-external-alerting" => Yields(template_name(&T::SuppressExternalAlerting)),
+        }
+
+        "mark-healthy" {
+            "mark-healthy" => Yields(template_name(&T::MarkHealthy)),
+        }
+
+        "stop-reboot-for-automatic-recovery-from-state-machine" {
+            "stop-reboot-for-automatic-recovery-from-state-machine" =>
+                Yields(template_name(&T::StopRebootForAutomaticRecoveryFromStateMachine)),
+        }
+
+        "tenant-reported-issue" {
+            "tenant-reported-issue" => Yields(template_name(&T::TenantReportedIssue)),
+        }
+
+        "request-online-repair" {
+            "request-online-repair" => Yields(template_name(&T::RequestOnlineRepair)),
+        }
+
+        "request-repair" {
+            "request-repair" => Yields(template_name(&T::RequestRepair)),
+        }
+
+        "invalid string is rejected" {
+            "invalid" => Fails,
+        }
+    );
 }

@@ -27,7 +27,7 @@ use super::proto::{self, PathElem};
 use super::sample_processor::now_unix_secs;
 use super::subscriber::GnmiStreamMetrics;
 use crate::HealthError;
-use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 type ParsedRow = HashMap<String, String>;
 type CachedRows = HashMap<String, ParsedRow>;
@@ -276,7 +276,7 @@ impl GnmiOnChangeProcessor {
 
         sink.handle_event(
             &self.event_context,
-            &CollectorEvent::Metric(Box::new(SensorHealthData {
+            &CollectorEvent::Metric(Box::new(MetricSample {
                 key,
                 name: self.collector_name.clone(),
                 metric_type: "on_change_row".to_string(),
@@ -437,7 +437,7 @@ mod tests {
         }
     }
 
-    fn metric_label<'a>(metric: &'a SensorHealthData, label: &str) -> Option<&'a str> {
+    fn metric_label<'a>(metric: &'a MetricSample, label: &str) -> Option<&'a str> {
         metric
             .labels
             .iter()

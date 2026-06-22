@@ -480,3 +480,266 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, scenarios, value_scenarios};
+
+    use super::*;
+
+    // from_url routes a URL string to the right source variant. We project the
+    // parsed source to description() (a total, deterministic projection) so each
+    // row pins both the chosen variant and the carried fields. FirmwareError is
+    // not PartialEq, so rejection rows use Fails + map_err(drop). Every ssh row
+    // that yields uses an explicit user so the description is whoami-independent.
+    #[test]
+    fn from_url_routes_to_the_right_variant() {
+        scenarios!(
+            run = |url| {
+                FirmwareSource::from_url(url)
+                    .map(|s| s.description())
+                    .map_err(drop)
+            };
+            "https URL becomes an Http source" {
+                "https://example.com/fw.bin" => Yields("http:https://example.com/fw.bin".to_string()),
+            }
+
+            "http URL becomes an Http source" {
+                "http://example.com/fw.bin" => Yields("http:http://example.com/fw.bin".to_string()),
+            }
+
+            "file:// prefix is stripped to a Local path" {
+                "file:///abs/path/fw.bin" => Yields("local:/abs/path/fw.bin".to_string()),
+            }
+
+            "file:// with a relative remainder" {
+                "file://relative/fw.bin" => Yields("local:relative/fw.bin".to_string()),
+            }
+
+            "bare absolute path is a Local source" {
+                "/plain/path/fw.bin" => Yields("local:/plain/path/fw.bin".to_string()),
+            }
+
+            "bare relative path is a Local source" {
+                "relative/fw.bin" => Yields("local:relative/fw.bin".to_string()),
+            }
+
+            "ssh with explicit user and absolute path" {
+                "ssh://deploy@host.example:/abs/fw.bin" => Yields("ssh://deploy@host.example:22:/abs/fw.bin".to_string()),
+            }
+
+            "ssh with explicit user and relative path" {
+                "ssh://deploy@host.example:rel/fw.bin" => Yields("ssh://deploy@host.example:22:rel/fw.bin".to_string()),
+            }
+
+            "ssh URL with no colon separator is rejected" {
+                "ssh://hostonly" => Fails,
+            }
+
+            "ssh URL with an empty remote path is rejected" {
+                "ssh://deploy@host.example:" => Fails,
+            }
+
+            "ssh URL with an empty host is rejected" {
+                "ssh://:/abs/fw.bin" => Fails,
+            }
+        );
+    }
+
+    // An ssh:// URL with no explicit user still parses (username defaults to the
+    // current user); we only assert that it succeeds since whoami is environment
+    // dependent.
+    #[test]
+    fn from_url_defaults_ssh_user() {
+        Case {
+            scenario: "ssh without an explicit user parses",
+            input: "ssh://host.example:/abs/fw.bin",
+            expect: Yields(()),
+        }
+        .check(|url| FirmwareSource::from_url(url).map(|_| ()).map_err(drop));
+    }
+
+    // parse_ssh_url splits an SCP-style ssh:// URL into (host, username,
+    // remote_path). We project to (host, remote_path) so the assertion stays
+    // whoami-independent even on the default-user rows. Rejection rows use Fails
+    // (ConfigError is not PartialEq).
+    #[test]
+    fn parse_ssh_url_splits_components() {
+        scenarios!(
+            run = |url| {
+                parse_ssh_url(url)
+                    .map(|(host, _user, path)| (host, path))
+                    .map_err(drop)
+            };
+            "user, host, absolute path" {
+                "ssh://deploy@host.example:/abs/fw.bin" => Yields(("host.example".to_string(), "/abs/fw.bin".to_string())),
+            }
+
+            "user, host, relative path" {
+                "ssh://deploy@host.example:rel/fw.bin" => Yields(("host.example".to_string(), "rel/fw.bin".to_string())),
+            }
+
+            "no user, host, absolute path" {
+                "ssh://host.example:/abs/fw.bin" => Yields(("host.example".to_string(), "/abs/fw.bin".to_string())),
+            }
+
+            "path containing a colon keeps the rest after the first colon" {
+                "ssh://host.example:/abs:with:colons" => Yields(("host.example".to_string(), "/abs:with:colons".to_string())),
+            }
+
+            "not an ssh URL (missing prefix)" {
+                "https://host.example/fw.bin" => Fails,
+            }
+
+            "missing the colon separator" {
+                "ssh://hostonly" => Fails,
+            }
+
+            "empty remote path" {
+                "ssh://deploy@host.example:" => Fails,
+            }
+
+            "empty host with a user" {
+                "ssh://deploy@:/abs/fw.bin" => Fails,
+            }
+
+            "empty host without a user" {
+                "ssh://:/abs/fw.bin" => Fails,
+            }
+        );
+    }
+
+    // description() formats each variant. Builders set deterministic fields so the
+    // ssh rows are whoami-independent. Local/Http carry their raw field verbatim.
+    #[test]
+    fn description_formats_each_variant() {
+        value_scenarios!(
+            run = |src| src.description();
+            "local path" {
+                FirmwareSource::local("/tmp/fw.bin") => "local:/tmp/fw.bin".to_string(),
+            }
+
+            "http url" {
+                FirmwareSource::http("https://example.com/fw.bin") => "http:https://example.com/fw.bin".to_string(),
+            }
+
+            "ssh with explicit user, port, host, path" {
+                FirmwareSource::ssh("host.example", "/abs/fw.bin")
+                .with_username("deploy")
+                .with_port(2222) => "ssh://deploy@host.example:2222:/abs/fw.bin".to_string(),
+            }
+        );
+    }
+
+    // The ssh() constructor defaults to port 22; with_port overrides it and only
+    // affects Ssh sources. We read the port back through description().
+    #[test]
+    fn ssh_constructor_and_builders_set_fields() {
+        // Default port is 22.
+        Check {
+            scenario: "ssh defaults to port 22",
+            input: FirmwareSource::ssh("h", "/p").with_username("u"),
+            expect: "ssh://u@h:22:/p".to_string(),
+        }
+        .check(|src| src.description());
+
+        // with_port and with_username are no-ops on non-ssh sources, so the
+        // description is unchanged.
+        value_scenarios!(
+            run = |src| src.description();
+            "with_port is a no-op on Local" {
+                FirmwareSource::local("/tmp/fw.bin").with_port(9999) => "local:/tmp/fw.bin".to_string(),
+            }
+
+            "with_username is a no-op on Http" {
+                FirmwareSource::http("https://x/fw").with_username("ignored") => "http:https://x/fw".to_string(),
+            }
+        );
+    }
+
+    // with_credentials attaches a credential to Http and Ssh sources and is a
+    // no-op on Local. We project to whether credentials ended up Some so the row
+    // pins the variant-specific behavior without exposing secrets.
+    #[test]
+    fn with_credentials_targets_http_and_ssh_only() {
+        value_scenarios!(
+            run = |src| match src {
+                FirmwareSource::Http { credentials, .. } => credentials.is_some(),
+                FirmwareSource::Ssh(SshSource { credentials, .. }) => credentials.is_some(),
+                FirmwareSource::Local { .. } => false,
+            };
+            "Http source stores the credential" {
+                FirmwareSource::http("https://x/fw")
+                .with_credentials(Credentials::bearer_token("t")) => true,
+            }
+
+            "Ssh source stores the credential" {
+                FirmwareSource::ssh("h", "/p")
+                .with_credentials(Credentials::ssh_agent()) => true,
+            }
+
+            "Local source ignores the credential" {
+                FirmwareSource::local("/tmp/fw.bin")
+                .with_credentials(Credentials::bearer_token("t")) => false,
+            }
+        );
+    }
+
+    // credential_type_name maps each Credentials variant to a stable, secret-free
+    // label. One row per variant.
+    #[test]
+    fn credential_type_name_covers_every_variant() {
+        value_scenarios!(
+            run = |cred| credential_type_name(&cred);
+            "bearer token" {
+                Credentials::bearer_token("t") => "bearer_token",
+            }
+
+            "basic auth" {
+                Credentials::basic_auth("u", "p") => "basic_auth",
+            }
+
+            "header" {
+                Credentials::header("X-Key", "v") => "header",
+            }
+
+            "ssh key" {
+                Credentials::ssh_key("/k") => "ssh_key",
+            }
+
+            "ssh agent" {
+                Credentials::ssh_agent() => "ssh_agent",
+            }
+        );
+    }
+
+    // shell_escape single-quotes its argument and escapes embedded single quotes
+    // as '\'' so the result is safe to splice into an SSH command. Covers the
+    // no-special-chars, single-quote, leading-quote, and empty cases.
+    #[test]
+    fn shell_escape_quotes_and_escapes() {
+        value_scenarios!(
+            run = shell_escape;
+            "plain path is wrapped in single quotes" {
+                "/firmware/fw.bin" => "'/firmware/fw.bin'".to_string(),
+            }
+
+            "empty string" {
+                "" => "''".to_string(),
+            }
+
+            "single embedded quote" {
+                "a'b" => "'a'\\''b'".to_string(),
+            }
+
+            "leading quote" {
+                "'x" => "''\\''x'".to_string(),
+            }
+
+            "two embedded quotes" {
+                "a'b'c" => "'a'\\''b'\\''c'".to_string(),
+            }
+        );
+    }
+}

@@ -38,6 +38,7 @@ pub enum DiscoveryBuilderResult {
     FetchMachineError = 6,
     InvalidCircuitId = 7,
     TooManyFailuresError = 8,
+    InvalidDesiredAddress = 9,
 }
 
 #[unsafe(no_mangle)]
@@ -57,6 +58,7 @@ pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult
             DiscoveryBuilderResult::FetchMachineError => "FetchMachineError\0",
             DiscoveryBuilderResult::InvalidCircuitId => "InvalidCircuitId\0",
             DiscoveryBuilderResult::TooManyFailuresError => "TooManyFailuresError\0",
+            DiscoveryBuilderResult::InvalidDesiredAddress => "InvalidDesiredAddress\0",
         }
         .as_bytes(),
     )
@@ -85,7 +87,7 @@ pub struct Discovery {
     pub(crate) remote_id: Option<String>,
 
     #[builder(setter(into, strip_option), default)]
-    pub(crate) desired_address: Option<String>,
+    pub(crate) desired_address: Option<Ipv4Addr>,
 }
 
 #[repr(C)]
@@ -198,7 +200,15 @@ pub unsafe extern "C" fn discovery_set_desired_address(
             Ok(string) => string.to_owned(),
             Err(error) => {
                 log::error!("Invalid UTF-8 byte string for desired_address: {error}");
-                return DiscoveryBuilderResult::InvalidVendorClass;
+                return DiscoveryBuilderResult::InvalidDesiredAddress;
+            }
+        };
+
+        let desired_address = match desired_address.parse::<Ipv4Addr>() {
+            Ok(ip) => ip,
+            Err(error) => {
+                log::error!("Invalid IP address for desired_address: {error}");
+                return DiscoveryBuilderResult::InvalidDesiredAddress;
             }
         };
 
@@ -361,7 +371,7 @@ unsafe fn discovery_fetch_machine_at(
             let mac_address = discovery.mac_address;
             let circuit_id = discovery.circuit_id.clone();
             let remote_id = discovery.remote_id.clone();
-            let desired_address = discovery.desired_address.clone();
+            let desired_address = discovery.desired_address;
             let addr_for_dhcp = IpAddr::V4(
                 discovery
                     .link_select_address
@@ -384,10 +394,9 @@ unsafe fn discovery_fetch_machine_at(
                 None => "",
             };
 
-            let desired_ip = match &desired_address {
-                Some(di) => di.as_str(),
-                None => "",
-            };
+            let desired_ip = desired_address
+                .map(|address| address.to_string())
+                .unwrap_or_default();
 
             let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
             if let Some(cache_entry) = cache::get(
@@ -511,6 +520,7 @@ pub unsafe extern "C" fn discovery_builder_free(ctx: *mut DiscoveryBuilderFFI) {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
     use std::ptr::null_mut;
     use std::thread;
 
@@ -644,6 +654,21 @@ mod tests {
         fn assert_send<T: Send>() {}
         assert_send::<Machine>();
         assert_send::<DiscoveryBuilderFFI>();
+    }
+
+    #[test]
+    fn test_discovery_set_desired_address_rejects_invalid_ip() {
+        let builder_ffi = discovery_builder_allocate();
+        let desired_address = CString::new("not-an-ip").unwrap();
+
+        let result =
+            unsafe { discovery_set_desired_address(builder_ffi, desired_address.as_ptr()) };
+
+        assert_eq!(result, DiscoveryBuilderResult::InvalidDesiredAddress);
+
+        unsafe {
+            discovery_builder_free(builder_ffi);
+        }
     }
 
     #[test]

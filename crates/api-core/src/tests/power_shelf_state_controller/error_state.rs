@@ -24,16 +24,16 @@ use carbide_power_shelf_controller::context::{
 };
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
 use sqlx::PgConnection;
 use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 
-use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
+use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
 use crate::tests::power_shelf_state_controller::fixtures::power_shelf::{
     mark_power_shelf_as_deleted, set_power_shelf_controller_state,
 };
@@ -44,26 +44,28 @@ async fn services(
     env: &crate::tests::common::api_fixtures::TestEnv,
 ) -> PowerShelfStateHandlerServices {
     let config = component_manager::config::ComponentManagerConfig {
-        nv_switch_backend: "mock".into(),
-        power_shelf_backend: "rms".into(),
+        nv_switch_backend: component_manager::nv_switch_manager::Backend::Mock,
+        power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
         compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
         ..Default::default()
     };
     let component_manager = component_manager::component_manager::build_component_manager(
         &config,
+        get_config_with_rack_profiles().rack_profiles,
         env.rms_sim.as_rms_client(),
         None,
         Some(env.pool.clone()),
         None,
     )
     .await
-    .ok()
-    .map(Arc::new);
+    .expect("test component manager should build");
+    let component_manager = Some(Arc::new(component_manager));
 
     PowerShelfStateHandlerServices {
         db_pool: env.pool.clone(),
         component_manager,
         credential_manager: Arc::new(TestCredentialManager::default()),
+        per_object_metrics_registry: env.per_object_metrics_registry(),
     }
 }
 

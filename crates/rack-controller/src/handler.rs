@@ -52,6 +52,12 @@ impl RackStateHandler {
             &aggregate_health,
             &state.health_reports,
         );
+        ctx.services.per_object_metrics_registry.record(
+            "rack",
+            state.id.as_ref(),
+            &ctx.metrics.health.health_alert_classifications,
+            vec![],
+        );
     }
 
     async fn attempt_state_transition(

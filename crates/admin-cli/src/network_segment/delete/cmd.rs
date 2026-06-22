@@ -17,15 +17,10 @@
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeContext;
-use crate::errors::{CarbideCliError, CarbideCliResult};
+use crate::errors::CarbideCliResult;
 
 pub async fn handle_delete(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-    if !ctx.config.cloud_unsafe_op_enabled {
-        return Err(CarbideCliError::GenericError(
-            "Operation not allowed due to potential inconsistencies with cloud database."
-                .to_owned(),
-        ));
-    }
+    ctx.assert_cloud_unsafe_op_message()?;
     ctx.api_client.0.delete_network_segment(args).await?;
     Ok(())
 }

@@ -5,14 +5,15 @@ use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool;
 use librms::RmsApi;
+use model::rack_type::RackProfileConfig;
 use sqlx::PgPool;
 
-use crate::compute_tray_manager::{Backend, ComputeTrayManager};
+use crate::compute_tray_manager::{Backend as ComputeBackend, ComputeTrayManager};
 use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
-use crate::nv_switch_manager::NvSwitchManager;
-use crate::power_shelf_manager::PowerShelfManager;
-use crate::rms::RmsSwitchSystemImageStatusApi;
+use crate::nv_switch_manager::{Backend as NvSwitchBackend, NvSwitchManager};
+use crate::power_shelf_manager::{Backend as PowerShelfBackend, PowerShelfManager};
+use crate::rms::{RmsSwitchSystemImageStatusApi, validate_rms_backend_rack_profiles};
 
 /// Holds the configured backend implementations for each component type.
 #[derive(Debug, Clone)]
@@ -59,18 +60,26 @@ impl ComponentManager {
 
 /// Build `ComponentManager` from configuration.
 ///
-/// The factory inspects `config.nv_switch_backend` and `config.power_shelf_backend`
-/// to decide which concrete implementation to instantiate. Unknown backend names
-/// return an error.
+/// The factory inspects the configured nv-switch, power-shelf, and compute-tray
+/// backend selectors to decide which concrete implementations to instantiate.
+/// Unknown backend names are rejected at config-deserialization time by the
+/// backend enums. When any backend uses RMS, `rack_profiles` must contain enough
+/// product-family and vendor data to resolve RMS node types before startup
+/// continues.
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
+    rack_profiles: RackProfileConfig,
     rms_client: Option<Arc<dyn RmsApi>>,
     rms_switch_system_image_client: Option<Arc<dyn RmsSwitchSystemImageStatusApi>>,
     db: Option<PgPool>,
     redfish_pool: Option<Arc<dyn RedfishClientPool>>,
 ) -> Result<ComponentManager, ComponentManagerError> {
-    let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend.as_str() {
-        crate::nsm::NsmSwitchBackend::BACKEND_NAME => {
+    validate_rms_backend_rack_profiles(config, &rack_profiles)?;
+
+    let rack_profiles = Arc::new(rack_profiles);
+
+    let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend {
+        NvSwitchBackend::Nsm => {
             let endpoint = config.nsm.as_ref().ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "nv_switch_backend is 'nsm' but [component_manager.nsm] config is missing"
@@ -81,7 +90,7 @@ pub async fn build_component_manager(
                 crate::nsm::NsmSwitchBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
             )
         }
-        "rms" => {
+        NvSwitchBackend::Rms => {
             let client = rms_client.clone().ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "nv_switch_backend is 'rms' but RMS client is not configured".into(),
@@ -96,18 +105,14 @@ pub async fn build_component_manager(
                 client,
                 rms_switch_system_image_client.clone(),
                 db,
+                rack_profiles.clone(),
             ))
         }
-        "mock" => Arc::new(crate::mock::MockNvSwitchManager),
-        other => {
-            return Err(ComponentManagerError::InvalidArgument(format!(
-                "unknown nv_switch_backend: {other}"
-            )));
-        }
+        NvSwitchBackend::Mock => Arc::new(crate::mock::MockNvSwitchManager),
     };
 
-    let power_shelf: Arc<dyn PowerShelfManager> = match config.power_shelf_backend.as_str() {
-        "psm" => {
+    let power_shelf: Arc<dyn PowerShelfManager> = match config.power_shelf_backend {
+        PowerShelfBackend::Psm => {
             let endpoint = config.psm.as_ref().ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "power_shelf_backend is 'psm' but [component_manager.psm] config is missing"
@@ -119,7 +124,7 @@ pub async fn build_component_manager(
                     .await?,
             )
         }
-        "rms" => {
+        PowerShelfBackend::Rms => {
             let client = rms_client.clone().ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "power_shelf_backend is 'rms' but RMS client is not configured".into(),
@@ -134,24 +139,32 @@ pub async fn build_component_manager(
                 client,
                 rms_switch_system_image_client.clone(),
                 db,
+                rack_profiles.clone(),
             ))
         }
-        "mock" => Arc::new(crate::mock::MockPowerShelfManager),
-        other => {
-            return Err(ComponentManagerError::InvalidArgument(format!(
-                "unknown power_shelf_backend: {other}"
-            )));
-        }
+        PowerShelfBackend::Mock => Arc::new(crate::mock::MockPowerShelfManager),
     };
 
     let compute_tray: Arc<dyn ComputeTrayManager> = match config.compute_tray_backend {
-        // TODO: implement ComputeTrayManager for RmsBackend
-        Backend::Rms => {
-            return Err(ComponentManagerError::InvalidArgument(
-                "compute_tray_backend 'rms' is not yet supported".into(),
-            ));
+        ComputeBackend::Rms => {
+            let client = rms_client.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "compute_tray_backend is 'rms' but RMS client is not configured".into(),
+                )
+            })?;
+            let db = db.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "compute_tray_backend is 'rms' but database pool is not configured".into(),
+                )
+            })?;
+            Arc::new(crate::rms::RmsBackend::new(
+                client,
+                rms_switch_system_image_client.clone(),
+                db,
+                rack_profiles.clone(),
+            ))
         }
-        Backend::Core => {
+        ComputeBackend::Core => {
             let pool = redfish_pool.ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(
                     "compute_tray_backend is 'core' but Redfish client pool is not configured"
@@ -162,7 +175,7 @@ pub async fn build_component_manager(
                 pool,
             ))
         }
-        Backend::Mock => Arc::new(crate::mock::MockComputeTrayManager),
+        ComputeBackend::Mock => Arc::new(crate::mock::MockComputeTrayManager),
     };
 
     Ok(ComponentManager::new(
@@ -177,82 +190,199 @@ pub async fn build_component_manager(
 
 #[cfg(test)]
 mod tests {
+    use model::rack_type::{
+        RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
+        RackHardwareTopology, RackProductFamily, RackProfile,
+    };
+
     use super::*;
     use crate::config::ComponentManagerConfig;
+
+    fn rms_rack_profiles(profile: RackProfile) -> RackProfileConfig {
+        RackProfileConfig {
+            rack_profiles: [("NVL72".to_string(), profile)].into_iter().collect(),
+        }
+    }
+
+    fn rms_rack_profile() -> RackProfile {
+        RackProfile {
+            product_family: Some(RackProductFamily::Gb200),
+            rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+            rack_capabilities: RackCapabilitiesSet {
+                compute: RackCapabilityCompute {
+                    vendor: Some("NVIDIA".to_string()),
+                    ..Default::default()
+                },
+                switch: RackCapabilitySwitch {
+                    vendor: Some("NVIDIA".to_string()),
+                    ..Default::default()
+                },
+                power_shelf: RackCapabilityPowerShelf {
+                    vendor: Some("LiteOn".to_string()),
+                    ..Default::default()
+                },
+            },
+            ..Default::default()
+        }
+    }
 
     #[tokio::test]
     async fn build_with_mock_backends() {
         let config = ComponentManagerConfig {
-            nv_switch_backend: "mock".into(),
-            power_shelf_backend: "mock".into(),
-            compute_tray_backend: Backend::Mock,
+            nv_switch_backend: NvSwitchBackend::Mock,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            compute_tray_backend: ComputeBackend::Mock,
             ..Default::default()
         };
-        let cm = build_component_manager(&config, None, None, None, None)
+
+        let cm = build_component_manager(&config, Default::default(), None, None, None, None)
             .await
             .unwrap();
+
         assert_eq!(cm.nv_switch.name(), "mock-nsm");
         assert_eq!(cm.power_shelf.name(), "mock-psm");
         assert_eq!(cm.compute_tray.name(), "mock-ctm");
     }
 
-    #[tokio::test]
-    async fn build_rejects_unknown_nv_switch_backend() {
-        let config = ComponentManagerConfig {
-            nv_switch_backend: "bogus".into(),
-            power_shelf_backend: "mock".into(),
-            compute_tray_backend: Backend::Mock,
-            ..Default::default()
-        };
-        let err = build_component_manager(&config, None, None, None, None)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(err, ComponentManagerError::InvalidArgument(msg) if msg.contains("bogus"))
-        );
-    }
+    #[test]
+    fn deserialize_rejects_unknown_backend_names() {
+        use serde::Deserialize;
+        use serde::de::IntoDeserializer;
+        use serde::de::value::{Error as DeError, StrDeserializer};
 
-    #[tokio::test]
-    async fn build_rejects_unknown_power_shelf_backend() {
-        let config = ComponentManagerConfig {
-            nv_switch_backend: "mock".into(),
-            power_shelf_backend: "bogus".into(),
-            compute_tray_backend: Backend::Mock,
-            ..Default::default()
-        };
-        let err = build_component_manager(&config, None, None, None, None)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(err, ComponentManagerError::InvalidArgument(msg) if msg.contains("bogus"))
-        );
+        let de: StrDeserializer<DeError> = "bogus".into_deserializer();
+        assert!(NvSwitchBackend::deserialize(de).is_err());
+        let de: StrDeserializer<DeError> = "bogus".into_deserializer();
+        assert!(PowerShelfBackend::deserialize(de).is_err());
+        let de: StrDeserializer<DeError> = "bogus".into_deserializer();
+        assert!(ComputeBackend::deserialize(de).is_err());
     }
 
     #[tokio::test]
     async fn build_nsm_without_config_returns_error() {
         let config = ComponentManagerConfig {
-            nv_switch_backend: "nsm".into(),
-            power_shelf_backend: "mock".into(),
-            compute_tray_backend: Backend::Mock,
+            nv_switch_backend: NvSwitchBackend::Nsm,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            compute_tray_backend: ComputeBackend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None, None)
+
+        let err = build_component_manager(&config, Default::default(), None, None, None, None)
             .await
             .unwrap_err();
+
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
     }
 
     #[tokio::test]
     async fn build_psm_without_config_returns_error() {
         let config = ComponentManagerConfig {
-            nv_switch_backend: "mock".into(),
-            power_shelf_backend: "psm".into(),
-            compute_tray_backend: Backend::Mock,
+            nv_switch_backend: NvSwitchBackend::Mock,
+            power_shelf_backend: PowerShelfBackend::Psm,
+            compute_tray_backend: ComputeBackend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None, None)
+
+        let err = build_component_manager(&config, Default::default(), None, None, None, None)
             .await
             .unwrap_err();
+
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
+    }
+
+    // A config that explicitly selects working switch/power-shelf backends but
+    // leaves `compute_tray_backend` at its default (now `Rms`) must not be able
+    // to silently come up half-configured: RMS validation rejects missing rack
+    // profile config before any partial component manager can be built. This
+    // keeps the default flip to RMS a deliberate, visible choice.
+    #[tokio::test]
+    async fn rms_compute_tray_default_requires_rack_profiles() {
+        let config = ComponentManagerConfig {
+            nv_switch_backend: NvSwitchBackend::Mock,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            // compute_tray_backend intentionally left at its default.
+            ..Default::default()
+        };
+
+        assert_eq!(config.compute_tray_backend, ComputeBackend::Rms);
+
+        let err = build_component_manager(&config, Default::default(), None, None, None, None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ComponentManagerError::InvalidArgument(msg)
+                if msg.contains("rack_profiles must contain at least one profile")
+        ));
+    }
+
+    #[tokio::test]
+    async fn build_requires_rack_profiles_for_rms_backend() {
+        let config = ComponentManagerConfig {
+            nv_switch_backend: NvSwitchBackend::Rms,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            compute_tray_backend: ComputeBackend::Mock,
+            ..Default::default()
+        };
+
+        let result =
+            build_component_manager(&config, Default::default(), None, None, None, None).await;
+        let Err(error) = result else {
+            panic!("missing RMS rack profiles should be rejected");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "invalid argument: rack_profiles must contain at least one profile when component_manager uses an RMS backend"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_requires_vendor_for_rms_backend_role() {
+        let mut profile = rms_rack_profile();
+        profile.rack_capabilities.power_shelf.vendor = None;
+
+        let rack_profiles = rms_rack_profiles(profile);
+        let config = ComponentManagerConfig {
+            nv_switch_backend: NvSwitchBackend::Mock,
+            power_shelf_backend: PowerShelfBackend::Rms,
+            compute_tray_backend: ComputeBackend::Mock,
+            ..Default::default()
+        };
+
+        let result = build_component_manager(&config, rack_profiles, None, None, None, None).await;
+        let Err(error) = result else {
+            panic!("missing RMS vendor should be rejected");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "invalid argument: rack profile NVL72 rack_capabilities.power_shelf.vendor is required when power_shelf_backend is 'rms'"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_validates_rms_backend_vendor_value() {
+        let mut profile = rms_rack_profile();
+        profile.rack_capabilities.switch.vendor = Some("Other".to_string());
+
+        let rack_profiles = rms_rack_profiles(profile);
+        let config = ComponentManagerConfig {
+            nv_switch_backend: NvSwitchBackend::Rms,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            compute_tray_backend: ComputeBackend::Mock,
+            ..Default::default()
+        };
+
+        let result = build_component_manager(&config, rack_profiles, None, None, None, None).await;
+        let Err(error) = result else {
+            panic!("unsupported RMS vendor should be rejected");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "invalid argument: rack profile NVL72 cannot resolve RMS switch node type: RMS does not support switch vendor Other"
+        );
     }
 }

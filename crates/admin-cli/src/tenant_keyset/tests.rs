@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,52 +46,43 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all keysets).
+// show parses every combination of its optional positional keyset id and
+// optional --tenant-org-id: neither (all keysets), id only, org only, and both.
+// Each row yields the parsed (id, tenant_org_id) pair.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["tenant-keyset", "show"]).expect("should parse show");
-    let Cmd::Show(args) = cmd;
+fn parse_show_arg_combinations() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| {
+                    let Cmd::Show(args) = cmd;
+                    (args.id, args.tenant_org_id)
+                })
+                .map_err(drop)
+        };
+        "no arguments (all keysets)" {
+            &["tenant-keyset", "show"][..] => Yields((String::new(), None)),
+        }
 
-    assert_eq!(args.id, "");
-    assert!(args.tenant_org_id.is_none());
-}
+        "with keyset id" {
+            &["tenant-keyset", "show", "org-123/keyset-456"][..] => Yields(("org-123/keyset-456".to_string(), None)),
+        }
 
-// parse_show_with_id ensures show parses with keyset id.
-#[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["tenant-keyset", "show", "org-123/keyset-456"])
-        .expect("should parse show with id");
-    let Cmd::Show(args) = cmd;
+        "with --tenant-org-id" {
+            &["tenant-keyset", "show", "--tenant-org-id", "org-123"][..] => Yields((String::new(), Some("org-123".to_string()))),
+        }
 
-    assert_eq!(args.id, "org-123/keyset-456");
-}
-
-// parse_show_with_tenant_org_id ensures show parses with
-// --tenant-org-id.
-#[test]
-fn parse_show_with_tenant_org_id() {
-    let cmd = Cmd::try_parse_from(["tenant-keyset", "show", "--tenant-org-id", "org-123"])
-        .expect("should parse show with tenant-org-id");
-    let Cmd::Show(args) = cmd;
-
-    assert_eq!(args.tenant_org_id, Some("org-123".to_string()));
-}
-
-// parse_show_with_both_args ensures show parses with both
-// id and tenant-org-id.
-#[test]
-fn parse_show_with_both_args() {
-    let cmd = Cmd::try_parse_from([
-        "tenant-keyset",
-        "show",
-        "org-123/keyset-456",
-        "--tenant-org-id",
-        "org-123",
-    ])
-    .expect("should parse show with both args");
-    let Cmd::Show(args) = cmd;
-
-    assert_eq!(args.id, "org-123/keyset-456");
-    assert_eq!(args.tenant_org_id, Some("org-123".to_string()));
+        "with both id and --tenant-org-id" {
+            &[
+                "tenant-keyset",
+                "show",
+                "org-123/keyset-456",
+                "--tenant-org-id",
+                "org-123",
+            ][..] => Yields((
+                "org-123/keyset-456".to_string(),
+                Some("org-123".to_string()),
+            )),
+        }
+    );
 }

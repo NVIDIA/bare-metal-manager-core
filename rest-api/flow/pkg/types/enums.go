@@ -81,6 +81,24 @@ const (
 	OperationTypeFirmwareControl OperationType = "FIRMWARE_CONTROL"
 )
 
+// LeakStatus is Flow's view of whether coolant leak detection has fired
+// for a component. It is set by the leak-detection loop from core's
+// tray-leak-detection health alert; LeakStatusUnknown is the resting value
+// for components the loop has not yet evaluated.
+type LeakStatus string
+
+const (
+	// LeakStatusUnknown: the leak-detection loop has not evaluated this
+	// component yet (e.g. before the first cycle, or a type the loop does
+	// not cover).
+	LeakStatusUnknown LeakStatus = "UNKNOWN"
+	// LeakStatusDetected: core is reporting an active leak alert.
+	LeakStatusDetected LeakStatus = "DETECTED"
+	// LeakStatusNotDetected: the loop evaluated the component and core is
+	// not reporting a leak alert.
+	LeakStatusNotDetected LeakStatus = "NOT_DETECTED"
+)
+
 // Phase is the coarse lifecycle bucket a component is in. Shared across
 // compute, nvswitch, and power shelf; map new core sub-states onto an
 // existing phase rather than adding new ones.

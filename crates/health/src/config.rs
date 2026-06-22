@@ -16,7 +16,7 @@
  */
 
 use std::fmt::Debug;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -49,6 +49,10 @@ pub struct Config {
     /// Maximum cache size per BMC, uses etags
     pub cache_size: usize,
 
+    /// Interval between BMC endpoint discovery iterations.
+    #[serde(with = "humantime_serde")]
+    pub endpoint_discovery_interval: Duration,
+
     /// BMC proxy URL
     pub bmc_proxy_url: Option<Url>,
 }
@@ -65,6 +69,7 @@ impl Default for Config {
             shard: 0,
             shards_count: 1,
             cache_size: 100,
+            endpoint_discovery_interval: Duration::from_secs(300),
             bmc_proxy_url: None,
         }
     }
@@ -94,7 +99,7 @@ impl Default for EndpointSourcesConfig {
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
-    pub ip: String,
+    pub ip: IpAddr,
     #[serde(default)]
     pub port: Option<u16>,
     pub mac: String,
@@ -445,9 +450,15 @@ pub struct RateLimitConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CollectorsConfig {
+    /// Entity discovery configuration
+    pub discovery: DiscoveryConfig,
+
     /// Sensor collector configuration (if present, sensor collector is enabled)
     #[serde(alias = "health")]
     pub sensors: Configurable<SensorCollectorConfig>,
+
+    /// Entity metrics collector configuration (if present, metrics collector is enabled)
+    pub metrics: Configurable<MetricsCollectorConfig>,
 
     /// Firmware collector configuration (if present, firmware collector is enabled)
     pub firmware: Configurable<FirmwareCollectorConfig>,
@@ -468,12 +479,50 @@ pub struct CollectorsConfig {
 impl Default for CollectorsConfig {
     fn default() -> Self {
         Self {
+            discovery: DiscoveryConfig::default(),
             sensors: Configurable::Enabled(SensorCollectorConfig::default()),
+            metrics: Configurable::Disabled,
             firmware: Configurable::Disabled,
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
             nvue: Configurable::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiscoveryConfig {
+    #[serde(with = "humantime_serde")]
+    pub refresh_interval: Duration,
+
+    pub discovery_concurrency: usize,
+}
+
+impl Default for DiscoveryConfig {
+    fn default() -> Self {
+        Self {
+            refresh_interval: Duration::from_secs(300),
+            discovery_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsCollectorConfig {
+    #[serde(with = "humantime_serde")]
+    pub fetch_interval: Duration,
+
+    pub fetch_concurrency: usize,
+}
+
+impl Default for MetricsCollectorConfig {
+    fn default() -> Self {
+        Self {
+            fetch_interval: Duration::from_secs(120),
+            fetch_concurrency: 4,
         }
     }
 }
@@ -531,14 +580,6 @@ impl Default for RackLeakProcessorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SensorCollectorConfig {
-    /// Interval between BMC endpoint rediscovery.
-    #[serde(with = "humantime_serde")]
-    pub rediscover_interval: Duration,
-
-    /// Interval between entity state refresh.
-    #[serde(with = "humantime_serde")]
-    pub state_refresh_interval: Duration,
-
     /// Interval between sensor fetch iterations.
     #[serde(with = "humantime_serde")]
     pub sensor_fetch_interval: Duration,
@@ -553,8 +594,6 @@ pub struct SensorCollectorConfig {
 impl Default for SensorCollectorConfig {
     fn default() -> Self {
         Self {
-            rediscover_interval: Duration::from_secs(300),
-            state_refresh_interval: Duration::from_secs(9000),
             sensor_fetch_interval: Duration::from_secs(60),
             sensor_fetch_concurrency: 4,
             include_sensor_thresholds: true,
@@ -1014,6 +1053,10 @@ impl Config {
             ));
         }
 
+        if self.endpoint_discovery_interval.is_zero() {
+            return Err("endpoint_discovery_interval must be greater than 0".to_string());
+        }
+
         if let Configurable::Enabled(rate_limit) = &self.rate_limit
             && rate_limit.bucket_replenish.is_zero()
         {
@@ -1196,7 +1239,6 @@ mod tests {
         assert!(config.sinks.prometheus.is_enabled());
 
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
-            assert_eq!(sensors.rediscover_interval, Duration::from_secs(300));
             assert_eq!(sensors.sensor_fetch_concurrency, 10);
         } else {
             panic!("sensors empty")
@@ -1246,6 +1288,7 @@ mod tests {
         assert_eq!(config.shards_count, 1);
 
         assert_eq!(config.cache_size, 100);
+        assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(300));
 
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
             if let Configurable::Enabled(ref rest) = nvue.rest {
@@ -1270,6 +1313,8 @@ mod tests {
     #[test]
     fn test_static_only_config() {
         let toml_content = r#"
+endpoint_discovery_interval = "1m"
+
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "192.168.1.100"
 mac = "00:11:22:33:44:55"
@@ -1283,9 +1328,7 @@ enabled = false
 enabled = false
 
 [collectors.sensors]
-rediscover_interval = "1m"
 sensor_fetch_interval = "30s"
-state_refresh_interval = "10m"
 sensor_fetch_concurrency = 5
 include_sensor_thresholds = false
 
@@ -1309,7 +1352,7 @@ cache_size = 50
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].ip,
-            "192.168.1.100"
+            "192.168.1.100".parse::<IpAddr>().unwrap()
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].mac,
@@ -1317,6 +1360,7 @@ cache_size = 50
         );
 
         assert_eq!(config.metrics.prefix, "carbide_hardware_new_health");
+        assert_eq!(config.endpoint_discovery_interval, Duration::from_secs(60));
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
             assert_eq!(rate_limit.bucket_replenish, Duration::from_millis(30));
@@ -1328,7 +1372,6 @@ cache_size = 50
 
         assert!(config.collectors.sensors.is_enabled());
         if let Configurable::Enabled(ref sensors) = config.collectors.sensors {
-            assert_eq!(sensors.rediscover_interval, Duration::from_secs(60));
             assert_eq!(sensors.sensor_fetch_interval, Duration::from_secs(30));
             assert!(!sensors.include_sensor_thresholds);
         } else {
@@ -1344,6 +1387,23 @@ cache_size = 50
     }
 
     #[test]
+    fn test_static_endpoint_config_rejects_invalid_ip() {
+        let toml_content = r#"
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "not-an-ip"
+mac = "00:11:22:33:44:55"
+username = "root"
+"#;
+
+        let result = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract::<Config>();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_config_validation() {
         let mut config = Config::default();
 
@@ -1355,6 +1415,11 @@ cache_size = 50
 
         config.shard = 0;
         config.shards_count = 1;
+        assert!(config.validate().is_ok());
+
+        config.endpoint_discovery_interval = Duration::from_secs(0);
+        assert!(config.validate().is_err());
+        config.endpoint_discovery_interval = Duration::from_secs(300);
         assert!(config.validate().is_ok());
 
         config.rate_limit = Configurable::Enabled(RateLimitConfig {

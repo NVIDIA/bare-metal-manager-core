@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -33,8 +33,9 @@ type Rack struct {
 	// Serial number of the Rack
 	SerialNumber *string `json:"serialNumber,omitempty"`
 	// Description of the Rack
-	Description *string       `json:"description,omitempty"`
-	Location    *RackLocation `json:"location,omitempty"`
+	Description *string `json:"description,omitempty"`
+	// Physical or logical location of the Rack
+	Location *RackLocation `json:"location,omitempty"`
 	// Components within the Rack. Only returned when includeComponents is true.
 	Components []RackComponent `json:"components,omitempty"`
 }

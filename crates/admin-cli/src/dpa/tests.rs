@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 use rpc::forge::DpaInterfaceType;
 
@@ -45,44 +47,60 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all DPAs).
+// show routes to the Show variant; with no positional argument its `id`
+// is left unset (the "all DPAs" case).
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["dpa", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
+fn parse_show() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.id.is_none(),
+                    other => panic!("expected Show, got {other:?}"),
+                })
+                .map_err(drop)
+        };
+        "show with no arguments leaves id unset" {
+            &["dpa", "show"][..] => Yields(true),
         }
-        other => panic!("expected Show, got {other:?}"),
-    }
+    );
 }
 
+// ensure routes to the Ensure variant, threading every positional through
+// to the parsed fields (machine id, MAC, device type, PCI name, interface).
 #[test]
-fn parse_ensure_args() {
-    let cmd = Cmd::try_parse_from([
-        "dpa",
-        "ensure",
-        "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
-        "00:11:22:33:44:55",
-        "BlueField3",
-        "01:00.0",
-        "svpc",
-    ])
-    .expect("should parse ensure");
-
-    match cmd {
-        Cmd::Ensure(args) => {
-            assert_eq!(
-                args.machine_id.to_string(),
-                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30"
-            );
-            assert_eq!(args.mac_addr, "00:11:22:33:44:55");
-            assert_eq!(args.device_type, "BlueField3");
-            assert_eq!(args.pci_name, "01:00.0");
-            assert_eq!(args.interface_type, DpaInterfaceType::Svpc);
+fn parse_ensure() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Ensure(args) => (
+                        args.machine_id.to_string(),
+                        args.mac_addr,
+                        args.device_type,
+                        args.pci_name,
+                        args.interface_type,
+                    ),
+                    other => panic!("expected Ensure, got {other:?}"),
+                })
+                .map_err(drop)
+        };
+        "ensure with all positional arguments" {
+            &[
+                "dpa",
+                "ensure",
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+                "00:11:22:33:44:55",
+                "BlueField3",
+                "01:00.0",
+                "svpc",
+            ][..] => Yields((
+                "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30".to_string(),
+                "00:11:22:33:44:55".to_string(),
+                "BlueField3".to_string(),
+                "01:00.0".to_string(),
+                DpaInterfaceType::Svpc,
+            )),
         }
-        other => panic!("expected Ensure, got {other:?}"),
-    }
+    );
 }

@@ -15,21 +15,73 @@
  * limitations under the License.
  */
 
+use carbide_test_support::value_scenarios;
 use libmlx::lockdown::error::{MlxError, MlxResult};
 
+// Every MlxError variant renders to an exact, contract-bearing string via its
+// thiserror `#[error(...)]` Display impl. This one table is the single source of
+// truth for that mapping -- it folds the old per-variant display tests (the
+// DeviceNotFound and DryRun spot-checks, the IoError chain check) and subsumes the
+// old "can every variant be displayed without panic" loop, since asserting the
+// exact text exercises Display for each variant. The IoError row pins the full
+// rendered string rather than the old `.contains` check -- a strictly stronger
+// assertion. (SerializationError is omitted: constructing a serde_json::Error
+// inline is awkward and the old loop didn't cover it either.)
 #[test]
-fn test_error_display() {
-    let error = MlxError::DeviceNotFound("test_device".to_string());
-    assert_eq!(error.to_string(), "Device not found: test_device");
+fn error_variants_display_their_contract_strings() {
+    value_scenarios!(
+        run = |error| error.to_string();
+        "CommandFailed" {
+            MlxError::CommandFailed("test".to_string()) => "Command execution failed: test".to_string(),
+        }
+
+        "DeviceNotFound" {
+            MlxError::DeviceNotFound("test_device".to_string()) => "Device not found: test_device".to_string(),
+        }
+
+        "InvalidDeviceId" {
+            MlxError::InvalidDeviceId("invalid".to_string()) => "Invalid device ID format: invalid".to_string(),
+        }
+
+        "AlreadyLocked" {
+            MlxError::AlreadyLocked => "Hardware access is already disabled".to_string(),
+        }
+
+        "AlreadyUnlocked" {
+            MlxError::AlreadyUnlocked => "Hardware access is already enabled".to_string(),
+        }
+
+        "InvalidKey" {
+            MlxError::InvalidKey => "Invalid key format or length".to_string(),
+        }
+
+        "PermissionDenied" {
+            MlxError::PermissionDenied => "Permission denied - requires root privileges".to_string(),
+        }
+
+        "FlintNotFound" {
+            MlxError::FlintNotFound => "flint tool not found or not executable".to_string(),
+        }
+
+        "ParseError" {
+            MlxError::ParseError("parse error".to_string()) => "Failed to parse command output: parse error".to_string(),
+        }
+
+        "DryRun" {
+            MlxError::DryRun("flint -d 04:00.0 q".to_string()) => "Dry run - would have executed: flint -d 04:00.0 q".to_string(),
+        }
+
+        "IoError wraps the inner message" {
+            MlxError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "file not found",
+            )) => "I/O error: file not found".to_string(),
+        }
+    );
 }
 
-#[test]
-fn test_error_chain() {
-    let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-    let mlx_error = MlxError::IoError(io_error);
-    assert!(mlx_error.to_string().contains("file not found"));
-}
-
+// The MlxResult<T> alias is just Result<T, MlxError> -- this keeps a standalone
+// guard that an Ok flows through it unchanged.
 #[test]
 fn test_result_type() {
     fn test_function() -> MlxResult<i32> {
@@ -37,35 +89,4 @@ fn test_result_type() {
     }
 
     assert_eq!(test_function().unwrap(), 42);
-}
-
-#[test]
-fn test_dry_run_error() {
-    let cmd = "flint -d 04:00.0 q";
-    let error = MlxError::DryRun(cmd.to_string());
-    assert_eq!(
-        error.to_string(),
-        "Dry run - would have executed: flint -d 04:00.0 q"
-    );
-}
-
-#[test]
-fn test_all_error_variants() {
-    let errors = vec![
-        MlxError::CommandFailed("test".to_string()),
-        MlxError::DeviceNotFound("device".to_string()),
-        MlxError::InvalidDeviceId("invalid".to_string()),
-        MlxError::AlreadyLocked,
-        MlxError::AlreadyUnlocked,
-        MlxError::InvalidKey,
-        MlxError::PermissionDenied,
-        MlxError::FlintNotFound,
-        MlxError::ParseError("parse error".to_string()),
-        MlxError::DryRun("cmd".to_string()),
-    ];
-
-    for error in errors {
-        // Just ensure they can be displayed without panic
-        let _ = error.to_string();
-    }
 }

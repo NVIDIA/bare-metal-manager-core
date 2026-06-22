@@ -131,6 +131,7 @@ carbide-version = { path = "../version" }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 ctor = { workspace = true }
 prost = { workspace = true }
 rustls-pemfile = { workspace = true }

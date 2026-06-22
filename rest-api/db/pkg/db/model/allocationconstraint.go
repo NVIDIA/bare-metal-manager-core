@@ -57,6 +57,43 @@ var (
 	}
 )
 
+// AllocationConstraintCreateInput input parameters for Create method
+type AllocationConstraintCreateInput struct {
+	AllocationID      uuid.UUID
+	ResourceType      string
+	ResourceTypeID    uuid.UUID
+	ConstraintType    string
+	ConstraintValue   int
+	DerivedResourceID *uuid.UUID
+	CreatedBy         uuid.UUID
+}
+
+// AllocationConstraintUpdateInput input parameters for Update method
+type AllocationConstraintUpdateInput struct {
+	AllocationConstraintID uuid.UUID
+	AllocationID           *uuid.UUID
+	ResourceType           *string
+	ResourceTypeID         *uuid.UUID
+	ConstraintType         *string
+	ConstraintValue        *int
+	DerivedResourceID      *uuid.UUID
+}
+
+// AllocationConstraintClearInput input parameters for Clear method
+type AllocationConstraintClearInput struct {
+	AllocationConstraintID uuid.UUID
+	DerivedResourceID      bool
+}
+
+// AllocationConstraintFilterInput input parameters for GetAll method
+type AllocationConstraintFilterInput struct {
+	AllocationIDs     []uuid.UUID
+	ResourceType      *string
+	ResourceTypeIDs   []uuid.UUID
+	ConstraintType    *string
+	DerivedResourceID *uuid.UUID
+}
+
 // AllocationConstraint represents entries in the allocation_constraint table
 // Constraints an allocation by specifying limits for different resource types
 type AllocationConstraint struct {
@@ -108,28 +145,15 @@ func (ac *AllocationConstraint) BeforeCreateTable(ctx context.Context,
 // AllocationConstraintDAO is an interface for interacting with the AllocationConstraint model
 type AllocationConstraintDAO interface {
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx,
-		allocationID uuid.UUID, resourceType string,
-		resourceTypeID uuid.UUID, constraintType string,
-		constraintValue int, derivedResourceID *uuid.UUID,
-		createdBy uuid.UUID) (*AllocationConstraint, error)
+	Create(ctx context.Context, tx *db.Tx, input AllocationConstraintCreateInput) (*AllocationConstraint, error)
 	//
-	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID,
-		includeRelations []string) (*AllocationConstraint, error)
+	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*AllocationConstraint, error)
 	//
-	GetAll(ctx context.Context, tx *db.Tx,
-		allocationIDs []uuid.UUID, resourceType *string,
-		resourceTypeID []uuid.UUID, constraintType *string,
-		derivedResourceID *uuid.UUID, includeRelations []string,
-		offset *int, limit *int, orderBy *paginator.OrderBy) ([]AllocationConstraint, int, error)
+	GetAll(ctx context.Context, tx *db.Tx, filter AllocationConstraintFilterInput, page paginator.PageInput, includeRelations []string) ([]AllocationConstraint, int, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID,
-		allocationID *uuid.UUID, resourceType *string,
-		resourceTypeID *uuid.UUID, constraintType *string,
-		constraintValue *int, derivedResourceID *uuid.UUID) (*AllocationConstraint, error)
+	Update(ctx context.Context, tx *db.Tx, input AllocationConstraintUpdateInput) (*AllocationConstraint, error)
 	//
-	ClearFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID,
-		derivedResourceID bool) (*AllocationConstraint, error)
+	Clear(ctx context.Context, tx *db.Tx, input AllocationConstraintClearInput) (*AllocationConstraint, error)
 	//
 	DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 }
@@ -141,39 +165,34 @@ type AllocationConstraintSQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new AllocationConstraint from the given parameters
-// The returned AllocationConstraint will not have any related structs filled in
-// since there are 2 operations (INSERT, SELECT), in this, it is required that
-// this library call happens within a transaction
-func (acd AllocationConstraintSQLDAO) CreateFromParams(
-	ctx context.Context, tx *db.Tx, allocationID uuid.UUID,
-	resourceType string, resourceTypeID uuid.UUID,
-	constraintType string, constraintValue int,
-	derivedResourceID *uuid.UUID, createdBy uuid.UUID) (*AllocationConstraint, error) {
+// Create creates a new AllocationConstraint from the given input.
+// The returned AllocationConstraint will not have any related structs filled in.
+// Since there are 2 operations (INSERT, SELECT), this call must happen within a transaction.
+func (acd AllocationConstraintSQLDAO) Create(
+	ctx context.Context, tx *db.Tx, input AllocationConstraintCreateInput) (*AllocationConstraint, error) {
 	// Create a child span and set the attributes for current request
-	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.CreateFromParams")
+	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.Create")
 	if aDAOSpan != nil {
 		defer aDAOSpan.End()
 
-		acd.tracerSpan.SetAttribute(aDAOSpan, "allocation_id", allocationID.String())
+		acd.tracerSpan.SetAttribute(aDAOSpan, "allocation_id", input.AllocationID.String())
 	}
 
-	//
-	if len(strings.TrimSpace(resourceType)) == 0 {
+	if len(strings.TrimSpace(input.ResourceType)) == 0 {
 		return nil, errors.New("resourceType is empty")
 	}
-	if len(strings.TrimSpace(constraintType)) == 0 {
+	if len(strings.TrimSpace(input.ConstraintType)) == 0 {
 		return nil, errors.New("constraintType is empty")
 	}
 	a := &AllocationConstraint{
 		ID:                uuid.New(),
-		AllocationID:      allocationID,
-		ResourceType:      resourceType,
-		ResourceTypeID:    resourceTypeID,
-		ConstraintType:    constraintType,
-		ConstraintValue:   constraintValue,
-		DerivedResourceID: derivedResourceID,
-		CreatedBy:         createdBy,
+		AllocationID:      input.AllocationID,
+		ResourceType:      input.ResourceType,
+		ResourceTypeID:    input.ResourceTypeID,
+		ConstraintType:    input.ConstraintType,
+		ConstraintValue:   input.ConstraintValue,
+		DerivedResourceID: input.DerivedResourceID,
+		CreatedBy:         input.CreatedBy,
 	}
 	_, err := db.GetIDB(tx, acd.dbSession).NewInsert().Model(a).Exec(ctx)
 	if err != nil {
@@ -219,15 +238,12 @@ func (acd AllocationConstraintSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id
 	return a, nil
 }
 
-// GetAll returns all AllocationConstraints for an InstanceType
-// Errors are returned only when there is a db related error
-// if records not found, then error is nil, but length of returned slice is 0
-// if orderBy is nil, then records are ordered by column specified in AllocationConstraintOrderByDefault in ascending order
+// GetAll returns all AllocationConstraints matching the given filter.
+// Errors are returned only when there is a db related error.
+// If records not found, then error is nil, but length of returned slice is 0.
+// If orderBy is nil, then records are ordered by column specified in AllocationConstraintOrderByDefault in ascending order.
 func (acd AllocationConstraintSQLDAO) GetAll(ctx context.Context, tx *db.Tx,
-	allocationIDs []uuid.UUID, resourceType *string,
-	resourceTypeIDs []uuid.UUID, constraintType *string,
-	derivedResourceID *uuid.UUID, includeRelations []string,
-	offset *int, limit *int, orderBy *paginator.OrderBy) ([]AllocationConstraint, int, error) {
+	filter AllocationConstraintFilterInput, page paginator.PageInput, includeRelations []string) ([]AllocationConstraint, int, error) {
 	acs := []AllocationConstraint{}
 	// Create a child span and set the attributes for current request
 	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.GetAll")
@@ -237,47 +253,51 @@ func (acd AllocationConstraintSQLDAO) GetAll(ctx context.Context, tx *db.Tx,
 
 	query := db.GetIDB(tx, acd.dbSession).NewSelect().Model(&acs)
 
-	if allocationIDs != nil {
-		if len(allocationIDs) == 1 {
-			query = query.Where("ac.allocation_id = ?", allocationIDs[0])
+	if len(filter.AllocationIDs) > 0 {
+		if len(filter.AllocationIDs) == 1 {
+			query = query.Where("ac.allocation_id = ?", filter.AllocationIDs[0])
 		} else {
-			query = query.Where("ac.allocation_id IN (?)", bun.In(allocationIDs))
+			query = query.Where("ac.allocation_id IN (?)", bun.In(filter.AllocationIDs))
 		}
-	}
-
-	if resourceType != nil {
-		query = query.Where("ac.resource_type = ?", *resourceType)
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type", *resourceType)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "allocation_ids", filter.AllocationIDs)
 		}
 	}
 
-	if resourceTypeIDs != nil {
-		if len(resourceTypeIDs) == 1 {
-			query = query.Where("ac.resource_type_id = ?", resourceTypeIDs[0])
+	if filter.ResourceType != nil {
+		query = query.Where("ac.resource_type = ?", *filter.ResourceType)
+
+		if aDAOSpan != nil {
+			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type", *filter.ResourceType)
+		}
+	}
+
+	if len(filter.ResourceTypeIDs) > 0 {
+		if len(filter.ResourceTypeIDs) == 1 {
+			query = query.Where("ac.resource_type_id = ?", filter.ResourceTypeIDs[0])
 		} else {
-			query = query.Where("ac.resource_type_id IN (?)", bun.In(resourceTypeIDs))
+			query = query.Where("ac.resource_type_id IN (?)", bun.In(filter.ResourceTypeIDs))
 		}
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type_ids", resourceTypeIDs)
-		}
-	}
-
-	if constraintType != nil {
-		query = query.Where("ac.constraint_type = ?", *constraintType)
-
-		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_type", *constraintType)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type_ids", filter.ResourceTypeIDs)
 		}
 	}
 
-	if derivedResourceID != nil {
-		query = query.Where("ac.derived_resource_id = ?", *derivedResourceID)
+	if filter.ConstraintType != nil {
+		query = query.Where("ac.constraint_type = ?", *filter.ConstraintType)
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "derived_resource_id", *derivedResourceID)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_type", *filter.ConstraintType)
+		}
+	}
+
+	if filter.DerivedResourceID != nil {
+		query = query.Where("ac.derived_resource_id = ?", *filter.DerivedResourceID)
+
+		if aDAOSpan != nil {
+			acd.tracerSpan.SetAttribute(aDAOSpan, "derived_resource_id", filter.DerivedResourceID.String())
 		}
 	}
 
@@ -286,11 +306,11 @@ func (acd AllocationConstraintSQLDAO) GetAll(ctx context.Context, tx *db.Tx,
 	}
 
 	// if no order is passed, set default to make sure objects return always in the same order and pagination works properly
-	if orderBy == nil {
-		orderBy = paginator.NewDefaultOrderBy(AllocationConstraintOrderByDefault)
+	if page.OrderBy == nil {
+		page.OrderBy = paginator.NewDefaultOrderBy(AllocationConstraintOrderByDefault)
 	}
 
-	paginator, err := paginator.NewPaginator(ctx, query, offset, limit, orderBy, SiteOrderByFields)
+	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, page.OrderBy, AllocationConstraintOrderByFields)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -303,87 +323,83 @@ func (acd AllocationConstraintSQLDAO) GetAll(ctx context.Context, tx *db.Tx,
 	return acs, paginator.Total, nil
 }
 
-// UpdateFromParams updates specified fields of an existing AllocationConstraint
-// The updated fields are assumed to be set to non-null values
-// since there are 2 operations (UPDATE, SELECT), in this, it is required that
-// this library call happens within a transaction
-func (acd AllocationConstraintSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID,
-	allocationID *uuid.UUID, resourceType *string,
-	resourceTypeID *uuid.UUID, constraintType *string,
-	constraintValue *int, derivedResourceID *uuid.UUID) (*AllocationConstraint, error) {
+// Update updates specified fields of an existing AllocationConstraint.
+// The updated fields are assumed to be set to non-null values.
+// Since there are 2 operations (UPDATE, SELECT), this call must happen within a transaction.
+func (acd AllocationConstraintSQLDAO) Update(ctx context.Context, tx *db.Tx, input AllocationConstraintUpdateInput) (*AllocationConstraint, error) {
 	// Create a child span and set the attributes for current request
-	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.UpdateFromParams")
+	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.Update")
 	if aDAOSpan != nil {
 		defer aDAOSpan.End()
 
-		acd.tracerSpan.SetAttribute(aDAOSpan, "id", id.String())
+		acd.tracerSpan.SetAttribute(aDAOSpan, "id", input.AllocationConstraintID.String())
 	}
 
 	a := &AllocationConstraint{
-		ID: id,
+		ID: input.AllocationConstraintID,
 	}
 
 	updatedFields := []string{}
 
-	if allocationID != nil {
-		a.AllocationID = *allocationID
+	if input.AllocationID != nil {
+		a.AllocationID = *input.AllocationID
 		updatedFields = append(updatedFields, "allocation_id")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "allocation_id", allocationID.String())
+			acd.tracerSpan.SetAttribute(aDAOSpan, "allocation_id", input.AllocationID.String())
 		}
 	}
-	if resourceType != nil {
-		if len(strings.TrimSpace(*resourceType)) == 0 {
+	if input.ResourceType != nil {
+		if len(strings.TrimSpace(*input.ResourceType)) == 0 {
 			return nil, errors.New("resourceType is empty")
 		}
-		a.ResourceType = *resourceType
+		a.ResourceType = *input.ResourceType
 		updatedFields = append(updatedFields, "resource_type")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type", *resourceType)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type", *input.ResourceType)
 		}
 	}
-	if resourceTypeID != nil {
-		a.ResourceTypeID = *resourceTypeID
+	if input.ResourceTypeID != nil {
+		a.ResourceTypeID = *input.ResourceTypeID
 		updatedFields = append(updatedFields, "resource_type_id")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type_id", resourceTypeID.String())
+			acd.tracerSpan.SetAttribute(aDAOSpan, "resource_type_id", input.ResourceTypeID.String())
 		}
 	}
-	if constraintType != nil {
-		if len(strings.TrimSpace(*constraintType)) == 0 {
+	if input.ConstraintType != nil {
+		if len(strings.TrimSpace(*input.ConstraintType)) == 0 {
 			return nil, errors.New("constraintType is empty")
 		}
-		a.ConstraintType = *constraintType
+		a.ConstraintType = *input.ConstraintType
 		updatedFields = append(updatedFields, "constraint_type")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_type", *constraintType)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_type", *input.ConstraintType)
 		}
 	}
-	if constraintValue != nil {
-		a.ConstraintValue = *constraintValue
+	if input.ConstraintValue != nil {
+		a.ConstraintValue = *input.ConstraintValue
 		updatedFields = append(updatedFields, "constraint_value")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_value", *constraintValue)
+			acd.tracerSpan.SetAttribute(aDAOSpan, "constraint_value", *input.ConstraintValue)
 		}
 	}
-	if derivedResourceID != nil {
-		a.DerivedResourceID = derivedResourceID
+	if input.DerivedResourceID != nil {
+		a.DerivedResourceID = input.DerivedResourceID
 		updatedFields = append(updatedFields, "derived_resource_id")
 
 		if aDAOSpan != nil {
-			acd.tracerSpan.SetAttribute(aDAOSpan, "derived_resource_id", derivedResourceID.String())
+			acd.tracerSpan.SetAttribute(aDAOSpan, "derived_resource_id", input.DerivedResourceID.String())
 		}
 	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, acd.dbSession).NewUpdate().Model(a).Column(updatedFields...).Where("id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, acd.dbSession).NewUpdate().Model(a).Column(updatedFields...).Where("id = ?", input.AllocationConstraintID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -397,25 +413,23 @@ func (acd AllocationConstraintSQLDAO) UpdateFromParams(ctx context.Context, tx *
 	return nv, nil
 }
 
-// ClearFromParams sets parameters of an existing AllocationConstraint to null values in db
-// since there are 2 operations (UPDATE, SELECT), it is required that
-// this must be within a transaction
-func (acd AllocationConstraintSQLDAO) ClearFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID,
-	derivedResourceID bool) (*AllocationConstraint, error) {
+// Clear sets parameters of an existing AllocationConstraint to null values in db.
+// Since there are 2 operations (UPDATE, SELECT), this must be within a transaction.
+func (acd AllocationConstraintSQLDAO) Clear(ctx context.Context, tx *db.Tx, input AllocationConstraintClearInput) (*AllocationConstraint, error) {
 	// Create a child span and set the attributes for current request
-	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.ClearFromParams")
+	ctx, aDAOSpan := acd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationConstraintDAO.Clear")
 	if aDAOSpan != nil {
 		defer aDAOSpan.End()
 
-		acd.tracerSpan.SetAttribute(aDAOSpan, "id", id.String())
+		acd.tracerSpan.SetAttribute(aDAOSpan, "id", input.AllocationConstraintID.String())
 	}
 
 	a := &AllocationConstraint{
-		ID: id,
+		ID: input.AllocationConstraintID,
 	}
 
 	updatedFields := []string{}
-	if derivedResourceID {
+	if input.DerivedResourceID {
 		a.DerivedResourceID = nil
 		updatedFields = append(updatedFields, "derived_resource_id")
 	}
@@ -423,13 +437,13 @@ func (acd AllocationConstraintSQLDAO) ClearFromParams(ctx context.Context, tx *d
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, acd.dbSession).NewUpdate().Model(a).Column(updatedFields...).Where("id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, acd.dbSession).NewUpdate().Model(a).Column(updatedFields...).Where("id = ?", input.AllocationConstraintID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	nv, err := acd.GetByID(ctx, tx, id, []string{"Allocation"})
+	nv, err := acd.GetByID(ctx, tx, input.AllocationConstraintID, []string{"Allocation"})
 	if err != nil {
 		return nil, err
 	}

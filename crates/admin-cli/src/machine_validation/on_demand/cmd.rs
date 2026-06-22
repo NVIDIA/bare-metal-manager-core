@@ -28,7 +28,7 @@ pub async fn on_demand_machine_validation(
             args.machine,
             args.tags,
             args.allowed_tests,
-            args.run_unverfied_tests,
+            args.run_unverified_tests,
             args.contexts,
         )
         .await?;

@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::device::discovery::{convert_pci_name_to_address, parse_mlxfwmanager_xml};
 
 // Test XML to use for a single DPU with failed access due to lockdown.
@@ -182,47 +184,37 @@ fn test_parse_mixed_devices() {
     assert!(third_device.base_mac.is_some());
 }
 
+// convert_pci_name_to_address strips a single leading "0000:" domain prefix from a
+// PCI name and passes everything else (clean addresses, mst paths, arbitrary
+// strings) through untouched.
 #[test]
-fn test_convert_pci_name_removes_domain_prefix() {
-    let input = "0000:01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "01:00.0");
-}
+fn test_convert_pci_name_to_address() {
+    scenarios!(
+        run = convert_pci_name_to_address;
+        "removes domain prefix" {
+            "0000:01:00.0" => Yields("01:00.0".to_string()),
+        }
 
-#[test]
-fn test_convert_pci_name_passthrough_clean_address() {
-    let input = "01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "01:00.0");
-}
+        "passes through a clean address" {
+            "01:00.0" => Yields("01:00.0".to_string()),
+        }
 
-#[test]
-fn test_convert_pci_name_passthrough_mst_path() {
-    let input = "/dev/mst/mt41692_pciconf0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "/dev/mst/mt41692_pciconf0");
-}
+        "passes through an mst path" {
+            "/dev/mst/mt41692_pciconf0" => Yields("/dev/mst/mt41692_pciconf0".to_string()),
+        }
 
-#[test]
-fn test_convert_pci_name_passthrough_other_format() {
-    let input = "custom_device_path";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "custom_device_path");
-}
+        "passes through an unrelated format" {
+            "custom_device_path" => Yields("custom_device_path".to_string()),
+        }
 
-#[test]
-fn test_convert_pci_name_multiple_domain_prefixes() {
-    let input = "0000:0000:01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    // Should only remove the first "0000:" prefix
-    assert_eq!(result, "0000:01:00.0");
-}
+        "removes only the first of multiple domain prefixes" {
+            "0000:0000:01:00.0" => Yields("0000:01:00.0".to_string()),
+        }
 
-#[test]
-fn test_convert_pci_name_empty_string() {
-    let input = "";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "");
+        "passes through an empty string" {
+            "" => Yields("".to_string()),
+        }
+    );
 }
 
 #[test]
@@ -239,19 +231,42 @@ fn test_mac_address_parsing() {
     );
 }
 
+// get_field_value renders a None optional field as "--" and returns the value of a
+// present field. Exercised against the failed-DPU device, whose optionals are all
+// absent while pci_name/device_type/status are set.
 #[test]
 fn test_optional_field_handling() {
     let devices = parse_mlxfwmanager_xml(DPU_FAILED_XML).unwrap();
     let device = &devices[0];
 
-    // Test that get_field_value handles None values correctly
-    assert_eq!(device.get_field_value("psid"), "--");
-    assert_eq!(device.get_field_value("part_number"), "--");
-    assert_eq!(device.get_field_value("base_mac"), "--");
-    assert_eq!(device.get_field_value("fw_version_current"), "--");
+    value_scenarios!(
+        run = |field| device.get_field_value(field);
+        "None psid renders as --" {
+            "psid" => "--".to_string(),
+        }
 
-    // Test that non-None fields work correctly
-    assert_eq!(device.get_field_value("pci_name"), "b4:00.0");
-    assert_eq!(device.get_field_value("device_type"), "BlueField3");
-    assert_eq!(device.get_field_value("status"), "Failed to open device");
+        "None part_number renders as --" {
+            "part_number" => "--".to_string(),
+        }
+
+        "None base_mac renders as --" {
+            "base_mac" => "--".to_string(),
+        }
+
+        "None fw_version_current renders as --" {
+            "fw_version_current" => "--".to_string(),
+        }
+
+        "present pci_name" {
+            "pci_name" => "b4:00.0".to_string(),
+        }
+
+        "present device_type" {
+            "device_type" => "BlueField3".to_string(),
+        }
+
+        "present status" {
+            "status" => "Failed to open device".to_string(),
+        }
+    );
 }

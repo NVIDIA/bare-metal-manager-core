@@ -186,7 +186,8 @@ pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_cha
     }
 }
 
-/// Take the NTP servers for configuring NTP in the dhcp responses
+/// Take the NTP servers configuring NTP in the dhcp responses as fallback when the Carbide API `DhcpRecord` does not
+/// have `ntp_servers` set.
 ///
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible

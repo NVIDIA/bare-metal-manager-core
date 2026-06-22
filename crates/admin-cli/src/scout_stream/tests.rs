@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -46,55 +48,73 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show ensures show parses with no arguments.
+// parse_show ensures show parses with no arguments and routes to the Show
+// variant.
 #[test]
 fn parse_show() {
-    let action =
-        ScoutStreamAction::try_parse_from(["scout-stream", "show"]).expect("should parse show");
-
-    assert!(matches!(action, ScoutStreamAction::Show(_)));
-}
-
-// parse_disconnect ensures disconnect parses with machine_id.
-#[test]
-fn parse_disconnect() {
-    let action = ScoutStreamAction::try_parse_from(["scout-stream", "disconnect", TEST_MACHINE_ID])
-        .expect("should parse disconnect");
-
-    match action {
-        ScoutStreamAction::Disconnect(cmd) => {
-            assert_eq!(cmd.machine_id.to_string(), TEST_MACHINE_ID);
+    scenarios!(
+        run = |argv| {
+            ScoutStreamAction::try_parse_from(argv.iter().copied())
+                .map(|a| variant(&a))
+                .map_err(drop)
+        };
+        "show with no arguments" {
+            &["scout-stream", "show"][..] => Yields("show"),
         }
-        _ => panic!("expected Disconnect variant"),
-    }
+    );
 }
 
-// parse_ping ensures ping parses with machine_id.
+// The machine-id subcommands (disconnect, ping) parse the supplied id and route
+// to their respective variant; this table confirms each one round-trips the id.
 #[test]
-fn parse_ping() {
-    let action = ScoutStreamAction::try_parse_from(["scout-stream", "ping", TEST_MACHINE_ID])
-        .expect("should parse ping");
-
-    match action {
-        ScoutStreamAction::Ping(cmd) => {
-            assert_eq!(cmd.machine_id.to_string(), TEST_MACHINE_ID);
+fn parse_machine_id_subcommands() {
+    scenarios!(
+        run = |argv| {
+            ScoutStreamAction::try_parse_from(argv.iter().copied())
+                .map(|a| match a {
+                    ScoutStreamAction::Disconnect(cmd) => {
+                        ("disconnect", cmd.machine_id.to_string())
+                    }
+                    ScoutStreamAction::Ping(cmd) => ("ping", cmd.machine_id.to_string()),
+                    _ => panic!("expected Disconnect or Ping variant"),
+                })
+                .map_err(drop)
+        };
+        "disconnect parses machine_id" {
+            &["scout-stream", "disconnect", TEST_MACHINE_ID][..] => Yields(("disconnect", TEST_MACHINE_ID.to_string())),
         }
-        _ => panic!("expected Ping variant"),
+
+        "ping parses machine_id" {
+            &["scout-stream", "ping", TEST_MACHINE_ID][..] => Yields(("ping", TEST_MACHINE_ID.to_string())),
+        }
+    );
+}
+
+// The machine-id subcommands reject an invocation that omits the required
+// machine_id positional argument.
+#[test]
+fn missing_machine_id_is_rejected() {
+    scenarios!(
+        run = |argv| {
+            ScoutStreamAction::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "disconnect without machine_id" {
+            &["scout-stream", "disconnect"][..] => Fails,
+        }
+
+        "ping without machine_id" {
+            &["scout-stream", "ping"][..] => Fails,
+        }
+    );
+}
+
+// variant names the parsed subcommand, for cases that only assert routing.
+fn variant(action: &ScoutStreamAction) -> &'static str {
+    match action {
+        ScoutStreamAction::Show(_) => "show",
+        ScoutStreamAction::Disconnect(_) => "disconnect",
+        ScoutStreamAction::Ping(_) => "ping",
     }
-}
-
-// parse_disconnect_missing_machine_id_fails ensures
-// disconnect fails without machine_id.
-#[test]
-fn parse_disconnect_missing_machine_id_fails() {
-    let result = ScoutStreamAction::try_parse_from(["scout-stream", "disconnect"]);
-    assert!(result.is_err(), "should fail without machine_id");
-}
-
-// parse_ping_missing_machine_id_fails ensures ping fails
-// without machine_id.
-#[test]
-fn parse_ping_missing_machine_id_fails() {
-    let result = ScoutStreamAction::try_parse_from(["scout-stream", "ping"]);
-    assert!(result.is_err(), "should fail without machine_id");
 }

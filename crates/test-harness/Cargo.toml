@@ -25,7 +25,8 @@ authors.workspace = true
 [dependencies]
 carbide-api-core = { path = "../api-core", features = ["test-support"] }
 carbide-api-db = { path = "../api-db", default-features = false }
-carbide-api-model = { path = "../api-model", default-features = false }
+carbide-api-model = { path = "../api-model", default-features = false, features = ["test-support"] }
+carbide-site-explorer = { path = "../site-explorer", features = ["test-support"] }
 carbide-macros = { path = "../macros", default-features = false }
 carbide-network-segment-controller = { path = "../network-segment-controller", default-features = false }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
@@ -36,6 +37,7 @@ state-controller = { path = "../state-controller", features = ["test-support"] }
 chrono = { workspace = true }
 ctor = { workspace = true }
 ipnetwork = { workspace = true }
+mac_address = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

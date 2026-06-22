@@ -17,6 +17,8 @@
 				<th>IB IFs #</th>
 				<th>Host Memory</th>
 			{% endif %}
+			<th>DPF Enabled</th>
+			<th>DPF Used For Ingestion</th>
 		<tr/>
 	</thead>
 	<tbody>
@@ -66,6 +68,8 @@
 				<td>{{ host.num_ib_ifs }}</td>
 				<td>{{ host.host_memory }}</td>
 			{% endif %}
+			<td>{{ host.dpf_enabled }}</td>
+			<td>{% if !host.dpf_used_for_ingestion %}<span class="bubble warning">false</span>{% else %}true{% endif %}</td>
 		</tr>
 	{% endfor %}
 		<tfoot>
@@ -86,6 +90,8 @@
 					<th></th>
 					<th></th>
 				{% endif %}
+				<th></th>
+				<th></th>
 			</tr>
 		</tfoot>
 	</tbody>

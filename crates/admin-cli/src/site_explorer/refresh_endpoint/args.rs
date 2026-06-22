@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Immediately probe a BMC endpoint and persist the report:
-    $ carbide-admin-cli site-explorer refresh 192.0.2.10
+    $ nico-admin-cli site-explorer refresh 192.0.2.10
 
 ")]
 pub struct Args {

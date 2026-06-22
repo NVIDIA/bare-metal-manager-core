@@ -18,6 +18,9 @@
 //! SDK types for the DPF SDK.
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
+
+use serde::{Deserialize, Serialize};
 
 use crate::crds::dpus_generated::DpuStatusPhase;
 
@@ -58,6 +61,8 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -67,8 +72,16 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
+            proxy: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfProxyDetails {
+    pub https_proxy: String,
+    #[serde(default)]
+    pub no_proxy: Vec<String>,
 }
 
 /// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
@@ -233,9 +246,9 @@ pub struct DpuDeviceInfo {
     /// Used as the DPUDevice CR name.
     pub device_id: String,
     /// BMC IP address for the DPU.
-    pub dpu_bmc_ip: String,
+    pub dpu_bmc_ip: IpAddr,
     /// BMC IP address for the host.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
     /// Serial number of the DPU.
     pub serial_number: String,
     /// Caller-defined identifier for the DPU machine.
@@ -252,7 +265,7 @@ pub struct DpuNodeInfo {
     /// Used to build the DPUNode CR name via `dpu_node_cr_name()`.
     pub node_id: String,
     /// BMC IP of the host.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
     /// Identifiers of each device attached to this node.
     pub device_ids: Vec<String>,
 }
@@ -351,7 +364,7 @@ pub struct RebootRequiredEvent {
     /// Name of the DPUNode resource.
     pub node_name: String,
     /// Host BMC IP.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
 }
 
 /// Event emitted when a DPU is in the NodeEffect phase.
@@ -442,50 +455,392 @@ pub struct ServiceTemplateVersion {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
+    /// `DpuPhase::from(DpuStatusPhase)` is a total conversion; every operator
+    /// status phase maps to exactly one simplified `DpuPhase`. This folds the
+    /// old `test_dpu_phase_from_status` and enumerates all 17 source variants,
+    /// including each provisioning sub-phase that collapses into
+    /// `Provisioning(detail)`.
     #[test]
-    fn test_dpu_phase_from_status() {
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Ready), DpuPhase::Ready);
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Error), DpuPhase::Error);
-        assert_eq!(DpuPhase::from(DpuStatusPhase::Deleting), DpuPhase::Deleting);
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Rebooting),
-            DpuPhase::Rebooting
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Initializing),
-            DpuPhase::Provisioning("Initializing".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::Pending),
-            DpuPhase::Provisioning("Pending".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::OsInstalling),
-            DpuPhase::Provisioning("OsInstalling".into())
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::NodeEffect),
-            DpuPhase::NodeEffect
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::CheckingHostRebootRequired),
-            DpuPhase::Rebooting
-        );
-        assert_eq!(
-            DpuPhase::from(DpuStatusPhase::NodeEffectRemoval),
-            DpuPhase::NodeEffect
+    fn dpu_phase_from_status_maps_every_variant() {
+        value_scenarios!(
+            run = DpuPhase::from;
+            "Initializing -> Provisioning" {
+                DpuStatusPhase::Initializing => DpuPhase::Provisioning("Initializing".into()),
+            }
+
+            "Pending -> Provisioning" {
+                DpuStatusPhase::Pending => DpuPhase::Provisioning("Pending".into()),
+            }
+
+            "ConfigFwParameters -> Provisioning" {
+                DpuStatusPhase::ConfigFwParameters => DpuPhase::Provisioning("ConfigFwParameters".into()),
+            }
+
+            "PrepareBfb -> Provisioning" {
+                DpuStatusPhase::PrepareBfb => DpuPhase::Provisioning("PrepareBfb".into()),
+            }
+
+            "OsInstalling -> Provisioning" {
+                DpuStatusPhase::OsInstalling => DpuPhase::Provisioning("OsInstalling".into()),
+            }
+
+            "DpuClusterConfig -> Provisioning" {
+                DpuStatusPhase::DpuClusterConfig => DpuPhase::Provisioning("DpuClusterConfig".into()),
+            }
+
+            "HostNetworkConfiguration -> Provisioning" {
+                DpuStatusPhase::HostNetworkConfiguration => DpuPhase::Provisioning("HostNetworkConfiguration".into()),
+            }
+
+            "InitializeInterface -> Provisioning" {
+                DpuStatusPhase::InitializeInterface => DpuPhase::Provisioning("InitializeInterface".into()),
+            }
+
+            "DpuConfig -> Provisioning" {
+                DpuStatusPhase::DpuConfig => DpuPhase::Provisioning("DpuConfig".into()),
+            }
+
+            "PerformArmForceRestart -> Provisioning" {
+                DpuStatusPhase::PerformArmForceRestart => DpuPhase::Provisioning("PerformArmForceRestart".into()),
+            }
+
+            "NodeEffect -> NodeEffect" {
+                DpuStatusPhase::NodeEffect => DpuPhase::NodeEffect,
+            }
+
+            "NodeEffectRemoval -> NodeEffect" {
+                DpuStatusPhase::NodeEffectRemoval => DpuPhase::NodeEffect,
+            }
+
+            "Rebooting -> Rebooting" {
+                DpuStatusPhase::Rebooting => DpuPhase::Rebooting,
+            }
+
+            "CheckingHostRebootRequired -> Rebooting" {
+                DpuStatusPhase::CheckingHostRebootRequired => DpuPhase::Rebooting,
+            }
+
+            "Ready -> Ready" {
+                DpuStatusPhase::Ready => DpuPhase::Ready,
+            }
+
+            "Error -> Error" {
+                DpuStatusPhase::Error => DpuPhase::Error,
+            }
+
+            "Deleting -> Deleting" {
+                DpuStatusPhase::Deleting => DpuPhase::Deleting,
+            }
         );
     }
 
+    /// `AsRef<str>` for `DpuPhase` renders each variant to its canonical name;
+    /// a provisioning phase renders its detail string verbatim. Covers all six
+    /// `DpuPhase` variants, including an empty-detail provisioning phase.
+    ///
+    /// `Display` delegates to `AsRef<str>`, so each row also asserts that
+    /// `to_string()` agrees with `as_ref()` before yielding the rendered name —
+    /// folding in the former `dpu_phase_display_matches_as_ref`.
     #[test]
-    fn test_dpu_phase_equality() {
-        assert_eq!(DpuPhase::Ready, DpuPhase::Ready);
-        assert_ne!(
-            DpuPhase::Ready,
-            DpuPhase::Provisioning("Initializing".into())
+    fn dpu_phase_as_ref_renders_each_variant() {
+        value_scenarios!(
+            run = |phase: DpuPhase| {
+                let as_ref = phase.as_ref().to_string();
+                assert_eq!(phase.to_string(), as_ref, "Display must match AsRef");
+                as_ref
+            };
+            "provisioning renders its detail" {
+                DpuPhase::Provisioning("OsInstalling".into()) => "OsInstalling".to_string(),
+            }
+
+            "provisioning with empty detail renders empty" {
+                DpuPhase::Provisioning(String::new()) => String::new(),
+            }
+
+            "node effect" {
+                DpuPhase::NodeEffect => "NodeEffect".to_string(),
+            }
+
+            "rebooting" {
+                DpuPhase::Rebooting => "Rebooting".to_string(),
+            }
+
+            "ready" {
+                DpuPhase::Ready => "Ready".to_string(),
+            }
+
+            "error" {
+                DpuPhase::Error => "Error".to_string(),
+            }
+
+            "deleting" {
+                DpuPhase::Deleting => "Deleting".to_string(),
+            }
         );
-        assert_eq!(DpuPhase::Rebooting, DpuPhase::Rebooting);
+    }
+
+    /// `PartialEq` for `DpuPhase`: same variant compares equal, different
+    /// variants differ, and `Provisioning` discriminates on its detail string.
+    /// Folds the old `test_dpu_phase_equality`.
+    #[test]
+    fn dpu_phase_equality_distinguishes_variants() {
+        value_scenarios!(
+            run = |(a, b)| a == b;
+            "ready equals ready" {
+                (DpuPhase::Ready, DpuPhase::Ready) => true,
+            }
+
+            "rebooting equals rebooting" {
+                (DpuPhase::Rebooting, DpuPhase::Rebooting) => true,
+            }
+
+            "error equals error" {
+                (DpuPhase::Error, DpuPhase::Error) => true,
+            }
+
+            "deleting equals deleting" {
+                (DpuPhase::Deleting, DpuPhase::Deleting) => true,
+            }
+
+            "node effect equals node effect" {
+                (DpuPhase::NodeEffect, DpuPhase::NodeEffect) => true,
+            }
+
+            "provisioning equals same-detail provisioning" {
+                (
+                    DpuPhase::Provisioning("Pending".into()),
+                    DpuPhase::Provisioning("Pending".into()),
+                ) => true,
+            }
+
+            "ready differs from provisioning" {
+                (
+                    DpuPhase::Ready,
+                    DpuPhase::Provisioning("Initializing".into()),
+                ) => false,
+            }
+
+            "ready differs from error" {
+                (DpuPhase::Ready, DpuPhase::Error) => false,
+            }
+
+            "rebooting differs from node effect" {
+                (DpuPhase::Rebooting, DpuPhase::NodeEffect) => false,
+            }
+
+            "provisioning differs by detail" {
+                (
+                    DpuPhase::Provisioning("Pending".into()),
+                    DpuPhase::Provisioning("OsInstalling".into()),
+                ) => false,
+            }
+        );
+    }
+
+    /// `ConfigPortsServiceType` derives `PartialEq`; each variant equals itself
+    /// and differs from the others.
+    #[test]
+    fn config_ports_service_type_equality() {
+        value_scenarios!(
+            run = |(a, b)| a == b;
+            "node port equals node port" {
+                (
+                    ConfigPortsServiceType::NodePort,
+                    ConfigPortsServiceType::NodePort,
+                ) => true,
+            }
+
+            "cluster ip equals cluster ip" {
+                (
+                    ConfigPortsServiceType::ClusterIp,
+                    ConfigPortsServiceType::ClusterIp,
+                ) => true,
+            }
+
+            "none equals none" {
+                (ConfigPortsServiceType::None, ConfigPortsServiceType::None) => true,
+            }
+
+            "node port differs from cluster ip" {
+                (
+                    ConfigPortsServiceType::NodePort,
+                    ConfigPortsServiceType::ClusterIp,
+                ) => false,
+            }
+
+            "cluster ip differs from none" {
+                (
+                    ConfigPortsServiceType::ClusterIp,
+                    ConfigPortsServiceType::None,
+                ) => false,
+            }
+        );
+    }
+
+    /// `ServiceConfigPortProtocol` derives `PartialEq`; Tcp and Udp are
+    /// distinct and each equals itself.
+    #[test]
+    fn service_config_port_protocol_equality() {
+        value_scenarios!(
+            run = |(a, b)| a == b;
+            "tcp equals tcp" {
+                (
+                    ServiceConfigPortProtocol::Tcp,
+                    ServiceConfigPortProtocol::Tcp,
+                ) => true,
+            }
+
+            "udp equals udp" {
+                (
+                    ServiceConfigPortProtocol::Udp,
+                    ServiceConfigPortProtocol::Udp,
+                ) => true,
+            }
+
+            "tcp differs from udp" {
+                (
+                    ServiceConfigPortProtocol::Tcp,
+                    ServiceConfigPortProtocol::Udp,
+                ) => false,
+            }
+        );
+    }
+
+    /// `InitDpfResourcesConfig::default()` seeds the documented defaults: an
+    /// empty BFB URL and services list, the `dpu-deployment` name, the crate
+    /// default flavor, and no proxy. Probe each field independently.
+    #[test]
+    fn init_dpf_resources_config_default_fields() {
+        value_scenarios!(
+            run = |()| InitDpfResourcesConfig::default().bfb_url.is_empty();
+            "bfb url is empty" {
+                () => true,
+            }
+        );
+        value_scenarios!(
+            run = |()| InitDpfResourcesConfig::default().deployment_name;
+            "deployment name" {
+                () => "dpu-deployment".to_string(),
+            }
+        );
+        value_scenarios!(
+            run = |()| InitDpfResourcesConfig::default().flavor_name;
+            "flavor name uses crate default" {
+                () => crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
+            }
+        );
+        value_scenarios!(
+            run = |()| InitDpfResourcesConfig::default().services.len();
+            "services is empty" {
+                () => 0usize,
+            }
+        );
+        value_scenarios!(
+            run = |()| InitDpfResourcesConfig::default().proxy.is_none();
+            "proxy is none" {
+                () => true,
+            }
+        );
+    }
+
+    /// `ServiceDefinition::new` records the four required helm fields and
+    /// leaves every optional field at its `Default`. Each row reads one field
+    /// off the freshly constructed value.
+    #[test]
+    fn service_definition_new_records_required_fields() {
+        let build = || ServiceDefinition::new("dts", "https://repo.example", "dts-chart", "1.2.3");
+
+        value_scenarios!(
+            run = |()| build().name;
+            "name" {
+                () => "dts".to_string(),
+            }
+        );
+        value_scenarios!(
+            run = |()| build().helm_repo_url;
+            "helm repo url" {
+                () => "https://repo.example".to_string(),
+            }
+        );
+        value_scenarios!(
+            run = |()| build().helm_chart;
+            "helm chart" {
+                () => "dts-chart".to_string(),
+            }
+        );
+        value_scenarios!(
+            run = |()| build().helm_version;
+            "helm version" {
+                () => "1.2.3".to_string(),
+            }
+        );
+        // Each row reads one optional field off the freshly built definition
+        // and asserts it sits at its `Default` (None / empty).
+        enum OptionalField {
+            HelmValuesIsNone,
+            ConfigValuesIsNone,
+            ConfigPortsIsNone,
+            ConfigPortsServiceTypeIsNone,
+            ServiceNadIsNone,
+            ServiceDaemonSetAnnotationsIsNone,
+            InterfacesEmpty,
+            ServiceChainSwitchesEmpty,
+        }
+        value_scenarios!(
+            run = |field| {
+                let svc = build();
+                match field {
+                    OptionalField::HelmValuesIsNone => svc.helm_values.is_none(),
+                    OptionalField::ConfigValuesIsNone => svc.config_values.is_none(),
+                    OptionalField::ConfigPortsIsNone => svc.config_ports.is_none(),
+                    OptionalField::ConfigPortsServiceTypeIsNone => {
+                        svc.config_ports_service_type.is_none()
+                    }
+                    OptionalField::ServiceNadIsNone => svc.service_nad.is_none(),
+                    OptionalField::ServiceDaemonSetAnnotationsIsNone => {
+                        svc.service_daemon_set_annotations.is_none()
+                    }
+                    OptionalField::InterfacesEmpty => svc.interfaces.is_empty(),
+                    OptionalField::ServiceChainSwitchesEmpty => {
+                        svc.service_chain_switches.is_empty()
+                    }
+                }
+            };
+            "helm values default to none" {
+                OptionalField::HelmValuesIsNone => true,
+            }
+
+            "config values default to none" {
+                OptionalField::ConfigValuesIsNone => true,
+            }
+
+            "config ports default to none" {
+                OptionalField::ConfigPortsIsNone => true,
+            }
+
+            "config ports service type defaults to none" {
+                OptionalField::ConfigPortsServiceTypeIsNone => true,
+            }
+
+            "service nad defaults to none" {
+                OptionalField::ServiceNadIsNone => true,
+            }
+
+            "daemon set annotations default to none" {
+                OptionalField::ServiceDaemonSetAnnotationsIsNone => true,
+            }
+
+            "interfaces default to empty" {
+                OptionalField::InterfacesEmpty => true,
+            }
+
+            "service chain switches default to empty" {
+                OptionalField::ServiceChainSwitchesEmpty => true,
+            }
+        );
     }
 }

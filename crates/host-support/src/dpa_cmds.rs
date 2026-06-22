@@ -152,41 +152,283 @@ impl TryFrom<&fac::MlxDeviceAction> for DpaCommand<'static> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+    use rpc::protos::mlx_device::{
+        FirmwareFlasherProfile as FirmwareProfilePb, FirmwareSpec as FirmwareSpecPb,
+        FlashSpec as FlashSpecPb, SerializableMlxConfigProfile as SerializableProfilePb,
+    };
+
     use super::*;
 
-    #[test]
-    fn dpa_device_command_converts_to_rpc_lock_action() {
-        let action: fac::MlxDeviceAction = DpaDeviceCommand {
-            pci_name: "04:00.0".to_string(),
-            command: DpaCommand {
-                op: OpCode::Lock {
-                    key: "secret".to_string(),
-                },
-            },
+    // A short, observable discriminant for an `OpCode`, so conversions whose output
+    // types aren't `PartialEq` can still be asserted by table. Carries the key for
+    // Lock/Unlock so those rows can pin the round-tripped value.
+    fn op_tag(op: &OpCode<'_>) -> String {
+        match op {
+            OpCode::Noop => "noop".to_string(),
+            OpCode::Lock { key } => format!("lock:{key}"),
+            OpCode::Unlock { key } => format!("unlock:{key}"),
+            OpCode::ApplyProfile { serialized_profile } => {
+                format!("apply_profile:{}", serialized_profile.is_some())
+            }
+            OpCode::ApplyFirmware { profile } => {
+                format!("apply_firmware:{}", profile.is_some())
+            }
         }
-        .try_into()
-        .unwrap();
-
-        assert_eq!(action.pci_name, "04:00.0");
-        assert!(matches!(
-            action.command,
-            Some(fac::mlx_device_action::Command::Lock(fac::MlxDeviceLock { key }))
-                if key == "secret"
-        ));
     }
 
-    #[test]
-    fn rpc_unlock_action_converts_to_dpa_command() {
-        let action = fac::MlxDeviceAction {
-            pci_name: "04:00.0".to_string(),
-            command: Some(fac::mlx_device_action::Command::Unlock(
-                fac::MlxDeviceUnlock {
-                    key: "secret".to_string(),
-                },
-            )),
-        };
+    // The same discriminant for a wire `MlxDeviceAction`'s command oneof.
+    fn action_tag(command: &Option<fac::mlx_device_action::Command>) -> String {
+        use fac::mlx_device_action::Command as C;
+        match command {
+            None => "none".to_string(),
+            Some(C::Noop(_)) => "noop".to_string(),
+            Some(C::Lock(l)) => format!("lock:{}", l.key),
+            Some(C::Unlock(u)) => format!("unlock:{}", u.key),
+            Some(C::ApplyProfile(p)) => {
+                format!("apply_profile:{}", p.serialized_profile.is_some())
+            }
+            Some(C::ApplyFirmware(f)) => format!("apply_firmware:{}", f.profile.is_some()),
+        }
+    }
 
-        let command = DpaCommand::try_from(&action).unwrap();
-        assert!(matches!(command.op, OpCode::Unlock { key } if key == "secret"));
+    // A minimal proto profile whose every config value parses as YAML, so the
+    // SerializableProfile conversion round-trips cleanly.
+    fn valid_serializable_pb() -> SerializableProfilePb {
+        SerializableProfilePb {
+            name: "p".to_string(),
+            registry_name: "r".to_string(),
+            description: None,
+            config: HashMap::from([("k".to_string(), "42".to_string())]),
+        }
+    }
+
+    // A proto profile carrying a config value that is not valid YAML, so the
+    // SerializableProfile conversion rejects it.
+    fn invalid_serializable_pb() -> SerializableProfilePb {
+        SerializableProfilePb {
+            name: "p".to_string(),
+            registry_name: "r".to_string(),
+            description: None,
+            config: HashMap::from([("k".to_string(), "{unterminated".to_string())]),
+        }
+    }
+
+    // A complete proto firmware profile: both required specs present, so the
+    // FirmwareFlasherProfile conversion succeeds.
+    fn valid_firmware_pb() -> FirmwareProfilePb {
+        FirmwareProfilePb {
+            firmware_spec: Some(FirmwareSpecPb::default()),
+            flash_spec: Some(FlashSpecPb::default()),
+            flash_options: None,
+        }
+    }
+
+    // -- TryFrom<Command> for DpaCommand: every oneof arm + every profile sub-path.
+    #[test]
+    fn command_pb_converts_to_dpa_command() {
+        scenarios!(
+            run = |cmd: Command| DpaCommand::try_from(cmd).map(|c| op_tag(&c.op));
+            "noop" {
+                Command::Noop(fac::MlxDeviceNoop {}) => Yields("noop".to_string()),
+            }
+
+            "lock carries its key" {
+                Command::Lock(fac::MlxDeviceLock {
+                    key: "secret".to_string(),
+                }) => Yields("lock:secret".to_string()),
+            }
+
+            "lock with empty key" {
+                Command::Lock(fac::MlxDeviceLock { key: String::new() }) => Yields("lock:".to_string()),
+            }
+
+            "unlock carries its key" {
+                Command::Unlock(fac::MlxDeviceUnlock {
+                    key: "secret".to_string(),
+                }) => Yields("unlock:secret".to_string()),
+            }
+
+            "apply_profile with no profile stays None" {
+                Command::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: None,
+                }) => Yields("apply_profile:false".to_string()),
+            }
+
+            "apply_profile with a valid profile" {
+                Command::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: Some(valid_serializable_pb()),
+                }) => Yields("apply_profile:true".to_string()),
+            }
+
+            "apply_profile rejects unparseable config" {
+                Command::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: Some(invalid_serializable_pb()),
+                }) => Fails,
+            }
+
+            "apply_firmware with no profile stays None" {
+                Command::ApplyFirmware(fac::MlxDeviceApplyFirmware { profile: None }) => Yields("apply_firmware:false".to_string()),
+            }
+
+            "apply_firmware with a complete profile" {
+                Command::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: Some(valid_firmware_pb()),
+                }) => Yields("apply_firmware:true".to_string()),
+            }
+
+            "apply_firmware rejects a missing firmware_spec" {
+                Command::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: Some(FirmwareProfilePb {
+                        firmware_spec: None,
+                        flash_spec: Some(FlashSpecPb::default()),
+                        flash_options: None,
+                    }),
+                }) => FailsWith("missing firmware_spec".to_string()),
+            }
+
+            "apply_firmware rejects a missing flash_spec" {
+                Command::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: Some(FirmwareProfilePb {
+                        firmware_spec: Some(FirmwareSpecPb::default()),
+                        flash_spec: None,
+                        flash_options: None,
+                    }),
+                }) => FailsWith("missing flash_spec".to_string()),
+            }
+        );
+    }
+
+    // -- TryFrom<DpaDeviceCommand> for MlxDeviceAction: every OpCode arm. The
+    // pci_name is threaded through untouched, so each row also pins it.
+    #[test]
+    fn dpa_device_command_converts_to_rpc_action() {
+        scenarios!(
+            run = |op: OpCode<'_>| {
+                let action: fac::MlxDeviceAction = DpaDeviceCommand {
+                    pci_name: "04:00.0".to_string(),
+                    command: DpaCommand { op },
+                }
+                .try_into()?;
+                Ok::<_, String>((action.pci_name, action_tag(&action.command)))
+            };
+            "noop" {
+                OpCode::Noop => Yields(("04:00.0".to_string(), "noop".to_string())),
+            }
+
+            "lock carries its key" {
+                OpCode::Lock {
+                    key: "secret".to_string(),
+                } => Yields(("04:00.0".to_string(), "lock:secret".to_string())),
+            }
+
+            "unlock carries its key" {
+                OpCode::Unlock {
+                    key: "secret".to_string(),
+                } => Yields(("04:00.0".to_string(), "unlock:secret".to_string())),
+            }
+
+            "apply_profile with no profile stays None" {
+                OpCode::ApplyProfile {
+                    serialized_profile: None,
+                } => Yields(("04:00.0".to_string(), "apply_profile:false".to_string())),
+            }
+
+            "apply_profile with a valid profile" {
+                OpCode::ApplyProfile {
+                    serialized_profile: Some(valid_serializable_pb().try_into().unwrap()),
+                } => Yields(("04:00.0".to_string(), "apply_profile:true".to_string())),
+            }
+
+            "apply_firmware with no profile stays None" {
+                OpCode::ApplyFirmware { profile: None } => Yields(("04:00.0".to_string(), "apply_firmware:false".to_string())),
+            }
+
+            "apply_firmware with a profile" {
+                OpCode::ApplyFirmware {
+                    profile: Some(Box::new(Cow::Owned(
+                        valid_firmware_pb().try_into().unwrap(),
+                    ))),
+                } => Yields(("04:00.0".to_string(), "apply_firmware:true".to_string())),
+            }
+        );
+    }
+
+    // -- TryFrom<&MlxDeviceAction> for DpaCommand: every command-oneof arm, plus the
+    // None arm that also lands on Noop, and the two profile rejection paths.
+    #[test]
+    fn rpc_action_converts_to_dpa_command() {
+        use fac::mlx_device_action::Command as C;
+        scenarios!(
+            run = |command: Option<fac::mlx_device_action::Command>| {
+                let action = fac::MlxDeviceAction {
+                    pci_name: "04:00.0".to_string(),
+                    command,
+                };
+                DpaCommand::try_from(&action).map(|c| op_tag(&c.op))
+            };
+            "absent command is treated as noop" {
+                None => Yields("noop".to_string()),
+            }
+
+            "noop" {
+                Some(C::Noop(fac::MlxDeviceNoop {})) => Yields("noop".to_string()),
+            }
+
+            "lock carries its key" {
+                Some(C::Lock(fac::MlxDeviceLock {
+                    key: "secret".to_string(),
+                })) => Yields("lock:secret".to_string()),
+            }
+
+            "unlock carries its key" {
+                Some(C::Unlock(fac::MlxDeviceUnlock {
+                    key: "secret".to_string(),
+                })) => Yields("unlock:secret".to_string()),
+            }
+
+            "apply_profile with no profile stays None" {
+                Some(C::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: None,
+                })) => Yields("apply_profile:false".to_string()),
+            }
+
+            "apply_profile with a valid profile" {
+                Some(C::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: Some(valid_serializable_pb()),
+                })) => Yields("apply_profile:true".to_string()),
+            }
+
+            "apply_profile rejects unparseable config" {
+                Some(C::ApplyProfile(fac::MlxDeviceApplyProfile {
+                    serialized_profile: Some(invalid_serializable_pb()),
+                })) => Fails,
+            }
+
+            "apply_firmware with no profile stays None" {
+                Some(C::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: None,
+                })) => Yields("apply_firmware:false".to_string()),
+            }
+
+            "apply_firmware with a complete profile" {
+                Some(C::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: Some(valid_firmware_pb()),
+                })) => Yields("apply_firmware:true".to_string()),
+            }
+
+            "apply_firmware rejects a missing firmware_spec" {
+                Some(C::ApplyFirmware(fac::MlxDeviceApplyFirmware {
+                    profile: Some(FirmwareProfilePb {
+                        firmware_spec: None,
+                        flash_spec: Some(FlashSpecPb::default()),
+                        flash_options: None,
+                    }),
+                })) => FailsWith("missing firmware_spec".to_string()),
+            }
+        );
     }
 }

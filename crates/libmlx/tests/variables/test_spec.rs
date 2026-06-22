@@ -15,30 +15,46 @@
  * limitations under the License.
  */
 
+use std::mem::discriminant;
+
+use carbide_test_support::value_scenarios;
 use libmlx::variables::spec::MlxVariableSpec;
 
+// Each builder method produces its matching variant. The old version called
+// `matches!` without asserting -- the booleans were discarded, so it checked
+// nothing. Comparing discriminants restores the check (variant only, no payload).
 #[test]
 fn test_simple_variable_specs() {
-    let boolean_spec = MlxVariableSpec::builder().boolean().build();
-    matches!(boolean_spec, MlxVariableSpec::Boolean);
+    value_scenarios!(
+        run = |spec| discriminant(&spec);
+        "boolean" {
+            MlxVariableSpec::builder().boolean().build() => discriminant(&MlxVariableSpec::Boolean),
+        }
 
-    let integer_spec = MlxVariableSpec::builder().integer().build();
-    matches!(integer_spec, MlxVariableSpec::Integer);
+        "integer" {
+            MlxVariableSpec::builder().integer().build() => discriminant(&MlxVariableSpec::Integer),
+        }
 
-    let string_spec = MlxVariableSpec::builder().string().build();
-    matches!(string_spec, MlxVariableSpec::String);
+        "string" {
+            MlxVariableSpec::builder().string().build() => discriminant(&MlxVariableSpec::String),
+        }
 
-    let binary_spec = MlxVariableSpec::builder().binary().build();
-    matches!(binary_spec, MlxVariableSpec::Binary);
+        "binary" {
+            MlxVariableSpec::builder().binary().build() => discriminant(&MlxVariableSpec::Binary),
+        }
 
-    let bytes_spec = MlxVariableSpec::builder().bytes().build();
-    matches!(bytes_spec, MlxVariableSpec::Bytes);
+        "bytes" {
+            MlxVariableSpec::builder().bytes().build() => discriminant(&MlxVariableSpec::Bytes),
+        }
 
-    let array_spec = MlxVariableSpec::builder().array().build();
-    matches!(array_spec, MlxVariableSpec::Array);
+        "array" {
+            MlxVariableSpec::builder().array().build() => discriminant(&MlxVariableSpec::Array),
+        }
 
-    let opaque_spec = MlxVariableSpec::builder().opaque().build();
-    matches!(opaque_spec, MlxVariableSpec::Opaque);
+        "opaque" {
+            MlxVariableSpec::builder().opaque().build() => discriminant(&MlxVariableSpec::Opaque),
+        }
+    );
 }
 
 #[test]

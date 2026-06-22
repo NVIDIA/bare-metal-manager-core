@@ -123,3 +123,6 @@ pub async fn update(txn: &mut PgConnection, rack: &ExpectedRack) -> DatabaseResu
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

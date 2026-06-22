@@ -24,19 +24,19 @@ use super::super::common::ExtensionServiceType;
 EXAMPLES:
 
 Show all extension services:
-    $ carbide-admin-cli extension-service show
+    $ nico-admin-cli extension-service show
 
 Show one extension service by ID:
-    $ carbide-admin-cli extension-service show --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli extension-service show --id 12345678-1234-5678-90ab-cdef01234567
 
 Filter by service type:
-    $ carbide-admin-cli extension-service show --type kubernetes-pod
+    $ nico-admin-cli extension-service show --type kubernetes-pod
 
 Filter by service name:
-    $ carbide-admin-cli extension-service show --name my-service
+    $ nico-admin-cli extension-service show --name my-service
 
 Filter by tenant organization ID:
-    $ carbide-admin-cli extension-service show --tenant-organization-id fds34511233a
+    $ nico-admin-cli extension-service show --tenant-organization-id fds34511233a
 
 ")]
 pub struct Args {

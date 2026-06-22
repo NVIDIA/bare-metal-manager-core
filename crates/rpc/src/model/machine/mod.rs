@@ -22,7 +22,7 @@ use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use model::errors::{ModelError, ModelResult};
 use model::machine::{
-    DpfState, DpuInfo, DpuInfoStatusObservation, DpuInitState, DpuOsOperationalState,
+    Dpf, DpfState, DpuInfo, DpuInfoStatusObservation, DpuInitState, DpuOsOperationalState,
     DpuRepresentorStatus, FailureCause, InstanceState, Machine, MachineInterfaceSnapshot,
     MachineValidationFilter, ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest,
     ReprovisionState, slas, state_sla,
@@ -178,6 +178,15 @@ impl Deref for RpcMachineTypeWrapper {
     }
 }
 
+impl From<Dpf> for rpc::forge::DpfMachineState {
+    fn from(dpf: Dpf) -> Self {
+        rpc::forge::DpfMachineState {
+            enabled: dpf.enabled,
+            used_for_ingestion: dpf.used_for_ingestion,
+        }
+    }
+}
+
 impl From<Machine> for rpc::forge::Machine {
     fn from(mut machine: Machine) -> Self {
         let health = match machine.is_dpu() {
@@ -221,6 +230,13 @@ impl From<Machine> for rpc::forge::Machine {
                 .unwrap_or_default()
         } else {
             (None, None)
+        };
+
+        let dpf = if !machine.is_dpu() {
+            Some(machine.dpf.clone().into())
+        } else {
+            // Dpf state is stored in host.
+            None
         };
 
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
@@ -330,6 +346,7 @@ impl From<Machine> for rpc::forge::Machine {
                 tray_index: machine.tray_index,
             }),
             last_scout_observed_version: machine.last_scout_observed_version,
+            dpf,
         }
     }
 }

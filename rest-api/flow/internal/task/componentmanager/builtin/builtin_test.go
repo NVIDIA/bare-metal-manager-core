@@ -290,6 +290,7 @@ func TestNewComponentManagerRegistryInitializesBuiltInMockManagers(t *testing.T)
 	registry, err := NewComponentManagerRegistry(
 		config,
 		providerapi.NewProviderRegistry(),
+		nil,
 	)
 
 	require.NoError(t, err)

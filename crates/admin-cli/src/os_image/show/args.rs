@@ -25,13 +25,13 @@ use crate::os_image::common::str_to_rpc_uuid;
 EXAMPLES:
 
 Show a single OS image by UUID:
-    $ carbide-admin-cli os-image show --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli os-image show --id 12345678-1234-5678-90ab-cdef01234567
 
 List all OS images for a tenant:
-    $ carbide-admin-cli os-image show --tenant-org-id fds34511233a
+    $ nico-admin-cli os-image show --tenant-org-id fds34511233a
 
 List every OS image:
-    $ carbide-admin-cli os-image show
+    $ nico-admin-cli os-image show
 
 ")]
 pub struct Args {

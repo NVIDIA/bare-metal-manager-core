@@ -23,10 +23,10 @@ use clap::builder::BoolishValueParser;
 EXAMPLES:
 
 Enable OTLP trace/span export:
-    $ carbide-admin-cli set tracing-enabled true
+    $ nico-admin-cli set tracing-enabled true
 
 Disable OTLP trace/span export:
-    $ carbide-admin-cli set tracing-enabled false
+    $ nico-admin-cli set tracing-enabled false
 
 ")]
 pub struct Args {

@@ -33,3 +33,45 @@ pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<St
         Wait | Error => p.outcome_msg.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use rpc::forge::{ControllerStateOutcome, ControllerStateReason};
+
+    use super::*;
+
+    fn reason(outcome: ControllerStateOutcome, message: Option<&str>) -> ControllerStateReason {
+        ControllerStateReason {
+            outcome: outcome as i32,
+            outcome_msg: message.map(str::to_string),
+            source_ref: None,
+        }
+    }
+
+    #[test]
+    fn maps_controller_reasons_to_user_strings() {
+        value_scenarios!(
+            run = |reason| reason_to_user_string(&reason);
+            "visible outcomes" {
+                reason(ControllerStateOutcome::Wait, Some("waiting for host")) => Some("waiting for host".to_string()),
+                reason(ControllerStateOutcome::Error, Some("firmware failed")) => Some("firmware failed".to_string()),
+                reason(ControllerStateOutcome::Wait, None) => None,
+            }
+
+            "hidden outcomes" {
+                reason(ControllerStateOutcome::Transition, Some("transitioning")) => None,
+                reason(ControllerStateOutcome::DoNothing, Some("no-op")) => None,
+                reason(ControllerStateOutcome::Todo, Some("todo")) => None,
+            }
+
+            "invalid outcome" {
+                ControllerStateReason {
+                    outcome: 999,
+                    outcome_msg: Some("ignored".to_string()),
+                    source_ref: None,
+                } => None,
+            }
+        );
+    }
+}

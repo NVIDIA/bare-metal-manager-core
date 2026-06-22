@@ -26,10 +26,10 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Set the site-wide DPU UEFI default password:
-    $ carbide-admin-cli credential add-uefi --kind=dpu --password=mynewpassword
+    $ nico-admin-cli credential add-uefi --kind=dpu --password=mynewpassword
 
 Set the site-wide host UEFI default password:
-    $ carbide-admin-cli credential add-uefi --kind=host --password=mynewpassword
+    $ nico-admin-cli credential add-uefi --kind=host --password=mynewpassword
 
 ")]
 pub struct Args {
@@ -45,7 +45,8 @@ impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let mut password = password_validator(args.password)?;
         if password.is_empty() {
-            password = forge_secrets::credentials::Credentials::generate_password_no_special_char();
+            password =
+                carbide_secrets::credentials::Credentials::generate_password_no_special_char();
         }
         Ok(Self {
             credential_type: CredentialType::from(args.kind).into(),

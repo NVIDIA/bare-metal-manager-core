@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 pub mod config;
 mod errors;
 mod metrics;
+pub mod nmx_c_endpoint;
 pub mod nvlink;
 
 use std::io;
@@ -28,6 +29,7 @@ use std::time::Duration;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
+use carbide_uuid::rack::RackId;
 use chrono::Utc;
 use config::NvLinkConfig;
 use config_version::Versioned;
@@ -40,8 +42,11 @@ use db::{self, ObjectColumnFilter, TransactionVending, machine};
 use errors::{NvLinkManagerError, NvLinkManagerResult};
 use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
-use metrics::{AppliedChange, NmxcMetricOperationStatus, NvlPartitionMonitorMetrics};
-use model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
+use metrics::{
+    AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
+    NvlPartitionMonitorMetrics,
+};
+use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::instance::status::SyncState;
 use model::instance::status::nvlink::InstanceNvLinkStatus;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -57,9 +62,129 @@ use tracing::Instrument;
 /// Default NMX-M instance identifier for credentials and client lookup when none is specified.
 pub const DEFAULT_NMX_M_NAME: &str = "default";
 
-/// Multicast groups limit for new NMX-C partitions. Assuming at most 2 partitions per tray and
-// 18 tray default partitions, this is set to floor(1024 / (36+18)).
-const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 1024 / (36 + 18);
+/// Multicast groups limit for new NMX-C partitions. Must be a multiple of 4. Assuming at most 2
+/// partitions per tray and 18 tray default partitions, this is floor(1024 / (36+18)) rounded down
+/// to the nearest multiple of 4.
+const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 16;
+
+fn rack_id_from_chassis_snapshots(
+    chassis_snapshots: &[&ManagedHostStateSnapshot],
+) -> Option<RackId> {
+    chassis_snapshots
+        .iter()
+        .find_map(|snapshot| snapshot.host_snapshot.rack_id.clone())
+}
+
+fn domain_uuid_from_nmx_c_hello(
+    hello: &libnmxc::nmxc_model::ServerHello,
+) -> NvLinkManagerResult<NvLinkDomainId> {
+    hello
+        .server_header
+        .as_ref()
+        .and_then(|header| uuid::Uuid::parse_str(&header.domain_uuid).ok())
+        .map(NvLinkDomainId::from)
+        .ok_or_else(|| {
+            NvLinkManagerError::internal(format!(
+                "Failed to parse domain UUID from NMX-C hello response: {hello:?}"
+            ))
+        })
+}
+
+fn parse_nvlink_gpu_fabric_guid(fabric_guid: &str) -> u64 {
+    let s = fabric_guid.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).unwrap_or(0)
+    } else {
+        s.parse::<u64>().unwrap_or(0)
+    }
+}
+
+fn nvlink_gpus_from_hardware_info(hardware_info: &HardwareInfo) -> Vec<NvLinkGpu> {
+    hardware_info
+        .gpus
+        .iter()
+        .filter_map(|gpu| gpu.platform_info.as_ref())
+        .map(|platform_info| NvLinkGpu {
+            tray_index: platform_info.tray_index as i32,
+            slot_id: platform_info.slot_number as i32,
+            device_id: platform_info.module_id as i32,
+            guid: parse_nvlink_gpu_fabric_guid(&platform_info.fabric_guid),
+        })
+        .collect()
+}
+
+fn build_machine_nvlink_info_from_nmx_c_hello(
+    existing: Option<&MachineNvLinkInfo>,
+    snapshot: Option<&ManagedHostStateSnapshot>,
+    chassis_serial: &str,
+    domain_uuid: NvLinkDomainId,
+) -> MachineNvLinkInfo {
+    if let Some(existing) = existing {
+        let mut info = existing.clone();
+        if info.domain_uuid == NvLinkDomainId::nil() {
+            info.domain_uuid = domain_uuid;
+        }
+        if info.chassis_serial.trim().is_empty() {
+            info.chassis_serial = chassis_serial.to_string();
+        }
+        return info;
+    }
+
+    if let Some(snapshot_info) =
+        snapshot.and_then(|snapshot| snapshot.host_snapshot.nvlink_info.as_ref())
+    {
+        return MachineNvLinkInfo {
+            domain_uuid,
+            chassis_serial: if snapshot_info.chassis_serial.trim().is_empty() {
+                chassis_serial.to_string()
+            } else {
+                snapshot_info.chassis_serial.clone()
+            },
+            gpus: snapshot_info.gpus.clone(),
+        };
+    }
+
+    let gpus = snapshot
+        .and_then(|snapshot| snapshot.host_snapshot.hardware_info.as_ref())
+        .map(nvlink_gpus_from_hardware_info)
+        .unwrap_or_default();
+
+    MachineNvLinkInfo {
+        domain_uuid,
+        chassis_serial: chassis_serial.to_string(),
+        gpus,
+    }
+}
+
+/// Populates missing `machines.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
+fn populate_machine_nvlink_info_if_needed(
+    machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
+    managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+    chassis_serial: &str,
+    machine_ids: &[MachineId],
+    domain_uuid: NvLinkDomainId,
+) -> Vec<(MachineId, MachineNvLinkInfo)> {
+    let mut updates = Vec::new();
+    for machine_id in machine_ids {
+        let existing = machine_nvlink_info
+            .get(machine_id)
+            .and_then(|info| info.as_ref());
+        if existing.is_some_and(|info| info.domain_uuid != NvLinkDomainId::nil()) {
+            continue;
+        }
+
+        let snapshot = managed_host_snapshots.get(machine_id);
+        let updated = build_machine_nvlink_info_from_nmx_c_hello(
+            existing,
+            snapshot,
+            chassis_serial,
+            domain_uuid,
+        );
+        machine_nvlink_info.insert(*machine_id, Some(updated.clone()));
+        updates.push((*machine_id, updated));
+    }
+    updates
+}
 
 fn nmx_c_partition_create_attr_with_multicast_groups_limit(
     multicast_groups_limit: u32,
@@ -754,6 +879,24 @@ pub struct NvlPartitionMonitor {
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
+struct CheckPartitionsInput {
+    db_nvl_logical_partitions: Vec<LogicalPartition>,
+    db_nvl_partitions: Vec<NvlPartition>,
+    machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
+    managed_host_snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
+    nvlink_info_db_updates: Vec<(MachineId, MachineNvLinkInfo)>,
+}
+
+/// Work queued when NMX-C cannot be used for a chassis and observations must be cleared.
+struct PendingNullNvlinkObservation {
+    /// Chassis serial for the machines whose observations will be cleared.
+    chassis_serial: String,
+    /// Failure reason recorded in partition-monitor metrics.
+    reason: ChassisNmxCUnreachableReason,
+    /// Host machines on the chassis that will receive a null `nvlink_status_observation`.
+    machine_ids: Vec<MachineId>,
+}
+
 impl NvlPartitionMonitor {
     const ITERATION_WORK_KEY: &'static str = "NvlPartitionMonitor::run_single_iteration";
 
@@ -874,7 +1017,7 @@ impl NvlPartitionMonitor {
 
         let mut txn = self.db_pool.txn_begin().await?;
         let managed_host_snapshots = self.load_mnnvl_managed_host_snapshots(txn.as_mut()).await?;
-        let machine_nvlink_info = machine::find_nvlink_info_by_machine_ids(
+        let mut machine_nvlink_info = machine::find_nvlink_info_by_machine_ids(
             &mut txn,
             &managed_host_snapshots.keys().copied().collect::<Vec<_>>(),
         )
@@ -903,12 +1046,21 @@ impl NvlPartitionMonitor {
             db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
                 .await?;
 
-        let chassis_serial_to_endpoint: HashMap<String, String> =
-            db::nvlink_nmxc_endpoints::find_all(&mut txn)
-                .await?
-                .into_iter()
-                .map(|r| (r.chassis_serial, r.endpoint))
-                .collect();
+        let mut chassis_serial_to_resolved_endpoint = HashMap::new();
+        for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
+            let rack_id = rack_id_from_chassis_snapshots(chassis_snapshots);
+            if let Some(endpoint_url) = nmx_c_endpoint::resolve_nmx_c_endpoint_url(
+                &mut txn,
+                rack_id.as_ref(),
+                chassis_serial,
+                &self.config,
+            )
+            .await
+            .map_err(NvLinkManagerError::from)?
+            {
+                chassis_serial_to_resolved_endpoint.insert(chassis_serial.clone(), endpoint_url);
+            }
+        }
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -917,12 +1069,19 @@ impl NvlPartitionMonitor {
         metrics.num_physical_partitions = db_nvl_partitions.len();
 
         let mut total_completed_operations = 0;
+        let mut pending_null_nvlink_observations = Vec::new();
 
         for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
-            let Some(endpoint_url) = chassis_serial_to_endpoint.get(chassis_serial) else {
-                tracing::debug!(
+            let Some(endpoint_url) = chassis_serial_to_resolved_endpoint.get(chassis_serial) else {
+                tracing::warn!(
                     %chassis_serial,
-                    "No nvlink_nmxc_endpoints mapping for chassis; skipping partition monitor work"
+                    "No NMX-C endpoint for chassis (switch NVOS IP or nvlink_nmxc_endpoints mapping); skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    &mut pending_null_nvlink_observations,
+                    chassis_serial,
+                    chassis_snapshots,
+                    ChassisNmxCUnreachableReason::NoEndpoint,
                 );
                 continue;
             };
@@ -935,6 +1094,12 @@ impl NvlPartitionMonitor {
                         endpoint = %endpoint_url,
                         error = %e,
                         "Invalid NMX-C endpoint URI; skipping partition monitor work for this chassis"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::InvalidEndpointUri,
                     );
                     continue;
                 }
@@ -949,36 +1114,89 @@ impl NvlPartitionMonitor {
                         error = %e,
                         "Failed to create NMX-C client; skipping partition monitor work for this chassis"
                     );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::ClientCreateFailed,
+                    );
                     continue;
                 }
             };
-            if let Err(e) = nmxc_client.hello(NMX_C_GATEWAY_ID).await {
-                tracing::warn!(
-                    %chassis_serial,
-                    endpoint = %endpoint_url,
-                    error = %e,
-                    "NMX-C hello failed; skipping partition monitor work for this chassis"
-                );
-                continue;
-            }
+            let hello = match nmxc_client.hello(NMX_C_GATEWAY_ID).await {
+                Ok(hello) => hello,
+                Err(e) => {
+                    tracing::warn!(
+                        %chassis_serial,
+                        endpoint = %endpoint_url,
+                        error = %e,
+                        "NMX-C hello failed; skipping partition monitor work for this chassis"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::HelloFailed,
+                    );
+                    continue;
+                }
+            };
+            let domain_uuid = match domain_uuid_from_nmx_c_hello(&hello) {
+                Ok(domain_uuid) => domain_uuid,
+                Err(e) => {
+                    tracing::warn!(
+                        %chassis_serial,
+                        endpoint = %endpoint_url,
+                        error = %e,
+                        "Failed to parse domain UUID from NMX-C hello; skipping partition monitor work for this chassis"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::DomainUuidParseFailed,
+                    );
+                    continue;
+                }
+            };
 
             // Filter managed host snapshots, nvlink info, and DB partitions for this chassis.
-            let managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
+            let mut managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
                 chassis_snapshots
                     .iter()
                     .map(|s| (s.host_snapshot.id, (*s).clone()))
                     .collect();
             let machine_ids_in_domain: Vec<MachineId> =
                 managed_host_snapshots_domain.keys().copied().collect();
+            let nvlink_info_db_updates = populate_machine_nvlink_info_if_needed(
+                &mut machine_nvlink_info,
+                &managed_host_snapshots,
+                chassis_serial,
+                &machine_ids_in_domain,
+                domain_uuid,
+            );
+            if !nvlink_info_db_updates.is_empty() {
+                tracing::info!(
+                    %chassis_serial,
+                    %domain_uuid,
+                    machine_ids = ?nvlink_info_db_updates.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                    "Populated machine nvlink_info from NMX-C hello"
+                );
+                for (machine_id, nvlink_info) in &nvlink_info_db_updates {
+                    if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
+                        snapshot.host_snapshot.nvlink_info = Some(nvlink_info.clone());
+                    }
+                }
+            }
             let machine_nvlink_info_domain: HashMap<MachineId, Option<MachineNvLinkInfo>> =
                 machine_nvlink_info
                     .iter()
                     .filter(|(id, _)| machine_ids_in_domain.contains(id))
                     .map(|(k, v)| (*k, v.clone()))
                     .collect();
-            let domain_uuids: HashSet<NvLinkDomainId> = chassis_snapshots
-                .iter()
-                .filter_map(|s| s.host_snapshot.nvlink_info.as_ref().map(|n| n.domain_uuid))
+            let domain_uuids: HashSet<NvLinkDomainId> = machine_nvlink_info_domain
+                .values()
+                .filter_map(|info| info.as_ref().map(|info| info.domain_uuid))
                 .collect();
             let db_nvl_partitions_domain: Vec<NvlPartition> = db_nvl_partitions
                 .iter()
@@ -986,18 +1204,41 @@ impl NvlPartitionMonitor {
                 .cloned()
                 .collect();
 
-            let num_completed = self
+            let num_completed = match self
                 .check_partitions_and_apply_nmx_c_operations(
                     nmxc_client.as_mut(),
                     metrics,
-                    db_nvl_logical_partitions.clone(),
-                    db_nvl_partitions_domain,
-                    machine_nvlink_info_domain,
-                    managed_host_snapshots_domain,
+                    CheckPartitionsInput {
+                        db_nvl_logical_partitions: db_nvl_logical_partitions.clone(),
+                        db_nvl_partitions: db_nvl_partitions_domain,
+                        machine_nvlink_info: machine_nvlink_info_domain,
+                        managed_host_snapshots: managed_host_snapshots_domain,
+                        nvlink_info_db_updates,
+                    },
                 )
-                .await?;
+                .await
+            {
+                Ok(num_completed) => num_completed,
+                Err(e) => {
+                    tracing::warn!(
+                        %chassis_serial,
+                        error = %e,
+                        "Partition monitor work failed for chassis; queuing null nvlink status observations"
+                    );
+                    Self::queue_null_nvlink_status_observation(
+                        &mut pending_null_nvlink_observations,
+                        chassis_serial,
+                        chassis_snapshots,
+                        ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
+                    );
+                    0
+                }
+            };
             total_completed_operations += num_completed;
         }
+
+        self.record_null_nvlink_status_observations(&pending_null_nvlink_observations, metrics)
+            .await?;
 
         metrics.num_completed_operations = total_completed_operations;
 
@@ -1010,11 +1251,15 @@ impl NvlPartitionMonitor {
         &self,
         nmxc_client: &mut dyn Nmxc,
         metrics: &mut NvlPartitionMonitorMetrics,
-        db_nvl_logical_partitions: Vec<LogicalPartition>,
-        db_nvl_partitions: Vec<NvlPartition>,
-        machine_nvlink_info: HashMap<MachineId, Option<MachineNvLinkInfo>>,
-        managed_host_snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
+        input: CheckPartitionsInput,
     ) -> NvLinkManagerResult<usize> {
+        let CheckPartitionsInput {
+            db_nvl_logical_partitions,
+            db_nvl_partitions,
+            machine_nvlink_info,
+            managed_host_snapshots,
+            nvlink_info_db_updates,
+        } = input;
         let partition_info_list = nmxc_client
             .get_partition_info_list(GetPartitionInfoListRequest {
                 context: Some(libnmxc::nmxc_model::Context {
@@ -1100,6 +1345,9 @@ impl NvlPartitionMonitor {
 
         // Update db with the operations that completed successfully.
         let mut txn = self.db_pool.txn_begin().await?;
+        for (machine_id, nvlink_info) in nvlink_info_db_updates {
+            machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+        }
         self.update_db_with_nmx_c_operations(
             &mut txn,
             completed_nmx_c_operations,
@@ -1589,6 +1837,76 @@ impl NvlPartitionMonitor {
                     )?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Queues machines on `chassis_serial` for a batched null `nvlink_status_observation` write.
+    ///
+    /// Entries are flushed in one transaction by [`Self::record_null_nvlink_status_observations`].
+    fn queue_null_nvlink_status_observation(
+        pending: &mut Vec<PendingNullNvlinkObservation>,
+        chassis_serial: &str,
+        chassis_snapshots: &[&ManagedHostStateSnapshot],
+        reason: ChassisNmxCUnreachableReason,
+    ) {
+        let machine_ids: Vec<MachineId> = chassis_snapshots
+            .iter()
+            .map(|snapshot| snapshot.host_snapshot.id)
+            .collect();
+        if machine_ids.is_empty() {
+            return;
+        }
+        pending.push(PendingNullNvlinkObservation {
+            chassis_serial: chassis_serial.to_string(),
+            reason,
+            machine_ids,
+        });
+    }
+
+    /// Clears `nvlink_status_observation` for all queued chassis in one transaction and updates metrics.
+    async fn record_null_nvlink_status_observations(
+        &self,
+        pending: &[PendingNullNvlinkObservation],
+        metrics: &mut NvlPartitionMonitorMetrics,
+    ) -> NvLinkManagerResult<()> {
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        for entry in pending {
+            *metrics
+                .num_nmx_c_unreachable_chassis
+                .entry(entry.reason)
+                .or_insert(0) += 1;
+        }
+
+        let machine_ids: Vec<MachineId> = pending
+            .iter()
+            .flat_map(|entry| entry.machine_ids.iter().copied())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let mut obs_txn = self.db_pool.begin().await.map_err(|e| {
+            NvLinkManagerError::internal(format!(
+                "Failed to create transaction for clearing nvlink status observations: {e}"
+            ))
+        })?;
+        machine::clear_nvlink_status_observations(&mut obs_txn, &machine_ids).await?;
+        obs_txn.commit().await.map_err(|e| {
+            NvLinkManagerError::internal(format!(
+                "Failed to commit transaction for clearing nvlink status observations: {e}"
+            ))
+        })?;
+
+        for entry in pending {
+            tracing::info!(
+                chassis_serial = %entry.chassis_serial,
+                reason = ?entry.reason,
+                machine_ids = ?entry.machine_ids,
+                "Posted null nvlink status observations because NMX-C is unreachable for chassis"
+            );
         }
         Ok(())
     }

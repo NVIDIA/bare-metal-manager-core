@@ -25,13 +25,13 @@ use clap::Parser;
 EXAMPLES:
 
 Set a host into reprovisioning mode:
-    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
 
 Clear reprovisioning mode for a host:
-    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
 
 List all hosts pending reprovisioning:
-    $ carbide-admin-cli host reprovision list
+    $ nico-admin-cli host reprovision list
 
 ")]
 pub enum Args {
@@ -51,14 +51,14 @@ pub enum Args {
 EXAMPLES:
 
 Set a host into reprovisioning mode:
-    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
 
 Set into reprovisioning mode and update firmware:
-    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-firmware
 
 Set into reprovisioning mode and raise a health alert with a message:
-    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-message \"Quarterly firmware refresh\"
 
 ")]
@@ -92,10 +92,10 @@ impl From<&ReprovisionSet> for HostReprovisioningRequest {
 EXAMPLES:
 
 Clear reprovisioning mode for a host:
-    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
 
 Clear reprovisioning mode and update firmware:
-    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-firmware
 
 ")]
@@ -126,7 +126,7 @@ impl From<ReprovisionClear> for HostReprovisioningRequest {
 EXAMPLES:
 
 Mark manual firmware upgrade complete for a host:
-    $ carbide-admin-cli host reprovision mark-manual-upgrade-complete \
+    $ nico-admin-cli host reprovision mark-manual-upgrade-complete \
     --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]

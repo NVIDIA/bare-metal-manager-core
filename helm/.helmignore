@@ -4,3 +4,6 @@
 .helmignore
 *.md
 examples/
+# Standalone REST charts live under helm/rest/ but are published separately
+# (see rest-helm-workflows.yml), not bundled into the nico umbrella chart.
+rest/

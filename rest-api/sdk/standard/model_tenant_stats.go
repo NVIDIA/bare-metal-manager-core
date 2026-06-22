@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,9 +22,14 @@ var _ MappedNullable = &TenantStats{}
 
 // TenantStats Provide operational stats for Tenant
 type TenantStats struct {
+	// Instance status counts for the Tenant
 	Instance *InstanceCountByStatus `json:"instance,omitempty"`
-	Vpc      *VpcCountByStatus      `json:"vpc,omitempty"`
-	Subnet   *SubnetCountByStatus   `json:"subnet,omitempty"`
+	// VPC status counts for the Tenant
+	Vpc *VpcCountByStatus `json:"vpc,omitempty"`
+	// Subnet status counts for the Tenant
+	Subnet *SubnetCountByStatus `json:"subnet,omitempty"`
+	// Tenant Account status counts for the Tenant
+	TenantAccount *TenantAccountCountByStatus `json:"tenantAccount,omitempty"`
 }
 
 // NewTenantStats instantiates a new TenantStats object
@@ -140,6 +145,38 @@ func (o *TenantStats) SetSubnet(v SubnetCountByStatus) {
 	o.Subnet = &v
 }
 
+// GetTenantAccount returns the TenantAccount field value if set, zero value otherwise.
+func (o *TenantStats) GetTenantAccount() TenantAccountCountByStatus {
+	if o == nil || IsNil(o.TenantAccount) {
+		var ret TenantAccountCountByStatus
+		return ret
+	}
+	return *o.TenantAccount
+}
+
+// GetTenantAccountOk returns a tuple with the TenantAccount field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *TenantStats) GetTenantAccountOk() (*TenantAccountCountByStatus, bool) {
+	if o == nil || IsNil(o.TenantAccount) {
+		return nil, false
+	}
+	return o.TenantAccount, true
+}
+
+// HasTenantAccount returns a boolean if a field has been set.
+func (o *TenantStats) HasTenantAccount() bool {
+	if o != nil && !IsNil(o.TenantAccount) {
+		return true
+	}
+
+	return false
+}
+
+// SetTenantAccount gets a reference to the given TenantAccountCountByStatus and assigns it to the TenantAccount field.
+func (o *TenantStats) SetTenantAccount(v TenantAccountCountByStatus) {
+	o.TenantAccount = &v
+}
+
 func (o TenantStats) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -158,6 +195,9 @@ func (o TenantStats) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Subnet) {
 		toSerialize["subnet"] = o.Subnet
+	}
+	if !IsNil(o.TenantAccount) {
+		toSerialize["tenantAccount"] = o.TenantAccount
 	}
 	return toSerialize, nil
 }

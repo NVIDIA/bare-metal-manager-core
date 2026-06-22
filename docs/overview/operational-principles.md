@@ -2,6 +2,12 @@
 
 NICo is designed around five foundational principles that shape its architecture and operational model.
 
+Taken together, these principles form NICo's zero-trust security model for bare-metal infrastructure. The DPU is the trust anchor: it enforces network isolation, manages all host-facing security boundaries independently of the host OS, and holds the cryptographic keys used to lock SuperNIC firmware against tenant tampering. For the technical implementation of each layer:
+
+- [DPU Lifecycle Management](../dpu-management/dpu-lifecycle-management.md) — how NICo installs, configures, and manages the DPU without trusting the host OS
+- [DPU Configuration](../dpu-management/dpu_configuration.md) — host isolation mechanics and VPC enforcement at the DPU layer
+- [SuperNIC Lockdown Key Management](../architecture/supernic_lockdown_key_management.md) — cryptographic firmware lockdown preventing tenants from modifying SuperNIC firmware or configuration
+
 ## The machine is untrustworthy
 
 NICo never relies on software running inside the host OS to make security or isolation decisions. The BlueField DPU is the enforcement boundary. It operates independently of the host and cannot be influenced or compromised by anything running above it. A host that has been tampered with cannot subvert the isolation NICo enforces.

@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all domains:
-    $ carbide-admin-cli domain show
+    $ nico-admin-cli domain show
 
 Show one domain by ID:
-    $ carbide-admin-cli domain show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli domain show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

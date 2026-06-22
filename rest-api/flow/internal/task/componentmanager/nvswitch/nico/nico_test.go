@@ -14,10 +14,11 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
-	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 func TestInjectExpectation(t *testing.T) {
@@ -61,7 +62,7 @@ func TestInjectExpectation(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			m := New(tc.client)
+			m := New(tc.client, nil)
 
 			target := common.Target{
 				Type:         devicetypes.ComponentTypeNVSwitch,
@@ -82,7 +83,7 @@ func TestInjectExpectation(t *testing.T) {
 }
 
 func TestPowerControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
@@ -96,7 +97,7 @@ func TestPowerControl(t *testing.T) {
 }
 
 func TestFirmwareControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
@@ -110,7 +111,7 @@ func TestFirmwareControl(t *testing.T) {
 }
 
 func TestGetFirmwareStatus(t *testing.T) {
-	m := New(nicoapi.NewMockClient())
+	m := New(nicoapi.NewMockClient(), nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
@@ -204,24 +205,39 @@ func TestAggregateNICoStatuses(t *testing.T) {
 	}
 }
 
-// newManagerForSafetyTest swaps the long default 30-minute assignment
-// timeout for a tight one so the wait loop actually times out within the
-// test budget. Tests in this file use the same package, so they can reach
-// the unexported assignment field directly.
-func newManagerForSafetyTest(t *testing.T, client nicoapi.Client) *Manager {
+// newManagerForReadinessTest builds a Manager with a tight-timeout
+// readiness gate backed by the supplied MemReader so the wait loop
+// actually times out within the test budget. The caller seeds the
+// reader with the rack→hosts mapping and any ComponentOperationStatus rows the
+// test scenario requires.
+func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *readiness.MemReader) *Manager {
 	t.Helper()
-	m := New(client)
-	m.assignment = nicoprovider.NewAssignmentChecker(client, 50*time.Millisecond, 10*time.Millisecond)
-	return m
+	gate := readiness.NewDBGate(reader, 50*time.Millisecond, 10*time.Millisecond)
+	return New(client, gate)
 }
 
-func TestPowerControl_RefusesWhenRackHostAssigned(t *testing.T) {
+// inUseStatus returns a status that blocks every disruptive operation,
+// mirroring what inventorysync would persist for a tenant-attached host.
+func inUseStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{
+		Phase:  types.PhaseInUse,
+		Reason: "tenant attached",
+		BlockedOperations: []types.OperationType{
+			types.OperationTypePowerControl,
+			types.OperationTypeFirmwareControl,
+		},
+	}
+}
+
+func TestPowerControl_RefusesWhenRackHostInUse(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.SetSwitchRackID("sw-1", "rack-A")
-	client.SetRackHostMachineIDs("rack-A", []string{"host-1"})
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "host-1", State: "Assigned/Provisioning"})
 
-	m := newManagerForSafetyTest(t, client)
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
 		ComponentIDs: []string{"sw-1"},
@@ -232,17 +248,19 @@ func TestPowerControl_RefusesWhenRackHostAssigned(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Contains(t, err.Error(), "host-1")
 }
 
 func TestPowerControl_AllowsWhenRackHostsReady(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.SetSwitchRackID("sw-1", "rack-A")
-	client.SetRackHostMachineIDs("rack-A", []string{"host-1"})
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "host-1", State: "Ready"})
 
-	m := newManagerForSafetyTest(t, client)
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", &types.ComponentOperationStatus{Phase: types.PhaseReady})
+
+	m := newManagerForReadinessTest(t, client, reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
 		ComponentIDs: []string{"sw-1"},
@@ -254,13 +272,15 @@ func TestPowerControl_AllowsWhenRackHostsReady(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFirmwareControl_RefusesWhenRackHostAssigned(t *testing.T) {
+func TestFirmwareControl_RefusesWhenRackHostInUse(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.SetSwitchRackID("sw-1", "rack-A")
-	client.SetRackHostMachineIDs("rack-A", []string{"host-1"})
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "host-1", State: "Assigned/Provisioning"})
 
-	m := newManagerForSafetyTest(t, client)
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
 		ComponentIDs: []string{"sw-1"},
@@ -272,31 +292,31 @@ func TestFirmwareControl_RefusesWhenRackHostAssigned(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "timed out")
 }
 
-// TestPowerControl_OverrideBypassesRackAssignmentCheck verifies that
-// OverrideAssignmentCheck short-circuits the rack-scoped gate on
-// NVSwitch PowerControl. The host on the resolved rack is in
-// Assigned/* — which would otherwise block the call — yet the
-// operation is expected to proceed past the gate. The switch is left
-// without an explicit rack mapping to confirm the override path skips
-// the rack lookup entirely.
-func TestPowerControl_OverrideBypassesRackAssignmentCheck(t *testing.T) {
+// TestPowerControl_OverrideBypassesReadinessCheck verifies that
+// OverrideReadinessCheck short-circuits the rack-scoped gate on
+// NVSwitch PowerControl. A host on the resolved rack is reported as
+// in-use — which would otherwise block the call — yet the operation
+// is expected to proceed past the gate.
+func TestPowerControl_OverrideBypassesReadinessCheck(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.SetSwitchRackID("sw-1", "rack-A")
-	client.SetRackHostMachineIDs("rack-A", []string{"host-1"})
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "host-1", State: "Assigned/Provisioning"})
 
-	m := newManagerForSafetyTest(t, client)
+	reader := readiness.NewMemReader()
+	reader.SetRackHosts("rack-A", []string{"host-1"})
+	reader.SetStatus("host-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, client, reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
 		ComponentIDs: []string{"sw-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
-		Operation:               operations.PowerOperationPowerOn,
-		OverrideAssignmentCheck: true,
+		Operation:              operations.PowerOperationPowerOn,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }

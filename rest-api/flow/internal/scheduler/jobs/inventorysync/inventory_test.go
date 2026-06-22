@@ -61,7 +61,12 @@ func TestInventory(t *testing.T) {
 	err = c.Create(ctx, pool.DB)
 	assert.Nil(t, err)
 
-	runInventoryOne(ctx, pool, grpcMock)
+	// expectedSyncEnabled=false: this test exercises actual-sync only. The
+	// mock carries no expected machines, so running the mirror would treat
+	// that as Core authoritatively reporting zero compute components and
+	// soft-delete serial2/serial4 before actual-sync runs. The mirror has
+	// its own coverage in expected_mirror_db_test.go.
+	runInventoryOne(ctx, pool, grpcMock, false)
 
 	rows, err := pool.DB.Query("SELECT serial_number, power_state FROM component;")
 	assert.NotNil(t, rows)
@@ -127,7 +132,10 @@ func TestSyncFirmwareVersion(t *testing.T) {
 	err = c2.Create(ctx, pool.DB)
 	assert.Nil(t, err)
 
-	runInventoryOne(ctx, pool, grpcMock)
+	// expectedSyncEnabled=false: actual-sync only. See TestInventory for why
+	// the mirror must stay off here (empty expected-mock would soft-delete
+	// the components this test relies on).
+	runInventoryOne(ctx, pool, grpcMock, false)
 
 	var updated1 model.Component
 	err = pool.DB.NewSelect().Model(&updated1).Where("id = ?", c1.ID).Scan(ctx)

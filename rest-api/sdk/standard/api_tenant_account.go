@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -46,9 +46,9 @@ CreateTenantAccount Create Tenant Account
 
 Create a Tenant Account.
 
-Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have authorization role with `PROVIDER_ADMIN` suffix
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. The Infrastructure Provider is inferred from the caller's org; the deprecated `infrastructureProviderId` request body field is optional and, when provided, must match the org's Infrastructure Provider.
 
-Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This will set the status of the Tenant Account to "Invited". Then the Tenant can view this account information and are able to confirm/accept the account by updating the Tenant Account.
+Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -178,7 +178,7 @@ DeleteTenantAccount Delete Tenant Account
 
 Delete a Tenant Account by ID.
 
-Org must have an Infrastructure Provider entity, specified Tenant Account must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity, and the specified Tenant Account must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
 Tenant cannot delete a Tenant Account.
 
@@ -285,13 +285,14 @@ type ApiGetAllTenantAccountRequest struct {
 	orderBy                  *string
 }
 
-// Filter TenantAccounts by Infrastructure Provider ID
+// Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllTenantAccountRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetAllTenantAccountRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter TenantAccounts by Tenant ID
+// Filter Tenant Accounts by Tenant ID
 func (r ApiGetAllTenantAccountRequest) TenantId(tenantId string) ApiGetAllTenantAccountRequest {
 	r.tenantId = &tenantId
 	return r
@@ -334,13 +335,9 @@ func (r ApiGetAllTenantAccountRequest) Execute() ([]TenantAccount, *http.Respons
 /*
 GetAllTenantAccount Retrieve all Tenant Accounts
 
-Retrieve all Tenant Accounts.
+Retrieve all Tenant Accounts for the org.
 
-Either `infrastructureProviderId` or `tenantId` query param must be specified.
-
-If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -476,13 +473,15 @@ type ApiGetTenantAccountRequest struct {
 	includeRelation          *string
 }
 
-// Filter Tenant Accounts by Infrastructure Provider ID
+// Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetTenantAccountRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetTenantAccountRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter Tenant Accounts by Tenant ID
+// Filter Tenant Accounts by Tenant ID. Deprecated: Tenant is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetTenantAccountRequest) TenantId(tenantId string) ApiGetTenantAccountRequest {
 	r.tenantId = &tenantId
 	return r
@@ -501,13 +500,9 @@ func (r ApiGetTenantAccountRequest) Execute() (*TenantAccount, *http.Response, e
 /*
 GetTenantAccount Retrieve Tenant Account
 
-# Retrieve a Tenant Account by ID
+Retrieve a Tenant Account by ID.
 
-Either `infrastructureProviderId` or `tenantId` query param must be specified.
-
-If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -628,7 +623,7 @@ type ApiUpdateTenantAccountRequest struct {
 	body       *map[string]interface{}
 }
 
-// No params needed, an empty request body will suffice.
+// No parameters are required; an empty request body is sufficient.
 func (r ApiUpdateTenantAccountRequest) Body(body map[string]interface{}) ApiUpdateTenantAccountRequest {
 	r.body = &body
 	return r
@@ -643,9 +638,9 @@ UpdateTenantAccount Update Tenant Account
 
 Update a Tenant Account.
 
-Can be used to accept an invitation sent by Infrastructure Provider.
+Can be used to accept an invitation sent by an Infrastructure Provider.
 
-Org must have a tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a TenantAccount that has `Invited` status.
+Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

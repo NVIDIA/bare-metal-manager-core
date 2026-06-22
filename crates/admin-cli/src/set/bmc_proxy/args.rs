@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Enable the BMC proxy and point it at a host:port:
-    $ carbide-admin-cli set bmc-proxy --enabled true --proxy 192.0.2.10:8080
+    $ nico-admin-cli set bmc-proxy --enabled true --proxy 192.0.2.10:8080
 
 Disable the BMC proxy:
-    $ carbide-admin-cli set bmc-proxy --enabled false
+    $ nico-admin-cli set bmc-proxy --enabled false
 
 ")]
 pub struct Args {

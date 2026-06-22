@@ -21,6 +21,9 @@ use std::net::IpAddr;
 use ::rpc::common::SystemPowerControl;
 use ::rpc::forge::{self as rpc};
 use carbide_rack::firmware_object::rms_access_token_or_noauth;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -32,15 +35,13 @@ use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use component_manager::types::FirmwareUpdateOptions;
 use db::{self, WithTransaction};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::component_manager::{
     ComputeTrayComponent as ModelComputeTrayComponent, NvSwitchComponent, PowerAction,
     PowerShelfComponent,
 };
+use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
@@ -579,6 +580,95 @@ async fn group_machine_ids_by_rack(
     }
 
     Ok(targets)
+}
+
+/// Returns whether the machine is a rack-scale server (today just GB200, but will later include other SKUs)
+fn is_rack_scale_server(machine: &Machine) -> bool {
+    machine
+        .hardware_info
+        .as_ref()
+        .is_some_and(|hw| hw.is_gbx00())
+}
+
+/// Splits the requested compute machines into two lists: rack-scale and standalone servers.
+/// Rack-scale systems go through the rack-level state controller maintenance flow
+//  Standalone servers use the existing host reprovisioning firmware path.
+async fn partition_compute_machines_by_rack_scale(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Result<(Vec<MachineId>, Vec<MachineId>), Status> {
+    let machines = db::machine::find(
+        api.db_reader().as_mut(),
+        db::ObjectFilter::List(machine_ids),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
+    let machines_by_id: HashMap<_, _> = machines
+        .into_iter()
+        .map(|machine| (machine.id, machine))
+        .collect();
+
+    let mut rack_scale = Vec::new();
+    let mut standalone = Vec::new();
+    for machine_id in machine_ids {
+        let machine = machines_by_id
+            .get(machine_id)
+            .ok_or_else(|| Status::not_found(format!("machine {machine_id} not found")))?;
+        if is_rack_scale_server(machine) {
+            rack_scale.push(*machine_id);
+        } else {
+            standalone.push(*machine_id);
+        }
+    }
+
+    Ok((rack_scale, standalone))
+}
+
+/// Initiate a firmware upgrade for standalone (non rack-scale) servers
+async fn schedule_host_reprovisioning_firmware_update(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Vec<rpc::ComponentResult> {
+    let mut results = Vec::with_capacity(machine_ids.len());
+    for machine_id in machine_ids {
+        match schedule_one_host_reprovisioning_firmware_update(api, machine_id).await {
+            Ok(()) => results.push(success_result(&machine_id.to_string())),
+            Err(error) => results.push(error_result(&machine_id.to_string(), error)),
+        }
+    }
+    results
+}
+
+async fn schedule_one_host_reprovisioning_firmware_update(
+    api: &Api,
+    machine_id: &MachineId,
+) -> Result<(), String> {
+    let mut txn = api
+        .txn_begin()
+        .await
+        .map_err(|e| format!("failed to begin transaction: {e}"))?;
+
+    db::machine::set_firmware_autoupdate(&mut txn, machine_id, Some(true))
+        .await
+        .map_err(|e| format!("failed to enable firmware auto-update: {e}"))?;
+
+    let start = chrono::Utc::now();
+    let end = start + chrono::Duration::hours(24);
+    db::machine::update_firmware_update_time_window_start_end(
+        std::slice::from_ref(machine_id),
+        start,
+        end,
+        &mut txn,
+    )
+    .await
+    .map_err(|e| format!("failed to set firmware update time window: {e}"))?;
+
+    txn.commit()
+        .await
+        .map_err(|e| format!("failed to commit transaction: {e}"))?;
+
+    Ok(())
 }
 
 async fn group_switch_ids_by_rack(
@@ -1648,54 +1738,77 @@ pub(crate) async fn update_component_firmware(
             }
 
             let cm = require_component_manager(api)?;
-            if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                let token = require_firmware_object_json_for_rack_maintenance(
-                    "compute tray",
-                    &access_token,
-                    &req.target_version,
-                )?;
-                let component_names = map_compute_tray_component_names(&t.components)?;
-                maintenance_activities = vec![firmware_upgrade_activity(
-                    req.target_version.clone(),
-                    component_names,
-                    Some(token),
-                    force_update,
-                )];
-                rack_maintenance_targets =
-                    group_machine_ids_by_rack(api, &list.machine_ids).await?;
-            } else {
-                reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
-                let components = map_compute_tray_components(&t.components)?;
-                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
 
-                let mut results: Vec<_> = resolved
-                    .unresolved
-                    .iter()
-                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                    .collect();
+            // Standalone (non-rack-scale) servers have no compute-tray backend
+            // that can take a direct firmware dispatch, so they always go
+            // through the host reprovisioning firmware flow. Only rack-scale
+            // systems (currently GB200 NVL, backed by RMS via the
+            // ComputeTrayManager interface) can choose between the rack-level
+            // state controller maintenance flow and a direct backend dispatch.
+            let (rack_scale_ids, standalone_ids) =
+                partition_compute_machines_by_rack_scale(api, &list.machine_ids).await?;
 
-                let backend_results = cm
-                    .compute_tray
-                    .update_firmware(
-                        &resolved.resolved.endpoints,
-                        &req.target_version,
-                        &components,
-                        &FirmwareUpdateOptions::default(),
-                    )
-                    .await
-                    .map_err(component_manager_error_to_status)?;
-                results.extend(backend_results.into_iter().map(|r| {
-                    if r.success {
-                        success_result(&r.bmc_ip.to_string())
-                    } else {
-                        error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
-                    }
-                }));
+            let mut results = Vec::new();
 
-                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                    results,
-                }));
+            if !standalone_ids.is_empty() {
+                results.extend(
+                    schedule_host_reprovisioning_firmware_update(api, &standalone_ids).await,
+                );
             }
+
+            if !rack_scale_ids.is_empty() {
+                if cm.compute_tray_use_state_controller && !bypass_state_controller {
+                    let token = require_firmware_object_json_for_rack_maintenance(
+                        "compute tray",
+                        &access_token,
+                        &req.target_version,
+                    )?;
+                    let component_names = map_compute_tray_component_names(&t.components)?;
+                    let activities = vec![firmware_upgrade_activity(
+                        req.target_version.clone(),
+                        component_names,
+                        Some(token),
+                        force_update,
+                    )];
+                    let targets = group_machine_ids_by_rack(api, &rack_scale_ids).await?;
+                    results.extend(
+                        submit_rack_firmware_maintenance_requests(api, targets, activities).await?,
+                    );
+                } else {
+                    reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
+                    let components = map_compute_tray_components(&t.components)?;
+                    let resolved = resolve_compute_tray_endpoints(api, &rack_scale_ids).await?;
+
+                    results.extend(
+                        resolved
+                            .unresolved
+                            .iter()
+                            .map(|u| error_result(&u.id.to_string(), u.reason.clone())),
+                    );
+
+                    let backend_results = cm
+                        .compute_tray
+                        .update_firmware(
+                            &resolved.resolved.endpoints,
+                            &req.target_version,
+                            &components,
+                            &FirmwareUpdateOptions::default(),
+                        )
+                        .await
+                        .map_err(component_manager_error_to_status)?;
+                    results.extend(backend_results.into_iter().map(|r| {
+                        if r.success {
+                            success_result(&r.bmc_ip.to_string())
+                        } else {
+                            error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
+                        }
+                    }));
+                }
+            }
+
+            return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                results,
+            }));
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
             let list = t
@@ -2162,39 +2275,83 @@ mod tests {
         }
     }
 
-    #[test]
-    fn error_to_status_unavailable() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::Unavailable("gone".into()));
-        assert_eq!(st.code(), Code::Unavailable);
-        assert!(st.message().contains("gone"));
+    /// Yields a real `tonic::transport::Error` so the `Transport` arm can be
+    /// exercised without a live connection: an invalid endpoint URI fails to parse
+    /// synchronously into exactly that error type.
+    fn transport_error() -> tonic::transport::Error {
+        tonic::transport::Endpoint::new("not a valid uri")
+            .expect_err("an invalid endpoint URI should fail to parse")
+    }
+
+    /// One `component_manager_error_to_status` mapping: the source error, the gRPC
+    /// `Code` it must produce, and (where the message is part of the contract) a
+    /// substring the propagated status message must contain.
+    struct ErrorToStatusCase {
+        scenario: &'static str,
+        error: ComponentManagerError,
+        expected_code: Code,
+        message_contains: Option<&'static str>,
     }
 
     #[test]
-    fn error_to_status_not_found() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::NotFound("missing".into()));
-        assert_eq!(st.code(), Code::NotFound);
-    }
+    fn error_to_status_maps_each_variant() {
+        let cases = [
+            ErrorToStatusCase {
+                scenario: "unavailable propagates its message",
+                error: ComponentManagerError::Unavailable("gone".into()),
+                expected_code: Code::Unavailable,
+                message_contains: Some("gone"),
+            },
+            ErrorToStatusCase {
+                scenario: "not found",
+                error: ComponentManagerError::NotFound("missing".into()),
+                expected_code: Code::NotFound,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "invalid argument",
+                error: ComponentManagerError::InvalidArgument("bad".into()),
+                expected_code: Code::InvalidArgument,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "internal",
+                error: ComponentManagerError::Internal("oops".into()),
+                expected_code: Code::Internal,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "status passthrough preserves the original code",
+                error: ComponentManagerError::Status(Status::permission_denied("nope")),
+                expected_code: Code::PermissionDenied,
+                message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "transport maps to unavailable",
+                error: ComponentManagerError::Transport(transport_error()),
+                expected_code: Code::Unavailable,
+                message_contains: Some("transport error"),
+            },
+            ErrorToStatusCase {
+                scenario: "rms maps to internal",
+                error: ComponentManagerError::Rms("rms boom".into()),
+                expected_code: Code::Internal,
+                message_contains: Some("RMS error"),
+            },
+        ];
 
-    #[test]
-    fn error_to_status_invalid_argument() {
-        let st =
-            component_manager_error_to_status(ComponentManagerError::InvalidArgument("bad".into()));
-        assert_eq!(st.code(), Code::InvalidArgument);
-    }
-
-    #[test]
-    fn error_to_status_internal() {
-        let st = component_manager_error_to_status(ComponentManagerError::Internal("oops".into()));
-        assert_eq!(st.code(), Code::Internal);
-    }
-
-    #[test]
-    fn error_to_status_passthrough() {
-        let original = Status::permission_denied("nope");
-        let st = component_manager_error_to_status(ComponentManagerError::Status(original));
-        assert_eq!(st.code(), Code::PermissionDenied);
+        for case in cases {
+            let status = component_manager_error_to_status(case.error);
+            assert_eq!(status.code(), case.expected_code, "{}", case.scenario);
+            if let Some(substring) = case.message_contains {
+                assert!(
+                    status.message().contains(substring),
+                    "{}: message {:?} should contain {substring:?}",
+                    case.scenario,
+                    status.message(),
+                );
+            }
+        }
     }
 
     #[test]
@@ -2353,39 +2510,20 @@ mod tests {
     }
 
     #[test]
-    fn power_action_on() {
-        let action = map_power_action(SystemPowerControl::On as i32).unwrap();
-        assert!(matches!(action, PowerAction::On));
-    }
-
-    #[test]
-    fn power_action_graceful_shutdown() {
-        let action = map_power_action(SystemPowerControl::GracefulShutdown as i32).unwrap();
-        assert!(matches!(action, PowerAction::GracefulShutdown));
-    }
-
-    #[test]
-    fn power_action_force_off() {
-        let action = map_power_action(SystemPowerControl::ForceOff as i32).unwrap();
-        assert!(matches!(action, PowerAction::ForceOff));
-    }
-
-    #[test]
-    fn power_action_graceful_restart() {
-        let action = map_power_action(SystemPowerControl::GracefulRestart as i32).unwrap();
-        assert!(matches!(action, PowerAction::GracefulRestart));
-    }
-
-    #[test]
-    fn power_action_force_restart() {
-        let action = map_power_action(SystemPowerControl::ForceRestart as i32).unwrap();
-        assert!(matches!(action, PowerAction::ForceRestart));
-    }
-
-    #[test]
-    fn power_action_ac_powercycle() {
-        let action = map_power_action(SystemPowerControl::AcPowercycle as i32).unwrap();
-        assert!(matches!(action, PowerAction::AcPowercycle));
+    fn power_action_maps_each_control() {
+        use carbide_test_support::Outcome::*;
+        // Map the rejection error to its `Code` so rows share one comparable error
+        // type; every row here is a successful control-to-action mapping.
+        carbide_test_support::scenarios!(run = |raw| map_power_action(raw).map_err(|s| s.code());
+            "control maps to action" {
+                SystemPowerControl::On as i32 => Yields(PowerAction::On),
+                SystemPowerControl::GracefulShutdown as i32 => Yields(PowerAction::GracefulShutdown),
+                SystemPowerControl::ForceOff as i32 => Yields(PowerAction::ForceOff),
+                SystemPowerControl::GracefulRestart as i32 => Yields(PowerAction::GracefulRestart),
+                SystemPowerControl::ForceRestart as i32 => Yields(PowerAction::ForceRestart),
+                SystemPowerControl::AcPowercycle as i32 => Yields(PowerAction::AcPowercycle),
+            }
+        );
     }
 
     #[test]

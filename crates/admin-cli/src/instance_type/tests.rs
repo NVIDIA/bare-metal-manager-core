@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -47,174 +49,168 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_create ensures create parses with no required
-// arguments.
+// The `create` subcommand: every field is optional, so a bare `create` leaves
+// id/name/description unset, while supplying them threads each value through.
 #[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from(["instance-type", "create"]).expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert!(args.id.is_none());
-            assert!(args.name.is_none());
-            assert!(args.description.is_none());
+fn parse_create_routes_and_binds_fields() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (args.id, args.name, args.description),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        };
+        "create with no arguments leaves every field unset" {
+            &["instance-type", "create"][..] => Yields((None, None, None)),
         }
-        _ => panic!("expected Create variant"),
-    }
-}
 
-// parse_create_with_options ensures create parses with
-// all options.
-#[test]
-fn parse_create_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "instance-type",
-        "create",
-        "--id",
-        "type-123",
-        "--name",
-        "GPU Instance",
-        "--description",
-        "High-performance GPU instance",
-        "--labels",
-        r#"{"gpu":"true"}"#,
-    ])
-    .expect("should parse create with options");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.id, Some("type-123".to_string()));
-            assert_eq!(args.name, Some("GPU Instance".to_string()));
-            assert_eq!(
-                args.description,
-                Some("High-performance GPU instance".to_string())
-            );
+        "create with all options binds each field" {
+            &[
+                "instance-type",
+                "create",
+                "--id",
+                "type-123",
+                "--name",
+                "GPU Instance",
+                "--description",
+                "High-performance GPU instance",
+                "--labels",
+                r#"{"gpu":"true"}"#,
+            ][..] => Yields((
+                Some("type-123".to_string()),
+                Some("GPU Instance".to_string()),
+                Some("High-performance GPU instance".to_string()),
+            )),
         }
-        _ => panic!("expected Create variant"),
-    }
+    );
 }
 
-// parse_show_no_args ensures show parses with no
-// arguments (all types).
+// The `show` subcommand: `--id` is optional, so a bare `show` lists all types
+// while supplying `--id` narrows to one.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["instance-type", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
+fn parse_show_routes_and_binds_id() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.id,
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "show with no arguments leaves id unset" {
+            &["instance-type", "show"][..] => Yields(None),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_id ensures show parses with --id.
-#[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["instance-type", "show", "--id", "type-123"])
-        .expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.id, Some("type-123".to_string()));
+        "show with --id binds the id" {
+            &["instance-type", "show", "--id", "type-123"][..] => Yields(Some("type-123".to_string())),
         }
-        _ => panic!("expected Show variant"),
-    }
+    );
 }
 
-// parse_delete ensures delete parses with required ID.
+// The `delete` subcommand binds its required `--id`.
 #[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["instance-type", "delete", "--id", "type-123"])
-        .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.id, "type-123");
+fn parse_delete_binds_id() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => args.id,
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        };
+        "delete with required --id" {
+            &["instance-type", "delete", "--id", "type-123"][..] => Yields("type-123".to_string()),
         }
-        _ => panic!("expected Delete variant"),
-    }
+    );
 }
 
-// parse_update ensures update parses with required ID.
+// The `update` subcommand binds its required `--id` and any optional fields.
 #[test]
-fn parse_update() {
-    let cmd = Cmd::try_parse_from([
-        "instance-type",
-        "update",
-        "--id",
-        "type-123",
-        "--name",
-        "Updated Name",
-    ])
-    .expect("should parse update");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.id, "type-123");
-            assert_eq!(args.name, Some("Updated Name".to_string()));
+fn parse_update_binds_fields() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Update(args) => (args.id, args.name),
+                    _ => panic!("expected Update variant"),
+                })
+                .map_err(drop)
+        };
+        "update with required --id and a new name" {
+            &[
+                "instance-type",
+                "update",
+                "--id",
+                "type-123",
+                "--name",
+                "Updated Name",
+            ][..] => Yields(("type-123".to_string(), Some("Updated Name".to_string()))),
         }
-        _ => panic!("expected Update variant"),
-    }
+    );
 }
 
-// parse_associate ensures associate parses with
-// required arguments.
+// The `associate` subcommand binds the type id and its machine list, which
+// accepts a single machine or a comma-separated set.
 #[test]
-fn parse_associate() {
-    let cmd = Cmd::try_parse_from(["instance-type", "associate", "type-123", TEST_MACHINE_ID])
-        .expect("should parse associate");
-
-    match cmd {
-        Cmd::Associate(args) => {
-            assert_eq!(args.instance_type_id, "type-123");
-            assert_eq!(args.machine_ids, vec![TEST_MACHINE_ID]);
+fn parse_associate_binds_type_and_machines() {
+    let two_machines = format!("{TEST_MACHINE_ID},{TEST_MACHINE_ID}");
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Associate(args) => (args.instance_type_id, args.machine_ids.len()),
+                    _ => panic!("expected Associate variant"),
+                })
+                .map_err(drop)
+        };
+        "associate a single machine" {
+            &["instance-type", "associate", "type-123", TEST_MACHINE_ID][..] => Yields(("type-123".to_string(), 1)),
         }
-        _ => panic!("expected Associate variant"),
-    }
-}
 
-// parse_associate_multiple_machines ensures associate
-// parses with comma-separated machines.
-#[test]
-fn parse_associate_multiple_machines() {
-    let machine_ids = format!("{},{}", TEST_MACHINE_ID, TEST_MACHINE_ID);
-    let cmd = Cmd::try_parse_from(["instance-type", "associate", "type-123", &machine_ids])
-        .expect("should parse associate with multiple machines");
-
-    match cmd {
-        Cmd::Associate(args) => {
-            assert_eq!(args.machine_ids.len(), 2);
+        "associate comma-separated machines" {
+            &["instance-type", "associate", "type-123", &two_machines][..] => Yields(("type-123".to_string(), 2)),
         }
-        _ => panic!("expected Associate variant"),
-    }
+    );
 }
 
-// parse_disassociate ensures disassociate parses with
-// machine ID.
+// The `disassociate` subcommand binds its required machine id.
 #[test]
-fn parse_disassociate() {
-    let cmd = Cmd::try_parse_from(["instance-type", "disassociate", TEST_MACHINE_ID])
-        .expect("should parse disassociate");
-
-    match cmd {
-        Cmd::Disassociate(args) => {
-            assert_eq!(args.machine_id.to_string(), TEST_MACHINE_ID);
+fn parse_disassociate_binds_machine_id() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Disassociate(args) => args.machine_id.to_string(),
+                    _ => panic!("expected Disassociate variant"),
+                })
+                .map_err(drop)
+        };
+        "disassociate with a machine id" {
+            &["instance-type", "disassociate", TEST_MACHINE_ID][..] => Yields(TEST_MACHINE_ID.to_string()),
         }
-        _ => panic!("expected Disassociate variant"),
-    }
+    );
 }
 
-// parse_delete_missing_id_fails ensures delete fails without --id.
+// Every malformed invocation is rejected at parse time -- here, a subcommand
+// whose required `--id` is missing.
 #[test]
-fn parse_delete_missing_id_fails() {
-    let result = Cmd::try_parse_from(["instance-type", "delete"]);
-    assert!(result.is_err(), "should fail without --id");
-}
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "delete without --id" {
+            &["instance-type", "delete"][..] => Fails,
+        }
 
-// parse_update_missing_id_fails ensures update fails without --id.
-#[test]
-fn parse_update_missing_id_fails() {
-    let result = Cmd::try_parse_from(["instance-type", "update"]);
-    assert!(result.is_err(), "should fail without --id");
+        "update without --id" {
+            &["instance-type", "update"][..] => Fails,
+        }
+    );
 }

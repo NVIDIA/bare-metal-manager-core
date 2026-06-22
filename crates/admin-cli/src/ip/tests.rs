@@ -22,6 +22,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -43,60 +45,58 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_find_with_valid_ip ensures find parses a valid
-// IPv4 address.
+// find parses a valid IP and routes to the Find variant: IPv4 in its various
+// ranges (including 0.0.0.0) and IPv6 all parse, and the parsed address
+// round-trips to the canonical string the original argv supplied.
 #[test]
-fn parse_find_with_valid_ip() {
-    let cmd = Cmd::try_parse_from(["ip", "find", "192.168.1.100"]).expect("should parse find");
-
-    match cmd {
-        Cmd::Find(args) => {
-            assert_eq!(args.ip.to_string(), "192.168.1.100");
+fn parse_find_accepts_valid_ips() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| {
+                    let Cmd::Find(args) = cmd;
+                    args.ip.to_string()
+                })
+                .map_err(drop)
+        };
+        "standard IPv4 address" {
+            &["ip", "find", "192.168.1.100"][..] => Yields("192.168.1.100".to_string()),
         }
-    }
+
+        "10.x IPv4 address" {
+            &["ip", "find", "10.0.0.1"][..] => Yields("10.0.0.1".to_string()),
+        }
+
+        "172.x IPv4 address" {
+            &["ip", "find", "172.16.0.1"][..] => Yields("172.16.0.1".to_string()),
+        }
+
+        "0.0.0.0 IPv4 address" {
+            &["ip", "find", "0.0.0.0"][..] => Yields("0.0.0.0".to_string()),
+        }
+
+        "IPv6 loopback address" {
+            &["ip", "find", "::1"][..] => Yields("::1".to_string()),
+        }
+    );
 }
 
-// parse_find_with_different_ips ensures find parses
-// various valid IPs.
+// find rejects malformed invocations at parse time: an unparseable IP value
+// and a missing required ip argument.
 #[test]
-fn parse_find_with_different_ips() {
-    let cmd1 = Cmd::try_parse_from(["ip", "find", "10.0.0.1"]).expect("should parse 10.x IP");
-    match cmd1 {
-        Cmd::Find(args) => assert_eq!(args.ip.to_string(), "10.0.0.1"),
-    }
+fn parse_find_rejects_invalid_invocations() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "value is not a valid IP" {
+            &["ip", "find", "not-an-ip"][..] => Fails,
+        }
 
-    let cmd2 = Cmd::try_parse_from(["ip", "find", "172.16.0.1"]).expect("should parse 172.x IP");
-    match cmd2 {
-        Cmd::Find(args) => assert_eq!(args.ip.to_string(), "172.16.0.1"),
-    }
-
-    let cmd3 = Cmd::try_parse_from(["ip", "find", "0.0.0.0"]).expect("should parse 0.0.0.0");
-    match cmd3 {
-        Cmd::Find(args) => assert_eq!(args.ip.to_string(), "0.0.0.0"),
-    }
-}
-
-// parse_find_invalid_ip_fails ensures find fails with
-// invalid IP.
-#[test]
-fn parse_find_invalid_ip_fails() {
-    let result = Cmd::try_parse_from(["ip", "find", "not-an-ip"]);
-    assert!(result.is_err(), "should fail with invalid IP");
-}
-
-// parse_find_ipv6 ensures find parses a valid IPv6 address.
-#[test]
-fn parse_find_ipv6() {
-    let cmd = Cmd::try_parse_from(["ip", "find", "::1"]).expect("should parse IPv6 address");
-    match cmd {
-        Cmd::Find(args) => assert_eq!(args.ip.to_string(), "::1"),
-    }
-}
-
-// parse_find_missing_ip_fails ensures find requires
-// ip argument.
-#[test]
-fn parse_find_missing_ip_fails() {
-    let result = Cmd::try_parse_from(["ip", "find"]);
-    assert!(result.is_err(), "should fail without IP argument");
+        "missing required ip argument" {
+            &["ip", "find"][..] => Fails,
+        }
+    );
 }

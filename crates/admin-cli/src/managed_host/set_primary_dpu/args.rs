@@ -24,11 +24,11 @@ use rpc::forge as forgerpc;
 EXAMPLES:
 
 Set the primary DPU for a host:
-    $ carbide-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
 Set the primary DPU and reboot the host afterward:
-    $ carbide-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789 --reboot
 
 ")]

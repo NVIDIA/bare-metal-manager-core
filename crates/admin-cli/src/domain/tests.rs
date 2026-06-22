@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,29 +46,25 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all domains).
+// show parses with or without the (deprecated) --all flag; bare `show` means
+// all domains with no specific domain selected, and --all flips the flag. Each
+// row yields the `(all, domain.is_some())` pair the originals asserted.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["domain", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(!args.all);
-            assert!(args.domain.is_none());
+fn parse_show_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.all, args.domain.is_some()),
+                })
+                .map_err(drop)
+        };
+        "no arguments (all domains)" {
+            &["domain", "show"][..] => Yields((false, false)),
         }
-    }
-}
 
-// parse_show_with_all_flag ensures show parses with
-// --all flag (deprecated).
-#[test]
-fn parse_show_with_all_flag() {
-    let cmd = Cmd::try_parse_from(["domain", "show", "--all"]).expect("should parse show --all");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.all);
+        "--all flag (deprecated)" {
+            &["domain", "show", "--all"][..] => Yields((true, false)),
         }
-    }
+    );
 }

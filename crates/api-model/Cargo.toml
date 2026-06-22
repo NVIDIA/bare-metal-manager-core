@@ -89,9 +89,10 @@ test-support = []
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-secrets = { path = "../secrets" }
-nico-test-support = { path = "../test-support" }
+carbide-test-support = { path = "../test-support" }
 lazy_static = { workspace = true }
 p256 = { workspace = true }
 prost = { workspace = true }

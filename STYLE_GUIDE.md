@@ -1,4 +1,4 @@
-# How to write Rust in ncx-infra-controller-core
+# How to write Rust in infra-controller
 
 The goal of this document is to help keep our codebase consistent and maintainable by outlining best-practices we've
 learned through experience. It is currently a mix of best practices for _this codebase_ (ie. how we expect code to
@@ -48,6 +48,70 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
 - If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
   unused database column, or unused JSON field), comment it out.
 - Otherwise, strongly consider deleting the code.
+
+## Testing
+
+Prefer **table-driven tests** for any function that maps inputs to outputs, errors, or other observable results —
+parsers, validators, conversions, serde round-trips, formatters, and the like. The `carbide-test-support` crate
+provides tiny, zero-dependency helpers for exactly this. Add it as a dev-dependency:
+
+```toml
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+```
+
+Write the test as a list of labeled cases — each a `scenario`, an `input`, and an `expect`ed result — and run them all
+through one operation, written once:
+
+```rust
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
+
+#[test]
+fn parse_port() {
+    scenarios!(parse_port:
+        "valid ports" {
+            "0" => Yields(0),
+            "443" => Yields(443),
+        }
+
+        "invalid ports" {
+            "https" => Fails,
+            "99999" => FailsWith(PortError::TooLarge),
+        }
+    );
+}
+```
+
+- Use **`scenarios!`** with `Outcome` (`Yields` / `Fails` / `FailsWith`) for **fallible** operations (those returning
+  `Result`). It expands to `check_cases` and keeps failures labeled by both scenario and input.
+- Use **`value_scenarios!`** for **total** operations (those returning a plain value, `Option`, or `bool`). It expands to
+  `check_values`.
+- Use **`check_cases`** / **`check_values`** directly when a macro would obscure a table with several inputs or several
+  expected fields per row.
+- Reach for `FailsWith(err)` only when the error type is `PartialEq` and its exact value is the contract. Otherwise use
+  `Fails` (with `.map_err(drop)` in the operation) when only "it failed" matters.
+
+Why we prefer this:
+
+- **It is the cheapest path to thorough coverage.** Each branch of the function under test — every `match` arm, each
+  `Option`/`Result` path, every boundary and error case — becomes one more row. To comprehensively test (and cover) a
+  function, simply *enumerate its input variants as cases*: the operation is written once, and every row exercises it.
+  This is by far the easiest way to take a function from partially-tested to nearly fully-covered, and it applies equally
+  whether a human or an agent is writing the tests.
+- **Failures are precise.** Each row carries its `scenario` label, so a failure names the exact case instead of leaving
+  you to bisect a wall of `assert!`s.
+- **Adding a case is one line**, so there is no friction to covering the edge case you would otherwise skip.
+
+Reach for a table whenever two or more tests call the same operation with different inputs. Do **not** force
+genuinely-distinct tests (different setup, a different operation, or several unrelated assertions) into a table — a table
+that obscures intent is worse than a few honest standalone `#[test]`s.
+
+When an exact expected value is awkward to write by hand, assert a robust property instead of guessing: a round-trip
+(`Yields(input)` after serialize-then-deserialize), `Fails` vs `Yields(())` for plain success/failure, or a
+substring/`contains` check. The case still exercises — and covers — the path.
+
+See [`crates/test-support/src/lib.rs`](crates/test-support/src/lib.rs) for the full API and more examples.
 
 ## gRPC API definitions
 

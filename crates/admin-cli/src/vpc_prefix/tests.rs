@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -47,212 +49,178 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no arguments.
+// parse_show routes every valid `show` invocation to the Show variant and
+// reports which selectors/filters landed: a tuple of (prefix_selector?,
+// vpc_id?, contains?, contained_by?, deleted-discriminant) so each original
+// presence/enum assertion survives as a row.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.prefix_selector.is_none());
-            assert!(args.vpc_id.is_none());
-            assert!(args.contains.is_none());
-            assert!(args.contained_by.is_none());
-            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Exclude));
+fn parse_show_routes_to_show_variant() {
+    fn deleted_str(d: &rpc::forge::DeletedFilter) -> &'static str {
+        match d {
+            rpc::forge::DeletedFilter::Exclude => "exclude",
+            rpc::forge::DeletedFilter::Only => "only",
+            _ => "other",
         }
-        _ => panic!("expected Show variant"),
     }
-}
 
-// parse_show_with_deleted ensures show parses deleted filtering.
-#[test]
-fn parse_show_with_deleted() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "--deleted", "only"])
-        .expect("should parse show with deleted filter");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Only));
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (
+                        args.prefix_selector.is_some(),
+                        args.vpc_id.is_some(),
+                        args.contains.is_some(),
+                        args.contained_by.is_some(),
+                        deleted_str(&args.deleted),
+                    ),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "show with no arguments" {
+            &["vpc-prefix", "show"][..] => Yields((false, false, false, false, "exclude")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_prefix_selector_id ensures show parses
-// with VPC prefix ID.
-#[test]
-fn parse_show_with_prefix_selector_id() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", TEST_VPC_PREFIX_ID])
-        .expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.prefix_selector.is_some());
+        "show with --deleted only" {
+            &["vpc-prefix", "show", "--deleted", "only"][..] => Yields((false, false, false, false, "only")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_prefix_selector_cidr ensures show parses
-// with IP prefix.
-#[test]
-fn parse_show_with_prefix_selector_cidr() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "10.0.0.0/8"])
-        .expect("should parse show with cidr");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.prefix_selector.is_some());
+        "show with a prefix-selector id" {
+            &["vpc-prefix", "show", TEST_VPC_PREFIX_ID][..] => Yields((true, false, false, false, "exclude")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_vpc_id ensures show parses with --vpc-id.
-#[test]
-fn parse_show_with_vpc_id() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "--vpc-id", TEST_VPC_ID])
-        .expect("should parse show with vpc-id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.vpc_id.is_some());
+        "show with a prefix-selector cidr" {
+            &["vpc-prefix", "show", "10.0.0.0/8"][..] => Yields((true, false, false, false, "exclude")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_contains ensures show parses with --contains.
-#[test]
-fn parse_show_with_contains() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "--contains", "10.0.0.0/24"])
-        .expect("should parse show with contains");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.contains.is_some());
+        "show with --vpc-id" {
+            &["vpc-prefix", "show", "--vpc-id", TEST_VPC_ID][..] => Yields((false, true, false, false, "exclude")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_with_contained_by ensures show parses with
-// --contained-by.
-#[test]
-fn parse_show_with_contained_by() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "--contained-by", "10.0.0.0/8"])
-        .expect("should parse show with contained-by");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.contained_by.is_some());
+        "show with --contains" {
+            &["vpc-prefix", "show", "--contains", "10.0.0.0/24"][..] => Yields((false, false, true, false, "exclude")),
         }
-        _ => panic!("expected Show variant"),
-    }
-}
 
-// parse_show_contains_and_contained_by_conflict ensures
-// show fails with both contains and contained-by.
-#[test]
-fn parse_show_contains_and_contained_by_conflict() {
-    let result = Cmd::try_parse_from([
-        "vpc-prefix",
-        "show",
-        "--contains",
-        "10.0.0.0/24",
-        "--contained-by",
-        "10.0.0.0/8",
-    ]);
-    assert!(
-        result.is_err(),
-        "should fail with both --contains and --contained-by"
+        "show with --contained-by" {
+            &["vpc-prefix", "show", "--contained-by", "10.0.0.0/8"][..] => Yields((false, false, false, true, "exclude")),
+        }
     );
 }
 
-// parse_create ensures create parses with required args.
+// parse_create routes every valid `create` invocation to the Create variant,
+// reporting (vpc_id, prefix, name, vpc_prefix_id?) so the required-field and
+// optional-id assertions each become a row.
 #[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from([
-        "vpc-prefix",
-        "create",
-        "--vpc-id",
-        TEST_VPC_ID,
-        "--prefix",
-        "10.0.0.0/8",
-        "--name",
-        "test-prefix",
-    ])
-    .expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.vpc_id.to_string(), TEST_VPC_ID);
-            assert_eq!(args.prefix.to_string(), "10.0.0.0/8");
-            assert_eq!(args.name, "test-prefix");
-            assert!(args.vpc_prefix_id.is_none());
+fn parse_create_routes_to_create_variant() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (
+                        args.vpc_id.to_string(),
+                        args.prefix.to_string(),
+                        args.name,
+                        args.vpc_prefix_id.is_some(),
+                    ),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        };
+        "create with required args" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--vpc-id",
+                TEST_VPC_ID,
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test-prefix",
+            ][..] => Yields((
+                TEST_VPC_ID.to_string(),
+                "10.0.0.0/8".to_string(),
+                "test-prefix".to_string(),
+                false,
+            )),
         }
-        _ => panic!("expected Create variant"),
-    }
-}
 
-// parse_create_with_vpc_prefix_id ensures create parses
-// with optional --vpc-prefix-id.
-#[test]
-fn parse_create_with_vpc_prefix_id() {
-    let cmd = Cmd::try_parse_from([
-        "vpc-prefix",
-        "create",
-        "--vpc-id",
-        TEST_VPC_ID,
-        "--prefix",
-        "10.0.0.0/8",
-        "--name",
-        "test-prefix",
-        "--vpc-prefix-id",
-        TEST_VPC_PREFIX_ID,
-    ])
-    .expect("should parse create with vpc-prefix-id");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert!(args.vpc_prefix_id.is_some());
+        "create with optional --vpc-prefix-id" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--vpc-id",
+                TEST_VPC_ID,
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test-prefix",
+                "--vpc-prefix-id",
+                TEST_VPC_PREFIX_ID,
+            ][..] => Yields((
+                TEST_VPC_ID.to_string(),
+                "10.0.0.0/8".to_string(),
+                "test-prefix".to_string(),
+                true,
+            )),
         }
-        _ => panic!("expected Create variant"),
-    }
+    );
 }
 
-// parse_delete ensures delete parses with VPC prefix ID.
+// parse_delete routes a valid `delete` invocation to the Delete variant,
+// reporting the parsed vpc_prefix_id.
 #[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from(["vpc-prefix", "delete", TEST_VPC_PREFIX_ID])
-        .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.vpc_prefix_id.to_string(), TEST_VPC_PREFIX_ID);
+fn parse_delete_routes_to_delete_variant() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => args.vpc_prefix_id.to_string(),
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        };
+        "delete with a vpc-prefix-id" {
+            &["vpc-prefix", "delete", TEST_VPC_PREFIX_ID][..] => Yields(TEST_VPC_PREFIX_ID.to_string()),
         }
-        _ => panic!("expected Delete variant"),
-    }
+    );
 }
 
-// parse_create_missing_vpc_id_fails ensures create fails
-// without --vpc-id.
+// Every malformed invocation is rejected at parse time -- mutually exclusive
+// filters, a missing required argument, or a subcommand left without its
+// positional id.
 #[test]
-fn parse_create_missing_vpc_id_fails() {
-    let result = Cmd::try_parse_from([
-        "vpc-prefix",
-        "create",
-        "--prefix",
-        "10.0.0.0/8",
-        "--name",
-        "test",
-    ]);
-    assert!(result.is_err(), "should fail without --vpc-id");
-}
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "show with both --contains and --contained-by" {
+            &[
+                "vpc-prefix",
+                "show",
+                "--contains",
+                "10.0.0.0/24",
+                "--contained-by",
+                "10.0.0.0/8",
+            ][..] => Fails,
+        }
 
-// parse_delete_missing_id_fails ensures delete fails without ID.
-#[test]
-fn parse_delete_missing_id_fails() {
-    let result = Cmd::try_parse_from(["vpc-prefix", "delete"]);
-    assert!(result.is_err(), "should fail without vpc-prefix-id");
+        "create without --vpc-id" {
+            &[
+                "vpc-prefix",
+                "create",
+                "--prefix",
+                "10.0.0.0/8",
+                "--name",
+                "test",
+            ][..] => Fails,
+        }
+
+        "delete without a vpc-prefix-id" {
+            &["vpc-prefix", "delete"][..] => Fails,
+        }
+    );
 }

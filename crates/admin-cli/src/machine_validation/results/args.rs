@@ -24,13 +24,13 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Show validation results for a machine:
-    $ carbide-admin-cli machine-validation results show --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-validation results show --machine 12345678-1234-5678-90ab-cdef01234567
 
 Show results for a specific validation run:
-    $ carbide-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567
 
 Show one test's result within a run (with history):
-    $ carbide-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567 \
     --test-name gpu_bandwidth --history
 
 ")]

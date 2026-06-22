@@ -231,7 +231,7 @@ impl Ipv6Prefix {
                 // with the prefix one longer, but the other (the "odd" branch)
                 // needs to have a bit flipped to 1 first.
                 let even_addr_bits = self.prefix.addr().to_bits();
-                let single_bit_flip = 0x8000_0000_0000_0000u128 >> n;
+                let single_bit_flip = 0x8000_0000_0000_0000_0000_0000_0000_0000u128 >> n;
                 let odd_addr_bits = even_addr_bits | single_bit_flip;
 
                 let even_addr = Ipv6Addr::from_bits(even_addr_bits);
@@ -631,79 +631,584 @@ where
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
 
-    #[test]
-    fn test_parse_prefix() {
-        let good_v4 = "192.168.0.0/16";
-        Ipv4Prefix::from_str(good_v4).expect("Couldn't parse good IPv4 prefix");
-
-        let bad_v4 = "192.168.1.2/16"; // should be 192.168.0.0/16 as in `good_v4` above.
-        Ipv4Prefix::from_str(bad_v4)
-            .expect_err("Unexpectedly parsed IPv4 prefix with non-canonical representation");
-
-        let bad_v4 = "192.168.0.0/33";
-        Ipv4Prefix::from_str(bad_v4)
-            .expect_err("Unexpectedly parsed IPv4 prefix with an invalid length");
-
-        let good_v6 = "2001:DB8::/48";
-        Ipv6Prefix::from_str(good_v6).expect("Couldn't parse good IPv6 prefix");
-
-        let bad_v6 = "2001:DB8::2/64";
-        Ipv6Prefix::from_str(bad_v6)
-            .expect_err("Unexpectedly parsed IPv6 prefix with non-canonical representation");
+    /// Parse an `IpPrefix` in a test, panicking on failure with a useful label.
+    fn prefix(s: &str) -> IpPrefix {
+        IpPrefix::from_str(s).unwrap_or_else(|e| panic!("couldn't parse prefix {s:?}: {e}"))
     }
 
     #[test]
-    fn test_address_family() {
-        let v4_prefix = IpPrefix::from_str("10.0.0.0/8").expect("Couldn't parse prefix");
-        assert!(v4_prefix.is_address_family(IpAddressFamily::Ipv4));
+    fn ipv4_prefix_from_str_accepts_and_rejects() {
+        scenarios!(
+            run = // The Ok payload (the parsed prefix) varies per row, so success is
+            // collapsed to the unit value; the contract under test is which
+            // inputs parse and which are rejected.
+            |s| Ipv4Prefix::from_str(s).map(|_| ()).map_err(drop);
+            "canonical /16" {
+                "192.168.0.0/16" => Yields(()),
+            }
 
-        let wrong_address_family_error =
-            v4_prefix.require_address_family_or_else(IpAddressFamily::Ipv6, |_| 42);
-        assert_eq!(wrong_address_family_error, Err(42));
+            "canonical /0" {
+                "0.0.0.0/0" => Yields(()),
+            }
+
+            "host /32" {
+                "10.0.0.1/32" => Yields(()),
+            }
+
+            "non-canonical host bits set" {
+                "192.168.1.2/16" => Fails,
+            }
+
+            "non-canonical single low bit" {
+                "10.0.0.1/24" => Fails,
+            }
+
+            "prefix length out of range" {
+                "192.168.0.0/33" => Fails,
+            }
+
+            "garbage address" {
+                "not-an-ip/16" => Fails,
+            }
+
+            "missing prefix length" {
+                "192.168.0.0" => Fails,
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "ipv6 text rejected by v4 parser" {
+                "2001:db8::/48" => Fails,
+            }
+        );
     }
 
     #[test]
-    fn test_contains() {
-        let v4_prefix = IpPrefix::from_str("10.0.0.0/8").expect("Couldn't parse prefix");
-        let v4_addr = IpAddr::from_str("10.0.0.1").expect("Couldn't parse IPv4 address");
-        assert!(v4_prefix.contains(v4_addr));
-        let v6_addr = IpAddr::from_str("2001:DB8::1").expect("Couldn't parse IPv6 address");
-        assert!(!v4_prefix.contains(v6_addr));
+    fn ipv4_prefix_from_str_round_trips_canonical_inputs() {
+        value_scenarios!(
+            run = |s| Ipv4Prefix::from_str(s).is_ok();
+            "canonical /16 parses" {
+                "192.168.0.0/16" => true,
+            }
+
+            "non-canonical /16 rejected" {
+                "192.168.1.2/16" => false,
+            }
+
+            "length 33 rejected" {
+                "192.168.0.0/33" => false,
+            }
+
+            "garbage rejected" {
+                "x/16" => false,
+            }
+        );
     }
 
     #[test]
-    fn test_ordering() {
-        let p1 = IpPrefix::from_str("10.0.0.0/8").unwrap();
-        let p2 = IpPrefix::from_str("10.0.0.0/16").unwrap();
-        let p3 = IpPrefix::from_str("2001:DB8::/32").unwrap();
-        // Two prefixes with the same address but different lengths should be
-        // ordered such that the shorter prefix is first.
-        assert_eq!(p1.cmp(&p2), Ordering::Less);
-        // An IPv4 prefix should be ordered before an IPv6 prefix.
-        assert_eq!(p2.cmp(&p3), Ordering::Less);
+    fn ipv6_prefix_from_str_round_trips_canonical_inputs() {
+        value_scenarios!(
+            run = |s| Ipv6Prefix::from_str(s).is_ok();
+            "canonical /48 parses" {
+                "2001:db8::/48" => true,
+            }
+
+            "canonical /0 parses" {
+                "::/0" => true,
+            }
+
+            "host /128 parses" {
+                "2001:db8::1/128" => true,
+            }
+
+            "non-canonical host bits set" {
+                "2001:db8::2/64" => false,
+            }
+
+            "length 129 rejected" {
+                "2001:db8::/129" => false,
+            }
+
+            "garbage rejected" {
+                "nope/48" => false,
+            }
+
+            "ipv4 text rejected by v6 parser" {
+                "10.0.0.0/8" => false,
+            }
+
+            "empty string rejected" {
+                "" => false,
+            }
+        );
     }
 
     #[test]
-    fn test_bifurcate() {
-        let p1 = IpPrefix::from_str("10.0.0.0/24").unwrap();
-        let children = p1.bifurcate().expect("Could not bifurcate p1");
-        let (p2, p3) = children;
-        let p2_expected = IpPrefix::from_str("10.0.0.0/25").unwrap();
-        let p3_expected = IpPrefix::from_str("10.0.0.128/25").unwrap();
-        assert_eq!(p2, p2_expected);
-        assert_eq!(p3, p3_expected);
+    fn ip_prefix_from_str_accepts_both_families() {
+        value_scenarios!(
+            run = |s| IpPrefix::from_str(s).is_ok();
+            "ipv4 canonical" {
+                "10.0.0.0/8" => true,
+            }
+
+            "ipv6 canonical" {
+                "2001:db8::/32" => true,
+            }
+
+            "ipv4 non-canonical" {
+                "10.0.0.1/8" => false,
+            }
+
+            "ipv6 non-canonical" {
+                "2001:db8::2/64" => false,
+            }
+
+            "ipv4 bad length" {
+                "10.0.0.0/33" => false,
+            }
+
+            "empty" {
+                "" => false,
+            }
+        );
     }
 
     #[test]
-    fn test_sibling() {
-        let p1 = IpPrefix::from_str("10.0.0.0/24").unwrap();
-        let p2 = IpPrefix::from_str("10.0.1.0/24").unwrap();
-        assert_eq!(p1.get_sibling(), Some(p2));
+    fn try_from_ipnet_validates_canonical_representation() {
+        scenarios!(
+            run = |s| {
+                let net = IpNet::from_str(s).expect("test net should parse");
+                IpPrefix::try_from(net).map(|_| ()).map_err(drop)
+            };
+            "canonical v4 accepted" {
+                "10.0.0.0/8" => Yields(()),
+            }
 
-        let p3 = IpPrefix::from_str("2001:db8:0000::/34").unwrap();
-        let p4 = IpPrefix::from_str("2001:db8:4000::/34").unwrap();
-        assert_eq!(p3.get_sibling(), Some(p4));
+            "non-canonical v4 rejected" {
+                "10.0.0.1/8" => Fails,
+            }
+
+            "canonical v6 accepted" {
+                "2001:db8::/32" => Yields(()),
+            }
+
+            "non-canonical v6 rejected" {
+                "2001:db8::1/32" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn try_from_addr_and_length_validates() {
+        scenarios!(
+            run = |(addr, len)| IpPrefix::try_from((addr, len)).map(|_| ()).map_err(drop);
+            "canonical v4" {
+                (IpAddr::from([10, 0, 0, 0]), 8u8) => Yields(()),
+            }
+
+            "non-canonical v4" {
+                (IpAddr::from([10, 0, 0, 1]), 8u8) => Fails,
+            }
+
+            "v4 length too long" {
+                (IpAddr::from([10, 0, 0, 0]), 33u8) => Fails,
+            }
+
+            "v4 host /32" {
+                (IpAddr::from([10, 0, 0, 1]), 32u8) => Yields(()),
+            }
+
+            "v6 length too long" {
+                (IpAddr::from(Ipv6Addr::LOCALHOST), 129u8) => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn address_family_reports_variant() {
+        value_scenarios!(
+            run = |s| prefix(s).address_family();
+            "v4 prefix" {
+                "10.0.0.0/8" => IpAddressFamily::Ipv4,
+            }
+
+            "v6 prefix" {
+                "2001:db8::/32" => IpAddressFamily::Ipv6,
+            }
+        );
+    }
+
+    #[test]
+    fn is_address_family_matches_only_its_own() {
+        value_scenarios!(
+            run = |(s, family)| prefix(s).is_address_family(family);
+            "v4 is v4" {
+                ("10.0.0.0/8", IpAddressFamily::Ipv4) => true,
+            }
+
+            "v4 is not v6" {
+                ("10.0.0.0/8", IpAddressFamily::Ipv6) => false,
+            }
+
+            "v6 is v6" {
+                ("2001:db8::/32", IpAddressFamily::Ipv6) => true,
+            }
+
+            "v6 is not v4" {
+                ("2001:db8::/32", IpAddressFamily::Ipv4) => false,
+            }
+        );
+    }
+
+    #[test]
+    fn require_address_family_or_else_passes_or_runs_fallback() {
+        scenarios!(
+            run = |(s, family)| {
+                prefix(s)
+                    .require_address_family_or_else(family, |_| 42)
+                    .map(|_| ())
+            };
+            "v4 required and present" {
+                ("10.0.0.0/8", IpAddressFamily::Ipv4) => Yields(()),
+            }
+
+            "v6 required but is v4" {
+                ("10.0.0.0/8", IpAddressFamily::Ipv6) => FailsWith(42),
+            }
+
+            "v6 required and present" {
+                ("2001:db8::/32", IpAddressFamily::Ipv6) => Yields(()),
+            }
+
+            "v4 required but is v6" {
+                ("2001:db8::/32", IpAddressFamily::Ipv4) => FailsWith(42),
+            }
+        );
+    }
+
+    #[test]
+    fn contains_checks_membership_across_families() {
+        value_scenarios!(
+            run = |(p, addr)| prefix(p).contains(addr);
+            "v4 prefix holds member address" {
+                ("10.0.0.0/8", IpAddr::from([10, 0, 0, 1])) => true,
+            }
+
+            "v4 prefix holds its own network address" {
+                ("10.0.0.0/8", IpAddr::from([10, 0, 0, 0])) => true,
+            }
+
+            "v4 prefix excludes outside address" {
+                ("10.0.0.0/8", IpAddr::from([11, 0, 0, 1])) => false,
+            }
+
+            "v4 prefix does not hold a v6 address" {
+                ("10.0.0.0/8", IpAddr::from(Ipv6Addr::LOCALHOST)) => false,
+            }
+
+            "default route holds anything v4" {
+                ("0.0.0.0/0", IpAddr::from([200, 1, 2, 3])) => true,
+            }
+
+            "v6 prefix holds member address" {
+                ("2001:db8::/32", IpAddr::from_str("2001:db8::1").unwrap()) => true,
+            }
+
+            "v6 prefix excludes outside address" {
+                ("2001:db8::/32", IpAddr::from_str("2001:db9::1").unwrap()) => false,
+            }
+
+            "v6 prefix does not hold a v4 address" {
+                ("2001:db8::/32", IpAddr::from([10, 0, 0, 1])) => false,
+            }
+        );
+    }
+
+    #[test]
+    fn contains_subprefix_relationships() {
+        value_scenarios!(
+            run = |(outer, inner)| prefix(outer).contains(prefix(inner));
+            "broader holds narrower" {
+                ("10.0.0.0/8", "10.1.0.0/16") => true,
+            }
+
+            "prefix holds itself" {
+                ("10.0.0.0/8", "10.0.0.0/8") => true,
+            }
+
+            "narrower does not hold broader" {
+                ("10.0.0.0/16", "10.0.0.0/8") => false,
+            }
+
+            "disjoint v4 prefixes" {
+                ("10.0.0.0/8", "11.0.0.0/8") => false,
+            }
+
+            "v4 never holds v6" {
+                ("10.0.0.0/8", "2001:db8::/32") => false,
+            }
+
+            "v6 broader holds narrower" {
+                ("2001:db8::/32", "2001:db8:1::/48") => true,
+            }
+        );
+    }
+
+    #[test]
+    fn prefix_length_reports_mask_bits() {
+        value_scenarios!(
+            run = |s| prefix(s).prefix_length();
+            "v4 /8" {
+                "10.0.0.0/8" => 8usize,
+            }
+
+            "v4 /0" {
+                "0.0.0.0/0" => 0usize,
+            }
+
+            "v4 /32" {
+                "10.0.0.1/32" => 32usize,
+            }
+
+            "v6 /48" {
+                "2001:db8::/48" => 48usize,
+            }
+
+            "v6 /128" {
+                "2001:db8::1/128" => 128usize,
+            }
+        );
+    }
+
+    #[test]
+    fn ordering_sorts_by_family_then_prefix() {
+        value_scenarios!(
+            run = |(a, b)| prefix(a).cmp(&prefix(b));
+            "shorter prefix sorts before longer at same address" {
+                ("10.0.0.0/8", "10.0.0.0/16") => Ordering::Less,
+            }
+
+            "longer prefix sorts after shorter" {
+                ("10.0.0.0/16", "10.0.0.0/8") => Ordering::Greater,
+            }
+
+            "equal prefixes compare equal" {
+                ("10.0.0.0/8", "10.0.0.0/8") => Ordering::Equal,
+            }
+
+            "lower address sorts first" {
+                ("10.0.0.0/8", "11.0.0.0/8") => Ordering::Less,
+            }
+
+            "v4 always sorts before v6" {
+                ("10.0.0.0/16", "2001:db8::/32") => Ordering::Less,
+            }
+
+            "v6 always sorts after v4" {
+                ("2001:db8::/32", "10.0.0.0/16") => Ordering::Greater,
+            }
+
+            "two v6 by address" {
+                ("2001:db8::/32", "2001:db9::/32") => Ordering::Less,
+            }
+        );
+    }
+
+    #[test]
+    fn display_renders_canonical_text() {
+        value_scenarios!(
+            run = |s| prefix(s).to_string();
+            "v4 prefix" {
+                "10.0.0.0/8" => "10.0.0.0/8".to_string(),
+            }
+
+            "v4 default route" {
+                "0.0.0.0/0" => "0.0.0.0/0".to_string(),
+            }
+
+            "v6 prefix lowercased" {
+                "2001:DB8::/32" => "2001:db8::/32".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn bifurcate_splits_into_two_halves() {
+        value_scenarios!(
+            run = |s| {
+                prefix(s)
+                    .bifurcate()
+                    .map(|(even, odd)| (even.to_string(), odd.to_string()))
+            };
+            "v4 /24 splits at the midpoint" {
+                "10.0.0.0/24" => Some(("10.0.0.0/25".to_string(), "10.0.0.128/25".to_string())),
+            }
+
+            "v4 /0 splits the whole space" {
+                "0.0.0.0/0" => Some(("0.0.0.0/1".to_string(), "128.0.0.0/1".to_string())),
+            }
+
+            "v4 /32 cannot split" {
+                "10.0.0.1/32" => None,
+            }
+
+            "v6 /32 splits at the midpoint" {
+                "2001:db8::/32" => Some((
+                    "2001:db8::/33".to_string(),
+                    "2001:db8:8000::/33".to_string(),
+                )),
+            }
+
+            "v6 /128 cannot split" {
+                "2001:db8::1/128" => None,
+            }
+        );
+    }
+
+    #[test]
+    fn get_sibling_flips_the_last_prefix_bit() {
+        value_scenarios!(
+            run = |s| prefix(s).get_sibling().map(|p| p.to_string());
+            "v4 /24 even sibling" {
+                "10.0.0.0/24" => Some("10.0.1.0/24".to_string()),
+            }
+
+            "v4 /24 odd sibling flips back" {
+                "10.0.1.0/24" => Some("10.0.0.0/24".to_string()),
+            }
+
+            "v4 /1 sibling" {
+                "0.0.0.0/1" => Some("128.0.0.0/1".to_string()),
+            }
+
+            "v4 /0 has no sibling" {
+                "0.0.0.0/0" => None,
+            }
+
+            "v6 /34 even sibling" {
+                "2001:db8::/34" => Some("2001:db8:4000::/34".to_string()),
+            }
+
+            "v6 /34 odd sibling flips back" {
+                "2001:db8:4000::/34" => Some("2001:db8::/34".to_string()),
+            }
+
+            "v6 /0 has no sibling" {
+                "::/0" => None,
+            }
+        );
+    }
+
+    #[test]
+    fn get_last_subprefix_is_the_all_ones_host() {
+        value_scenarios!(
+            run = |s| prefix(s).get_last_subprefix().to_string();
+            "v4 /24 last host" {
+                "10.0.0.0/24" => "10.0.0.255/32".to_string(),
+            }
+
+            "v4 /8 last host" {
+                "10.0.0.0/8" => "10.255.255.255/32".to_string(),
+            }
+
+            "v4 /32 is its own last host" {
+                "10.0.0.1/32" => "10.0.0.1/32".to_string(),
+            }
+
+            "v6 /32 last host" {
+                "2001:db8::/32" => "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff/128".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn try_aggregate_combines_or_declines() {
+        value_scenarios!(
+            run = |(a, b)| prefix(a).try_aggregate(&prefix(b)).map(|p| p.to_string());
+            "siblings aggregate to their supernet" {
+                ("10.0.0.0/25", "10.0.0.128/25") => Some("10.0.0.0/24".to_string()),
+            }
+
+            "containing prefix absorbs the contained" {
+                ("10.0.0.0/8", "10.1.0.0/16") => Some("10.0.0.0/8".to_string()),
+            }
+
+            "contained side absorbed by container" {
+                ("10.1.0.0/16", "10.0.0.0/8") => Some("10.0.0.0/8".to_string()),
+            }
+
+            "non-adjacent prefixes do not aggregate" {
+                ("10.0.0.0/24", "10.0.2.0/24") => None,
+            }
+
+            "sibling /24s aggregate to their /23 supernet" {
+                ("10.0.0.0/24", "10.0.1.0/24") => Some("10.0.0.0/23".to_string()),
+            }
+
+            "different families do not aggregate" {
+                ("10.0.0.0/8", "2001:db8::/32") => None,
+            }
+
+            "v6 siblings aggregate" {
+                ("2001:db8::/33", "2001:db8:8000::/33") => Some("2001:db8::/32".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn to_prefix_from_addresses_and_nets() {
+        value_scenarios!(
+            run = |s| IpAddr::from_str(s).unwrap().to_prefix().to_string();
+            "ipv4 address becomes /32" {
+                "10.0.0.1" => "10.0.0.1/32".to_string(),
+            }
+
+            "ipv6 address becomes /128" {
+                "2001:db8::1" => "2001:db8::1/128".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn to_prefix_from_ipnet_truncates_host_bits() {
+        value_scenarios!(
+            run = |s| IpNet::from_str(s).unwrap().to_prefix().to_string();
+            "v4 net truncated to network address" {
+                "10.0.0.1/8" => "10.0.0.0/8".to_string(),
+            }
+
+            "v4 already canonical" {
+                "10.0.0.0/8" => "10.0.0.0/8".to_string(),
+            }
+
+            "v6 net truncated to network address" {
+                "2001:db8::1/32" => "2001:db8::/32".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn into_inner_round_trips_through_ipnet() {
+        value_scenarios!(
+            run = |s| {
+                let net = IpNet::from_str(s).unwrap();
+                let prefix = IpPrefix::try_from(net).unwrap();
+                IpNet::from(prefix) == net
+            };
+            "v4 round-trips" {
+                "10.0.0.0/8" => true,
+            }
+
+            "v6 round-trips" {
+                "2001:db8::/32" => true,
+            }
+        );
     }
 }

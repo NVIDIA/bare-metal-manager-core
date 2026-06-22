@@ -19,6 +19,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -162,19 +163,24 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 
 	// Get Allocation Constraints for above Allocations
 	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	acsit1, _, _ := acDAO.GetAll(ctx, nil, []uuid.UUID{aID1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acsit1, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{aID1}}, cdbp.PageInput{}, nil)
+	assert.Nil(t, err)
 	assert.NotNil(t, acsit1)
 
-	acsip1, _, _ := acDAO.GetAll(ctx, nil, []uuid.UUID{aipID1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acsip1, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{aipID1}}, cdbp.PageInput{}, nil)
+	assert.Nil(t, err)
 	assert.NotNil(t, acsip1)
 
-	acsit2, _, _ := acDAO.GetAll(ctx, nil, []uuid.UUID{aID2}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acsit2, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{aID2}}, cdbp.PageInput{}, nil)
+	assert.Nil(t, err)
 	assert.NotNil(t, acsit2)
 
-	acsip2, _, _ := acDAO.GetAll(ctx, nil, []uuid.UUID{aipID2}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acsip2, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{aipID2}}, cdbp.PageInput{}, nil)
+	assert.Nil(t, err)
 	assert.NotNil(t, acsip2)
 
-	acsip3, _, _ := acDAO.GetAll(ctx, nil, []uuid.UUID{aipID3}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acsip3, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{aipID3}}, cdbp.PageInput{}, nil)
+	assert.Nil(t, err)
 	assert.NotNil(t, acsip3)
 
 	// Setup test data for Allocation Constraint Update

@@ -521,3 +521,647 @@ impl TryFrom<SyncResultPb> for SyncResult {
         })
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, scenarios, value_scenarios};
+
+    use super::*;
+    use crate::variables::spec::MlxVariableSpec;
+    use crate::variables::value::MlxValueType;
+
+    // ----- small constructors so each table row reads as data, not setup -----
+
+    // int_var builds an Integer-spec variable with the given name. read_only
+    // and description are fixed so rows that exercise them have a known answer.
+    fn int_var(name: &str) -> MlxConfigVariable {
+        MlxConfigVariable {
+            name: name.to_string(),
+            description: format!("desc of {name}"),
+            read_only: false,
+            spec: MlxVariableSpec::Integer,
+        }
+    }
+
+    // int_value wraps an Integer value on an Integer-spec variable, validated.
+    fn int_value(name: &str, n: i64) -> MlxConfigValue {
+        MlxConfigValue::new(int_var(name), MlxValueType::Integer(n)).unwrap()
+    }
+
+    // queried builds a QueriedVariable whose current/next values let us drive
+    // is_pending_change: pending == (current != next).
+    fn queried(name: &str, current: i64, next: i64) -> QueriedVariable {
+        QueriedVariable {
+            variable: int_var(name),
+            current_value: int_value(name, current),
+            default_value: int_value(name, 0),
+            next_value: int_value(name, next),
+            modified: false,
+            read_only: false,
+        }
+    }
+
+    // ----- QueriedVariable accessors (total) -----
+
+    // name and description are thin wrappers over the backing variable.
+    #[test]
+    fn queried_variable_name_and_description() {
+        value_scenarios!(
+            run = |q| q.name().to_string();
+            "name returns the variable name" {
+                queried("ALPHA", 1, 1) => "ALPHA".to_string(),
+            }
+
+            "empty name passes through" {
+                queried("", 1, 1) => "".to_string(),
+            }
+        );
+
+        value_scenarios!(
+            run = |q| q.description().to_string();
+            "description mirrors the backing variable" {
+                queried("BETA", 1, 1) => "desc of BETA".to_string(),
+            }
+        );
+    }
+
+    // is_pending_change is true exactly when current_value != next_value.
+    #[test]
+    fn queried_variable_is_pending_change() {
+        value_scenarios!(
+            run = |q| q.is_pending_change();
+            "current == next -> no pending change" {
+                queried("X", 5, 5) => false,
+            }
+
+            "current != next -> pending change" {
+                queried("X", 5, 9) => true,
+            }
+
+            "current == next at zero -> no pending change" {
+                queried("X", 0, 0) => false,
+            }
+        );
+    }
+
+    // ----- QueryResult accessors (total) -----
+
+    fn query_result(names: &[&str]) -> QueryResult {
+        QueryResult {
+            device_info: QueriedDeviceInfo::new(),
+            variables: names.iter().map(|n| queried(n, 1, 1)).collect(),
+        }
+    }
+
+    // variable_count is just the length of the variables vec, including 0.
+    #[test]
+    fn query_result_variable_count() {
+        value_scenarios!(
+            run = |qr| qr.variable_count();
+            "empty" {
+                query_result(&[]) => 0usize,
+            }
+
+            "single" {
+                query_result(&["a"]) => 1usize,
+            }
+
+            "several" {
+                query_result(&["a", "b", "c"]) => 3usize,
+            }
+        );
+    }
+
+    // get_variable finds by name; returns None when absent. We project to the
+    // found name (or "<none>") so the row's expectation is a value we are sure of.
+    #[test]
+    fn query_result_get_variable() {
+        value_scenarios!(
+            run = |(name, qr)| {
+                qr.get_variable(name)
+                    .map(|v| v.name().to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            };
+            "present in the middle" {
+                ("b", query_result(&["a", "b", "c"])) => "b".to_string(),
+            }
+
+            "present at the front" {
+                ("a", query_result(&["a", "b", "c"])) => "a".to_string(),
+            }
+
+            "absent yields None" {
+                ("missing", query_result(&["a", "b", "c"])) => "<none>".to_string(),
+            }
+
+            "absent in empty result" {
+                ("a", query_result(&[])) => "<none>".to_string(),
+            }
+        );
+    }
+
+    // variable_names collects every variable's name, preserving order.
+    #[test]
+    fn query_result_variable_names() {
+        value_scenarios!(
+            run = |qr| {
+                qr.variable_names()
+                    .into_iter()
+                    .map(String::from)
+                    .collect::<Vec<String>>()
+            };
+            "empty" {
+                query_result(&[]) => Vec::<String>::new(),
+            }
+
+            "preserves order" {
+                query_result(&["c", "a", "b"]) => vec!["c".to_string(), "a".to_string(), "b".to_string()],
+            }
+        );
+    }
+
+    // ----- summary / description formatters (total) -----
+
+    // SyncResult::summary embeds changed/checked counts and the execution time.
+    // The Duration is fixed at zero (Default) so the "{:?}" tail is "0ns".
+    #[test]
+    fn sync_result_summary() {
+        fn sync(checked: usize, changed: usize) -> SyncResult {
+            SyncResult {
+                variables_checked: checked,
+                variables_changed: changed,
+                changes_applied: vec![],
+                execution_time: Duration::default(),
+                query_result: query_result(&[]),
+            }
+        }
+
+        value_scenarios!(
+            run = |s| s.summary();
+            "none changed" {
+                sync(3, 0) => "Sync complete: 0/3 variables changed in 0ns".to_string(),
+            }
+
+            "all changed" {
+                sync(2, 2) => "Sync complete: 2/2 variables changed in 0ns".to_string(),
+            }
+        );
+    }
+
+    // ComparisonResult::summary embeds needing-change/checked counts.
+    #[test]
+    fn comparison_result_summary() {
+        fn cmp(checked: usize, needing: usize) -> ComparisonResult {
+            ComparisonResult {
+                variables_checked: checked,
+                variables_needing_change: needing,
+                planned_changes: vec![],
+                query_result: query_result(&[]),
+            }
+        }
+
+        value_scenarios!(
+            run = |c| c.summary();
+            "none needing change" {
+                cmp(5, 0) => "Comparison complete: 0/5 variables would change".to_string(),
+            }
+
+            "some needing change" {
+                cmp(5, 2) => "Comparison complete: 2/5 variables would change".to_string(),
+            }
+        );
+    }
+
+    // PlannedChange::description formats "name: current → desired". Integer
+    // values render bare via to_display_string, so the arrow tail is exact.
+    #[test]
+    fn planned_change_description() {
+        value_scenarios!(
+            run = |c| c.description();
+            "integer current and desired" {
+                PlannedChange {
+                    variable_name: "VAR".to_string(),
+                    current_value: int_value("VAR", 1),
+                    desired_value: int_value("VAR", 2),
+                } => "VAR: 1 → 2".to_string(),
+            }
+        );
+    }
+
+    // VariableChange::description formats "name: old → new".
+    #[test]
+    fn variable_change_description() {
+        value_scenarios!(
+            run = |c| c.description();
+            "integer old and new" {
+                VariableChange {
+                    variable_name: "VAR".to_string(),
+                    old_value: int_value("VAR", 7),
+                    new_value: int_value("VAR", 8),
+                } => "VAR: 7 → 8".to_string(),
+            }
+        );
+    }
+
+    // ----- QueriedDeviceInfo builders (total) -----
+
+    // new starts every field None; each with_* setter fills exactly its field.
+    // We project the four fields into a tuple so one table walks every setter.
+    #[test]
+    fn queried_device_info_builders() {
+        type Fields = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        fn fields(i: &QueriedDeviceInfo) -> Fields {
+            (
+                i.device_id.clone(),
+                i.device_type.clone(),
+                i.part_number.clone(),
+                i.description.clone(),
+            )
+        }
+
+        value_scenarios!(
+            run = |i| fields(&i);
+            "new is all None" {
+                QueriedDeviceInfo::new() => (None, None, None, None),
+            }
+
+            "with_device_id fills only device_id" {
+                QueriedDeviceInfo::new().with_device_id("dev-1") => (Some("dev-1".to_string()), None, None, None),
+            }
+
+            "with_device_type fills only device_type" {
+                QueriedDeviceInfo::new().with_device_type("ConnectX") => (None, Some("ConnectX".to_string()), None, None),
+            }
+
+            "with_part_number fills only part_number" {
+                QueriedDeviceInfo::new().with_part_number("MCX-1") => (None, None, Some("MCX-1".to_string()), None),
+            }
+
+            "with_description fills only description" {
+                QueriedDeviceInfo::new().with_description("a nic") => (None, None, None, Some("a nic".to_string())),
+            }
+
+            "all setters chain" {
+                QueriedDeviceInfo::new()
+                .with_device_id("dev-1")
+                .with_device_type("ConnectX")
+                .with_part_number("MCX-1")
+                .with_description("a nic") => (
+                    Some("dev-1".to_string()),
+                    Some("ConnectX".to_string()),
+                    Some("MCX-1".to_string()),
+                    Some("a nic".to_string()),
+                ),
+            }
+        );
+    }
+
+    // ----- QueriedDeviceInfo proto round-trips (infallible From both ways) -----
+
+    // QueriedDeviceInfo <-> Pb is a plain field copy in both directions, so a
+    // round-trip preserves every Option field, including the all-None case.
+    #[test]
+    fn queried_device_info_proto_round_trip() {
+        type Fields = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        fn fields(i: &QueriedDeviceInfo) -> Fields {
+            (
+                i.device_id.clone(),
+                i.device_type.clone(),
+                i.part_number.clone(),
+                i.description.clone(),
+            )
+        }
+
+        value_scenarios!(
+            run = |info| {
+                let pb: QueriedDeviceInfoPb = info.into();
+                let back: QueriedDeviceInfo = pb.into();
+                fields(&back)
+            };
+            "all None survives the round-trip" {
+                QueriedDeviceInfo::new() => (None, None, None, None),
+            }
+
+            "all Some survives the round-trip" {
+                QueriedDeviceInfo::new()
+                .with_device_id("d")
+                .with_device_type("t")
+                .with_part_number("p")
+                .with_description("x") => (
+                    Some("d".to_string()),
+                    Some("t".to_string()),
+                    Some("p".to_string()),
+                    Some("x".to_string()),
+                ),
+            }
+        );
+    }
+
+    // ----- QueriedVariable proto conversions (fallible) -----
+
+    // A complete QueriedVariable round-trips through its Pb form; we project the
+    // name to confirm success. Missing each required sub-message fails, so we
+    // build the Pb by hand with one field set to None per rejection row.
+    #[test]
+    fn queried_variable_proto_conversions() {
+        // Round-trip the happy path, projecting the variable name out.
+        Case {
+            scenario: "complete round-trip preserves the name",
+            input: queried("RT", 3, 4),
+            expect: Yields("RT".to_string()),
+        }
+        .check(|q| -> Result<String, ()> {
+            let pb: QueriedVariablePb = q.try_into().map_err(drop)?;
+            let back: QueriedVariable = pb.try_into().map_err(drop)?;
+            Ok(back.name().to_string())
+        });
+
+        // Each None field is a distinct MissingArgument rejection path.
+        fn full_pb() -> QueriedVariablePb {
+            let q = queried("M", 1, 1);
+            q.try_into().expect("complete QueriedVariable converts")
+        }
+
+        scenarios!(
+            run = |pb| {
+                QueriedVariable::try_from(pb)
+                    .map(|q| q.name().to_string())
+                    .map_err(drop)
+            };
+            "missing variable" {
+                QueriedVariablePb {
+                    variable: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing current_value" {
+                QueriedVariablePb {
+                    current_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing default_value" {
+                QueriedVariablePb {
+                    default_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing next_value" {
+                QueriedVariablePb {
+                    next_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+        );
+    }
+
+    // ----- QueryResult proto conversions (fallible) -----
+
+    // QueryResult round-trips (projecting variable_count); a missing device_info
+    // fails the inbound conversion.
+    #[test]
+    fn query_result_proto_conversions() {
+        Case {
+            scenario: "round-trip preserves variable count",
+            input: query_result(&["a", "b"]),
+            expect: Yields(2usize),
+        }
+        .check(|qr| -> Result<usize, ()> {
+            let pb: QueryResultPb = qr.try_into().map_err(drop)?;
+            let back: QueryResult = pb.try_into().map_err(drop)?;
+            Ok(back.variable_count())
+        });
+
+        Case {
+            scenario: "missing device_info fails",
+            input: QueryResultPb {
+                device_info: None,
+                variables: vec![],
+            },
+            expect: Fails,
+        }
+        .check(|pb| {
+            QueryResult::try_from(pb)
+                .map(|q| q.variable_count())
+                .map_err(drop)
+        });
+    }
+
+    // ----- PlannedChange proto conversions (fallible) -----
+
+    #[test]
+    fn planned_change_proto_conversions() {
+        fn planned() -> PlannedChange {
+            PlannedChange {
+                variable_name: "PC".to_string(),
+                current_value: int_value("PC", 1),
+                desired_value: int_value("PC", 2),
+            }
+        }
+
+        Case {
+            scenario: "round-trip preserves the variable name",
+            input: planned(),
+            expect: Yields("PC".to_string()),
+        }
+        .check(|c| -> Result<String, ()> {
+            let pb: PlannedChangePb = c.try_into().map_err(drop)?;
+            let back: PlannedChange = pb.try_into().map_err(drop)?;
+            Ok(back.variable_name)
+        });
+
+        fn full_pb() -> PlannedChangePb {
+            planned()
+                .try_into()
+                .expect("complete PlannedChange converts")
+        }
+
+        scenarios!(
+            run = |pb| {
+                PlannedChange::try_from(pb)
+                    .map(|c| c.variable_name)
+                    .map_err(drop)
+            };
+            "missing current_value" {
+                PlannedChangePb {
+                    current_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing desired_value" {
+                PlannedChangePb {
+                    desired_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+        );
+    }
+
+    // ----- VariableChange proto conversions (fallible) -----
+
+    #[test]
+    fn variable_change_proto_conversions() {
+        fn change() -> VariableChange {
+            VariableChange {
+                variable_name: "VC".to_string(),
+                old_value: int_value("VC", 7),
+                new_value: int_value("VC", 8),
+            }
+        }
+
+        Case {
+            scenario: "round-trip preserves the variable name",
+            input: change(),
+            expect: Yields("VC".to_string()),
+        }
+        .check(|c| -> Result<String, ()> {
+            let pb: VariableChangePb = c.try_into().map_err(drop)?;
+            let back: VariableChange = pb.try_into().map_err(drop)?;
+            Ok(back.variable_name)
+        });
+
+        fn full_pb() -> VariableChangePb {
+            change()
+                .try_into()
+                .expect("complete VariableChange converts")
+        }
+
+        scenarios!(
+            run = |pb| {
+                VariableChange::try_from(pb)
+                    .map(|c| c.variable_name)
+                    .map_err(drop)
+            };
+            "missing old_value" {
+                VariableChangePb {
+                    old_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+
+            "missing new_value" {
+                VariableChangePb {
+                    new_value: None,
+                    ..full_pb()
+                } => Fails,
+            }
+        );
+    }
+
+    // ----- ComparisonResult proto conversions (fallible) -----
+
+    // ComparisonResult round-trips (projecting the checked/needing counts as a
+    // tuple); a missing query_result fails the inbound conversion. The counts
+    // also exercise the usize<->u64 casts in both directions.
+    #[test]
+    fn comparison_result_proto_conversions() {
+        fn cmp() -> ComparisonResult {
+            ComparisonResult {
+                variables_checked: 4,
+                variables_needing_change: 1,
+                planned_changes: vec![PlannedChange {
+                    variable_name: "PC".to_string(),
+                    current_value: int_value("PC", 1),
+                    desired_value: int_value("PC", 2),
+                }],
+                query_result: query_result(&["a"]),
+            }
+        }
+
+        Case {
+            scenario: "round-trip preserves the counts",
+            input: cmp(),
+            expect: Yields((4usize, 1usize)),
+        }
+        .check(|c| -> Result<(usize, usize), ()> {
+            let pb: ComparisonResultPb = c.try_into().map_err(drop)?;
+            let back: ComparisonResult = pb.try_into().map_err(drop)?;
+            Ok((back.variables_checked, back.variables_needing_change))
+        });
+
+        Case {
+            scenario: "missing query_result fails",
+            input: ComparisonResultPb {
+                variables_checked: 0,
+                variables_needing_change: 0,
+                planned_changes: vec![],
+                query_result: None,
+            },
+            expect: Fails,
+        }
+        .check(|pb| {
+            ComparisonResult::try_from(pb)
+                .map(|c| c.variables_checked)
+                .map_err(drop)
+        });
+    }
+
+    // ----- SyncResult proto conversions (fallible) -----
+
+    // SyncResult round-trips (projecting checked/changed counts). execution_time
+    // is serde(skip)/not in the proto, so the inbound side always defaults it to
+    // zero -- we assert that explicitly. A missing query_result fails.
+    #[test]
+    fn sync_result_proto_conversions() {
+        fn sync() -> SyncResult {
+            SyncResult {
+                variables_checked: 6,
+                variables_changed: 2,
+                changes_applied: vec![VariableChange {
+                    variable_name: "VC".to_string(),
+                    old_value: int_value("VC", 7),
+                    new_value: int_value("VC", 8),
+                }],
+                // A non-zero time that should NOT survive the proto hop.
+                execution_time: Duration::from_secs(42),
+                query_result: query_result(&["a"]),
+            }
+        }
+
+        Case {
+            scenario: "round-trip preserves counts and zeroes execution_time",
+            input: sync(),
+            expect: Yields((6usize, 2usize, Duration::from_secs(0))),
+        }
+        .check(|s| -> Result<(usize, usize, Duration), ()> {
+            let pb: SyncResultPb = s.try_into().map_err(drop)?;
+            let back: SyncResult = pb.try_into().map_err(drop)?;
+            Ok((
+                back.variables_checked,
+                back.variables_changed,
+                back.execution_time,
+            ))
+        });
+
+        Case {
+            scenario: "missing query_result fails",
+            input: SyncResultPb {
+                variables_checked: 0,
+                variables_changed: 0,
+                changes_applied: vec![],
+                query_result: None,
+            },
+            expect: Fails,
+        }
+        .check(|pb| {
+            SyncResult::try_from(pb)
+                .map(|s| s.variables_checked)
+                .map_err(drop)
+        });
+    }
+}

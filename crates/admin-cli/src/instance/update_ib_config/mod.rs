@@ -20,24 +20,13 @@ pub mod cmd;
 
 pub use args::Args;
 
-use super::common::GlobalOptions;
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
 
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        let opts = GlobalOptions {
-            format: ctx.config.format,
-            page_size: ctx.config.page_size,
-            sort_by: &ctx.config.sort_by,
-            cloud_unsafe_op: if ctx.config.cloud_unsafe_op_enabled {
-                Some("enabled".to_string())
-            } else {
-                None
-            },
-        };
-        cmd::update_ib_config(&ctx.api_client, self, opts).await?;
+        cmd::update_ib_config(&ctx.api_client, self, ctx).await?;
         Ok(())
     }
 }

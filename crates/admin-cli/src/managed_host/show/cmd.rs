@@ -30,7 +30,7 @@ use super::args::Args;
 use crate::cfg::cli_options::SortField;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv};
+use crate::{async_write_table_as_csv, async_writeln};
 
 const UNKNOWN: &str = "Unknown";
 
@@ -158,7 +158,7 @@ impl From<ManagedHostOutputWrapper> for Row {
 fn convert_managed_hosts_to_nice_output(
     managed_hosts: Vec<carbide_rpc_utils::ManagedHostOutput>,
     options: ManagedHostOutputOptions,
-) -> Box<Table> {
+) -> (Box<Table>, Vec<String>) {
     let managed_hosts_wrapper = managed_hosts
         .into_iter()
         .map(|x| ManagedHostOutputWrapper {
@@ -197,11 +197,24 @@ fn convert_managed_hosts_to_nice_output(
         headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
     ));
 
+    let mut is_dpf_not_used = false;
     for managed_host in managed_hosts_wrapper {
+        if let Some(dpf) = &managed_host.managed_host_output.dpf {
+            is_dpf_not_used |= !dpf.used_for_ingestion;
+        }
         table.add_row(managed_host.into());
     }
 
-    table.into()
+    let mut warnings = Vec::new();
+    if is_dpf_not_used {
+        warnings.push(
+            "One or more DPUs are using a provisioning strategy (internal) which is \
+deprecated and will be removed in v2.1, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs"
+                .to_string(),
+        );
+    }
+
+    (table.into(), warnings)
 }
 
 async fn show_managed_hosts(
@@ -248,7 +261,7 @@ async fn show_managed_hosts(
             }
         }
         OutputFormat::Csv => {
-            let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
+            let (result, _) = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
             async_write_table_as_csv!(output_file, result)?;
         }
         _ => {
@@ -260,8 +273,12 @@ async fn show_managed_hosts(
                         .ok_or(CarbideCliError::Empty)?,
                 )?;
             } else {
-                let result = convert_managed_hosts_to_nice_output(managed_hosts, output_options);
-                async_write!(output_file, "{}", result)?;
+                let (result, warnings) =
+                    convert_managed_hosts_to_nice_output(managed_hosts, output_options);
+                crate::async_writeln!(output_file, "{}", result)?;
+                for warning in &warnings {
+                    async_writeln!(output_file, "WARNING: {warning}")?;
+                }
             }
         }
     }
@@ -365,6 +382,25 @@ fn show_managed_host_details_view(m: carbide_rpc_utils::ManagedHostOutput) -> Ca
         ("    MAC", m.host_bmc_mac),
     ];
     data.append(&mut bmc_details);
+
+    let mut dpf = vec![
+        ("  Dpf", Some("".to_string())),
+        ("    Enabled", m.dpf.as_ref().map(|x| x.enabled.to_string())),
+        (
+            "    Used For Ingestion",
+            m.dpf.as_ref().map(|x| x.used_for_ingestion.to_string()),
+        ),
+    ];
+    if let Some(dpf_state) = m.dpf
+        && !dpf_state.used_for_ingestion
+    {
+        dpf.push((
+            "    WARN! One or more DPUs are using a provisioning strategy (internal) which is \
+deprecated and will be removed in v2.1, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs",
+            Some("".to_string()),
+        ));
+    }
+    data.append(&mut dpf);
 
     for (key, value) in data {
         if matches!(&value, Some(x) if x.is_empty()) {

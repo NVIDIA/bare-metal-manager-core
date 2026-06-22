@@ -1,0 +1,49 @@
+# `nico-admin-cli mlx info device`
+
+_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [info](./mlx-info.md) › **device**_
+
+## NAME
+
+nico-admin-cli-mlx-info-device - Get MlxDeviceInfo for a device on a
+machine
+
+## SYNOPSIS
+
+**nico-admin-cli mlx info device** \[**--extended**\] \[**--sort-by**\]
+\[**-h**\|**--help**\] \<*MACHINE_ID*\> \<*DEVICE_ID*\>
+
+## DESCRIPTION
+
+Get MlxDeviceInfo for a device on a machine
+
+## OPTIONS
+
+**--extended**  
+Extended result output.
+
+This used by measured boot, where basic output contains just what you
+probably care about, and "extended" output also dumps out all the
+internal UUIDs that are used to associate instances.
+
+**--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
+Sort output by specified field\
+
+\
+*Possible values:*
+
+- primary-id: Sort by the primary id
+
+- state: Sort by state
+
+**-h**, **--help**  
+Print help (see a summary with -h)
+
+\<*MACHINE_ID*\>  
+Carbide Machine ID
+
+\<*DEVICE_ID*\>  
+Device ID is the PCI or mst path on the target machine
+
+---
+
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)

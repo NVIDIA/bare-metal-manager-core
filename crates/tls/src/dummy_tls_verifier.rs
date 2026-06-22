@@ -103,3 +103,33 @@ impl ServerCertVerifier for DummyTlsVerifier {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use rustls::client::danger::ServerCertVerifier;
+
+    use super::*;
+
+    #[test]
+    fn exposes_supported_signature_schemes() {
+        value_scenarios!(
+            run = |for_prod| {
+                let verifier = if for_prod {
+                    DummyTlsVerifier::new_for_prod()
+                } else {
+                    DummyTlsVerifier::new_for_tests()
+                };
+                let schemes = verifier.supported_verify_schemes();
+                (
+                    schemes.contains(&SignatureScheme::RSA_PKCS1_SHA256),
+                    schemes.contains(&SignatureScheme::ED25519),
+                )
+            };
+            "constructors" {
+                false => (true, true),
+                true => (true, true),
+            }
+        );
+    }
+}

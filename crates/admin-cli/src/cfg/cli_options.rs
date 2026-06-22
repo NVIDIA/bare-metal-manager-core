@@ -31,13 +31,13 @@ use crate::{
 };
 
 #[derive(Parser, Debug)]
-#[clap(name = "carbide-admin-cli")]
+#[clap(name = "nico-admin-cli")]
 #[clap(author = "https://github.com/NVIDIA/ncx-infra-controller-core")]
 pub struct CliOptions {
     #[clap(
         long,
         default_value = "false",
-        help = "Print version number of carbide-admin-cli and exit. For API server version see 'version' command."
+        help = "Print version number of nico-admin-cli and exit. For API server version see 'version' command."
     )]
     pub version: bool,
 
@@ -202,12 +202,15 @@ pub enum CliCommand {
     ExtensionService(extension_service::Cmd),
     #[clap(about = "Firmware related actions", subcommand)]
     Firmware(firmware::Cmd),
-    #[clap(about = "Regenerate the docs/cli markdown reference", hide = true)]
+    #[clap(
+        about = "Regenerate the docs/manuals/nico-admin-cli markdown reference",
+        hide = true
+    )]
     GenerateCliDocs(generate_docs::Cmd),
     #[clap(about = "Generate man pages for the CLI", hide = true)]
     GenerateMan(generate_man::Cmd),
     #[clap(
-        about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
+        about = "Generate shell autocomplete. Source the output of this command: `source <(nico-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
     #[clap(about = "Host specific handling", subcommand)]
@@ -373,7 +376,7 @@ impl CliOptions {
 // CLI documentation domains
 // =============================================================================
 //
-// The generated CLI reference (docs/cli) groups top-level commands into four
+// The generated CLI reference (docs/manuals/nico-admin-cli) groups top-level commands into four
 // operator-facing domains. clap has no native way to categorize subcommands in
 // `--help`, so the grouping lives in `cli_domains.yaml` (at the crate root) as
 // the single source of truth and is consumed by the `generate-cli-docs`
@@ -462,7 +465,7 @@ mod tests {
 
     // Fails if a visible top-level command is missing from cli_domains.yaml.
     // When someone adds a new command, this points them at the YAML so the
-    // generated docs (docs/cli) stay grouped by domain.
+    // generated docs (docs/manuals/nico-admin-cli) stay grouped by domain.
     #[test]
     fn every_command_has_a_domain() {
         let missing: Vec<String> = visible_command_names()

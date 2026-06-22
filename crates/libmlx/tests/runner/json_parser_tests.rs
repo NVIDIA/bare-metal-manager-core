@@ -20,32 +20,48 @@
 
 use std::fs;
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
+use libmlx::runner::error::MlxRunnerError;
 use libmlx::runner::exec_options::ExecOptions;
 use libmlx::runner::json_parser::JsonResponseParser;
+use libmlx::runner::result_types::QueryResult;
+use libmlx::variables::registry::MlxVariableRegistry;
 use libmlx::variables::value::MlxValueType;
 use serde_json::json;
 
 use super::common;
 
+// Build a parser over `registry`, write `json` to a temp file, and parse it for
+// `device`. The temp-file/parser dance was copy-pasted into every test below.
+fn parse(
+    registry: &MlxVariableRegistry,
+    json: serde_json::Value,
+    device: &str,
+) -> Result<QueryResult, MlxRunnerError> {
+    let options = ExecOptions::default();
+    let parser = JsonResponseParser {
+        registry,
+        options: &options,
+    };
+    let temp_file = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        temp_file.path(),
+        serde_json::to_string_pretty(&json).unwrap(),
+    )
+    .unwrap();
+    parser.parse_json_response(temp_file.path(), device)
+}
+
 #[test]
 fn test_parse_basic_json_response() {
     let registry = common::create_test_registry();
-    let options = ExecOptions::default();
-    let parser = JsonResponseParser {
-        registry: &registry,
-        options: &options,
-    };
-
-    let json_data = common::create_sample_json_response("01:00.0");
-
-    // Write JSON to temp file
-    let temp_file = tempfile::NamedTempFile::new().unwrap();
-    let json_string = serde_json::to_string_pretty(&json_data).unwrap();
-    fs::write(temp_file.path(), json_string).unwrap();
-
-    let result = parser
-        .parse_json_response(temp_file.path(), "01:00.0")
-        .unwrap();
+    let result = parse(
+        &registry,
+        common::create_sample_json_response("01:00.0"),
+        "01:00.0",
+    )
+    .unwrap();
 
     // Verify device info
     assert_eq!(
@@ -77,22 +93,12 @@ fn test_parse_basic_json_response() {
 #[test]
 fn test_parse_array_variables() {
     let registry = common::create_test_registry();
-    let options = ExecOptions::default();
-    let parser = JsonResponseParser {
-        registry: &registry,
-        options: &options,
-    };
-
-    let json_data = common::create_array_json_response("01:00.0");
-
-    // Write JSON to temp file
-    let temp_file = tempfile::NamedTempFile::new().unwrap();
-    let json_string = serde_json::to_string_pretty(&json_data).unwrap();
-    fs::write(temp_file.path(), json_string).unwrap();
-
-    let result = parser
-        .parse_json_response(temp_file.path(), "01:00.0")
-        .unwrap();
+    let result = parse(
+        &registry,
+        common::create_array_json_response("01:00.0"),
+        "01:00.0",
+    )
+    .unwrap();
 
     // Find GPIO_ENABLED boolean array
     let gpio_enabled = result
@@ -155,21 +161,12 @@ fn test_parse_array_variables() {
 #[test]
 fn test_device_mismatch_error() {
     let registry = common::create_test_registry();
-    let options = ExecOptions::default();
-    let parser = JsonResponseParser {
-        registry: &registry,
-        options: &options,
-    };
-
-    let json_data = common::create_sample_json_response("01:00.0");
-
-    // Write JSON to temp file
-    let temp_file = tempfile::NamedTempFile::new().unwrap();
-    let json_string = serde_json::to_string_pretty(&json_data).unwrap();
-    fs::write(temp_file.path(), json_string).unwrap();
-
-    // Try to parse with different expected device
-    let result = parser.parse_json_response(temp_file.path(), "02:00.0");
+    // Try to parse with a different expected device.
+    let result = parse(
+        &registry,
+        common::create_sample_json_response("01:00.0"),
+        "02:00.0",
+    );
 
     assert!(result.is_err());
     if let Err(libmlx::runner::error::MlxRunnerError::DeviceMismatch { expected, actual }) = result
@@ -215,60 +212,57 @@ fn test_missing_file() {
     assert!(result.is_err());
 }
 
+// The boolean spellings mlxconfig might hand back, parsed for TEST_BOOL.
 #[test]
 fn test_boolean_parsing_variations() {
     let registry = common::create_minimal_test_registry();
-    let options = ExecOptions::default();
-    let parser = JsonResponseParser {
-        registry: &registry,
-        options: &options,
-    };
-
-    // Test different boolean formats that mlxconfig might return
-    let test_cases = vec![
-        ("True(1)", true),
-        ("False(0)", false),
-        ("TRUE", true),
-        ("FALSE", false),
-    ];
-
-    for (input_value, expected_bool) in test_cases {
-        let json_data = json!({
-            "Device #1": {
-                "description": "Test Device",
-                "device": "01:00.0",
-                "device_type": "Test",
-                "name": "Test",
-                "tlv_configuration": {
-                    "TEST_BOOL": {
-                        "current_value": input_value,
-                        "default_value": "False(0)",
-                        "modified": false,
-                        "next_value": input_value,
-                        "read_only": false
+    scenarios!(
+        run = |raw| {
+            let json = json!({
+                "Device #1": {
+                    "description": "Test Device",
+                    "device": "01:00.0",
+                    "device_type": "Test",
+                    "name": "Test",
+                    "tlv_configuration": {
+                        "TEST_BOOL": {
+                            "current_value": raw,
+                            "default_value": "False(0)",
+                            "modified": false,
+                            "next_value": raw,
+                            "read_only": false
+                        }
                     }
                 }
-            }
-        });
+            });
+            parse(&registry, json, "01:00.0")
+                .map(|r| {
+                    r.variables
+                        .iter()
+                        .find(|v| v.name() == "TEST_BOOL")
+                        .unwrap()
+                        .current_value
+                        .value
+                        .clone()
+                })
+                .map_err(drop)
+        };
+        "True(1)" {
+            "True(1)" => Yields(MlxValueType::Boolean(true)),
+        }
 
-        let temp_file = tempfile::NamedTempFile::new().unwrap();
-        let json_string = serde_json::to_string_pretty(&json_data).unwrap();
-        fs::write(temp_file.path(), json_string).unwrap();
+        "False(0)" {
+            "False(0)" => Yields(MlxValueType::Boolean(false)),
+        }
 
-        let result = parser
-            .parse_json_response(temp_file.path(), "01:00.0")
-            .unwrap();
-        let test_var = result
-            .variables
-            .iter()
-            .find(|v| v.name() == "TEST_BOOL")
-            .unwrap();
+        "TRUE" {
+            "TRUE" => Yields(MlxValueType::Boolean(true)),
+        }
 
-        assert_eq!(
-            test_var.current_value.value,
-            MlxValueType::Boolean(expected_bool)
-        );
-    }
+        "FALSE" {
+            "FALSE" => Yields(MlxValueType::Boolean(false)),
+        }
+    );
 }
 
 #[test]

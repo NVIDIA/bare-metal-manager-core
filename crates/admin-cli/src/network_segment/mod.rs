@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod attach_vpc;
 mod delete;
 mod show;
 
@@ -33,6 +34,8 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(about = "Display Network Segment information")]
     Show(show::Args),
+    #[clap(about = "Attach Network Segment to VPC")]
+    AttachVpc(attach_vpc::Args),
     #[clap(about = "Delete Network Segment")]
     Delete(delete::Args),
 }

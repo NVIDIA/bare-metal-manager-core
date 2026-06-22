@@ -146,6 +146,8 @@ pub async fn on_demand_rack_maintenance(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
     use carbide_uuid::rack::RackId;
 
     use super::*;
@@ -165,87 +167,64 @@ mod tests {
         }
     }
 
+    // resolve_firmware_upgrade_source decides the SOT firmware source and access
+    // token for a set of MaintenanceOptions: a firmware-upgrade activity demands a
+    // SOT JSON, inline JSON must actually parse, an empty access token reads as
+    // absent, and --firmware-version/--access-token are rejected without an
+    // activity that uses them. The error type is not PartialEq, so failures use
+    // Fails (+ map_err(drop)); successful rows yield the (firmware_version,
+    // access_token) tuple the originals asserted on.
     #[test]
-    fn firmware_upgrade_requires_sot_json() {
-        let args = MaintenanceOptions {
-            activities: Some(vec!["firmware-upgrade".to_string()]),
-            access_token: Some("token".to_string()),
-            ..options()
-        };
+    fn resolve_firmware_upgrade_source_cases() {
+        scenarios!(
+            run = |args| resolve_firmware_upgrade_source(&args).map_err(drop);
+            "firmware-upgrade without a SOT JSON source is rejected" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
 
-        let err = resolve_firmware_upgrade_source(&args).unwrap_err();
+            "firmware-upgrade with inline JSON allows a missing access token" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    ..options()
+                } => Yields((r#"{"Id":"fw"}"#.to_string(), None)),
+            }
 
-        assert!(err.to_string().contains("requires SOT JSON"));
-    }
+            "firmware-upgrade treats an empty access token as missing" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    access_token: Some(String::new()),
+                    ..options()
+                } => Yields((r#"{"Id":"fw"}"#.to_string(), None)),
+            }
 
-    #[test]
-    fn firmware_upgrade_allows_missing_access_token() {
-        let args = MaintenanceOptions {
-            activities: Some(vec!["firmware-upgrade".to_string()]),
-            firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-            ..options()
-        };
+            "firmware-upgrade rejects invalid inline JSON" {
+                MaintenanceOptions {
+                    activities: Some(vec!["firmware-upgrade".to_string()]),
+                    firmware_version: Some("not-json".to_string()),
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
 
-        let (firmware_version, access_token) = resolve_firmware_upgrade_source(&args).unwrap();
+            "--firmware-version without a firmware-upgrade activity is rejected" {
+                MaintenanceOptions {
+                    firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+                    ..options()
+                } => Fails,
+            }
 
-        assert_eq!(firmware_version, r#"{"Id":"fw"}"#);
-        assert_eq!(access_token, None);
-    }
-
-    #[test]
-    fn firmware_upgrade_treats_empty_access_token_as_missing() {
-        let args = MaintenanceOptions {
-            activities: Some(vec!["firmware-upgrade".to_string()]),
-            firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-            access_token: Some(String::new()),
-            ..options()
-        };
-
-        let (_, access_token) = resolve_firmware_upgrade_source(&args).unwrap();
-
-        assert_eq!(access_token, None);
-    }
-
-    #[test]
-    fn firmware_upgrade_rejects_invalid_inline_json() {
-        let args = MaintenanceOptions {
-            activities: Some(vec!["firmware-upgrade".to_string()]),
-            firmware_version: Some("not-json".to_string()),
-            access_token: Some("token".to_string()),
-            ..options()
-        };
-
-        assert!(resolve_firmware_upgrade_source(&args).is_err());
-    }
-
-    #[test]
-    fn firmware_source_requires_firmware_upgrade_activity() {
-        let args = MaintenanceOptions {
-            firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
-            ..options()
-        };
-
-        let err = resolve_firmware_upgrade_source(&args).unwrap_err();
-
-        assert!(
-            err.to_string().contains(
-                "--firmware-version requires --activities firmware-upgrade or nvos-update"
-            )
-        );
-    }
-
-    #[test]
-    fn access_token_requires_firmware_upgrade_activity() {
-        let args = MaintenanceOptions {
-            access_token: Some("token".to_string()),
-            ..options()
-        };
-
-        let err = resolve_firmware_upgrade_source(&args).unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("--access-token requires --activities firmware-upgrade or nvos-update")
+            "--access-token without a firmware-upgrade activity is rejected" {
+                MaintenanceOptions {
+                    access_token: Some("token".to_string()),
+                    ..options()
+                } => Fails,
+            }
         );
     }
 }

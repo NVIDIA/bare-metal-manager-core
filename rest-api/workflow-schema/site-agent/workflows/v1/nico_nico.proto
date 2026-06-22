@@ -239,6 +239,7 @@ service Forge {
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
+  rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -1668,6 +1669,10 @@ message VpcPrefixStatus {
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
   uint64 available_linknet_segments = 4;
+  LifecycleStatus lifecycle = 5;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 6;
 }
 
 message VpcPrefixCreationRequest {
@@ -1691,10 +1696,14 @@ message VpcPrefixSearchQuery {
   // for its semantics.)
   optional string prefix_match = 4;
   optional PrefixMatchType prefix_match_type = 5;
+  // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 6;
 }
 
 message VpcPrefixGetRequest {
   repeated common.VpcPrefixId vpc_prefix_ids = 1;
+  // Controls whether soft-deleted VPC prefixes are returned. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
 }
 
 message VpcPrefixIdList {
@@ -1722,6 +1731,10 @@ message VpcPrefixDeletionRequest {
 }
 
 message VpcPrefixDeletionResult {
+}
+
+message VpcPrefixStateHistoriesRequest {
+  repeated common.VpcPrefixId vpc_prefix_ids = 1;
 }
 
 message VpcPeering {
@@ -3521,6 +3534,9 @@ message Machine {
   optional PlacementInRack placement_in_rack = 46;
 
   optional MachineSpxStatusObservation spx_status_observation = 47;
+
+  // Build version of nico-scout last observed during machine discovery registration.
+  optional string last_scout_observed_version = 48;
 }
 
 message InstanceNetworkRestrictions {
@@ -4696,12 +4712,20 @@ message ForgeAgentControlResponse {
   }
 }
 
+enum MachineDiscoveryReporter {
+  MACHINE_DISCOVERY_REPORTER_UNSPECIFIED = 0;
+  MACHINE_DISCOVERY_REPORTER_SCOUT = 1;
+  MACHINE_DISCOVERY_REPORTER_DPU_AGENT = 2;
+}
+
 message MachineDiscoveryInfo {
   common.MachineInterfaceId machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
   bool create_machine = 3;
+  MachineDiscoveryReporter discovery_reporter = 4;
+  optional string discovery_reporter_version = 5;
 }
 
 message MachineDiscoveryCompletedRequest {
@@ -5413,9 +5437,27 @@ message HostReprovisioningListResponse {
   repeated HostReprovisioningListItem hosts = 1;
 }
 
+message DpuOsOperationalState {
+  string state_detail = 1;
+}
+
+message DpuRepresentorStatus {
+  string name = 1;
+  optional bool carrier_up = 2;
+  optional string state = 3;
+}
+
+message DpuInfoStatusObservation {
+  optional DpuOsOperationalState os_operational_state = 1;
+  optional string firmware_version = 2;
+  repeated DpuRepresentorStatus representors = 3;
+  optional google.protobuf.Timestamp last_heartbeat = 4;
+}
+
 message DpuInfo {
   string id = 1;
   string loopback_ip = 2;
+  optional DpuInfoStatusObservation observed_status = 3;
 }
 
 message GetDpuInfoListRequest {
@@ -5981,13 +6023,14 @@ message MachineValidationOnDemandResponse {
 
 message FirmwareUpgradeActivity {
   // SOT JSON string passed to the backend.
-  // Explicit firmware-upgrade maintenance requests must set this and access_token.
+  // Explicit firmware-upgrade maintenance requests must set this.
   // Implicit all-activity maintenance skips firmware update when no JSON is configured.
   string firmware_version = 1;
   // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
   // When empty, all components are updated.
   repeated string components = 2;
   // Used only by the backend for artifact download when firmware_version contains SOT JSON.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
   // NICo stores it as a maintenance credential, not in rack maintenance state.
   optional string access_token = 3;
   bool force_update = 4;
@@ -6000,6 +6043,7 @@ message NvosUpdateActivity {
   // Required for nvos-update activity.
   string config_json = 2;
   // Used only by the backend for artifact download when config_json is set.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
   // NICo stores it as a maintenance credential, not in rack maintenance state.
   optional string access_token = 3;
 }
@@ -8225,8 +8269,8 @@ message UpdateComponentFirmwareRequest {
   // For targets routed through rack maintenance, this carries SOT JSON for
   // the backend firmware apply path.
   string target_version = 4;
-  // Required for firmware targets routed through rack maintenance.
-  // Rejected for direct dispatch paths and currently unsupported for power shelves.
+  // Optional for firmware targets routed to RMS.
+  // Omitted or empty values are passed to RMS as "NOAUTH".
   optional string access_token = 6;
   bool force_update = 7;
   // When true, bypass the state controller and dispatch directly to the

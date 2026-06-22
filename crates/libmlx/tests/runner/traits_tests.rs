@@ -18,6 +18,8 @@
 // tests/traits_tests.rs
 // Tests for MlxConfigSettable and MlxConfigQueryable traits
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::runner::traits::{self, MlxConfigQueryable, MlxConfigSettable};
 use libmlx::variables::value::MlxValueType;
 
@@ -62,48 +64,60 @@ fn test_mlx_config_settable_string_tuples() {
     assert_eq!(power.value, MlxValueType::Enum("HIGH".to_string()));
 }
 
+// `to_config_values` over string-tuple assignments works whether they're passed
+// as an owned array `[...]` or an array reference `&[...]`. Each row calls the
+// trait on its own container type (identity closure) and projects the unordered
+// result to name->value pairs sorted by name.
+//
+// The `&[...]` borrow is load-bearing: it selects the `&[T; N]` trait impl, which
+// is the distinct coverage this row adds over the owned-array row, so the borrow
+// must stay despite clippy seeing it as droppable.
+#[allow(clippy::needless_borrows_for_generic_args)]
 #[test]
-fn test_mlx_config_settable_arrays_direct() {
+fn config_values_from_string_tuples_across_container_forms() {
+    fn pairs<T: MlxConfigSettable>(
+        assignments: T,
+        registry: &libmlx::variables::registry::MlxVariableRegistry,
+    ) -> Vec<(String, MlxValueType)> {
+        let mut pairs: Vec<(String, MlxValueType)> = assignments
+            .to_config_values(registry)
+            .unwrap()
+            .iter()
+            .map(|v| (v.name().to_string(), v.value.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+
     let registry = common::create_test_registry();
 
-    // Test that we can pass arrays directly without needing as &[_]
-    let assignments = [
-        ("SRIOV_EN", "true"),
-        ("NUM_OF_VFS", "16"),
-        ("POWER_MODE", "HIGH"),
-    ];
+    value_scenarios!(
+        run = |p| p;
+        "owned array [...]" {
+            pairs(
+                [
+                    ("SRIOV_EN", "true"),
+                    ("NUM_OF_VFS", "16"),
+                    ("POWER_MODE", "HIGH"),
+                ],
+                &registry,
+            ) => vec![
+                ("NUM_OF_VFS".to_string(), MlxValueType::Integer(16)),
+                ("POWER_MODE".to_string(), MlxValueType::Enum("HIGH".to_string())),
+                ("SRIOV_EN".to_string(), MlxValueType::Boolean(true)),
+            ],
+        }
 
-    let result = assignments.to_config_values(&registry).unwrap();
-
-    assert_eq!(result.len(), 3);
-
-    // Find each variable and verify
-    let sriov = result.iter().find(|v| v.name() == "SRIOV_EN").unwrap();
-    assert_eq!(sriov.value, MlxValueType::Boolean(true));
-
-    let vfs = result.iter().find(|v| v.name() == "NUM_OF_VFS").unwrap();
-    assert_eq!(vfs.value, MlxValueType::Integer(16));
-
-    let power = result.iter().find(|v| v.name() == "POWER_MODE").unwrap();
-    assert_eq!(power.value, MlxValueType::Enum("HIGH".to_string()));
-}
-
-#[test]
-fn test_mlx_config_settable_array_references() {
-    let registry = common::create_test_registry();
-
-    // Test that array references also work
-    let assignments = &[("SRIOV_EN", "false"), ("NUM_OF_VFS", "32")];
-
-    let result = assignments.to_config_values(&registry).unwrap();
-
-    assert_eq!(result.len(), 2);
-
-    let sriov = result.iter().find(|v| v.name() == "SRIOV_EN").unwrap();
-    assert_eq!(sriov.value, MlxValueType::Boolean(false));
-
-    let vfs = result.iter().find(|v| v.name() == "NUM_OF_VFS").unwrap();
-    assert_eq!(vfs.value, MlxValueType::Integer(32));
+        "array reference &[...]" {
+            pairs(
+                &[("SRIOV_EN", "false"), ("NUM_OF_VFS", "32")],
+                &registry,
+            ) => vec![
+                ("NUM_OF_VFS".to_string(), MlxValueType::Integer(32)),
+                ("SRIOV_EN".to_string(), MlxValueType::Boolean(false)),
+            ],
+        }
+    );
 }
 
 #[test]
@@ -127,46 +141,83 @@ fn test_mlx_config_settable_different_array_sizes() {
     assert_eq!(result.len(), 5);
 }
 
+// `to_config_values` over indexed array assignments builds the same sparse
+// arrays whether passed as an owned array `[...]` or an array reference `&[...]`.
+// Each row calls the trait on its own container type and projects the result to
+// name->value pairs (the full array value) sorted by name. The expected arrays
+// pin the same per-index slots the originals asserted: GPIO_ENABLED size 4 with
+// [0]=true,[2]=false and GPIO_MODES size 8 with [1]=output,[3]=bidirectional.
+//
+// The `&[...]` borrow is load-bearing: it selects the `&[T; N]` trait impl, which
+// is the distinct coverage this row adds over the owned-array row, so the borrow
+// must stay despite clippy seeing it as droppable.
+#[allow(clippy::needless_borrows_for_generic_args)]
 #[test]
-fn test_mlx_config_settable_arrays_with_indices() {
+fn config_values_from_indexed_arrays_across_container_forms() {
+    fn pairs<T: MlxConfigSettable>(
+        assignments: T,
+        registry: &libmlx::variables::registry::MlxVariableRegistry,
+    ) -> Vec<(String, MlxValueType)> {
+        let mut pairs: Vec<(String, MlxValueType)> = assignments
+            .to_config_values(registry)
+            .unwrap()
+            .iter()
+            .map(|v| (v.name().to_string(), v.value.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        pairs
+    }
+
     let registry = common::create_test_registry();
 
-    // Test that array index syntax works with direct arrays
-    let assignments = [
-        ("GPIO_ENABLED[0]", "true"),
-        ("GPIO_ENABLED[2]", "false"),
-        ("GPIO_MODES[1]", "output"),
-        ("GPIO_MODES[3]", "bidirectional"),
-    ];
+    let expected = || {
+        vec![
+            (
+                "GPIO_ENABLED".to_string(),
+                MlxValueType::BooleanArray(vec![Some(true), None, Some(false), None]),
+            ),
+            (
+                "GPIO_MODES".to_string(),
+                MlxValueType::EnumArray(vec![
+                    None,
+                    Some("output".to_string()),
+                    None,
+                    Some("bidirectional".to_string()),
+                    None,
+                    None,
+                    None,
+                    None,
+                ]),
+            ),
+        ]
+    };
 
-    let result = assignments.to_config_values(&registry).unwrap();
+    value_scenarios!(
+        run = |p| p;
+        "owned array [...]" {
+            pairs(
+                [
+                    ("GPIO_ENABLED[0]", "true"),
+                    ("GPIO_ENABLED[2]", "false"),
+                    ("GPIO_MODES[1]", "output"),
+                    ("GPIO_MODES[3]", "bidirectional"),
+                ],
+                &registry,
+            ) => expected(),
+        }
 
-    assert_eq!(result.len(), 2); // Two arrays: GPIO_ENABLED and GPIO_MODES
-
-    // Find GPIO_ENABLED array
-    let gpio_enabled = result.iter().find(|v| v.name() == "GPIO_ENABLED").unwrap();
-    if let MlxValueType::BooleanArray(values) = &gpio_enabled.value {
-        assert_eq!(values.len(), 4); // Array size from registry spec
-        assert_eq!(values[0], Some(true));
-        assert_eq!(values[1], None); // Not set in assignments
-        assert_eq!(values[2], Some(false));
-        assert_eq!(values[3], None); // Not set in assignments
-    } else {
-        panic!("Expected BooleanArray for GPIO_ENABLED");
-    }
-
-    // Find GPIO_MODES array
-    let gpio_modes = result.iter().find(|v| v.name() == "GPIO_MODES").unwrap();
-    if let MlxValueType::EnumArray(values) = &gpio_modes.value {
-        assert_eq!(values.len(), 8); // Array size from registry spec
-        assert_eq!(values[0], None);
-        assert_eq!(values[1], Some("output".to_string()));
-        assert_eq!(values[2], None);
-        assert_eq!(values[3], Some("bidirectional".to_string()));
-        assert!(values[4..8].iter().all(|v| v.is_none()));
-    } else {
-        panic!("Expected EnumArray for GPIO_MODES");
-    }
+        "array reference &[...]" {
+            pairs(
+                &[
+                    ("GPIO_ENABLED[0]", "true"),
+                    ("GPIO_ENABLED[2]", "false"),
+                    ("GPIO_MODES[1]", "output"),
+                    ("GPIO_MODES[3]", "bidirectional"),
+                ],
+                &registry,
+            ) => expected(),
+        }
+    );
 }
 
 #[test]
@@ -190,47 +241,6 @@ fn test_mlx_config_settable_vec_string_tuples() {
 }
 
 #[test]
-fn test_mlx_config_settable_array_indices() {
-    let registry = common::create_test_registry();
-
-    let assignments = &[
-        ("GPIO_ENABLED[0]", "true"),
-        ("GPIO_ENABLED[2]", "false"),
-        ("GPIO_MODES[1]", "output"),
-        ("GPIO_MODES[3]", "bidirectional"),
-    ];
-
-    let result = assignments.to_config_values(&registry).unwrap();
-
-    assert_eq!(result.len(), 2); // Two arrays: GPIO_ENABLED and GPIO_MODES
-
-    // Find GPIO_ENABLED array
-    let gpio_enabled = result.iter().find(|v| v.name() == "GPIO_ENABLED").unwrap();
-    if let MlxValueType::BooleanArray(values) = &gpio_enabled.value {
-        assert_eq!(values.len(), 4); // Array size from registry spec
-        assert_eq!(values[0], Some(true));
-        assert_eq!(values[1], None); // Not set in assignments
-        assert_eq!(values[2], Some(false));
-        assert_eq!(values[3], None); // Not set in assignments
-    } else {
-        panic!("Expected BooleanArray for GPIO_ENABLED");
-    }
-
-    // Find GPIO_MODES array
-    let gpio_modes = result.iter().find(|v| v.name() == "GPIO_MODES").unwrap();
-    if let MlxValueType::EnumArray(values) = &gpio_modes.value {
-        assert_eq!(values.len(), 8); // Array size from registry spec
-        assert_eq!(values[0], None);
-        assert_eq!(values[1], Some("output".to_string()));
-        assert_eq!(values[2], None);
-        assert_eq!(values[3], Some("bidirectional".to_string()));
-        assert!(values[4..8].iter().all(|v| v.is_none()));
-    } else {
-        panic!("Expected EnumArray for GPIO_MODES");
-    }
-}
-
-#[test]
 fn test_mlx_config_settable_variable_not_found() {
     let registry = common::create_test_registry();
 
@@ -246,47 +256,44 @@ fn test_mlx_config_settable_variable_not_found() {
     }
 }
 
+// `to_variable_names` over scalar variable names yields them unchanged whether
+// passed as an owned array `[...]` or an array reference `&[...]`. Each row calls
+// the trait on its own container type and projects to a sorted name list.
+//
+// The `&[...]` borrow is load-bearing: it selects the `&[T; N]` trait impl, which
+// is the distinct coverage this row adds over the owned-array row, so the borrow
+// must stay despite clippy seeing it as droppable.
+#[allow(clippy::needless_borrows_for_generic_args)]
 #[test]
-fn test_mlx_config_queryable_string_slice() {
+fn variable_names_from_scalars_across_container_forms() {
+    fn names<T: MlxConfigQueryable>(
+        variables: T,
+        registry: &libmlx::variables::registry::MlxVariableRegistry,
+    ) -> Vec<String> {
+        let mut names = variables.to_variable_names(registry).unwrap();
+        names.sort();
+        names
+    }
+
     let registry = common::create_test_registry();
+    let expected = || {
+        vec![
+            "NUM_OF_VFS".to_string(),
+            "POWER_MODE".to_string(),
+            "SRIOV_EN".to_string(),
+        ]
+    };
 
-    let variables = &["SRIOV_EN", "NUM_OF_VFS", "POWER_MODE"];
-    let result = variables.to_variable_names(&registry).unwrap();
+    value_scenarios!(
+        run = |n| n;
+        "owned array [...]" {
+            names(["SRIOV_EN", "NUM_OF_VFS", "POWER_MODE"], &registry) => expected(),
+        }
 
-    assert_eq!(result.len(), 3);
-    assert!(result.contains(&"SRIOV_EN".to_string()));
-    assert!(result.contains(&"NUM_OF_VFS".to_string()));
-    assert!(result.contains(&"POWER_MODE".to_string()));
-}
-
-#[test]
-fn test_mlx_config_queryable_arrays_direct() {
-    let registry = common::create_test_registry();
-
-    // Test that we can pass arrays directly without needing as &[_]
-    let variables = ["SRIOV_EN", "NUM_OF_VFS", "POWER_MODE"];
-    let result = variables.to_variable_names(&registry).unwrap();
-
-    assert_eq!(result.len(), 3);
-    assert!(result.contains(&"SRIOV_EN".to_string()));
-    assert!(result.contains(&"NUM_OF_VFS".to_string()));
-    assert!(result.contains(&"POWER_MODE".to_string()));
-}
-
-#[test]
-fn test_mlx_config_queryable_array_references() {
-    let registry = common::create_test_registry();
-
-    // Test that array references also work
-    let variables = &["GPIO_ENABLED", "THERMAL_SENSORS"];
-    let result = variables.to_variable_names(&registry).unwrap();
-
-    // GPIO_ENABLED has size 4, THERMAL_SENSORS has size 6
-    assert_eq!(result.len(), 10); // 4 + 6
-
-    // Check that array expansion works
-    assert!(result.contains(&"GPIO_ENABLED[0]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[5]".to_string()));
+        "array reference &[...]" {
+            names(&["SRIOV_EN", "NUM_OF_VFS", "POWER_MODE"], &registry) => expected(),
+        }
+    );
 }
 
 #[test]
@@ -321,29 +328,42 @@ fn test_mlx_config_queryable_vec_string() {
     assert!(result.contains(&"DEVICE_NAME".to_string()));
 }
 
+// A full array name expands to one entry per index, sized from the registry
+// spec; passing several array names expands them together. This folds the former
+// `array_references` (spot-checked `GPIO_ENABLED[0]`/`THERMAL_SENSORS[5]`) and
+// `array_expansion` (listed every index) tests -- same `&[...]` input and data --
+// into one row that pins the entire combined expansion: GPIO_ENABLED size 4 +
+// THERMAL_SENSORS size 6 = 10 indexed names.
 #[test]
-fn test_mlx_config_queryable_array_expansion() {
+fn variable_names_expand_full_arrays_to_indices() {
+    fn names<T: MlxConfigQueryable>(
+        variables: T,
+        registry: &libmlx::variables::registry::MlxVariableRegistry,
+    ) -> Vec<String> {
+        let mut names = variables.to_variable_names(registry).unwrap();
+        names.sort();
+        names
+    }
+
     let registry = common::create_test_registry();
 
-    let variables = &["GPIO_ENABLED", "THERMAL_SENSORS"];
-    let result = variables.to_variable_names(&registry).unwrap();
-
-    // GPIO_ENABLED has size 4, THERMAL_SENSORS has size 6
-    assert_eq!(result.len(), 10); // 4 + 6
-
-    // Check GPIO_ENABLED indices
-    assert!(result.contains(&"GPIO_ENABLED[0]".to_string()));
-    assert!(result.contains(&"GPIO_ENABLED[1]".to_string()));
-    assert!(result.contains(&"GPIO_ENABLED[2]".to_string()));
-    assert!(result.contains(&"GPIO_ENABLED[3]".to_string()));
-
-    // Check THERMAL_SENSORS indices
-    assert!(result.contains(&"THERMAL_SENSORS[0]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[1]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[2]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[3]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[4]".to_string()));
-    assert!(result.contains(&"THERMAL_SENSORS[5]".to_string()));
+    value_scenarios!(
+        run = |n| n;
+        "a full array name expands to every index of each named array" {
+            names(["GPIO_ENABLED", "THERMAL_SENSORS"], &registry) => vec![
+                "GPIO_ENABLED[0]".to_string(),
+                "GPIO_ENABLED[1]".to_string(),
+                "GPIO_ENABLED[2]".to_string(),
+                "GPIO_ENABLED[3]".to_string(),
+                "THERMAL_SENSORS[0]".to_string(),
+                "THERMAL_SENSORS[1]".to_string(),
+                "THERMAL_SENSORS[2]".to_string(),
+                "THERMAL_SENSORS[3]".to_string(),
+                "THERMAL_SENSORS[4]".to_string(),
+                "THERMAL_SENSORS[5]".to_string(),
+            ],
+        }
+    );
 }
 
 #[test]
@@ -377,34 +397,46 @@ fn test_mlx_config_queryable_vec_variables() {
     assert!(result.contains(&"NUM_OF_VFS".to_string()));
 }
 
+// `parse_array_index` splits a `NAME[idx]` string into its base name and index,
+// returns None for a plain (non-indexed) name, and errors on a malformed index.
+// The runner error isn't PartialEq, so the malformed rows use `Fails`; the rest
+// pin the exact `Option<(name, index)>` the parse should yield.
 #[test]
-fn test_parse_array_index() {
-    // Test valid array index formats
-    let result = traits::parse_array_index("ARRAY_VAR[0]").unwrap();
-    assert_eq!(result, Some(("ARRAY_VAR".to_string(), 0)));
+fn parse_array_index_splits_name_and_index() {
+    scenarios!(
+        run = |name| traits::parse_array_index(name).map_err(drop);
+        "'ARRAY_VAR[0]'" {
+            "ARRAY_VAR[0]" => Yields(Some(("ARRAY_VAR".to_string(), 0))),
+        }
 
-    let result = traits::parse_array_index("GPIO_ENABLED[15]").unwrap();
-    assert_eq!(result, Some(("GPIO_ENABLED".to_string(), 15)));
+        "'GPIO_ENABLED[15]'" {
+            "GPIO_ENABLED[15]" => Yields(Some(("GPIO_ENABLED".to_string(), 15))),
+        }
 
-    let result = traits::parse_array_index("COMPLEX_ARRAY_NAME[999]").unwrap();
-    assert_eq!(result, Some(("COMPLEX_ARRAY_NAME".to_string(), 999)));
+        "'COMPLEX_ARRAY_NAME[999]'" {
+            "COMPLEX_ARRAY_NAME[999]" => Yields(Some(("COMPLEX_ARRAY_NAME".to_string(), 999))),
+        }
 
-    // Test non-array format
-    let result = traits::parse_array_index("SRIOV_EN").unwrap();
-    assert_eq!(result, None);
+        "'SRIOV_EN' is not an indexed name" {
+            "SRIOV_EN" => Yields(None),
+        }
 
-    let result = traits::parse_array_index("POWER_MODE").unwrap();
-    assert_eq!(result, None);
+        "'POWER_MODE' is not an indexed name" {
+            "POWER_MODE" => Yields(None),
+        }
 
-    // Test invalid formats
-    let result = traits::parse_array_index("INVALID[]");
-    assert!(result.is_err());
+        "'invalid[0]' lowercase name is not an index" {
+            "invalid[0]" => Yields(None),
+        }
 
-    let result = traits::parse_array_index("invalid[0]");
-    assert!(result.unwrap().is_none());
+        "'INVALID[]' has an empty index" {
+            "INVALID[]" => Fails,
+        }
 
-    let result = traits::parse_array_index("VAR[not_a_number]");
-    assert!(result.is_err());
+        "'VAR[not_a_number]' has a non-numeric index" {
+            "VAR[not_a_number]" => Fails,
+        }
+    );
 }
 
 #[test]
@@ -546,47 +578,48 @@ fn test_build_sparse_array_value_invalid_enum() {
     assert!(result.is_err());
 }
 
+// `get_array_size_from_spec` reads the declared size off any array spec and errors
+// on a scalar spec. One row per array variant plus the scalar rejection. The runner
+// error isn't PartialEq, so the scalar case uses `Fails`.
 #[test]
-fn test_get_array_size_from_spec() {
+fn get_array_size_from_spec_reads_array_sizes() {
     use libmlx::variables::spec::MlxVariableSpec;
 
-    // Test boolean array
-    let spec = MlxVariableSpec::builder()
-        .boolean_array()
-        .with_size(4)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 4);
+    scenarios!(
+        run = |spec| traits::get_array_size_from_spec(&spec).map_err(drop);
+        "boolean array" {
+            MlxVariableSpec::builder()
+            .boolean_array()
+            .with_size(4)
+            .build() => Yields(4),
+        }
 
-    // Test integer array
-    let spec = MlxVariableSpec::builder()
-        .integer_array()
-        .with_size(6)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 6);
+        "integer array" {
+            MlxVariableSpec::builder()
+            .integer_array()
+            .with_size(6)
+            .build() => Yields(6),
+        }
 
-    // Test enum array
-    let spec = MlxVariableSpec::builder()
-        .enum_array()
-        .with_options(vec!["a".to_string(), "b".to_string()])
-        .with_size(8)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 8);
+        "enum array" {
+            MlxVariableSpec::builder()
+            .enum_array()
+            .with_options(vec!["a".to_string(), "b".to_string()])
+            .with_size(8)
+            .build() => Yields(8),
+        }
 
-    // Test binary array
-    let spec = MlxVariableSpec::builder()
-        .binary_array()
-        .with_size(2)
-        .build();
-    let size = traits::get_array_size_from_spec(&spec).unwrap();
-    assert_eq!(size, 2);
+        "binary array" {
+            MlxVariableSpec::builder()
+            .binary_array()
+            .with_size(2)
+            .build() => Yields(2),
+        }
 
-    // Test non-array spec should error
-    let spec = MlxVariableSpec::builder().boolean().build();
-    let result = traits::get_array_size_from_spec(&spec);
-    assert!(result.is_err());
+        "a scalar spec has no array size" {
+            MlxVariableSpec::builder().boolean().build() => Fails,
+        }
+    );
 }
 
 #[test]
@@ -730,34 +763,50 @@ fn test_mlx_config_queryable_array_index_base_variable_not_found() {
     }
 }
 
+// Querying a single explicit array index validates that index against the array's
+// size from the registry spec: an in-bounds index is preserved verbatim (size 1,
+// the name unchanged), an out-of-bounds one is rejected. Folds the per-type
+// validation cases and the boundary edge cases into one table. The runner error
+// isn't PartialEq, so rejections use `Fails`; a success yields the single-name vec,
+// which pins both the length and the preserved name.
 #[test]
-fn test_mlx_config_queryable_array_index_validation() {
+fn array_index_query_validates_against_spec_size() {
     let registry = common::create_test_registry();
 
-    // Test that array index validation works for different array types
-    let test_cases = vec![
-        ("GPIO_ENABLED[0]", true),     // BooleanArray size 4, index 0 valid
-        ("GPIO_ENABLED[3]", true),     // BooleanArray size 4, index 3 valid
-        ("GPIO_ENABLED[4]", false),    // BooleanArray size 4, index 4 invalid
-        ("THERMAL_SENSORS[5]", true),  // IntegerArray size 6, index 5 valid
-        ("THERMAL_SENSORS[6]", false), // IntegerArray size 6, index 6 invalid
-        ("GPIO_MODES[7]", true),       // EnumArray size 8, index 7 valid
-        ("GPIO_MODES[8]", false),      // EnumArray size 8, index 8 invalid
-    ];
-
-    for (var_name, should_succeed) in test_cases {
-        let variables = &[var_name];
-        let result = variables.to_variable_names(&registry);
-
-        if should_succeed {
-            assert!(result.is_ok(), "Expected {var_name} to succeed");
-            let names = result.unwrap();
-            assert_eq!(names.len(), 1);
-            assert_eq!(names[0], var_name);
-        } else {
-            assert!(result.is_err(), "Expected {var_name} to fail");
+    scenarios!(
+        run = |var_name| (&[var_name]).to_variable_names(&registry).map_err(drop);
+        "GPIO_ENABLED[0]: boolean array size 4, first index" {
+            "GPIO_ENABLED[0]" => Yields(vec!["GPIO_ENABLED[0]".to_string()]),
         }
-    }
+
+        "GPIO_ENABLED[3]: boolean array size 4, last valid index" {
+            "GPIO_ENABLED[3]" => Yields(vec!["GPIO_ENABLED[3]".to_string()]),
+        }
+
+        "GPIO_ENABLED[4]: boolean array size 4, out of bounds" {
+            "GPIO_ENABLED[4]" => Fails,
+        }
+
+        "THERMAL_SENSORS[5]: integer array size 6, last valid index" {
+            "THERMAL_SENSORS[5]" => Yields(vec!["THERMAL_SENSORS[5]".to_string()]),
+        }
+
+        "THERMAL_SENSORS[6]: integer array size 6, out of bounds" {
+            "THERMAL_SENSORS[6]" => Fails,
+        }
+
+        "GPIO_MODES[0]: enum array size 8, first index" {
+            "GPIO_MODES[0]" => Yields(vec!["GPIO_MODES[0]".to_string()]),
+        }
+
+        "GPIO_MODES[7]: enum array size 8, last valid index" {
+            "GPIO_MODES[7]" => Yields(vec!["GPIO_MODES[7]".to_string()]),
+        }
+
+        "GPIO_MODES[8]: enum array size 8, out of bounds" {
+            "GPIO_MODES[8]" => Fails,
+        }
+    );
 }
 
 #[test]
@@ -792,31 +841,4 @@ fn test_mlx_config_queryable_preserve_vs_expand_behavior() {
     assert!(index_result.contains(&"GPIO_ENABLED[3]".to_string()));
     assert!(!index_result.contains(&"GPIO_ENABLED[0]".to_string()));
     assert!(!index_result.contains(&"GPIO_ENABLED[2]".to_string()));
-}
-
-#[test]
-fn test_mlx_config_queryable_array_index_edge_cases() {
-    let registry = common::create_test_registry();
-
-    // Test edge cases for array index parsing and validation
-    let test_cases = vec![
-        ("GPIO_ENABLED[0]", true),    // First index
-        ("THERMAL_SENSORS[5]", true), // Last valid index (size 6, so 0-5 valid)
-        ("GPIO_MODES[0]", true),      // First index of larger array
-        ("GPIO_MODES[7]", true),      // Last valid index (size 8, so 0-7 valid)
-    ];
-
-    for (var_name, should_succeed) in test_cases {
-        let variables = &[var_name];
-        let result = variables.to_variable_names(&registry);
-
-        if should_succeed {
-            assert!(result.is_ok(), "Expected {var_name} to succeed");
-            let names = result.unwrap();
-            assert_eq!(names.len(), 1);
-            assert_eq!(names[0], var_name);
-        } else {
-            assert!(result.is_err(), "Expected {var_name} to fail");
-        }
-    }
 }

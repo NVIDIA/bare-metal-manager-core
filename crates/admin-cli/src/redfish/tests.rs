@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -44,70 +46,59 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_bios_attrs ensures bios-attrs parses.
-#[test]
-fn parse_bios_attrs() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "bios-attrs"])
-            .expect("should parse bios-attrs");
-
-    assert!(matches!(action.command, Cmd::BiosAttrs));
+// variant names the parsed subcommand so routing tests can assert which
+// `Cmd` an argv lands on without matching every payload-free variant by hand.
+fn variant(cmd: &Cmd) -> &'static str {
+    match cmd {
+        Cmd::BiosAttrs => "bios-attrs",
+        Cmd::BootHdd => "boot-hdd",
+        Cmd::BootPxe => "boot-pxe",
+        Cmd::GetPowerState => "get-power-state",
+        Cmd::ForceOff => "force-off",
+        Cmd::ForceRestart => "force-restart",
+        Cmd::On => "on",
+        other => panic!("unexpected variant: {other:?}"),
+    }
 }
 
-// parse_boot_hdd ensures boot-hdd parses.
+// Each payload-free subcommand routes to its matching `Cmd` variant when given
+// a valid global --address.
 #[test]
-fn parse_boot_hdd() {
-    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "boot-hdd"])
-        .expect("should parse boot-hdd");
+fn payload_free_subcommands_route_to_their_variant() {
+    scenarios!(
+        run = |argv| {
+            RedfishAction::try_parse_from(argv.iter().copied())
+                .map(|a| variant(&a.command))
+                .map_err(drop)
+        };
+        "bios-attrs" {
+            &["redfish", "--address", "192.0.2.10", "bios-attrs"][..] => Yields("bios-attrs"),
+        }
 
-    assert!(matches!(action.command, Cmd::BootHdd));
-}
+        "boot-hdd" {
+            &["redfish", "--address", "192.0.2.10", "boot-hdd"][..] => Yields("boot-hdd"),
+        }
 
-// parse_boot_pxe ensures boot-pxe parses.
-#[test]
-fn parse_boot_pxe() {
-    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "boot-pxe"])
-        .expect("should parse boot-pxe");
+        "boot-pxe" {
+            &["redfish", "--address", "192.0.2.10", "boot-pxe"][..] => Yields("boot-pxe"),
+        }
 
-    assert!(matches!(action.command, Cmd::BootPxe));
-}
+        "get-power-state" {
+            &["redfish", "--address", "192.0.2.10", "get-power-state"][..] => Yields("get-power-state"),
+        }
 
-// parse_get_power_state ensures get-power-state parses.
-#[test]
-fn parse_get_power_state() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "get-power-state"])
-            .expect("should parse get-power-state");
+        "force-off" {
+            &["redfish", "--address", "192.0.2.10", "force-off"][..] => Yields("force-off"),
+        }
 
-    assert!(matches!(action.command, Cmd::GetPowerState));
-}
+        "force-restart" {
+            &["redfish", "--address", "192.0.2.10", "force-restart"][..] => Yields("force-restart"),
+        }
 
-// parse_force_off ensures force-off parses.
-#[test]
-fn parse_force_off() {
-    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "force-off"])
-        .expect("should parse force-off");
-
-    assert!(matches!(action.command, Cmd::ForceOff));
-}
-
-// parse_force_restart ensures force-restart parses.
-#[test]
-fn parse_force_restart() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "force-restart"])
-            .expect("should parse force-restart");
-
-    assert!(matches!(action.command, Cmd::ForceRestart));
-}
-
-// parse_on ensures on parses.
-#[test]
-fn parse_on() {
-    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "on"])
-        .expect("should parse on");
-
-    assert!(matches!(action.command, Cmd::On));
+        "on" {
+            &["redfish", "--address", "192.0.2.10", "on"][..] => Yields("on"),
+        }
+    );
 }
 
 // parse_with_address ensures command parses with
@@ -154,46 +145,56 @@ fn parse_with_credentials() {
     assert_eq!(action.password, Some("secret".to_string()));
 }
 
-// parse_create_bmc_user ensures create-bmc-user parses
-// with required args.
+// create-bmc-user parses with its required args, carrying user and
+// new-password through to the CreateBmcUser variant.
 #[test]
 fn parse_create_bmc_user() {
-    let action = RedfishAction::try_parse_from([
-        "redfish",
-        "--address",
-        "192.0.2.10",
-        "create-bmc-user",
-        "--new-password",
-        "secret",
-        "--user",
-        "admin",
-    ])
-    .expect("should parse create-bmc-user");
-
-    match action.command {
-        Cmd::CreateBmcUser(args) => {
-            assert_eq!(args.user, "admin");
-            assert_eq!(args.new_password, "secret");
+    scenarios!(
+        run = |argv| {
+            RedfishAction::try_parse_from(argv.iter().copied())
+                .map(|a| match a.command {
+                    Cmd::CreateBmcUser(args) => (args.user, args.new_password),
+                    _ => panic!("expected CreateBmcUser variant"),
+                })
+                .map_err(drop)
+        };
+        "create-bmc-user with user and new-password" {
+            &[
+                "redfish",
+                "--address",
+                "192.0.2.10",
+                "create-bmc-user",
+                "--new-password",
+                "secret",
+                "--user",
+                "admin",
+            ][..] => Yields(("admin".to_string(), "secret".to_string())),
         }
-        _ => panic!("expected CreateBmcUser variant"),
-    }
+    );
 }
 
-// parse_dpu_firmware_status ensures dpu firmware status parses.
+// `dpu firmware status` parses through the nested DpuOperations / FwCommand
+// subcommands to the Dpu Firmware Status variant.
 #[test]
 fn parse_dpu_firmware_status() {
-    let action = RedfishAction::try_parse_from([
-        "redfish",
-        "--address",
-        "192.0.2.10",
-        "dpu",
-        "firmware",
-        "status",
-    ])
-    .expect("should parse dpu firmware status");
-
-    match action.command {
-        Cmd::Dpu(DpuOperations::Firmware(FwCommand::Status)) => {}
-        _ => panic!("expected Dpu Firmware Status variant"),
-    }
+    scenarios!(
+        run = |argv| {
+            RedfishAction::try_parse_from(argv.iter().copied())
+                .map(|a| match a.command {
+                    Cmd::Dpu(DpuOperations::Firmware(FwCommand::Status)) => "dpu firmware status",
+                    _ => panic!("expected Dpu Firmware Status variant"),
+                })
+                .map_err(drop)
+        };
+        "dpu firmware status" {
+            &[
+                "redfish",
+                "--address",
+                "192.0.2.10",
+                "dpu",
+                "firmware",
+                "status",
+            ][..] => Yields("dpu firmware status"),
+        }
+    );
 }

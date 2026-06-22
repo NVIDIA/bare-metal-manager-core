@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,12 +25,15 @@ var _ MappedNullable = &BatchBringUpRackRequest{}
 // BatchBringUpRackRequest Request body for batch rack bring up operations
 type BatchBringUpRackRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Racks targeted for bring-up
 	Filter *RackFilter `json:"filter,omitempty"`
 	// Optional description for the bring up operation
 	Description *string `json:"description,omitempty"`
 	// Optional Operation Rule UUID. When set, pins every bring-up task spawned by this batch to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
+	// When true, proceed even if one or more target components (or hosts on the owning rack) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
+	OverrideReadinessCheck *bool `json:"overrideReadinessCheck,omitempty"`
 }
 
 type _BatchBringUpRackRequest BatchBringUpRackRequest
@@ -42,6 +45,8 @@ type _BatchBringUpRackRequest BatchBringUpRackRequest
 func NewBatchBringUpRackRequest(siteId string) *BatchBringUpRackRequest {
 	this := BatchBringUpRackRequest{}
 	this.SiteId = siteId
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -50,6 +55,8 @@ func NewBatchBringUpRackRequest(siteId string) *BatchBringUpRackRequest {
 // but it doesn't guarantee that properties required by API are set
 func NewBatchBringUpRackRequestWithDefaults() *BatchBringUpRackRequest {
 	this := BatchBringUpRackRequest{}
+	var overrideReadinessCheck bool = false
+	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
@@ -173,6 +180,38 @@ func (o *BatchBringUpRackRequest) SetRuleId(v string) {
 	o.RuleId = &v
 }
 
+// GetOverrideReadinessCheck returns the OverrideReadinessCheck field value if set, zero value otherwise.
+func (o *BatchBringUpRackRequest) GetOverrideReadinessCheck() bool {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		var ret bool
+		return ret
+	}
+	return *o.OverrideReadinessCheck
+}
+
+// GetOverrideReadinessCheckOk returns a tuple with the OverrideReadinessCheck field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BatchBringUpRackRequest) GetOverrideReadinessCheckOk() (*bool, bool) {
+	if o == nil || IsNil(o.OverrideReadinessCheck) {
+		return nil, false
+	}
+	return o.OverrideReadinessCheck, true
+}
+
+// HasOverrideReadinessCheck returns a boolean if a field has been set.
+func (o *BatchBringUpRackRequest) HasOverrideReadinessCheck() bool {
+	if o != nil && !IsNil(o.OverrideReadinessCheck) {
+		return true
+	}
+
+	return false
+}
+
+// SetOverrideReadinessCheck gets a reference to the given bool and assigns it to the OverrideReadinessCheck field.
+func (o *BatchBringUpRackRequest) SetOverrideReadinessCheck(v bool) {
+	o.OverrideReadinessCheck = &v
+}
+
 func (o BatchBringUpRackRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -192,6 +231,9 @@ func (o BatchBringUpRackRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId
+	}
+	if !IsNil(o.OverrideReadinessCheck) {
+		toSerialize["overrideReadinessCheck"] = o.OverrideReadinessCheck
 	}
 	return toSerialize, nil
 }

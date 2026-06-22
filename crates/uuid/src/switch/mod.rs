@@ -461,60 +461,103 @@ mod legacy_rpc {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
 
-    #[test]
-    fn test_switch_id_round_trip() {
-        let switch_id_str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-        let switch_id = SwitchId::from_str(switch_id_str)
-            .expect("Should have successfully converted from a valid string");
-        let round_tripped = switch_id.to_string();
-        assert_eq!(switch_id_str, round_tripped);
+    #[derive(Debug, PartialEq, Eq)]
+    enum ParseFailure {
+        Length,
+        Prefix,
+        Encoding,
+    }
+
+    fn parse_switch_id(input: &str) -> Result<String, ParseFailure> {
+        SwitchId::from_str(input)
+            .map(|id| id.to_string())
+            .map_err(|err| match err {
+                SwitchIdParseError::Length(_) => ParseFailure::Length,
+                SwitchIdParseError::Prefix(_) => ParseFailure::Prefix,
+                SwitchIdParseError::Encoding(_) => ParseFailure::Encoding,
+            })
     }
 
     #[test]
-    fn test_invalid_switch_ids() {
-        match SwitchId::from_str("sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc") {
-            // one character short
-            Err(SwitchIdParseError::Length(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a too-short switch ID should have failed"),
-            Err(e) => panic!(
-                "Converting from a too-short string should have failed with a length error, got {e}"
-            ),
-        }
+    fn test_switch_id_parse_cases() {
+        const VALID_SWITCH_ID: &str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
 
-        match SwitchId::from_str("SW100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(SwitchIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => {
-                panic!("Converting from a switch ID with an invalid prefix should have failed")
+        scenarios!(
+            run = parse_switch_id;
+            "valid NVLink TPM switch ID" {
+                VALID_SWITCH_ID => Yields(VALID_SWITCH_ID.to_string()),
             }
-            Err(e) => panic!(
-                "Converting from a switch ID with an invalid prefix should have failed with a Prefix error, got {e}"
-            ),
-        }
 
-        match SwitchId::from_str("sw100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(SwitchIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a switch ID with type `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a switch ID with type `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+            "one character short" {
+                "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hc" => FailsWith(ParseFailure::Length),
+            }
 
-        match SwitchId::from_str("sw100nx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(SwitchIdParseError::Prefix(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a switch ID with source `x` should have failed"),
-            Err(e) => panic!(
-                "Converting from a switch ID with source `x` should have failed with a Prefix error, got {e}"
-            ),
-        }
+            "empty string" {
+                "" => FailsWith(ParseFailure::Length),
+            }
 
-        match SwitchId::from_str("sw100nt038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg") {
-            Err(SwitchIdParseError::Encoding(_)) => {} // Expect an error
-            Ok(_) => panic!("Converting from a switch ID with a `!` should have failed"),
-            Err(e) => panic!(
-                "Converting from a switch ID with a `!` should have failed with an Encoding error, got {e}"
-            ),
-        }
+            "invalid prefix casing" {
+                "SW100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid switch type" {
+                "sw100xt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid source" {
+                "sw100nx038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Prefix),
+            }
+
+            "invalid base32 payload" {
+                "sw100nt038bg3qsho433vkg684heguv28!qaggmrsh2ugn1qk096n2c6hcg" => FailsWith(ParseFailure::Encoding),
+            }
+        );
+    }
+
+    #[test]
+    fn test_switch_type_mappings() {
+        value_scenarios!(
+            run = |ty| (ty.id_char(), ty.to_string());
+            "NVLink" {
+                SwitchType::NvLink => ('n', "NvLink".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_switch_type_from_id_char() {
+        value_scenarios!(
+            run = SwitchType::from_id_char;
+            "NVLink" {
+                'n' => Some(SwitchType::NvLink),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_switch_id_source_from_id_char() {
+        value_scenarios!(
+            run = SwitchIdSource::from_id_char;
+            "TPM" {
+                't' => Some(SwitchIdSource::Tpm),
+            }
+
+            "product board chassis serial" {
+                's' => Some(SwitchIdSource::ProductBoardChassisSerial),
+            }
+
+            "unknown" {
+                'x' => None,
+            }
+        );
     }
 }

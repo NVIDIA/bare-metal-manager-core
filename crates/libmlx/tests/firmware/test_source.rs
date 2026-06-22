@@ -15,110 +15,92 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use libmlx::firmware::source::FirmwareSource;
 
-// -- from_url: local paths --
-
+// from_url classifies a URL into a FirmwareSource whose `description()` records the
+// scheme it picked. Local paths (bare or `file://`) become `local:`, HTTP(S) stays
+// `http:<url>`, and an SCP-style `ssh://` URL renders host:port:path. A malformed
+// ssh URL (no path, empty path, no host) is rejected. Each row maps the parsed
+// source straight to its description, so one table folds every exact-description and
+// every rejection case. (The no-user ssh case asserts a substring, so it stays
+// standalone below.)
 #[test]
-fn test_from_url_absolute_path() {
-    let source = FirmwareSource::from_url("/opt/firmware/prod.signed.bin").unwrap();
-    assert_eq!(source.description(), "local:/opt/firmware/prod.signed.bin");
-}
+fn from_url_classifies_by_scheme() {
+    scenarios!(
+        run = |url| {
+            FirmwareSource::from_url(url)
+                .map(|s| s.description())
+                .map_err(drop)
+        };
+        "absolute local path" {
+            "/opt/firmware/prod.signed.bin" => Yields("local:/opt/firmware/prod.signed.bin".to_string()),
+        }
 
-#[test]
-fn test_from_url_relative_path() {
-    let source = FirmwareSource::from_url("firmware/prod.signed.bin").unwrap();
-    assert_eq!(source.description(), "local:firmware/prod.signed.bin");
-}
+        "relative local path" {
+            "firmware/prod.signed.bin" => Yields("local:firmware/prod.signed.bin".to_string()),
+        }
 
-#[test]
-fn test_from_url_file_prefix() {
-    let source = FirmwareSource::from_url("file:///opt/firmware/prod.signed.bin").unwrap();
-    assert_eq!(source.description(), "local:/opt/firmware/prod.signed.bin");
-}
+        "file:// absolute path" {
+            "file:///opt/firmware/prod.signed.bin" => Yields("local:/opt/firmware/prod.signed.bin".to_string()),
+        }
 
-#[test]
-fn test_from_url_file_prefix_relative() {
-    let source = FirmwareSource::from_url("file://firmware/prod.signed.bin").unwrap();
-    assert_eq!(source.description(), "local:firmware/prod.signed.bin");
-}
+        "file:// relative path" {
+            "file://firmware/prod.signed.bin" => Yields("local:firmware/prod.signed.bin".to_string()),
+        }
 
-// -- from_url: HTTP(S) --
+        "https URL" {
+            "https://artifacts.example.com/fw/prod.signed.bin" => Yields("http:https://artifacts.example.com/fw/prod.signed.bin".to_string()),
+        }
 
-#[test]
-fn test_from_url_https() {
-    let source =
-        FirmwareSource::from_url("https://artifacts.example.com/fw/prod.signed.bin").unwrap();
-    assert_eq!(
-        source.description(),
-        "http:https://artifacts.example.com/fw/prod.signed.bin"
+        "http URL" {
+            "http://internal.example.com/fw/prod.signed.bin" => Yields("http:http://internal.example.com/fw/prod.signed.bin".to_string()),
+        }
+
+        "ssh with user and relative path" {
+            "ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin" => Yields(
+                "ssh://deploy@build-server.example.com:22:builds/fw/prod.signed.bin"
+                    .to_string(),
+            ),
+        }
+
+        "ssh with user and absolute path" {
+            "ssh://deploy@build-server.example.com:/opt/fw/prod.signed.bin" => Yields(
+                "ssh://deploy@build-server.example.com:22:/opt/fw/prod.signed.bin".to_string(),
+            ),
+        }
+
+        "ssh missing path is rejected" {
+            "ssh://deploy@build-server.example.com" => Fails,
+        }
+
+        "ssh empty path is rejected" {
+            "ssh://deploy@build-server.example.com:" => Fails,
+        }
+
+        "ssh missing host is rejected" {
+            "ssh://:path/to/file" => Fails,
+        }
     );
 }
 
-#[test]
-fn test_from_url_http() {
-    let source =
-        FirmwareSource::from_url("http://internal.example.com/fw/prod.signed.bin").unwrap();
-    assert_eq!(
-        source.description(),
-        "http:http://internal.example.com/fw/prod.signed.bin"
-    );
-}
-
-// -- from_url: SSH (SCP-style) --
-
-#[test]
-fn test_from_url_ssh_with_user_and_path() {
-    let source =
-        FirmwareSource::from_url("ssh://deploy@build-server.example.com:builds/fw/prod.signed.bin")
-            .unwrap();
-    assert_eq!(
-        source.description(),
-        "ssh://deploy@build-server.example.com:22:builds/fw/prod.signed.bin"
-    );
-}
-
-#[test]
-fn test_from_url_ssh_absolute_path() {
-    let source =
-        FirmwareSource::from_url("ssh://deploy@build-server.example.com:/opt/fw/prod.signed.bin")
-            .unwrap();
-    assert_eq!(
-        source.description(),
-        "ssh://deploy@build-server.example.com:22:/opt/fw/prod.signed.bin"
-    );
-}
-
+// With no user in the ssh URL, the username defaults to the current user or "root",
+// so we can only pin the host:port:path tail -- a substring assertion, not the exact
+// equality the table above relies on.
 #[test]
 fn test_from_url_ssh_no_user() {
     let source =
         FirmwareSource::from_url("ssh://build-server.example.com:builds/fw/prod.signed.bin")
             .unwrap();
-    // Username defaults to current user or "root".
     let desc = source.description();
     assert!(desc.contains("build-server.example.com:22:builds/fw/prod.signed.bin"));
 }
 
-#[test]
-fn test_from_url_ssh_missing_path() {
-    let result = FirmwareSource::from_url("ssh://deploy@build-server.example.com");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_from_url_ssh_empty_path() {
-    let result = FirmwareSource::from_url("ssh://deploy@build-server.example.com:");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_from_url_ssh_missing_host() {
-    let result = FirmwareSource::from_url("ssh://:path/to/file");
-    assert!(result.is_err());
-}
-
 // -- direct constructors --
 
+// The local() and http() constructors record their scheme in `description()` just as
+// from_url does, but take a path/URL directly rather than classifying one.
 #[test]
 fn test_local_constructor() {
     let source = FirmwareSource::local("/path/to/firmware.bin");

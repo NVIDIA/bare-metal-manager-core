@@ -22,6 +22,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use carbide_test_support::{Check, check_values, value_scenarios};
 use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
 use libmlx::runner::error::MlxRunnerError;
 use libmlx::runner::exec_options::ExecOptions;
@@ -84,32 +85,36 @@ fn test_cleanup_temp_file_nonexistent() {
 
 #[test]
 fn test_is_dry_run() {
-    let dry_run_options = ExecOptions::new().with_dry_run(true);
-    let executor = CommandExecutor {
-        options: &dry_run_options,
-    };
-    assert!(executor.is_dry_run());
+    value_scenarios!(
+        run = |dry_run| {
+            let options = ExecOptions::new().with_dry_run(dry_run);
+            CommandExecutor { options: &options }.is_dry_run()
+        };
+        "dry-run on" {
+            true => true,
+        }
 
-    let normal_options = ExecOptions::new().with_dry_run(false);
-    let executor = CommandExecutor {
-        options: &normal_options,
-    };
-    assert!(!executor.is_dry_run());
+        "dry-run off" {
+            false => false,
+        }
+    );
 }
 
 #[test]
 fn test_is_verbose() {
-    let verbose_options = ExecOptions::new().with_verbose(true);
-    let executor = CommandExecutor {
-        options: &verbose_options,
-    };
-    assert!(executor.is_verbose());
+    value_scenarios!(
+        run = |verbose| {
+            let options = ExecOptions::new().with_verbose(verbose);
+            CommandExecutor { options: &options }.is_verbose()
+        };
+        "verbose on" {
+            true => true,
+        }
 
-    let quiet_options = ExecOptions::new().with_verbose(false);
-    let executor = CommandExecutor {
-        options: &quiet_options,
-    };
-    assert!(!executor.is_verbose());
+        "verbose off" {
+            false => false,
+        }
+    );
 }
 
 #[test]
@@ -209,53 +214,117 @@ fn test_no_timeout_successful_execution() {
     );
 }
 
+// `should_retry_error` splits every `MlxRunnerError` variant into transient (retry
+// — expect true) and permanent (give up — expect false). One table over the whole
+// error taxonomy, replacing the three hand-written classification tests.
 #[test]
 fn test_should_retry_error_classification() {
-    let options = ExecOptions::default();
-    let executor = CommandExecutor { options: &options };
-
-    // Permanent errors should not be retried.
-    assert!(
-        !executor.should_retry_error(&MlxRunnerError::VariableNotFound {
-            variable_name: "TEST".to_string()
-        })
-    );
-
-    assert!(
-        !executor.should_retry_error(&MlxRunnerError::ArraySizeMismatch {
-            variable_name: "TEST".to_string(),
-            expected: 4,
-            found: 6,
-        })
-    );
-
-    assert!(
-        !executor.should_retry_error(&MlxRunnerError::DeviceMismatch {
-            expected: "01:00.0".to_string(),
-            actual: "02:00.0".to_string(),
-        })
-    );
-
-    // Transient errors should be retried
-    assert!(executor.should_retry_error(&MlxRunnerError::Timeout {
-        command: "test".to_string(),
-        duration: Duration::from_secs(1)
-    }));
-
-    assert!(
-        executor.should_retry_error(&MlxRunnerError::CommandExecution {
-            command: "test".to_string(),
-            exit_code: Some(1),
-            stdout: "".to_string(),
-            stderr: "error".to_string(),
-        })
-    );
-
-    assert!(
-        executor.should_retry_error(&MlxRunnerError::Io(std::io::Error::new(
-            std::io::ErrorKind::ConnectionRefused,
-            "test"
-        )))
+    check_values(
+        [
+            // Permanent: a bad request won't get better on retry.
+            Check {
+                scenario: "VariableNotFound",
+                input: MlxRunnerError::VariableNotFound {
+                    variable_name: "TEST".to_string(),
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "ArraySizeMismatch",
+                input: MlxRunnerError::ArraySizeMismatch {
+                    variable_name: "TEST".to_string(),
+                    expected: 4,
+                    found: 6,
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "ValueConversion",
+                input: MlxRunnerError::ValueConversion {
+                    variable_name: "TEST".to_string(),
+                    value: "test".to_string(),
+                    error: libmlx::variables::value::MlxValueError::TypeMismatch {
+                        expected: "int".to_string(),
+                        got: "string".to_string(),
+                    },
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "InvalidArrayIndex",
+                input: MlxRunnerError::InvalidArrayIndex {
+                    variable_name: "TEST[invalid]".to_string(),
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "DeviceMismatch",
+                input: MlxRunnerError::DeviceMismatch {
+                    expected: "01:00.0".to_string(),
+                    actual: "02:00.0".to_string(),
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "NoDeviceFound",
+                input: MlxRunnerError::NoDeviceFound,
+                expect: false,
+            },
+            Check {
+                scenario: "ConfirmationDeclined",
+                input: MlxRunnerError::ConfirmationDeclined {
+                    variables: vec!["TEST".to_string()],
+                },
+                expect: false,
+            },
+            Check {
+                scenario: "JsonParsing",
+                input: MlxRunnerError::JsonParsing {
+                    content: "{}".to_string(),
+                    error: serde_json::from_str::<serde_json::Value>("invalid json{").unwrap_err(),
+                },
+                expect: false,
+            },
+            // Transient: worth another attempt.
+            Check {
+                scenario: "CommandExecution",
+                input: MlxRunnerError::CommandExecution {
+                    command: "test".to_string(),
+                    exit_code: Some(1),
+                    stdout: "".to_string(),
+                    stderr: "error".to_string(),
+                },
+                expect: true,
+            },
+            Check {
+                scenario: "TempFileError",
+                input: MlxRunnerError::TempFileError {
+                    path: std::path::PathBuf::from("/tmp/test"),
+                    error: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "test"),
+                },
+                expect: true,
+            },
+            Check {
+                scenario: "Timeout",
+                input: MlxRunnerError::Timeout {
+                    command: "test".to_string(),
+                    duration: Duration::from_secs(1),
+                },
+                expect: true,
+            },
+            Check {
+                scenario: "Io",
+                input: MlxRunnerError::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "test",
+                )),
+                expect: true,
+            },
+        ],
+        |error| {
+            let options = ExecOptions::default();
+            CommandExecutor { options: &options }.should_retry_error(&error)
+        },
     );
 }
 
@@ -721,91 +790,8 @@ mod integration_tests {
 }
 
 #[cfg(test)]
-mod error_classification_tests {
+mod backoff_edge_case_tests {
     use super::*;
-
-    #[test]
-    fn test_all_permanent_errors() {
-        let options = ExecOptions::default();
-        let executor = CommandExecutor { options: &options };
-
-        // Test all permanent error types
-        let permanent_errors = vec![
-            MlxRunnerError::VariableNotFound {
-                variable_name: "TEST".to_string(),
-            },
-            MlxRunnerError::ArraySizeMismatch {
-                variable_name: "TEST".to_string(),
-                expected: 4,
-                found: 6,
-            },
-            MlxRunnerError::ValueConversion {
-                variable_name: "TEST".to_string(),
-                value: "test".to_string(),
-                error: libmlx::variables::value::MlxValueError::TypeMismatch {
-                    expected: "int".to_string(),
-                    got: "string".to_string(),
-                },
-            },
-            MlxRunnerError::InvalidArrayIndex {
-                variable_name: "TEST[invalid]".to_string(),
-            },
-            MlxRunnerError::DeviceMismatch {
-                expected: "01:00.0".to_string(),
-                actual: "02:00.0".to_string(),
-            },
-            MlxRunnerError::NoDeviceFound,
-            MlxRunnerError::ConfirmationDeclined {
-                variables: vec!["TEST".to_string()],
-            },
-            MlxRunnerError::JsonParsing {
-                content: "{}".to_string(),
-                error: serde_json::from_str::<serde_json::Value>("invalid json{").unwrap_err(),
-            },
-        ];
-
-        for error in permanent_errors {
-            assert!(
-                !executor.should_retry_error(&error),
-                "Error should be permanent: {error:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_all_transient_errors() {
-        let options = ExecOptions::default();
-        let executor = CommandExecutor { options: &options };
-
-        // Test all transient error types
-        let transient_errors = vec![
-            MlxRunnerError::CommandExecution {
-                command: "test".to_string(),
-                exit_code: Some(1),
-                stdout: "".to_string(),
-                stderr: "error".to_string(),
-            },
-            MlxRunnerError::TempFileError {
-                path: std::path::PathBuf::from("/tmp/test"),
-                error: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "test"),
-            },
-            MlxRunnerError::Timeout {
-                command: "test".to_string(),
-                duration: Duration::from_secs(1),
-            },
-            MlxRunnerError::Io(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                "test",
-            )),
-        ];
-
-        for error in transient_errors {
-            assert!(
-                executor.should_retry_error(&error),
-                "Error should be transient: {error:?}"
-            );
-        }
-    }
 
     #[test]
     fn test_edge_case_backoff_configurations() {

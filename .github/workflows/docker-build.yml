@@ -60,6 +60,11 @@ on:
         required: false
         default: false
         type: boolean
+      scan:
+        description: 'Run a Grype vulnerability scan on the built image. Only effective when the image is loaded to the daemon (load=true and not pushing, i.e. PR builds); a no-op otherwise.'
+        required: false
+        default: false
+        type: boolean
       timeout_minutes:
         description: 'Job timeout in minutes'
         required: false
@@ -173,6 +178,30 @@ jobs:
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+
+      # Scan the image the build step just loaded into the daemon — no rebuild.
+      # Only runs when the image is actually loaded (load=true and not pushing,
+      # i.e. PR builds); on push refs the image isn't loaded so this is skipped.
+      - name: Compute Grype scan key
+        id: scankey
+        if: ${{ inputs.scan && inputs.load && !inputs.push && steps.build.outcome == 'success' }}
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: |
+          key="$(basename -- "$IMAGE_NAME")"
+          printf 'key=%s\n' "$key" >> "$GITHUB_OUTPUT"
+
+      - name: Grype vulnerability scan
+        if: ${{ inputs.scan && inputs.load && !inputs.push && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan@739847ddf00fda38916504ef84e1f504eac3158f
+        with:
+          image: ${{ inputs.image_name }}:${{ inputs.image_tag }}
+          fail-on: critical
+          fail-build: 'false'
+          write-summary: 'false'
+          artifact-name: grype-${{ steps.scankey.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          sbom-artifact-name: sbom-${{ steps.scankey.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Display build summary
         run: |

@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -44,56 +46,55 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_inventory ensures inventory subcommand parses with no args.
-#[test]
-fn parse_inventory() {
-    let cmd = Cmd::try_parse_from(["rms", "inventory"]).expect("should parse inventory");
-    assert!(matches!(cmd, Cmd::Inventory));
-}
-
-// parse_poweron_sequence ensures poweron-sequence subcommand
-// parses with no args.
-#[test]
-fn parse_poweron_sequence() {
-    let cmd = Cmd::try_parse_from(["rms", "power-on-sequence", "rack-123"])
-        .expect("should parse power-on-sequence");
+// route names the parsed subcommand and surfaces its positional fields, so a
+// single table can assert that each valid invocation lands on the right
+// variant carrying the right (rack_id, node_id). Variants without a given
+// field report an empty string for it.
+fn route(cmd: &Cmd) -> (&'static str, String, String) {
     match cmd {
-        Cmd::PowerOnSequence(args) => {
-            assert_eq!(args.rack_id, "rack-123");
-        }
-        _ => panic!("expected power-on-sequence variant"),
+        Cmd::Inventory => ("inventory", String::new(), String::new()),
+        Cmd::PowerOnSequence(args) => ("power-on-sequence", args.rack_id.clone(), String::new()),
+        Cmd::PowerState(args) => ("power-state", args.rack_id.clone(), args.node_id.clone()),
+        Cmd::FirmwareInventory(args) => (
+            "firmware-inventory",
+            args.rack_id.clone(),
+            args.node_id.clone(),
+        ),
     }
 }
 
-// parse_power_state ensures power-state parses with rack_id and node_id.
+// Every valid invocation parses, routes to its subcommand variant, and carries
+// the expected positional arguments.
 #[test]
-fn parse_power_state() {
-    let cmd = Cmd::try_parse_from(["rms", "power-state", "rack-123", "node-123"])
-        .expect("should parse power-state");
-
-    match cmd {
-        Cmd::PowerState(args) => {
-            assert_eq!(args.rack_id, "rack-123");
-            assert_eq!(args.node_id, "node-123");
-            assert_eq!(args.rack_id, "rack-123");
+fn valid_invocations_route_to_their_subcommand() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| route(&cmd))
+                .map_err(drop)
+        };
+        "inventory takes no args" {
+            &["rms", "inventory"][..] => Yields(("inventory", String::new(), String::new())),
         }
-        _ => panic!("expected PowerState variant"),
-    }
-}
 
-// parse_firmware_inventory ensures firmware-inventory
-// parses with rack_id and node_id.
-#[test]
-fn parse_firmware_inventory() {
-    let cmd = Cmd::try_parse_from(["rms", "firmware-inventory", "rack-123", "node-123"])
-        .expect("should parse firmware-inventory");
-
-    match cmd {
-        Cmd::FirmwareInventory(args) => {
-            assert_eq!(args.rack_id, "rack-123");
-            assert_eq!(args.node_id, "node-123");
-            assert_eq!(args.rack_id, "rack-123");
+        "power-on-sequence carries rack_id" {
+            &["rms", "power-on-sequence", "rack-123"][..] => Yields(("power-on-sequence", "rack-123".to_string(), String::new())),
         }
-        _ => panic!("expected FirmwareInventory variant"),
-    }
+
+        "power-state carries rack_id and node_id" {
+            &["rms", "power-state", "rack-123", "node-123"][..] => Yields((
+                "power-state",
+                "rack-123".to_string(),
+                "node-123".to_string(),
+            )),
+        }
+
+        "firmware-inventory carries rack_id and node_id" {
+            &["rms", "firmware-inventory", "rack-123", "node-123"][..] => Yields((
+                "firmware-inventory",
+                "rack-123".to_string(),
+                "node-123".to_string(),
+            )),
+        }
+    );
 }

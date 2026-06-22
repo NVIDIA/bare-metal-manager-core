@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::health_report::args::Args as HealthReportCommand;
@@ -22,49 +24,48 @@ use super::*;
 
 const TEST_DOMAIN_ID: &str = "00000000-0000-0000-0000-000000000001";
 
-fn parse_cmd(args: impl IntoIterator<Item = &'static str>) -> Cmd {
-    match Cmd::try_parse_from(args) {
-        Ok(cmd) => cmd,
-        Err(err) => panic!("failed to parse command: {err}"),
-    }
-}
-
 #[test]
 fn verify_cmd_structure() {
     Cmd::command().debug_assert();
 }
 
+// Every health-report invocation routes to Cmd::HealthReport: `show` yields the
+// domain id with no report source, `remove` yields the domain id plus the report
+// source it targets. Each row pulls out (domain_id, report_source) as the fields
+// the originals asserted.
 #[test]
-fn parse_health_report_show() {
-    let cmd = parse_cmd(["nvl-domain", "health-report", "show", TEST_DOMAIN_ID]);
+fn parse_health_report_subcommands() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| {
+                    let Cmd::HealthReport(command) = cmd;
+                    match command {
+                        HealthReportCommand::Show { domain_id } => (domain_id.to_string(), None),
+                        HealthReportCommand::Remove {
+                            domain_id,
+                            report_source,
+                        } => (domain_id.to_string(), Some(report_source)),
+                        other => panic!("unexpected HealthReport variant: {other:?}"),
+                    }
+                })
+                .map_err(drop)
+        };
+        "show routes to HealthReport Show with the domain id" {
+            &["nvl-domain", "health-report", "show", TEST_DOMAIN_ID][..] => Yields((TEST_DOMAIN_ID.to_string(), None)),
+        }
 
-    let Cmd::HealthReport(command) = cmd;
-    if let HealthReportCommand::Show { domain_id } = command {
-        assert_eq!(domain_id.to_string(), TEST_DOMAIN_ID);
-    } else {
-        panic!("expected HealthReport Show variant");
-    }
-}
-
-#[test]
-fn parse_health_report_remove() {
-    let cmd = parse_cmd([
-        "nvl-domain",
-        "health-report",
-        "remove",
-        TEST_DOMAIN_ID,
-        "haas-log-analyzer",
-    ]);
-
-    let Cmd::HealthReport(command) = cmd;
-    if let HealthReportCommand::Remove {
-        domain_id,
-        report_source,
-    } = command
-    {
-        assert_eq!(domain_id.to_string(), TEST_DOMAIN_ID);
-        assert_eq!(report_source, "haas-log-analyzer");
-    } else {
-        panic!("expected HealthReport Remove variant");
-    }
+        "remove routes to HealthReport Remove with domain id and source" {
+            &[
+                "nvl-domain",
+                "health-report",
+                "remove",
+                TEST_DOMAIN_ID,
+                "haas-log-analyzer",
+            ][..] => Yields((
+                TEST_DOMAIN_ID.to_string(),
+                Some("haas-log-analyzer".to_string()),
+            )),
+        }
+    );
 }

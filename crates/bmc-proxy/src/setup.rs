@@ -49,7 +49,14 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
     );
 
     tracing_subscriber::registry()
-        .with(logfmt::layer().with_filter(log_filter))
+        .with(
+            logfmt::layer()
+                .with_event_fields([logfmt::EventField::with_default(
+                    "component",
+                    "nico-bmc-proxy",
+                )])
+                .with_filter(log_filter),
+        )
         .try_init()?;
 
     tracing::info!("current log level: {}", LevelFilter::current());
@@ -77,4 +84,93 @@ pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
                 .unwrap_or_else(|err| panic!("{filter_str} must be parsed; error: {err}")),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum FilterCase {
+        DefaultAllowsApplicationInfo,
+        DefaultSuppressesHyperInfo,
+        DefaultAllowsHyperError,
+        UserOverrideAllowsApplicationDebug,
+        DependencyCapOverridesVaultrsDebug,
+        UserOverrideDoesNotAffectHyperCap,
+    }
+
+    fn filter_allows(case: FilterCase) -> bool {
+        let directives = match case {
+            FilterCase::DefaultAllowsApplicationInfo
+            | FilterCase::DefaultSuppressesHyperInfo
+            | FilterCase::DefaultAllowsHyperError => "info",
+            FilterCase::UserOverrideAllowsApplicationDebug => "info,carbide_bmc_proxy=debug",
+            FilterCase::DependencyCapOverridesVaultrsDebug
+            | FilterCase::UserOverrideDoesNotAffectHyperCap => "info,vaultrs=debug",
+        };
+        let user = EnvFilter::builder().parse(directives).unwrap();
+        let subscriber = tracing_subscriber::registry().with(dep_log_filter(user));
+
+        tracing::subscriber::with_default(subscriber, || match case {
+            FilterCase::DefaultAllowsApplicationInfo => {
+                tracing::enabled!(target: "carbide_bmc_proxy", tracing::Level::INFO)
+            }
+            FilterCase::DefaultSuppressesHyperInfo => {
+                tracing::enabled!(target: "hyper", tracing::Level::INFO)
+            }
+            FilterCase::DefaultAllowsHyperError => {
+                tracing::enabled!(target: "hyper", tracing::Level::ERROR)
+            }
+            FilterCase::UserOverrideAllowsApplicationDebug => {
+                tracing::enabled!(target: "carbide_bmc_proxy", tracing::Level::DEBUG)
+            }
+            FilterCase::DependencyCapOverridesVaultrsDebug => {
+                tracing::enabled!(target: "vaultrs", tracing::Level::DEBUG)
+            }
+            FilterCase::UserOverrideDoesNotAffectHyperCap => {
+                tracing::enabled!(target: "hyper", tracing::Level::INFO)
+            }
+        })
+    }
+
+    #[test]
+    fn dependency_log_filter_applies_caps_and_user_overrides() {
+        value_scenarios!(
+            run = filter_allows;
+            "application info allowed by default directive" {
+                FilterCase::DefaultAllowsApplicationInfo => true,
+            }
+
+            "hyper info suppressed by dependency cap" {
+                FilterCase::DefaultSuppressesHyperInfo => false,
+            }
+
+            "hyper error allowed by dependency cap" {
+                FilterCase::DefaultAllowsHyperError => true,
+            }
+
+            "user override allows application debug" {
+                FilterCase::UserOverrideAllowsApplicationDebug => true,
+            }
+
+            "dependency cap overrides vaultrs debug" {
+                FilterCase::DependencyCapOverridesVaultrsDebug => false,
+            }
+
+            "user override leaves unrelated dependency capped" {
+                FilterCase::UserOverrideDoesNotAffectHyperCap => false,
+            }
+        );
+    }
+
+    #[test]
+    fn metrics_setup_initializes_health_controller() {
+        let setup = setup_metrics().expect("metrics setup succeeds");
+
+        assert!(setup.health_controller.is_ready());
+        assert!(setup.health_controller.is_healthy());
+    }
 }

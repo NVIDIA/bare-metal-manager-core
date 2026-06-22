@@ -25,9 +25,9 @@
 //! the two together.
 
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
-// Gated on `any(test, feature = "test-support")` to match the `tests` module below: the fixtures
-// also compile (without `cfg(test)`) when a dependent enables `test-support`, so the allow must
-// cover that build too — otherwise the custom txn lints fire on the fixtures under `--all-features`.
+// The `test_support` module also compiles when a dependent enables the `test-support` feature, so
+// the allow must cover that build too; otherwise the custom txn lints fire on shared test helpers
+// under `--all-features`.
 #![cfg_attr(any(test, feature = "test-support"), allow(txn_held_across_await))]
 #![cfg_attr(any(test, feature = "test-support"), allow(txn_without_commit))]
 
@@ -74,11 +74,7 @@ mod storage;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
-// Compiled for our own tests, and also when the `test-support` feature is enabled so that
-// dependents (notably `carbide-api-web`) can reuse the `tests::common` fixtures to build a real
-// `Api`. Only `tests::common` is exposed under `test-support`; the actual test cases stay
-// `#[cfg(test)]` (see `tests/mod.rs`).
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub mod tests;
 
 use std::sync::OnceLock;
@@ -91,7 +87,7 @@ pub use db::{DatabaseError, DatabaseResult};
 // Save typing
 pub(crate) use errors::CarbideResult;
 
-pub use crate::api::Api;
+pub use crate::api::{Api, DefaultCredential};
 pub use crate::auth::AuthContext;
 pub use crate::cfg::command_line::{Command, Options};
 use crate::cfg::file::ToolLink;

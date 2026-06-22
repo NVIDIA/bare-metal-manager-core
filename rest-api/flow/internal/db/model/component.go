@@ -32,18 +32,22 @@ type Component struct {
 	FirmwareVersion string         `bun:"firmware_version,nullzero"`
 	// RackID is uuid.Nil when the component has been ingested but is not yet
 	// assigned to a rack. Stored as NULL in the database thanks to nullzero.
-	RackID      uuid.UUID              `bun:"rack_id,type:uuid,nullzero"`
-	SlotID      int                    `bun:"slot_id"`
-	TrayIndex   int                    `bun:"tray_index"`
-	HostID      int                    `bun:"host_id"`
-	IngestedAt  *time.Time             `bun:"ingested_at"`
-	UpdatedAt   time.Time              `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
-	DeletedAt   *time.Time             `bun:"deleted_at,soft_delete"`
-	Rack        *Rack                  `bun:"rel:belongs-to,join:rack_id=id"`
-	BMCs        []BMC                  `bun:"rel:has-many,join:id=component_id"`
-	ComponentID *string                `bun:"external_id"`
-	PowerState  *nicoapi.PowerState    `bun:"power_state"`
-	Status      *types.ComponentStatus `bun:"status,type:jsonb,nullzero"`
+	RackID      uuid.UUID                       `bun:"rack_id,type:uuid,nullzero"`
+	SlotID      int                             `bun:"slot_id"`
+	TrayIndex   int                             `bun:"tray_index"`
+	HostID      int                             `bun:"host_id"`
+	IngestedAt  *time.Time                      `bun:"ingested_at"`
+	UpdatedAt   time.Time                       `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
+	DeletedAt   *time.Time                      `bun:"deleted_at,soft_delete"`
+	Rack        *Rack                           `bun:"rel:belongs-to,join:rack_id=id"`
+	BMCs        []BMC                           `bun:"rel:has-many,join:id=component_id"`
+	ComponentID *string                         `bun:"external_id"`
+	PowerState  *nicoapi.PowerState             `bun:"power_state"`
+	Status      *types.ComponentOperationStatus `bun:"status,type:jsonb,nullzero"`
+	// LeakStatus is owned by the leak-detection loop. nullzero so an
+	// insert that leaves it empty falls back to the DB default 'UNKNOWN'
+	// rather than writing an empty string.
+	LeakStatus types.LeakStatus `bun:"leak_status,type:varchar(16),nullzero,notnull,default:'UNKNOWN'"`
 }
 
 func (cd *Component) Create(ctx context.Context, idb bun.IDB) error {
@@ -300,6 +304,20 @@ func (cd *Component) SetFirmwareVersionByComponentID(ctx context.Context, idb bu
 		return errors.New("component ID not set")
 	}
 	_, err := idb.NewUpdate().Model(cd).Set("firmware_version = ?", cd.FirmwareVersion).Where("external_id = ?", *cd.ComponentID).Exec(ctx)
+	return err
+}
+
+// SetLeakStatusByComponentID writes LeakStatus for the row identified by
+// external_id. Used by the leak-detection loop, which keys off the
+// component external IDs core reports leak alerts for.
+func (cd *Component) SetLeakStatusByComponentID(ctx context.Context, idb bun.IDB) error {
+	if cd.ComponentID == nil || *cd.ComponentID == "" {
+		return errors.New("component ID not set")
+	}
+	_, err := idb.NewUpdate().Model(cd).
+		Set("leak_status = ?", cd.LeakStatus).
+		Where("external_id = ?", *cd.ComponentID).
+		Exec(ctx)
 	return err
 }
 

@@ -397,3 +397,314 @@ impl TryFrom<MlxVariableSpecPb> for MlxVariableSpec {
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, value_scenarios};
+
+    use super::*;
+
+    // Display covers every enum arm: the six plain scalars, the untyped Array, the
+    // configured-scalar Enum/Preset, the sized arrays, the sized+optioned EnumArray,
+    // and Opaque. Each row pins the exact rendered string, including the join/format
+    // details (comma-space joins, bracketed sizes, "max:" / "[size]" layouts).
+    #[test]
+    fn display_renders_each_variant() {
+        value_scenarios!(
+            run = |spec| &*spec.to_string().leak();
+            "boolean" {
+                MlxVariableSpec::Boolean => "Boolean",
+            }
+
+            "integer" {
+                MlxVariableSpec::Integer => "Integer",
+            }
+
+            "string" {
+                MlxVariableSpec::String => "String",
+            }
+
+            "binary" {
+                MlxVariableSpec::Binary => "Binary",
+            }
+
+            "bytes" {
+                MlxVariableSpec::Bytes => "Bytes",
+            }
+
+            "array" {
+                MlxVariableSpec::Array => "Array",
+            }
+
+            "opaque" {
+                MlxVariableSpec::Opaque => "Opaque",
+            }
+
+            "enum with options" {
+                MlxVariableSpec::Enum {
+                    options: vec!["low".to_string(), "high".to_string()],
+                } => "Enum [low, high]",
+            }
+
+            "enum with no options" {
+                MlxVariableSpec::Enum { options: vec![] } => "Enum []",
+            }
+
+            "preset" {
+                MlxVariableSpec::Preset { max_preset: 7 } => "Preset (max: 7)",
+            }
+
+            "boolean array" {
+                MlxVariableSpec::BooleanArray { size: 3 } => "BooleanArray[3]",
+            }
+
+            "integer array" {
+                MlxVariableSpec::IntegerArray { size: 5 } => "IntegerArray[5]",
+            }
+
+            "enum array" {
+                MlxVariableSpec::EnumArray {
+                    options: vec!["a".to_string(), "b".to_string()],
+                    size: 2,
+                } => "EnumArray[2] [a, b]",
+            }
+
+            "enum array with no options" {
+                MlxVariableSpec::EnumArray {
+                    options: vec![],
+                    size: 4,
+                } => "EnumArray[4] []",
+            }
+
+            "binary array" {
+                MlxVariableSpec::BinaryArray { size: 8 } => "BinaryArray[8]",
+            }
+        );
+    }
+
+    // The builder entry points for the configuration-free variants each return a
+    // SimpleBuilder whose build() yields exactly the matching variant. Driving them
+    // through one table exercises every simple builder method.
+    #[test]
+    fn simple_builders_yield_their_variant() {
+        value_scenarios!(
+            run = |built| built;
+            "boolean" {
+                MlxVariableSpec::builder().boolean().build() => MlxVariableSpec::Boolean,
+            }
+
+            "integer" {
+                MlxVariableSpec::builder().integer().build() => MlxVariableSpec::Integer,
+            }
+
+            "string" {
+                MlxVariableSpec::builder().string().build() => MlxVariableSpec::String,
+            }
+
+            "binary" {
+                MlxVariableSpec::builder().binary().build() => MlxVariableSpec::Binary,
+            }
+
+            "bytes" {
+                MlxVariableSpec::builder().bytes().build() => MlxVariableSpec::Bytes,
+            }
+
+            "array" {
+                MlxVariableSpec::builder().array().build() => MlxVariableSpec::Array,
+            }
+
+            "opaque" {
+                MlxVariableSpec::builder().opaque().build() => MlxVariableSpec::Opaque,
+            }
+        );
+    }
+
+    // The configured builders each have a with_* setter path and an unset-default
+    // path. This pins both: enum defaults to empty options, preset defaults to 0,
+    // and the sized arrays default to size 1; the configured rows pin the set value.
+    #[test]
+    fn configured_builders_apply_values_and_defaults() {
+        value_scenarios!(
+            run = |built| built;
+            "enum with options set" {
+                MlxVariableSpec::builder()
+                .enum_type()
+                .with_options(vec!["x".to_string(), "y".to_string()])
+                .build() => MlxVariableSpec::Enum {
+                    options: vec!["x".to_string(), "y".to_string()],
+                },
+            }
+
+            "enum default options is empty" {
+                MlxVariableSpec::builder().enum_type().build() => MlxVariableSpec::Enum { options: vec![] },
+            }
+
+            "preset with max set" {
+                MlxVariableSpec::builder()
+                .preset()
+                .with_max_preset(9)
+                .build() => MlxVariableSpec::Preset { max_preset: 9 },
+            }
+
+            "preset default max is 0" {
+                MlxVariableSpec::builder().preset().build() => MlxVariableSpec::Preset { max_preset: 0 },
+            }
+
+            "boolean array with size set" {
+                MlxVariableSpec::builder()
+                .boolean_array()
+                .with_size(6)
+                .build() => MlxVariableSpec::BooleanArray { size: 6 },
+            }
+
+            "boolean array default size is 1" {
+                MlxVariableSpec::builder().boolean_array().build() => MlxVariableSpec::BooleanArray { size: 1 },
+            }
+
+            "integer array with size set" {
+                MlxVariableSpec::builder()
+                .integer_array()
+                .with_size(4)
+                .build() => MlxVariableSpec::IntegerArray { size: 4 },
+            }
+
+            "integer array default size is 1" {
+                MlxVariableSpec::builder().integer_array().build() => MlxVariableSpec::IntegerArray { size: 1 },
+            }
+
+            "binary array with size set" {
+                MlxVariableSpec::builder()
+                .binary_array()
+                .with_size(2)
+                .build() => MlxVariableSpec::BinaryArray { size: 2 },
+            }
+
+            "binary array default size is 1" {
+                MlxVariableSpec::builder().binary_array().build() => MlxVariableSpec::BinaryArray { size: 1 },
+            }
+
+            "enum array with options and size set" {
+                MlxVariableSpec::builder()
+                .enum_array()
+                .with_options(vec!["a".to_string()])
+                .with_size(3)
+                .build() => MlxVariableSpec::EnumArray {
+                    options: vec!["a".to_string()],
+                    size: 3,
+                },
+            }
+
+            "enum array defaults: empty options, size 1" {
+                MlxVariableSpec::builder().enum_array().build() => MlxVariableSpec::EnumArray {
+                    options: vec![],
+                    size: 1,
+                },
+            }
+        );
+    }
+
+    // Every variant survives a From -> TryFrom round trip through the protobuf
+    // representation. This drives both the From conversion (all 13 arms) and the
+    // TryFrom success path (all 13 arms), pinning the recovered spec to the input.
+    // Sizes are chosen small so the usize/u64 and u8/u32 casts are lossless.
+    #[test]
+    fn pb_round_trip_preserves_each_variant() {
+        let specs = [
+            ("boolean", MlxVariableSpec::Boolean),
+            ("integer", MlxVariableSpec::Integer),
+            ("string", MlxVariableSpec::String),
+            ("binary", MlxVariableSpec::Binary),
+            ("bytes", MlxVariableSpec::Bytes),
+            ("array", MlxVariableSpec::Array),
+            ("opaque", MlxVariableSpec::Opaque),
+            (
+                "enum",
+                MlxVariableSpec::Enum {
+                    options: vec!["one".to_string(), "two".to_string()],
+                },
+            ),
+            (
+                "enum empty options",
+                MlxVariableSpec::Enum { options: vec![] },
+            ),
+            ("preset zero", MlxVariableSpec::Preset { max_preset: 0 }),
+            ("preset max u8", MlxVariableSpec::Preset { max_preset: 255 }),
+            ("boolean array", MlxVariableSpec::BooleanArray { size: 0 }),
+            ("integer array", MlxVariableSpec::IntegerArray { size: 7 }),
+            (
+                "enum array",
+                MlxVariableSpec::EnumArray {
+                    options: vec!["in".to_string(), "out".to_string()],
+                    size: 4,
+                },
+            ),
+            ("binary array", MlxVariableSpec::BinaryArray { size: 1 }),
+        ];
+
+        check_cases(
+            specs.into_iter().map(|(scenario, spec)| Case {
+                scenario,
+                input: spec.clone(),
+                expect: Yields(spec),
+            }),
+            |spec| {
+                let pb: MlxVariableSpecPb = spec.into();
+                MlxVariableSpec::try_from(pb).map_err(drop)
+            },
+        );
+    }
+
+    // TryFrom rejects a protobuf with no spec_type set (the MissingArgument arm).
+    // The error type is not asserted for equality here, so map_err(drop) + Fails
+    // keeps the row to an Ok-vs-Err contract.
+    #[test]
+    fn try_from_rejects_missing_spec_type() {
+        Case {
+            scenario: "absent spec_type fails",
+            input: MlxVariableSpecPb { spec_type: None },
+            expect: Fails,
+        }
+        .check(|pb| MlxVariableSpec::try_from(pb).map_err(drop));
+    }
+
+    // The serde tag/content/snake_case attributes mean a spec serializes to JSON and
+    // deserializes back to itself. Round-tripping every variant exercises the derived
+    // Serialize/Deserialize over the full enum without pinning the exact JSON text.
+    #[test]
+    fn json_round_trip_preserves_each_variant() {
+        let specs = [
+            ("boolean", MlxVariableSpec::Boolean),
+            ("opaque", MlxVariableSpec::Opaque),
+            (
+                "enum",
+                MlxVariableSpec::Enum {
+                    options: vec!["a".to_string(), "b".to_string()],
+                },
+            ),
+            ("preset", MlxVariableSpec::Preset { max_preset: 12 }),
+            ("boolean array", MlxVariableSpec::BooleanArray { size: 3 }),
+            ("integer array", MlxVariableSpec::IntegerArray { size: 9 }),
+            (
+                "enum array",
+                MlxVariableSpec::EnumArray {
+                    options: vec!["x".to_string()],
+                    size: 2,
+                },
+            ),
+            ("binary array", MlxVariableSpec::BinaryArray { size: 4 }),
+        ];
+
+        check_cases(
+            specs.into_iter().map(|(scenario, spec)| Case {
+                scenario,
+                input: spec.clone(),
+                expect: Yields(spec),
+            }),
+            |spec| {
+                let json = serde_json::to_string(&spec).map_err(drop)?;
+                serde_json::from_str::<MlxVariableSpec>(&json).map_err(drop)
+            },
+        );
+    }
+}

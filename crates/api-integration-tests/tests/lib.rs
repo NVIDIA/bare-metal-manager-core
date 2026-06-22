@@ -901,9 +901,6 @@ where
         )]),
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
-        use_pxe_api: true,
-        pxe_server_host: None,
-        pxe_server_port: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,

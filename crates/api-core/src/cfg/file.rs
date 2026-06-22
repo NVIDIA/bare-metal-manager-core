@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_dpf::types::DpfProxyDetails;
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -38,11 +39,12 @@ use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
-use carbide_utils::config::{as_duration, as_std_duration};
+use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
+use health_report::HealthAlertClassification;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use libmlx::firmware::config::FirmwareFlasherProfile;
@@ -63,6 +65,20 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+/// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
+/// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
+/// its own Option variant -- we do NOT use the deprecated function.
+fn deserialize_option_duration_chrono<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::Duration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| duration_str::parse_chrono(&value).map_err(serde::de::Error::custom))
+        .transpose()
+}
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -111,6 +127,10 @@ pub struct CarbideConfig {
     /// network provisioning.
     #[serde(default)]
     pub dhcp_servers: Vec<Ipv4Addr>,
+
+    /// NTP server IP addresses for the site.
+    #[serde(default)]
+    pub ntp_servers: Vec<Ipv4Addr>,
 
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
@@ -198,6 +218,11 @@ pub struct CarbideConfig {
     /// instead.
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 
+    /// VPCs to create at startup. Use the
+    /// `CreateVpc` gRPC to create them later
+    /// instead.
+    pub vpcs: Option<HashMap<String, VpcDefinition>>,
+
     /// IPMI tool implementation for DPU power control
     /// (e.g., "prod" or "fake").
     pub dpu_ipmi_tool_impl: Option<String>,
@@ -245,6 +270,19 @@ pub struct CarbideConfig {
 
     /// The interval at which the machine update manager checks for machine updates in seconds.
     pub machine_update_run_interval: Option<u64>,
+
+    /// How long a retained boot interface pair (see the
+    /// `retained_boot_interfaces` table) stays applicable after its
+    /// `machine_interfaces` row was deleted. The default (`None`) retains
+    /// forever: if the machine eventually comes back, the pair is waiting.
+    /// Set a window (e.g. "30d") to keep a MAC that reappears on different
+    /// hardware from inheriting an obsolete Redfish interface id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_option_duration_chrono",
+        serialize_with = "as_option_duration"
+    )]
+    pub retained_boot_interface_window: Option<chrono::Duration>,
 
     /// SiteExplorer related configuration
     #[serde(default)]
@@ -351,6 +389,11 @@ pub struct CarbideConfig {
     /// and DPU agent version compliance.
     #[serde(default)]
     pub host_health: HostHealthConfig,
+
+    /// Observability settings shared across all state controllers, e.g.
+    /// opt-in per-object metrics.
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 
     /// Network infrastructure-provided L3 VNI for FNN VPC Internet
     /// connectivity. Combined with `datacenter_asn` to form
@@ -731,6 +774,17 @@ impl CarbideConfig {
     }
 }
 
+/// Observability settings shared across all state controllers.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ObservabilityConfig {
+    /// Health alert classifications for which an additional per-object metric
+    /// (`carbide_object_unhealthy_by_classification_count`) is emitted,
+    /// labeled with the object's type and id (e.g. `object_type="machine"`,
+    /// `object_id="<machine_id>"`).
+    #[serde(default)]
+    pub per_object_metrics_for_classifications: Vec<HealthAlertClassification>,
+}
+
 /// One external tool link rendered in the admin web UI's "Tools"
 /// sidebar.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -826,9 +880,13 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
-    /// Additional Helm services to deploy alongside DPF.
+    /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
+    /// configured to route outbound HTTPS traffic through the specified proxy.
+    #[serde(default)]
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for DpfConfig {
@@ -841,6 +899,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             docker_image_pull_secret: None,
             services: Box::default(),
+            proxy: None,
         }
     }
 }
@@ -1557,6 +1616,8 @@ pub struct InitialObjectsConfig {
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
     /// Network Segment definitions
     pub networks: Option<HashMap<String, NetworkDefinition>>,
+    /// VPC definitions
+    pub vpcs: Option<HashMap<String, VpcDefinition>>,
 }
 
 /// TLS certificate and key configuration for securing
@@ -2124,6 +2185,7 @@ fn default_mqtt_broker_port() -> u16 {
 }
 
 pub use carbide_dpa_manager::config::{DpaConfig, MqttAuthConfig, MqttAuthMode};
+use model::vpc::VpcDefinition;
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
@@ -2323,10 +2385,12 @@ mod tests {
     use std::sync::atomic::Ordering as AtomicOrdering;
 
     use carbide_authn::config::CertComponent;
+    use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
+    use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
     use model::expected_machine::DpuMode;
@@ -2690,6 +2754,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
@@ -2802,6 +2867,10 @@ mod tests {
             config.dhcp_servers,
             vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
+        assert_eq!(
+            config.ntp_servers,
+            vec![Ipv4Addr::new(10, 20, 30, 40), Ipv4Addr::new(50, 60, 70, 80)]
+        );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
@@ -2881,6 +2950,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(true.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
@@ -2913,6 +2983,15 @@ mod tests {
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
+            config.observability,
+            ObservabilityConfig {
+                per_object_metrics_for_classifications: vec![
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
+                ],
             }
         );
         assert_eq!(
@@ -3099,6 +3178,10 @@ mod tests {
 
         assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
         let nvl72 = config.rack_profiles.get("NVL72").unwrap();
+        assert_eq!(
+            nvl72.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl72.rack_capabilities.compute.count, 18);
         assert_eq!(
             nvl72.rack_capabilities.compute.name.as_deref(),
@@ -3111,6 +3194,10 @@ mod tests {
         assert_eq!(nvl72.rack_capabilities.switch.count, 9);
         assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
         let nvl36 = config.rack_profiles.get("NVL36").unwrap();
+        assert_eq!(
+            nvl36.product_family,
+            Some(model::rack_type::RackProductFamily::Gb200)
+        );
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
@@ -3207,6 +3294,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
@@ -3239,6 +3327,15 @@ mod tests {
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
+            }
+        );
+        assert_eq!(
+            config.observability,
+            ObservabilityConfig {
+                per_object_metrics_for_classifications: vec![
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
+                ],
             }
         );
         assert_eq!(
@@ -3726,16 +3823,20 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
         let pools = config.pools.as_ref().unwrap();
         let networks = config.networks.as_ref().unwrap();
+        let vpcs = config.vpcs.as_ref().unwrap();
 
         assert_eq!(
             networks.get("admin").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             }
         );
 
@@ -3744,10 +3845,38 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
+            }
+        );
+
+        assert_eq!(
+            networks.get("ZERO-DPU-HOST-01-SWP7").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::HostInband,
+                prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
+                gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
+                mtu: 1500,
+                reserve_first: 1,
+                allocation_strategy: Default::default(),
+                vpc_name: Some("zero-dpu-vpc".to_string()),
+            }
+        );
+
+        assert_eq!(
+            vpcs.get("zero-dpu-vpc").unwrap(),
+            &VpcDefinition {
+                organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+                network_virtualization_type: VpcVirtualizationType::Flat,
+                routing_profile_type: None,
+                vni: None,
             }
         );
 

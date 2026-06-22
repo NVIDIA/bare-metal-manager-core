@@ -47,7 +47,8 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap())
         .add_directive("netlink_proto=warn".parse().unwrap());
-    let stdout_formatter = logfmt::layer();
+    let stdout_formatter = logfmt::layer()
+        .with_event_fields([logfmt::EventField::with_default("component", "nico-fmds")]);
     Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
 }
 
@@ -69,9 +70,8 @@ async fn main() -> eyre::Result<()> {
         "Starting carbide-fmds"
     );
 
-    let interface_cidr: ipnetwork::IpNetwork = options.interface_cidr.parse()?;
-    nic_init::assign_address(&options.interface_name, interface_cidr).await?;
-    nic_init::setup_metadata_routing(&options.interface_name, interface_cidr).await?;
+    nic_init::assign_address(&options.interface_name, options.interface_cidr).await?;
+    nic_init::setup_metadata_routing(&options.interface_name, options.interface_cidr).await?;
 
     // Build ForgeClientConfig for phone_home if cert paths are provided
     let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {
@@ -100,16 +100,15 @@ async fn main() -> eyre::Result<()> {
     let (prometheus_registry, http_request_metrics_state) = http_request_metrics::init()?;
     let http_request_metrics_state = Arc::new(http_request_metrics_state);
 
-    let metrics_address = options.metrics_address.clone();
+    let metrics_address = options.metrics_address;
     let registry_for_metrics = prometheus_registry.clone();
     tokio::spawn(async move {
         let router = axum::Router::new().nest(
             "/metrics",
             http_request_metrics::metrics_router(registry_for_metrics),
         );
-        let addr: std::net::SocketAddr = metrics_address.parse().expect("invalid metrics address");
-        let server = axum_server::Server::bind(addr);
-        tracing::info!(%addr, "Prometheus /metrics listening");
+        let server = axum_server::Server::bind(metrics_address);
+        tracing::info!(%metrics_address, "Prometheus /metrics listening");
         if let Err(err) = server.serve(router.into_make_service()).await {
             tracing::error!("Prometheus metrics server error: {err}");
         }
@@ -117,7 +116,7 @@ async fn main() -> eyre::Result<()> {
 
     // Start REST server for tenant metadata queries
     let rest_state = state.clone();
-    let rest_address = options.rest_address.clone();
+    let rest_address = options.rest_address;
     let rest_http_metrics = http_request_metrics_state.clone();
     tokio::spawn(async move {
         // We serve metadata under both /latest and /2009-04-04 for
@@ -128,25 +127,21 @@ async fn main() -> eyre::Result<()> {
             .nest("/2009-04-04", get_fmds_router(rest_state));
         let router = http_request_metrics::with_http_request_trace_layer(router, rest_http_metrics);
 
-        let addr: std::net::SocketAddr = rest_address.parse().expect("invalid REST address");
-        let server = axum_server::Server::bind(addr);
+        let server = axum_server::Server::bind(rest_address);
 
-        tracing::info!(%addr, "REST server listening");
+        tracing::info!(%rest_address, "REST server listening");
         if let Err(err) = server.serve(router.into_make_service()).await {
             tracing::error!("REST server error: {err}");
         }
     });
 
     // Start gRPC server for receiving config updates from agent
-    let grpc_address: std::net::SocketAddr =
-        options.grpc_address.parse().expect("invalid gRPC address");
-
     let grpc_server = FmdsGrpcServer::new(state);
 
-    tracing::info!(%grpc_address, "gRPC server listening");
+    tracing::info!(%options.grpc_address, "gRPC server listening");
     tonic::transport::Server::builder()
         .add_service(FmdsConfigServiceServer::new(grpc_server))
-        .serve(grpc_address)
+        .serve(options.grpc_address)
         .await?;
 
     Ok(())

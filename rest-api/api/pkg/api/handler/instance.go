@@ -404,6 +404,8 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 	subnetIDs := []uuid.UUID{}
 	vpcPrefixIDs := []uuid.UUID{}
+	subnetIfcMap := map[uuid.UUID]int{}
+	vpcPrefixIfcMap := map[uuid.UUID]int{}
 
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
@@ -413,6 +415,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Subnet ID: %s specified in interfaces data in request is not valid", *ifc.SubnetID), nil)
 			}
 			subnetIDs = append(subnetIDs, subnetID)
+			subnetIfcMap[subnetID]++
 		}
 		if ifc.VpcPrefixID != nil {
 			vpcPrefixID, err := uuid.Parse(*ifc.VpcPrefixID)
@@ -421,6 +424,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC Prefix ID: %s specified in interfaces data in request is not valid", *ifc.VpcPrefixID), nil)
 			}
 			vpcPrefixIDs = append(vpcPrefixIDs, vpcPrefixID)
+			vpcPrefixIfcMap[vpcPrefixID]++
 		}
 	}
 
@@ -479,6 +483,30 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Primary VPC ID: %s for Instance must not be listed in `secondaryVpcIds`", vpc.ID), nil)
 	}
 
+	subnetsForUsage := make([]*cdbm.Subnet, 0, len(subnetIfcMap))
+	for subnetID := range subnetIfcMap {
+		if sn, ok := subnetIDMap[subnetID]; ok {
+			subnetsForUsage = append(subnetsForUsage, sn)
+		}
+	}
+	subnetUsageMap, usageErr := sbDAO.GetPrefixUsage(ctx, nil, subnetsForUsage...)
+	if usageErr != nil {
+		logger.Error().Err(usageErr).Msg("error getting prefix usage for Subnets")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for Subnet", nil)
+	}
+
+	vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixIfcMap))
+	for vpcPrefixID := range vpcPrefixIfcMap {
+		if vp, ok := vpcPrefixIDMap[vpcPrefixID]; ok {
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+	}
+	vpcPrefixUsageMap, vpUsageErr := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
+	if vpUsageErr != nil {
+		logger.Error().Err(vpUsageErr).Msg("error getting prefix usage for VPC Prefixes")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for VPC Prefix", nil)
+	}
+
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
 			subnetID := uuid.MustParse(*ifc.SubnetID)
@@ -507,6 +535,18 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			if vpc.NetworkVirtualizationType != nil && *vpc.NetworkVirtualizationType != cdbm.VpcEthernetVirtualizer {
 				logger.Warn().Msg(fmt.Sprintf("VPC: %v specified in request must have Ethernet network virtualization type in order to create Subnet based interfaces", vpc.ID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have Ethernet network virtualization type in order to create Subnet based interfaces", vpc.ID), nil)
+			}
+
+			// Check if Subnet is exhausted
+			incomingInterfaceIPs := subnetIfcMap[subnetID]
+			subnetUsage := subnetUsageMap[subnetID]
+			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
+				msg := fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP address(es)",
+					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -578,6 +618,18 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			if vpc.NetworkVirtualizationType == nil || *vpc.NetworkVirtualizationType != cdbm.VpcFNN {
 				logger.Warn().Msg(fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC Prefix based interfaces", vpc.ID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC Prefix based interfaces", vpc.ID), nil)
+			}
+
+			// Check if VPC Prefix is exhausted
+			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID]
+			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
+			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
+				msg := fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP addresses",
+					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -730,7 +782,10 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			sshKeyGroupIDMap[skgs[i].ID] = &skgs[i]
 		}
 
-		skgsas, _, err = skgsaDAO.GetAll(ctx, nil, sshKeyGroupIDs, &site.ID, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		skgsas, _, err = skgsaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupSiteAssociationFilterInput{
+			SSHKeyGroupIDs: sshKeyGroupIDs,
+			SiteID:         &site.ID,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving SSH Key Group Site Associations from DB by SSH Key Group IDs & Site ID")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Site Associations from DB", nil)
@@ -1311,7 +1366,12 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		// create the ssh key group instance association in the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(cih.dbSession)
 		for _, skg := range skgs {
-			_, err := skgiaDAO.CreateFromParams(ctx, tx, skg.ID, site.ID, instance.ID, dbUser.ID)
+			_, err := skgiaDAO.Create(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
+				SSHKeyGroupID: skg.ID,
+				SiteID:        site.ID,
+				InstanceID:    instance.ID,
+				CreatedBy:     dbUser.ID,
+			})
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to create the SSH Key Group Instance Association record in DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to associate one or more SSH Key Group with Instance, DB error", nil)
@@ -1755,7 +1815,10 @@ func (uih UpdateInstanceHandler) handleReboot(c echo.Context, logger *zerolog.Lo
 
 		// Get the ssh key group instance associations record from the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(uih.dbSession)
-		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{instance.Site.ID}, []uuid.UUID{instance.ID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+			SiteIDs:     []uuid.UUID{instance.Site.ID},
+			InstanceIDs: []uuid.UUID{instance.ID},
+		}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving ssh key group instance association Details from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -2262,6 +2325,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	// Collect all Subnet and VPC Prefix IDs for batch query
 	subnetIDs := []uuid.UUID{}
 	vpcPrefixIDs := []uuid.UUID{}
+	subnetIfcMap := map[uuid.UUID]int{}
+	vpcPrefixIfcMap := map[uuid.UUID]int{}
 
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
@@ -2271,6 +2336,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnet ID specified in request data is not valid", nil)
 			}
 			subnetIDs = append(subnetIDs, subnetID)
+			subnetIfcMap[subnetID]++
 		}
 		if ifc.VpcPrefixID != nil {
 			vpcPrefixID, err := uuid.Parse(*ifc.VpcPrefixID)
@@ -2279,6 +2345,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC Prefix ID specified in request data is not valid", nil)
 			}
 			vpcPrefixIDs = append(vpcPrefixIDs, vpcPrefixID)
+			vpcPrefixIfcMap[vpcPrefixID]++
 		}
 	}
 
@@ -2305,6 +2372,26 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		}
 		for i := range vpcPrefixList {
 			vpcPrefixIDMap[vpcPrefixList[i].ID] = &vpcPrefixList[i]
+		}
+	}
+
+	existingSubnetIfcMap := map[uuid.UUID]int{}
+	existingVpcPrefixIfcMap := map[uuid.UUID]int{}
+	if len(apiRequest.Interfaces) > 0 {
+		ifcDAO := cdbm.NewInterfaceDAO(uih.dbSession)
+		existingIfcsForCapacity, _, err := ifcDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving existing Interfaces for Instance")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve existing Interfaces for Instance", nil)
+		}
+		for i := range existingIfcsForCapacity {
+			eifc := &existingIfcsForCapacity[i]
+			if eifc.SubnetID != nil {
+				existingSubnetIfcMap[*eifc.SubnetID]++
+			}
+			if eifc.VpcPrefixID != nil {
+				existingVpcPrefixIfcMap[*eifc.VpcPrefixID]++
+			}
 		}
 	}
 
@@ -2337,6 +2424,30 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Primary VPC ID: %s for Instance must not be listed in `secondaryVpcIds`", vpc.ID), nil)
 	}
 
+	subnetsForUsage := make([]*cdbm.Subnet, 0, len(subnetIfcMap))
+	for subnetID := range subnetIfcMap {
+		if sn, ok := subnetIDMap[subnetID]; ok {
+			subnetsForUsage = append(subnetsForUsage, sn)
+		}
+	}
+	subnetUsageMap, usageErr := sbDAO.GetPrefixUsage(ctx, nil, subnetsForUsage...)
+	if usageErr != nil {
+		logger.Error().Err(usageErr).Msg("error getting prefix usage for Subnets")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for Subnet", nil)
+	}
+
+	vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixIfcMap))
+	for vpcPrefixID := range vpcPrefixIfcMap {
+		if vp, ok := vpcPrefixIDMap[vpcPrefixID]; ok {
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+	}
+	vpcPrefixUsageMap, vpUsageErr := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
+	if vpUsageErr != nil {
+		logger.Error().Err(vpUsageErr).Msg("error getting prefix usage for VPC Prefixes")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for VPC Prefix", nil)
+	}
+
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
 			subnetID := uuid.MustParse(*ifc.SubnetID)
@@ -2364,6 +2475,18 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			if vpc.NetworkVirtualizationType != nil && *vpc.NetworkVirtualizationType != cdbm.VpcEthernetVirtualizer {
 				logger.Warn().Msg(fmt.Sprintf("VPC: %v specified in request must have Ethernet network virtualization type in order to create Subnet based interfaces", instance.VpcID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have Ethernet network virtualization type in order to create Subnet based interfaces", instance.VpcID), nil)
+			}
+
+			// Check if Subnet is exhausted
+			incomingInterfaceIPs := subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
+			subnetUsage := subnetUsageMap[subnetID]
+			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
+				msg := fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP address(es)",
+					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -2434,6 +2557,18 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			if vpc.NetworkVirtualizationType == nil || *vpc.NetworkVirtualizationType != cdbm.VpcFNN {
 				logger.Warn().Msg(fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC Prefix based interfaces", instance.VpcID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC Prefix based interfaces", instance.VpcID), nil)
+			}
+
+			// Check if VPC Prefix is exhausted
+			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID] - existingVpcPrefixIfcMap[vpcPrefixID]
+			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
+			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
+				msg := fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP addresses",
+					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -2860,7 +2995,10 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 		// Get the existing ssh key group instance associations records from the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(uih.dbSession)
-		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{site.ID}, []uuid.UUID{instanceID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+			SiteIDs:     []uuid.UUID{site.ID},
+			InstanceIDs: []uuid.UUID{instanceID},
+		}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving ssh key group instance association Details from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -2945,9 +3083,14 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to determine if SSH Key Group: %s is associated with the Site where Instance is being updated, DB error", skgID), nil)
 				}
 
-				_, err = skgiaDAO.CreateFromParams(ctx, tx, skgID, site.ID, instance.ID, dbUser.ID)
+				_, err = skgiaDAO.Create(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
+					SSHKeyGroupID: skgID,
+					SiteID:        site.ID,
+					InstanceID:    instance.ID,
+					CreatedBy:     dbUser.ID,
+				})
 				if err != nil {
-					logger.Error().Err(serr).Msg("failed to create the SSH Key Group Instance Association record in DB")
+					logger.Error().Err(err).Msg("failed to create the SSH Key Group Instance Association record in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to associate one or more SSH Key Group with Instance, DB error", nil)
 				}
 
@@ -2965,7 +3108,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 				// If not found, we need to disassociate the SSH Key Group from the Instance.
 				skgia := existingSkgiasBySkg[skgID]
-				err := skgiaDAO.DeleteByID(ctx, tx, skgia.ID)
+				err := skgiaDAO.Delete(ctx, tx, skgia.ID)
 				if err != nil {
 					logger.Error().Err(serr).Str("SSHKeyGroupInstanceAssociation", skgia.ID.String()).Msg("error removing SSH Key Group Instance Association from DB by SSH Key Group Instance Association ID")
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to update Instance: %s is associated with the Site where Instance is being updated, DB error", skgia.ID), nil)
@@ -3907,7 +4050,10 @@ func (gih GetInstanceHandler) Handle(c echo.Context) error {
 	// Get the ssh key group instance associations record from the db
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(gih.dbSession)
 	var dbskgs []cdbm.SSHKeyGroup
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{site.ID}, []uuid.UUID{instanceID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		SiteIDs:     []uuid.UUID{site.ID},
+		InstanceIDs: []uuid.UUID{instanceID},
+	}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving ssh key group instance association Details from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -4460,7 +4606,10 @@ func (gaih GetAllInstanceHandler) Handle(c echo.Context) error {
 	}
 
 	// Get SSH Key Group Instance Associations for all Instances
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, siteIDs, insIDs, []string{cdbm.SSHKeyGroupRelationName}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		SiteIDs:     siteIDs,
+		InstanceIDs: insIDs,
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SSHKeyGroupRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving ssh key group instance association Details from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)

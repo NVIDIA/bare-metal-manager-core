@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,54 +46,111 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_show_no_args ensures show parses with no
-// arguments (all segments).
+// show parses with any mix of its optional filters and routes to the Show
+// variant; each row yields whether `network` is set plus the parsed
+// `tenant_org_id` and `name`.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["network-segment", "show"]).expect("should parse show");
+fn parse_show_routes_to_show() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.network.is_some(), args.tenant_org_id, args.name),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        };
+        "no arguments (all segments)" {
+            &["network-segment", "show"][..] => Yields((false, None, None)),
+        }
+
+        "with --tenant-org-id" {
+            &["network-segment", "show", "--tenant-org-id", "tenant-123"][..] => Yields((false, Some("tenant-123".to_string()), None)),
+        }
+
+        "with --name" {
+            &["network-segment", "show", "--name", "my-segment"][..] => Yields((false, None, Some("my-segment".to_string()))),
+        }
+    );
+}
+
+// Every malformed invocation is rejected at parse time.
+#[test]
+fn invalid_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "delete without --id" {
+            &["network-segment", "delete"][..] => Fails,
+        }
+    );
+}
+
+#[test]
+fn parse_attach_vpc() {
+    let cmd = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+    ])
+    .expect("should parse attach-vpc");
 
     match cmd {
-        Cmd::Show(args) => {
-            assert!(args.network.is_none());
-            assert!(args.tenant_org_id.is_none());
-            assert!(args.name.is_none());
+        Cmd::AttachVpc(args) => {
+            assert_eq!(args.id.to_string(), "12345678-1234-5678-90ab-cdef01234567");
+            assert_eq!(
+                args.vpc_id.to_string(),
+                "abcdef01-2345-6789-abcd-ef0123456789"
+            );
+            assert!(!args.force);
         }
-        _ => panic!("expected Show variant"),
+        _ => panic!("expected AttachVpc variant"),
     }
 }
 
-// parse_show_with_tenant ensures show parses with
-// --tenant-org-id.
 #[test]
-fn parse_show_with_tenant() {
-    let cmd = Cmd::try_parse_from(["network-segment", "show", "--tenant-org-id", "tenant-123"])
-        .expect("should parse show with tenant");
+fn parse_attach_vpc_force() {
+    let cmd = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+        "--force",
+    ])
+    .expect("should parse attach-vpc with force");
 
     match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.tenant_org_id, Some("tenant-123".to_string()));
-        }
-        _ => panic!("expected Show variant"),
+        Cmd::AttachVpc(args) => assert!(args.force),
+        _ => panic!("expected AttachVpc variant"),
     }
 }
 
-// parse_show_with_name ensures show parses with --name.
 #[test]
-fn parse_show_with_name() {
-    let cmd = Cmd::try_parse_from(["network-segment", "show", "--name", "my-segment"])
-        .expect("should parse show with name");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.name, Some("my-segment".to_string()));
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_delete_missing_id_fails ensures delete fails without --id.
-#[test]
-fn parse_delete_missing_id_fails() {
-    let result = Cmd::try_parse_from(["network-segment", "delete"]);
+fn parse_attach_vpc_missing_id_fails() {
+    let result = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--vpc-id",
+        "abcdef01-2345-6789-abcd-ef0123456789",
+    ]);
     assert!(result.is_err(), "should fail without --id");
+}
+
+#[test]
+fn parse_attach_vpc_missing_vpc_id_fails() {
+    let result = Cmd::try_parse_from([
+        "network-segment",
+        "attach-vpc",
+        "--id",
+        "12345678-1234-5678-90ab-cdef01234567",
+    ]);
+    assert!(result.is_err(), "should fail without --vpc-id");
 }

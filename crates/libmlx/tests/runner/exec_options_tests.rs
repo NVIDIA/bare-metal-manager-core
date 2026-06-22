@@ -20,12 +20,12 @@
 
 use std::time::Duration;
 
+use carbide_test_support::value_scenarios;
 use libmlx::runner::exec_options::{ExecOptions, is_destructive_variable};
 
-#[test]
-fn test_default_exec_options() {
-    let options = ExecOptions::default();
-
+// Assert `options` holds the documented default configuration. `new()` is meant to
+// be identical to `default()`, so both constructors are checked through here.
+fn assert_default_options(options: &ExecOptions) {
     assert_eq!(options.timeout, Some(Duration::from_secs(30)));
     assert_eq!(options.retries, 3);
     assert_eq!(options.retry_delay, Duration::from_millis(500));
@@ -38,19 +38,14 @@ fn test_default_exec_options() {
 }
 
 #[test]
-fn test_new_exec_options() {
-    let options = ExecOptions::new();
+fn test_default_exec_options() {
+    assert_default_options(&ExecOptions::default());
+}
 
-    // Should be identical to default
-    assert_eq!(options.timeout, Some(Duration::from_secs(30)));
-    assert_eq!(options.retries, 3);
-    assert_eq!(options.retry_delay, Duration::from_millis(500));
-    assert_eq!(options.max_retry_delay, Duration::from_secs(60));
-    assert_eq!(options.retry_multiplier, 2.0);
-    assert!(!options.dry_run);
-    assert!(!options.verbose);
-    assert!(!options.log_json_output);
-    assert!(!options.confirm_destructive);
+#[test]
+fn test_new_exec_options() {
+    // new() should be identical to default().
+    assert_default_options(&ExecOptions::new());
 }
 
 #[test]
@@ -101,48 +96,73 @@ fn test_builder_pattern_retry_multiplier() {
     assert_eq!(conservative_options.retry_multiplier, 1.1);
 }
 
+// Each boolean setter round-trips the flag it sets and touches nothing else. The
+// `set` closure applies the setter and `get` reads its field back, so one table
+// covers every flag in both states.
 #[test]
-fn test_builder_pattern_dry_run() {
-    let options = ExecOptions::new().with_dry_run(true);
+fn test_builder_pattern_boolean_flags() {
+    struct BoolFlag {
+        scenario: &'static str,
+        value: bool,
+        set: fn(ExecOptions, bool) -> ExecOptions,
+        get: fn(&ExecOptions) -> bool,
+    }
 
-    assert!(options.dry_run);
+    let flags = [
+        BoolFlag {
+            scenario: "dry_run set true",
+            value: true,
+            set: |o, v| o.with_dry_run(v),
+            get: |o| o.dry_run,
+        },
+        BoolFlag {
+            scenario: "dry_run set false",
+            value: false,
+            set: |o, v| o.with_dry_run(v),
+            get: |o| o.dry_run,
+        },
+        BoolFlag {
+            scenario: "verbose set true",
+            value: true,
+            set: |o, v| o.with_verbose(v),
+            get: |o| o.verbose,
+        },
+        BoolFlag {
+            scenario: "verbose set false",
+            value: false,
+            set: |o, v| o.with_verbose(v),
+            get: |o| o.verbose,
+        },
+        BoolFlag {
+            scenario: "log_json_output set true",
+            value: true,
+            set: |o, v| o.with_log_json_output(v),
+            get: |o| o.log_json_output,
+        },
+        BoolFlag {
+            scenario: "log_json_output set false",
+            value: false,
+            set: |o, v| o.with_log_json_output(v),
+            get: |o| o.log_json_output,
+        },
+        BoolFlag {
+            scenario: "confirm_destructive set true",
+            value: true,
+            set: |o, v| o.with_confirm_destructive(v),
+            get: |o| o.confirm_destructive,
+        },
+        BoolFlag {
+            scenario: "confirm_destructive set false",
+            value: false,
+            set: |o, v| o.with_confirm_destructive(v),
+            get: |o| o.confirm_destructive,
+        },
+    ];
 
-    let options_false = ExecOptions::new().with_dry_run(false);
-
-    assert!(!options_false.dry_run);
-}
-
-#[test]
-fn test_builder_pattern_verbose() {
-    let options = ExecOptions::new().with_verbose(true);
-
-    assert!(options.verbose);
-
-    let options_false = ExecOptions::new().with_verbose(false);
-
-    assert!(!options_false.verbose);
-}
-
-#[test]
-fn test_builder_pattern_log_json_output() {
-    let options = ExecOptions::new().with_log_json_output(true);
-
-    assert!(options.log_json_output);
-
-    let options_false = ExecOptions::new().with_log_json_output(false);
-
-    assert!(!options_false.log_json_output);
-}
-
-#[test]
-fn test_builder_pattern_confirm_destructive() {
-    let options = ExecOptions::new().with_confirm_destructive(true);
-
-    assert!(options.confirm_destructive);
-
-    let options_false = ExecOptions::new().with_confirm_destructive(false);
-
-    assert!(!options_false.confirm_destructive);
+    for flag in flags {
+        let options = (flag.set)(ExecOptions::new(), flag.value);
+        assert_eq!((flag.get)(&options), flag.value, "{}", flag.scenario);
+    }
 }
 
 #[test]
@@ -205,20 +225,40 @@ fn test_backoff_edge_cases() {
     assert_eq!(aggressive_growth_options.retry_multiplier, 10.0);
 }
 
+// Only the exact, case-sensitive name `OH_MY_DPU` is treated as destructive;
+// everything else (other variables, the empty string, mismatched casing) is not.
 #[test]
 fn test_is_destructive_variable() {
-    // Test the predefined destructive variable
-    assert!(is_destructive_variable("OH_MY_DPU"));
+    value_scenarios!(
+        run = is_destructive_variable;
+        "the predefined destructive variable" {
+            "OH_MY_DPU" => true,
+        }
 
-    // Test non-destructive variables
-    assert!(!is_destructive_variable("SRIOV_EN"));
-    assert!(!is_destructive_variable("NUM_OF_VFS"));
-    assert!(!is_destructive_variable("POWER_MODE"));
-    assert!(!is_destructive_variable(""));
+        "SRIOV_EN is not destructive" {
+            "SRIOV_EN" => false,
+        }
 
-    // Test case sensitivity
-    assert!(!is_destructive_variable("oh_my_dpu"));
-    assert!(!is_destructive_variable("Oh_My_Dpu"));
+        "NUM_OF_VFS is not destructive" {
+            "NUM_OF_VFS" => false,
+        }
+
+        "POWER_MODE is not destructive" {
+            "POWER_MODE" => false,
+        }
+
+        "the empty string is not destructive" {
+            "" => false,
+        }
+
+        "lowercase does not match" {
+            "oh_my_dpu" => false,
+        }
+
+        "mixed case does not match" {
+            "Oh_My_Dpu" => false,
+        }
+    );
 }
 
 #[test]
@@ -269,94 +309,6 @@ fn test_edge_case_values() {
 #[cfg(test)]
 mod advanced_tests {
     use super::*;
-
-    #[test]
-    fn test_sample1_config() {
-        let sample1_options = ExecOptions::new()
-            .with_timeout(Some(Duration::from_secs(45)))
-            .with_retries(2)
-            .with_retry_delay(Duration::from_secs(3))
-            .with_max_retry_delay(Duration::from_secs(30))
-            .with_retry_multiplier(2.0)
-            .with_verbose(false)
-            .with_confirm_destructive(true);
-
-        assert_eq!(sample1_options.timeout, Some(Duration::from_secs(45)));
-        assert_eq!(sample1_options.retries, 2);
-        assert_eq!(sample1_options.retry_delay, Duration::from_secs(3));
-        assert_eq!(sample1_options.max_retry_delay, Duration::from_secs(30));
-        assert_eq!(sample1_options.retry_multiplier, 2.0);
-        assert!(!sample1_options.verbose);
-        assert!(sample1_options.confirm_destructive);
-        assert!(!sample1_options.dry_run);
-        assert!(!sample1_options.log_json_output);
-    }
-
-    #[test]
-    fn test_sample2_config() {
-        let sample2_options = ExecOptions::new()
-            .with_dry_run(true)
-            .with_verbose(true)
-            .with_log_json_output(true)
-            .with_retries(0)
-            .with_retry_delay(Duration::from_millis(10)) // Fast for testing
-            .with_confirm_destructive(false);
-
-        assert!(sample2_options.dry_run);
-        assert!(sample2_options.verbose);
-        assert!(sample2_options.log_json_output);
-        assert_eq!(sample2_options.retries, 0);
-        assert_eq!(sample2_options.retry_delay, Duration::from_millis(10));
-        assert!(!sample2_options.confirm_destructive);
-    }
-
-    #[test]
-    fn test_sample3_config() {
-        let sample3_options = ExecOptions::new()
-            .with_timeout(Some(Duration::from_secs(90)))
-            .with_retries(5)
-            .with_retry_delay(Duration::from_millis(200))
-            .with_max_retry_delay(Duration::from_secs(10))
-            .with_retry_multiplier(1.5) // Conservative growth
-            .with_verbose(true);
-
-        assert_eq!(sample3_options.timeout, Some(Duration::from_secs(90)));
-        assert_eq!(sample3_options.retries, 5);
-        assert_eq!(sample3_options.retry_delay, Duration::from_millis(200));
-        assert_eq!(sample3_options.max_retry_delay, Duration::from_secs(10));
-        assert_eq!(sample3_options.retry_multiplier, 1.5);
-        assert!(sample3_options.verbose);
-    }
-
-    #[test]
-    fn test_sample4_config() {
-        // Configuration with aggressive exponential backoff
-        let sample4_options = ExecOptions::new()
-            .with_retries(3)
-            .with_retry_delay(Duration::from_millis(50))
-            .with_max_retry_delay(Duration::from_millis(500))
-            .with_retry_multiplier(4.0); // Aggressive growth
-
-        assert_eq!(sample4_options.retries, 3);
-        assert_eq!(sample4_options.retry_delay, Duration::from_millis(50));
-        assert_eq!(sample4_options.max_retry_delay, Duration::from_millis(500));
-        assert_eq!(sample4_options.retry_multiplier, 4.0);
-    }
-
-    #[test]
-    fn test_sample5_config() {
-        // Configuration with conservative exponential backoff
-        let sample5_options = ExecOptions::new()
-            .with_retries(10)
-            .with_retry_delay(Duration::from_millis(100))
-            .with_max_retry_delay(Duration::from_secs(30))
-            .with_retry_multiplier(1.2); // Very slow growth
-
-        assert_eq!(sample5_options.retries, 10);
-        assert_eq!(sample5_options.retry_delay, Duration::from_millis(100));
-        assert_eq!(sample5_options.max_retry_delay, Duration::from_secs(30));
-        assert_eq!(sample5_options.retry_multiplier, 1.2);
-    }
 
     #[test]
     fn test_no_retry_config() {

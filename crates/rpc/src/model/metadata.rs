@@ -79,38 +79,39 @@ impl From<rpc::forge::Label> for LabelFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
+    // `LabelFilter::from` is a total conversion: project to (key, value) — the two
+    // fields the originals asserted.
     #[test]
-    fn label_filter_from_rpc_with_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, Some("prod".to_string()));
-    }
+    fn label_filter_from_rpc() {
+        value_scenarios!(
+            run = |label| {
+                let filter = LabelFilter::from(label);
+                (filter.key, filter.value)
+            };
+            "with value" {
+                rpc::forge::Label {
+                    key: "env".to_string(),
+                    value: Some("prod".to_string()),
+                } => ("env".to_string(), Some("prod".to_string())),
+            }
 
-    #[test]
-    fn label_filter_from_rpc_without_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: None,
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, None);
-    }
+            "without value" {
+                rpc::forge::Label {
+                    key: "env".to_string(),
+                    value: None,
+                } => ("env".to_string(), None),
+            }
 
-    #[test]
-    fn label_filter_from_rpc_empty_key() {
-        let rpc_label = rpc::forge::Label {
-            key: String::new(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert!(filter.key.is_empty());
-        assert_eq!(filter.value, Some("prod".to_string()));
+            "empty key" {
+                rpc::forge::Label {
+                    key: String::new(),
+                    value: Some("prod".to_string()),
+                } => (String::new(), Some("prod".to_string())),
+            }
+        );
     }
 }

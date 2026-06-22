@@ -352,7 +352,7 @@ pub(crate) async fn attest_quote(
 
     let id_str = machine_id.to_string();
     let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-        forge_secrets::certificates::Certificate::default()
+        carbide_secrets::certificates::Certificate::default()
     } else {
         api.certificate_provider
             .get_certificate(id_str.as_str(), None, None)

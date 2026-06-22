@@ -49,3 +49,46 @@ impl IbError {
 }
 
 pub type IbResult<T> = Result<T, IbError>;
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy, Debug)]
+    enum ErrorCase {
+        Fabric,
+        NotFound,
+        InvalidArgument,
+        NotImplemented,
+        Internal,
+    }
+
+    fn error_for(case: ErrorCase) -> IbError {
+        match case {
+            ErrorCase::Fabric => IbError::IBFabricError("ufm failed".to_string()),
+            ErrorCase::NotFound => IbError::NotFoundError {
+                kind: "Machine",
+                id: "machine-1".to_string(),
+            },
+            ErrorCase::InvalidArgument => IbError::InvalidArgument("bad pkey".to_string()),
+            ErrorCase::NotImplemented => IbError::NotImplemented,
+            ErrorCase::Internal => IbError::internal("unexpected state".to_string()),
+        }
+    }
+
+    #[test]
+    fn formats_ib_errors() {
+        value_scenarios!(
+            run = |case| error_for(case).to_string();
+            "user facing errors" {
+                ErrorCase::Fabric => "Failed to call IBFabricManager: ufm failed".to_string(),
+                ErrorCase::NotFound => "Machine not found: machine-1".to_string(),
+                ErrorCase::InvalidArgument => "Argument is invalid: bad pkey".to_string(),
+                ErrorCase::NotImplemented => "The function is not implemented".to_string(),
+                ErrorCase::Internal => "Internal error: unexpected state".to_string(),
+            }
+        );
+    }
+}

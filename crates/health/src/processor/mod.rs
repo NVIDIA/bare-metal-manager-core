@@ -199,7 +199,7 @@ mod tests {
         );
 
         let event = CollectorEvent::Metric(
-            crate::sink::SensorHealthData {
+            crate::sink::MetricSample {
                 key: "k".to_string(),
                 name: "n".to_string(),
                 metric_type: "gauge".to_string(),

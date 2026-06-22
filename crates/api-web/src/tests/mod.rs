@@ -15,23 +15,20 @@
  * limitations under the License.
  */
 use axum::Router;
-// The admin-UI tests build a real `Api` from the `carbide-api-core` fixtures, which are exposed via
-// that crate's `test-support` feature (see this crate's dev-dependencies). Re-export the fixtures as
-// `crate::tests::common` so the test modules below can use the same paths they did when they lived
-// in `carbide-api-core`.
-pub use carbide_api_core::tests::common;
-use carbide_api_core::tests::common::api_fixtures::TestEnv;
+use carbide_test_harness::prelude::TestHarness;
 use hyper::http::Request;
 use hyper::http::request::Builder;
 
 use crate::routes;
 
+mod env;
+mod explored_endpoint;
 mod health;
 mod managed_host;
 mod vpc;
 
-fn make_test_app(env: &TestEnv) -> Router {
-    let r = routes(env.api.clone()).unwrap();
+fn make_test_app(test_harness: &TestHarness) -> Router {
+    let r = routes(test_harness.api_arc()).unwrap();
     Router::new().nest_service("/admin", r)
 }
 

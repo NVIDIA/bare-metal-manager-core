@@ -208,17 +208,43 @@ pub fn ib_config_synced(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, scenarios};
+
     use super::*;
 
     #[test]
     fn deserialize_legacy_ib_status_observation() {
-        let obs1 = r#"{"observed_at": "2024-12-18T23:17:57.919166804Z", "ib_interfaces": []}"#;
-        let _deserialized: MachineInfinibandStatusObservation = serde_json::from_str(obs1).unwrap();
+        // Legacy IB status observations should deserialize, defaulting the fields
+        // that older payloads omit. We project to the first interface's
+        // (fabric_id_is_empty, associated_pkeys_is_none) so the asserted defaults
+        // are comparable.
+        scenarios!(
+            // Deserialize, then project the first interface's defaulted fields.
+            // serde_json::Error is not PartialEq, so a failing row would discard it.
+            run = |s| {
+                serde_json::from_str::<MachineInfinibandStatusObservation>(s)
+                    .map(|obs| {
+                        let iface = obs.ib_interfaces.first().expect("row supplies interfaces");
+                        (iface.fabric_id.is_empty(), iface.associated_pkeys.is_none())
+                    })
+                    .map_err(drop)
+            };
+            "interfaces without fabric_id or pkeys default them" {
+                r#"{"observed_at": "2025-06-06T19:47:16.597282585Z", "ib_interfaces": [{"lid": 65535, "guid": "1070fd0300bd7574"}, {"lid": 65535, "guid": "1070fd0300bd7575"}]}"# => Yields((true, true)),
+            }
+        );
+    }
 
-        let obs2 = r#"{"observed_at": "2025-06-06T19:47:16.597282585Z", "ib_interfaces": [{"lid": 65535, "guid": "1070fd0300bd7574"}, {"lid": 65535, "guid": "1070fd0300bd7575"}]}"#;
-        let deserialized: MachineInfinibandStatusObservation = serde_json::from_str(obs2).unwrap();
-        assert!(deserialized.ib_interfaces[0].fabric_id.is_empty());
-        assert!(deserialized.ib_interfaces[0].associated_pkeys.is_none());
+    // An empty interface list deserializes cleanly -- older payloads may omit
+    // interfaces entirely.
+    #[test]
+    fn deserialize_legacy_ib_status_empty_interfaces() {
+        let obs: MachineInfinibandStatusObservation = serde_json::from_str(
+            r#"{"observed_at": "2024-12-18T23:17:57.919166804Z", "ib_interfaces": []}"#,
+        )
+        .expect("empty interface list should deserialize");
+        assert!(obs.ib_interfaces.is_empty());
     }
 
     #[test]
@@ -247,81 +273,17 @@ mod tests {
     }
 
     #[test]
-    fn test_ib_config_synced_missing_observation() {
-        use crate::instance::config::network::InterfaceFunctionId;
-
-        let config = InstanceInfinibandConfig {
-            ib_interfaces: vec![
-                crate::instance::config::infiniband::InstanceIbInterfaceConfig {
-                    function_id: InterfaceFunctionId::Physical {},
-                    ib_partition_id: uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into(),
-                    pf_guid: None,
-                    guid: Some("946dae03006104f8".to_string()),
-                    device: "MT2910 Family [ConnectX-7]".to_string(),
-                    vendor: None,
-                    device_instance: 1,
-                },
-            ],
-        };
-        let result = ib_config_synced(None, Some(&config), true);
-        assert!(matches!(
-            result,
-            Err(IbConfigNotSyncedReason::MissingObservation { .. })
-        ));
-    }
-
-    #[test]
-    fn test_ib_config_synced_port_state_unobservable() {
-        use crate::instance::config::network::InterfaceFunctionId;
-
-        let config = InstanceInfinibandConfig {
-            ib_interfaces: vec![
-                crate::instance::config::infiniband::InstanceIbInterfaceConfig {
-                    function_id: InterfaceFunctionId::Physical {},
-                    ib_partition_id: uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into(),
-                    pf_guid: None,
-                    guid: Some("946dae03006104f8".to_string()),
-                    device: "MT2910 Family [ConnectX-7]".to_string(),
-                    vendor: None,
-                    device_instance: 1,
-                },
-            ],
-        };
-
-        let observation = MachineInfinibandStatusObservation {
-            ib_interfaces: vec![MachineIbInterfaceStatusObservation {
-                guid: "946dae03006104f8".to_string(),
-                lid: 0xffff,
-                fabric_id: "".to_string(),
-                associated_pkeys: None, // Port is down/unobservable
-                associated_partition_ids: None,
-            }],
-            observed_at: chrono::Utc::now(),
-        };
-
-        let result = ib_config_synced(Some(&observation), Some(&config), true);
-
-        match result {
-            Err(IbConfigNotSyncedReason::PortStateUnobservable { guids, details }) => {
-                assert_eq!(guids.len(), 1);
-                assert_eq!(guids[0], "946dae03006104f8");
-                assert!(details.contains("946dae03006104f8"));
-                assert!(details.contains("missing or incomplete"));
-            }
-            _ => panic!("Expected PortStateUnobservable error, got: {:?}", result),
-        }
-    }
-
-    #[test]
-    fn test_ib_config_synced_ok_when_synced() {
+    fn test_ib_config_synced() {
         use carbide_uuid::infiniband::IBPartitionId;
 
         use crate::instance::config::network::InterfaceFunctionId;
+
         let partition_id: IBPartitionId =
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let pkey: PartitionKey = 0x13.try_into().unwrap();
 
-        let config = InstanceInfinibandConfig {
+        // A single-interface config requesting the partition above.
+        let config = || InstanceInfinibandConfig {
             ib_interfaces: vec![
                 crate::instance::config::infiniband::InstanceIbInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
@@ -335,7 +297,20 @@ mod tests {
             ],
         };
 
-        let observation = MachineInfinibandStatusObservation {
+        // Observation where the port is down/unobservable (no pkeys/partition ids).
+        let unobservable = MachineInfinibandStatusObservation {
+            ib_interfaces: vec![MachineIbInterfaceStatusObservation {
+                guid: "946dae03006104f8".to_string(),
+                lid: 0xffff,
+                fabric_id: "".to_string(),
+                associated_pkeys: None,
+                associated_partition_ids: None,
+            }],
+            observed_at: chrono::Utc::now(),
+        };
+
+        // Observation where the interface is on exactly the requested partition.
+        let synced = MachineInfinibandStatusObservation {
             ib_interfaces: vec![MachineIbInterfaceStatusObservation {
                 guid: "946dae03006104f8".to_string(),
                 lid: 0x10,
@@ -346,7 +321,78 @@ mod tests {
             observed_at: chrono::Utc::now(),
         };
 
-        let result = ib_config_synced(Some(&observation), Some(&config), true);
-        assert!(result.is_ok());
+        // Observation where the interface is observable but sits on a different
+        // partition than the config requests, so the config is not synced.
+        let other_partition_id: IBPartitionId =
+            uuid::uuid!("00000000-0000-0000-0000-0000deadbeef").into();
+        let other_pkey: PartitionKey = 0x42.try_into().unwrap();
+        let mismatched = MachineInfinibandStatusObservation {
+            ib_interfaces: vec![MachineIbInterfaceStatusObservation {
+                guid: "946dae03006104f8".to_string(),
+                lid: 0x10,
+                fabric_id: "default".to_string(),
+                associated_pkeys: Some([other_pkey].into_iter().collect()),
+                associated_partition_ids: Some([other_partition_id].into_iter().collect()),
+            }],
+            observed_at: chrono::Utc::now(),
+        };
+
+        // ib_config_synced over (observation, config, use_tenant_network). The
+        // error variant's `details` are built dynamically, so rather than assert
+        // the exact reason we project the result to a comparable summary:
+        // - Ok            -> a static "ok" tag, no guids, no substrings
+        // - the error variant tag, the affected guids, and whether `details`
+        //   carries the expected substrings (only the PortStateUnobservable row
+        //   asserts those).
+        type Summary = (&'static str, Vec<String>, bool, bool);
+        let cfg = config();
+        check_cases(
+            [
+                Case {
+                    scenario: "missing observation",
+                    input: (None, Some(&cfg), true),
+                    expect: Yields(("MissingObservation", Vec::new(), false, false)),
+                },
+                Case {
+                    scenario: "port state unobservable",
+                    input: (Some(&unobservable), Some(&cfg), true),
+                    expect: Yields((
+                        "PortStateUnobservable",
+                        vec!["946dae03006104f8".to_string()],
+                        true,
+                        true,
+                    )),
+                },
+                Case {
+                    scenario: "ok when synced",
+                    input: (Some(&synced), Some(&cfg), true),
+                    expect: Yields(("ok", Vec::new(), false, false)),
+                },
+                Case {
+                    scenario: "configuration mismatch (interface on a different partition)",
+                    input: (Some(&mismatched), Some(&cfg), true),
+                    expect: Yields(("ConfigurationMismatch", Vec::new(), false, false)),
+                },
+            ],
+            |(observation, config, use_tenant_network)| -> Result<Summary, ()> {
+                Ok(
+                    match ib_config_synced(observation, config, use_tenant_network) {
+                        Ok(()) => ("ok", Vec::new(), false, false),
+                        Err(IbConfigNotSyncedReason::MissingObservation { .. }) => {
+                            ("MissingObservation", Vec::new(), false, false)
+                        }
+                        Err(IbConfigNotSyncedReason::ConfigurationMismatch { .. }) => {
+                            ("ConfigurationMismatch", Vec::new(), false, false)
+                        }
+                        Err(IbConfigNotSyncedReason::PortStateUnobservable { guids, details }) => (
+                            "PortStateUnobservable",
+                            guids,
+                            details.contains("946dae03006104f8"),
+                            details.contains("missing or incomplete"),
+                        ),
+                    },
+                )
+            },
+        );
     }
 }

@@ -31,7 +31,14 @@ async fn main() -> Result<(), DsxConsumerError> {
         .from_env_lossy();
 
     tracing_subscriber::registry()
-        .with(logfmt::layer().with_filter(env_filter))
+        .with(
+            logfmt::layer()
+                .with_event_fields([logfmt::EventField::with_default(
+                    "component",
+                    "nico-dsx-exchange-consumer",
+                )])
+                .with_filter(env_filter),
+        )
         .try_init()
         .map_err(|e| DsxConsumerError::Config(e.to_string()))?;
 

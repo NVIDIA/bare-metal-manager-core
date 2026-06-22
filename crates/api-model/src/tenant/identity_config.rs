@@ -528,12 +528,112 @@ mod key_id_tests {
     #[test]
     fn generate_es256_key_pair_produces_valid_outputs() {
         let (private_pem, public_pem) =
-            forge_secrets::key_encryption::generate_es256_key_pair().unwrap();
+            carbide_secrets::key_encryption::generate_es256_key_pair().unwrap();
         assert!(private_pem.starts_with(b"-----BEGIN"));
         assert!(public_pem.contains("PUBLIC KEY"));
         let key_id = KeyId::key_id_from_public_key(&public_pem);
         assert_eq!(key_id.len(), 64);
         p256::PublicKey::from_public_key_pem(public_pem.trim()).unwrap();
         p256::SecretKey::from_pkcs8_pem(std::str::from_utf8(&private_pem).unwrap()).unwrap();
+    }
+}
+
+// Real Postgres round-trips for the sqlx `Encode`/`Decode` codecs. Binding a
+// value and reading it back exercises the `Decode`-from-`PgValueRef` path the
+// in-memory tests can't reach; the per-test pool comes from the shared
+// `sqlx_test` harness, so `carbide-test-support` itself stays db-agnostic.
+//
+// Deliberately one test covering every codec: the harness builds its template
+// database lazily on first use, and concurrent first-time builds race, so a
+// single `sqlx_test` per crate sidesteps that cold-start flake.
+#[cfg(test)]
+mod sqlx_db_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async};
+
+    use super::*;
+    use crate::tenant::TenantOrganizationId;
+
+    #[crate::sqlx_test]
+    async fn codecs_round_trip_through_postgres(pool: sqlx::PgPool) -> eyre::Result<()> {
+        // SigningAlgorithm <-> VARCHAR
+        check_cases_async(
+            [Case {
+                scenario: "SigningAlgorithm Es256 round-trips",
+                input: SigningAlgorithm::Es256,
+                expect: Yields(SigningAlgorithm::Es256),
+            }],
+            |alg: SigningAlgorithm| {
+                let pool = pool.clone();
+                async move {
+                    sqlx::query_scalar::<_, SigningAlgorithm>("SELECT $1::varchar")
+                        .bind(alg)
+                        .fetch_one(&pool)
+                        .await
+                        .map_err(drop)
+                }
+            },
+        )
+        .await;
+
+        // TenantOrganizationId <-> TEXT
+        check_cases_async(
+            [
+                Case {
+                    scenario: "alphanumeric org id round-trips",
+                    input: TenantOrganizationId::try_from("acme123".to_string()).unwrap(),
+                    expect: Yields(TenantOrganizationId::try_from("acme123".to_string()).unwrap()),
+                },
+                Case {
+                    scenario: "org id with dashes and underscores round-trips",
+                    input: TenantOrganizationId::try_from("acme-corp_1".to_string()).unwrap(),
+                    expect: Yields(
+                        TenantOrganizationId::try_from("acme-corp_1".to_string()).unwrap(),
+                    ),
+                },
+            ],
+            |org: TenantOrganizationId| {
+                let pool = pool.clone();
+                async move {
+                    sqlx::query_scalar::<_, TenantOrganizationId>("SELECT $1::text")
+                        .bind(org)
+                        .fetch_one(&pool)
+                        .await
+                        .map_err(drop)
+                }
+            },
+        )
+        .await;
+
+        // KeyId (`NonEmptyStr`, no `PartialEq`) <-> TEXT; compare the text, and
+        // the decode still rejects an empty residue.
+        check_cases_async(
+            [
+                Case {
+                    scenario: "typical key id round-trips",
+                    input: "signing-key-1",
+                    expect: Yields("signing-key-1".to_string()),
+                },
+                Case {
+                    scenario: "single-character key id round-trips",
+                    input: "k",
+                    expect: Yields("k".to_string()),
+                },
+            ],
+            |raw: &str| {
+                let pool = pool.clone();
+                async move {
+                    let key = KeyId::try_from(raw.to_string()).map_err(drop)?;
+                    let back: KeyId = sqlx::query_scalar("SELECT $1::text")
+                        .bind(key)
+                        .fetch_one(&pool)
+                        .await
+                        .map_err(drop)?;
+                    Ok::<_, ()>(back.as_str().to_string())
+                }
+            },
+        )
+        .await;
+        Ok(())
     }
 }

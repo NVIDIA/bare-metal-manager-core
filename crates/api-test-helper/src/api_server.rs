@@ -17,8 +17,8 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use carbide_secrets::CredentialConfig;
 use carbide_utils::HostPortPair;
-use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 

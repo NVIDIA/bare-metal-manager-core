@@ -80,7 +80,7 @@ pub(crate) async fn find_by_ids(
 
     let mut result = Vec::with_capacity(segments.len());
     for seg in segments {
-        result.push(seg.try_into()?);
+        result.push(seg.into());
     }
     Ok(Response::new(rpc::NetworkSegmentList {
         network_segments: result,
@@ -143,7 +143,7 @@ pub(crate) async fn create(
             .first()
             .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
 
-        let virtualization_type = vpc.network_virtualization_type;
+        let virtualization_type = vpc.config.network_virtualization_type;
 
         // Segment compatibility (segment-type binding + IPv6 support)
         // and SVI allocation are both expressed as capability checks
@@ -158,9 +158,81 @@ pub(crate) async fn create(
 
     let network_segment = save(api, &mut txn, new_network_segment, false, allocate_svi_ip).await?;
 
-    let response = Ok(Response::new(network_segment.try_into()?));
     txn.commit().await?;
-    response
+
+    Ok(Response::new(network_segment.into()))
+}
+
+pub(crate) async fn attach_to_vpc(
+    api: &Api,
+    request: Request<rpc::AttachNetworkSegmentToVpcRequest>,
+) -> Result<Response<rpc::NetworkSegment>, Status> {
+    crate::api::log_request_data(&request);
+
+    let rpc::AttachNetworkSegmentToVpcRequest {
+        network_segment_id,
+        vpc_id,
+        allow_replace,
+        ..
+    } = request.into_inner();
+
+    let segment_id =
+        network_segment_id.ok_or(CarbideError::MissingArgument("network_segment_id"))?;
+    let vpc_id = vpc_id.ok_or(CarbideError::MissingArgument("vpc_id"))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let vpcs = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?;
+    let vpc = vpcs.first().ok_or_else(|| CarbideError::NotFoundError {
+        kind: "vpc",
+        id: vpc_id.to_string(),
+    })?;
+
+    let segment = db::network_segment::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await?
+    .into_iter()
+    .find(|segment| !segment.is_marked_as_deleted())
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "network segment",
+        id: segment_id.to_string(),
+    })?;
+
+    if segment.config.segment_type != NetworkSegmentType::HostInband {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Only host_inband network segments can be attached to a VPC with this API, got {}",
+            segment.config.segment_type
+        ))
+        .into());
+    }
+
+    vpc.config
+        .network_virtualization_type
+        .ensure_supports_segment(&segment)
+        .map_err(CarbideError::from)?;
+
+    let network_segment = match segment.config.vpc_id {
+        Some(current_vpc_id) if current_vpc_id == vpc_id => segment,
+        Some(current_vpc_id) if !allow_replace => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "Network segment {} is already attached to VPC {}",
+                segment.id, current_vpc_id
+            ))
+            .into());
+        }
+        _ => db::network_segment::attach_to_vpc(&segment, txn.as_mut(), vpc_id).await?,
+    };
+
+    txn.commit().await?;
+    Ok(Response::new(network_segment.into()))
 }
 
 pub(crate) async fn delete(
@@ -215,13 +287,9 @@ pub(crate) async fn for_vpc(
 
     let results = db::network_segment::for_vpc(&api.database_connection, uuid).await?;
 
-    let mut network_segments = Vec::with_capacity(results.len());
-
-    for result in results {
-        network_segments.push(result.try_into()?);
-    }
-
-    Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+    Ok(Response::new(rpc::NetworkSegmentList {
+        network_segments: results.into_iter().map(Into::into).collect(),
+    }))
 }
 
 pub(crate) async fn find_state_histories(

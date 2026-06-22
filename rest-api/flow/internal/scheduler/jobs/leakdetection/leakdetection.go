@@ -8,12 +8,16 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/uptrace/bun"
 
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 // Query core to get IDs of leaking machines and submit power-off tasks for each
@@ -21,6 +25,7 @@ func runLeakDetectionOneMachine(
 	ctx context.Context,
 	nicoClient nicoapi.Client,
 	taskMgr taskmanager.Manager,
+	pool *cdb.Session,
 ) {
 	log.Info().Msg("Running leak detection for machines")
 
@@ -41,6 +46,8 @@ func runLeakDetectionOneMachine(
 				Msg("Failed to submit power-off task for leaking machine")
 		}
 	}
+
+	reconcileLeakStatus(ctx, pool, devicetypes.ComponentTypeCompute, leakingMachineIds)
 }
 
 // Query core to get IDs of leaking switches and submit power-off tasks for each
@@ -48,6 +55,7 @@ func runLeakDetectionOneSwitch(
 	ctx context.Context,
 	nicoClient nicoapi.Client,
 	taskMgr taskmanager.Manager,
+	pool *cdb.Session,
 ) {
 	log.Info().Msg("Running leak detection for switches")
 
@@ -68,17 +76,84 @@ func runLeakDetectionOneSwitch(
 				Msg("Failed to submit power-off task for leaking switch")
 		}
 	}
+
+	reconcileLeakStatus(ctx, pool, devicetypes.ComponentTypeNVSwitch, leakingSwitchIds)
 }
 
 func runLeakDetectionOne(
 	ctx context.Context,
 	nicoClient nicoapi.Client,
 	taskMgr taskmanager.Manager,
+	pool *cdb.Session,
 ) {
 	log.Info().Msg("Running leak detection")
 
-	runLeakDetectionOneMachine(ctx, nicoClient, taskMgr)
-	runLeakDetectionOneSwitch(ctx, nicoClient, taskMgr)
+	runLeakDetectionOneMachine(ctx, nicoClient, taskMgr, pool)
+	runLeakDetectionOneSwitch(ctx, nicoClient, taskMgr, pool)
+}
+
+// reconcileLeakStatus writes the per-component leak_status for every known
+// component of the given type: DETECTED for the external IDs core flagged
+// this cycle, NOT_DETECTED for the rest. Components without an external_id
+// (not yet matched to a core machine/switch) keep their resting UNKNOWN.
+// Only changed rows are written, mirroring persistComponentStatuses in the
+// inventory loop. A nil pool (test wiring without a database) is a no-op.
+func reconcileLeakStatus(
+	ctx context.Context,
+	pool *cdb.Session,
+	componentType devicetypes.ComponentType,
+	leakingIDs []string,
+) {
+	if pool == nil {
+		return
+	}
+
+	components, err := model.GetComponentsByType(ctx, pool.DB, componentType)
+	if err != nil {
+		log.Error().Err(err).
+			Str("component_type", componentType.String()).
+			Msg("Leak detection: unable to load components to reconcile leak status")
+		return
+	}
+
+	leaking := make(map[string]struct{}, len(leakingIDs))
+	for _, id := range leakingIDs {
+		leaking[id] = struct{}{}
+	}
+
+	var toUpdate []model.Component
+	for i := range components {
+		comp := &components[i]
+		if comp.ComponentID == nil || *comp.ComponentID == "" {
+			continue
+		}
+		desired := types.LeakStatusNotDetected
+		if _, ok := leaking[*comp.ComponentID]; ok {
+			desired = types.LeakStatusDetected
+		}
+		if comp.LeakStatus == desired {
+			continue
+		}
+		comp.LeakStatus = desired
+		toUpdate = append(toUpdate, *comp)
+	}
+
+	if len(toUpdate) == 0 {
+		return
+	}
+
+	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		for _, comp := range toUpdate {
+			if err := comp.SetLeakStatusByComponentID(ctx, tx); err != nil {
+				return fmt.Errorf("set leak status: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Error().Err(err).
+			Str("component_type", componentType.String()).
+			Msg("Leak detection: unable to persist component leak statuses")
+	}
 }
 
 func submitPowerOffTask(

@@ -593,19 +593,19 @@ async fn test_vpc_peering_network_config_ordered_peerings(
         .await?
         .into_iter()
         .next()
-        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .and_then(|vpc| vpc.status.vni)
         .expect("Expected peer vpc 2 vni to be present") as u32;
     let peer_vpc_vni_3 = db::vpc::find_by_name(&env.pool, "test vpc 3")
         .await?
         .into_iter()
         .next()
-        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .and_then(|vpc| vpc.status.vni)
         .expect("Expected peer vpc 3 vni to be present") as u32;
     let peer_vpc_vni_4 = db::vpc::find_by_name(&env.pool, "test vpc 4")
         .await?
         .into_iter()
         .next()
-        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .and_then(|vpc| vpc.status.vni)
         .expect("Expected peer vpc 4 vni to be present") as u32;
 
     // Create VPC Peering between VPC 1 and VPC 2

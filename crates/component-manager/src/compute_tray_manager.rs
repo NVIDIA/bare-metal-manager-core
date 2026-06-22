@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, FirmwareState, PowerAction};
 
 use crate::error::ComponentManagerError;
@@ -55,8 +55,8 @@ pub struct ComputeTrayFirmwareUpdateStatus {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    #[default]
     Core,
+    #[default]
     Rms,
     Mock,
 }

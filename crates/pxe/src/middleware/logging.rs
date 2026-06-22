@@ -50,16 +50,6 @@ pub(crate) async fn logger(
     {
         props.insert("request_headers_content-length", content_length.to_string());
     }
-    if let Some(x_forwarded_for) = request
-        .headers()
-        .get("X-Forwarded-For")
-        .and_then(|h| h.to_str().ok())
-    {
-        props.insert(
-            "request_headers_x-forwarded-for",
-            x_forwarded_for.to_string(),
-        );
-    }
     if let Some(user_agent) = request
         .headers()
         .get("User-Agent")
@@ -123,24 +113,46 @@ fn render_logfmt(props: &BTreeMap<&'static str, String>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
-    #[test]
-    fn test_logfmt() {
+    fn render(entries: Vec<(&'static str, &'static str)>) -> String {
         let mut props = BTreeMap::new();
-        props.insert("method", "GET".to_string());
-        props.insert("path", "/boot".to_string());
-        props.insert("remote_ip", "127.0.0.1".to_string());
-        assert_eq!(
-            render_logfmt(&props),
-            "method=GET path=/boot remote_ip=127.0.0.1"
-        );
+        for (key, value) in entries {
+            props.insert(key, value.to_string());
+        }
+        render_logfmt(&props)
+    }
 
-        props.insert("z", "with whitespace".to_string());
-        props.insert("e", "".to_string());
-        assert_eq!(
-            render_logfmt(&props),
-            "e=\"\" method=GET path=/boot remote_ip=127.0.0.1 z=\"with whitespace\""
+    #[test]
+    fn renders_logfmt() {
+        value_scenarios!(
+            render:
+            "plain values" {
+                vec![
+                    ("method", "GET"),
+                    ("path", "/boot"),
+                    ("remote_ip", "127.0.0.1"),
+                ] => "method=GET path=/boot remote_ip=127.0.0.1".to_string(),
+            }
+
+            "quoted values" {
+                vec![
+                    ("method", "GET"),
+                    ("path", "/boot"),
+                    ("remote_ip", "127.0.0.1"),
+                    ("z", "with whitespace"),
+                    ("e", ""),
+                ] => "e=\"\" method=GET path=/boot remote_ip=127.0.0.1 z=\"with whitespace\"".to_string(),
+            }
+
+            "escaped values" {
+                vec![
+                    ("message", "quoted \"value\""),
+                    ("path", "a=b"),
+                ] => "message=\"quoted \\\"value\\\"\" path=\"a=b\"".to_string(),
+            }
         );
     }
 }

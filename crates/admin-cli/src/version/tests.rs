@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -44,28 +46,26 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_no_args ensures parses with no arguments.
+// The `--show-runtime-config` flag is off by default and flipped on by either
+// its short `-s` or long form -- each invocation parses and yields the flag.
 #[test]
-fn parse_no_args() {
-    let opts = Opts::try_parse_from(["version"]).expect("should parse with no args");
+fn parse_show_runtime_config_flag() {
+    scenarios!(
+        run = |argv| {
+            Opts::try_parse_from(argv.iter().copied())
+                .map(|opts| opts.show_runtime_config)
+                .map_err(drop)
+        };
+        "no args defaults the flag off" {
+            &["version"][..] => Yields(false),
+        }
 
-    assert!(!opts.show_runtime_config);
-}
+        "-s turns the flag on" {
+            &["version", "-s"][..] => Yields(true),
+        }
 
-// parse_show_runtime_config_short ensures parses with -s flag.
-#[test]
-fn parse_show_runtime_config_short() {
-    let opts = Opts::try_parse_from(["version", "-s"]).expect("should parse with -s");
-
-    assert!(opts.show_runtime_config);
-}
-
-// parse_show_runtime_config_long ensures parses with
-// --show-runtime-config flag.
-#[test]
-fn parse_show_runtime_config_long() {
-    let opts = Opts::try_parse_from(["version", "--show-runtime-config"])
-        .expect("should parse with --show-runtime-config");
-
-    assert!(opts.show_runtime_config);
+        "--show-runtime-config turns the flag on" {
+            &["version", "--show-runtime-config"][..] => Yields(true),
+        }
+    );
 }

@@ -16,6 +16,7 @@
  */
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use carbide_api_core::test_support::ApiMetricsEmitter;
 use carbide_api_core::test_support::builder::TestApiBuilder;
@@ -93,7 +94,7 @@ impl TestHarnessBuilder {
             .with_metric_emitter(ApiMetricsEmitter::new(&test_meter.meter()))
             .build();
         ApiHandle {
-            api,
+            api: Arc::new(api),
             _drop_guard: cancel_token.clone().drop_guard(),
             cancel_token,
             _js: join_set,

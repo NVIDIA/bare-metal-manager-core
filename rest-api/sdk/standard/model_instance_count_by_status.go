@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,12 +22,28 @@ var _ MappedNullable = &InstanceCountByStatus{}
 
 // InstanceCountByStatus Describes count of Instances in various statuses
 type InstanceCountByStatus struct {
-	Total        *int32 `json:"total,omitempty"`
-	Pending      *int32 `json:"pending,omitempty"`
+	// Total number of Instances
+	Total *int32 `json:"total,omitempty"`
+	// Number of Instances in Pending status
+	Pending *int32 `json:"pending,omitempty"`
+	// Number of Instances in Provisioning status
 	Provisioning *int32 `json:"provisioning,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	Terminating  *int32 `json:"terminating,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
+	// Number of Instances in Configuring status
+	Configuring *int32 `json:"configuring,omitempty"`
+	// Number of Instances in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of Instances in Rebooting status
+	Rebooting *int32 `json:"rebooting,omitempty"`
+	// Number of Instances in Repairing status
+	Repairing *int32 `json:"repairing,omitempty"`
+	// Number of Instances in Terminating status
+	Terminating *int32 `json:"terminating,omitempty"`
+	// Number of Instances in Error status
+	Error *int32 `json:"error,omitempty"`
+	// Number of Instances in Updating status
+	Updating *int32 `json:"updating,omitempty"`
+	// Number of Instances in Unknown status
+	Unknown *int32 `json:"unknown,omitempty"`
 }
 
 // NewInstanceCountByStatus instantiates a new InstanceCountByStatus object
@@ -143,6 +159,38 @@ func (o *InstanceCountByStatus) SetProvisioning(v int32) {
 	o.Provisioning = &v
 }
 
+// GetConfiguring returns the Configuring field value if set, zero value otherwise.
+func (o *InstanceCountByStatus) GetConfiguring() int32 {
+	if o == nil || IsNil(o.Configuring) {
+		var ret int32
+		return ret
+	}
+	return *o.Configuring
+}
+
+// GetConfiguringOk returns a tuple with the Configuring field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCountByStatus) GetConfiguringOk() (*int32, bool) {
+	if o == nil || IsNil(o.Configuring) {
+		return nil, false
+	}
+	return o.Configuring, true
+}
+
+// HasConfiguring returns a boolean if a field has been set.
+func (o *InstanceCountByStatus) HasConfiguring() bool {
+	if o != nil && !IsNil(o.Configuring) {
+		return true
+	}
+
+	return false
+}
+
+// SetConfiguring gets a reference to the given int32 and assigns it to the Configuring field.
+func (o *InstanceCountByStatus) SetConfiguring(v int32) {
+	o.Configuring = &v
+}
+
 // GetReady returns the Ready field value if set, zero value otherwise.
 func (o *InstanceCountByStatus) GetReady() int32 {
 	if o == nil || IsNil(o.Ready) {
@@ -173,6 +221,70 @@ func (o *InstanceCountByStatus) HasReady() bool {
 // SetReady gets a reference to the given int32 and assigns it to the Ready field.
 func (o *InstanceCountByStatus) SetReady(v int32) {
 	o.Ready = &v
+}
+
+// GetRebooting returns the Rebooting field value if set, zero value otherwise.
+func (o *InstanceCountByStatus) GetRebooting() int32 {
+	if o == nil || IsNil(o.Rebooting) {
+		var ret int32
+		return ret
+	}
+	return *o.Rebooting
+}
+
+// GetRebootingOk returns a tuple with the Rebooting field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCountByStatus) GetRebootingOk() (*int32, bool) {
+	if o == nil || IsNil(o.Rebooting) {
+		return nil, false
+	}
+	return o.Rebooting, true
+}
+
+// HasRebooting returns a boolean if a field has been set.
+func (o *InstanceCountByStatus) HasRebooting() bool {
+	if o != nil && !IsNil(o.Rebooting) {
+		return true
+	}
+
+	return false
+}
+
+// SetRebooting gets a reference to the given int32 and assigns it to the Rebooting field.
+func (o *InstanceCountByStatus) SetRebooting(v int32) {
+	o.Rebooting = &v
+}
+
+// GetRepairing returns the Repairing field value if set, zero value otherwise.
+func (o *InstanceCountByStatus) GetRepairing() int32 {
+	if o == nil || IsNil(o.Repairing) {
+		var ret int32
+		return ret
+	}
+	return *o.Repairing
+}
+
+// GetRepairingOk returns a tuple with the Repairing field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCountByStatus) GetRepairingOk() (*int32, bool) {
+	if o == nil || IsNil(o.Repairing) {
+		return nil, false
+	}
+	return o.Repairing, true
+}
+
+// HasRepairing returns a boolean if a field has been set.
+func (o *InstanceCountByStatus) HasRepairing() bool {
+	if o != nil && !IsNil(o.Repairing) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepairing gets a reference to the given int32 and assigns it to the Repairing field.
+func (o *InstanceCountByStatus) SetRepairing(v int32) {
+	o.Repairing = &v
 }
 
 // GetTerminating returns the Terminating field value if set, zero value otherwise.
@@ -239,6 +351,70 @@ func (o *InstanceCountByStatus) SetError(v int32) {
 	o.Error = &v
 }
 
+// GetUpdating returns the Updating field value if set, zero value otherwise.
+func (o *InstanceCountByStatus) GetUpdating() int32 {
+	if o == nil || IsNil(o.Updating) {
+		var ret int32
+		return ret
+	}
+	return *o.Updating
+}
+
+// GetUpdatingOk returns a tuple with the Updating field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCountByStatus) GetUpdatingOk() (*int32, bool) {
+	if o == nil || IsNil(o.Updating) {
+		return nil, false
+	}
+	return o.Updating, true
+}
+
+// HasUpdating returns a boolean if a field has been set.
+func (o *InstanceCountByStatus) HasUpdating() bool {
+	if o != nil && !IsNil(o.Updating) {
+		return true
+	}
+
+	return false
+}
+
+// SetUpdating gets a reference to the given int32 and assigns it to the Updating field.
+func (o *InstanceCountByStatus) SetUpdating(v int32) {
+	o.Updating = &v
+}
+
+// GetUnknown returns the Unknown field value if set, zero value otherwise.
+func (o *InstanceCountByStatus) GetUnknown() int32 {
+	if o == nil || IsNil(o.Unknown) {
+		var ret int32
+		return ret
+	}
+	return *o.Unknown
+}
+
+// GetUnknownOk returns a tuple with the Unknown field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCountByStatus) GetUnknownOk() (*int32, bool) {
+	if o == nil || IsNil(o.Unknown) {
+		return nil, false
+	}
+	return o.Unknown, true
+}
+
+// HasUnknown returns a boolean if a field has been set.
+func (o *InstanceCountByStatus) HasUnknown() bool {
+	if o != nil && !IsNil(o.Unknown) {
+		return true
+	}
+
+	return false
+}
+
+// SetUnknown gets a reference to the given int32 and assigns it to the Unknown field.
+func (o *InstanceCountByStatus) SetUnknown(v int32) {
+	o.Unknown = &v
+}
+
 func (o InstanceCountByStatus) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -258,14 +434,29 @@ func (o InstanceCountByStatus) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Provisioning) {
 		toSerialize["provisioning"] = o.Provisioning
 	}
+	if !IsNil(o.Configuring) {
+		toSerialize["configuring"] = o.Configuring
+	}
 	if !IsNil(o.Ready) {
 		toSerialize["ready"] = o.Ready
+	}
+	if !IsNil(o.Rebooting) {
+		toSerialize["rebooting"] = o.Rebooting
+	}
+	if !IsNil(o.Repairing) {
+		toSerialize["repairing"] = o.Repairing
 	}
 	if !IsNil(o.Terminating) {
 		toSerialize["terminating"] = o.Terminating
 	}
 	if !IsNil(o.Error) {
 		toSerialize["error"] = o.Error
+	}
+	if !IsNil(o.Updating) {
+		toSerialize["updating"] = o.Updating
+	}
+	if !IsNil(o.Unknown) {
+		toSerialize["unknown"] = o.Unknown
 	}
 	return toSerialize, nil
 }

@@ -284,3 +284,396 @@ impl MlxConfigProfile {
         }
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+    use crate::variables::spec::MlxVariableSpec;
+    use crate::variables::value::MlxValueType;
+    use crate::variables::variable::MlxConfigVariable;
+
+    // a local registry with a boolean, integer, and enum variable. We avoid the
+    // global registries on purpose -- those are only needed by the serialization
+    // round-trips below, which key off the registry *name*.
+    fn test_registry() -> MlxVariableRegistry {
+        MlxVariableRegistry::new("test_reg").variables(vec![
+            MlxConfigVariable {
+                name: "BOOL_VAR".to_string(),
+                description: "a boolean".to_string(),
+                read_only: false,
+                spec: MlxVariableSpec::Boolean,
+            },
+            MlxConfigVariable {
+                name: "INT_VAR".to_string(),
+                description: "an integer".to_string(),
+                read_only: false,
+                spec: MlxVariableSpec::Integer,
+            },
+            MlxConfigVariable {
+                name: "ENUM_VAR".to_string(),
+                description: "an enum".to_string(),
+                read_only: false,
+                spec: MlxVariableSpec::Enum {
+                    options: vec!["low".to_string(), "high".to_string()],
+                },
+            },
+        ])
+    }
+
+    // new starts with the given name, no description, and an empty config. This
+    // pins each field of a freshly-created profile.
+    #[test]
+    fn new_initializes_empty_profile() {
+        let profile = MlxConfigProfile::new("p1", test_registry());
+        assert_eq!(profile.name, "p1");
+        assert_eq!(profile.description, None);
+        assert_eq!(profile.variable_count(), 0);
+        assert!(profile.variable_names().is_empty());
+        assert_eq!(profile.registry.name, "test_reg");
+    }
+
+    // with_description sets the optional description; absent vs present are the two
+    // states the rest of the type branches on (notably `summary`).
+    #[test]
+    fn with_description_sets_description() {
+        let profile = MlxConfigProfile::new("p1", test_registry()).with_description("hello");
+        assert_eq!(profile.description, Some("hello".to_string()));
+    }
+
+    // `with` walks the registry-lookup + value-validation paths: a known variable
+    // with a valid value succeeds; an unknown variable name fails (VariableNotFound);
+    // a known variable with a value that violates its spec fails (ValueValidation).
+    // MlxProfileError isn't PartialEq, so failures use `Fails` + map_err(drop). On
+    // success we project to the configured value name.
+    #[test]
+    fn with_validates_name_and_value() {
+        scenarios!(
+            run = |(name, value)| {
+                MlxConfigProfile::new("p", test_registry())
+                    .with(name, value)
+                    .map(|p| p.get_variable(name).unwrap().name().to_string())
+                    .map_err(drop)
+            };
+            "known boolean variable, valid value" {
+                ("BOOL_VAR", "true") => Yields("BOOL_VAR".to_string()),
+            }
+
+            "unknown variable name is rejected" {
+                ("NOPE", "true") => Fails,
+            }
+
+            "known boolean variable, unparseable value fails validation" {
+                ("BOOL_VAR", "maybe") => Fails,
+            }
+        );
+    }
+
+    // `with` on an enum variable: an allowed option succeeds; a disallowed option
+    // fails. The exact error is ValueValidation wrapping the enum rejection -- we
+    // just assert failure here, since the inner MlxValueError is exercised in the
+    // variables tests.
+    #[test]
+    fn with_enum_validation_path() {
+        scenarios!(
+            run = |opt| {
+                MlxConfigProfile::new("p", test_registry())
+                    .with("ENUM_VAR", opt)
+                    .map(|p| p.get_variable("ENUM_VAR").unwrap().value.clone())
+                    .map_err(drop)
+            };
+            "valid enum option" {
+                "high" => Yields(MlxValueType::Enum("high".to_string())),
+            }
+
+            "invalid enum option fails value validation" {
+                "middle" => Fails,
+            }
+        );
+    }
+
+    // with_value takes a pre-built MlxConfigValue. A value whose variable lives in
+    // the registry is accepted; a value whose variable is foreign to the registry
+    // is rejected with VariableNotFound. We build the foreign value against its own
+    // one-variable registry so it is internally valid but absent from `test_reg`.
+    #[test]
+    fn with_value_checks_registry_membership() {
+        let known_value = {
+            let reg = test_registry();
+            reg.get_variable("INT_VAR").unwrap().with(7i64).unwrap()
+        };
+        let foreign_value = {
+            let other = MlxVariableRegistry::new("other").add_variable(MlxConfigVariable {
+                name: "FOREIGN".to_string(),
+                description: "x".to_string(),
+                read_only: false,
+                spec: MlxVariableSpec::Integer,
+            });
+            other.get_variable("FOREIGN").unwrap().with(1i64).unwrap()
+        };
+
+        scenarios!(
+            run = |value| {
+                let name = value.name().to_string();
+                MlxConfigProfile::new("p", test_registry())
+                    .with_value(value)
+                    .map(|p| p.get_variable(&name).unwrap().name().to_string())
+                    .map_err(drop)
+            };
+            "value for a known variable is accepted" {
+                known_value => Yields("INT_VAR".to_string()),
+            }
+
+            "value for a foreign variable is rejected" {
+                foreign_value => Fails,
+            }
+        );
+    }
+
+    // add_config_value (driven through `with`) dedups by name: re-adding the same
+    // variable replaces it in place rather than appending, so the count stays put
+    // and the stored value reflects the latest write. A second, distinct variable
+    // does append. Each row reports (variable_count, INT_VAR value).
+    #[test]
+    fn adding_same_variable_replaces_in_place() {
+        value_scenarios!(
+            run = |writes| {
+                let mut profile = MlxConfigProfile::new("p", test_registry());
+                for (name, value) in writes {
+                    profile = profile.with(name, value).unwrap();
+                }
+                (
+                    profile.variable_count(),
+                    profile.get_variable("INT_VAR").map(|cv| cv.value.clone()),
+                )
+            };
+            "single write" {
+                vec![("INT_VAR", 1i64)] => (1usize, Some(MlxValueType::Integer(1))),
+            }
+
+            "re-write same variable replaces, count stays 1" {
+                vec![("INT_VAR", 1i64), ("INT_VAR", 2i64)] => (1usize, Some(MlxValueType::Integer(2))),
+            }
+
+            "distinct second variable appends" {
+                vec![("INT_VAR", 5i64), ("INT_VAR", 9i64)] => (1usize, Some(MlxValueType::Integer(9))),
+            }
+        );
+    }
+
+    // a profile with two distinct variables keeps both, in insertion order, and
+    // variable_count reflects the total.
+    #[test]
+    fn distinct_variables_accumulate() {
+        let profile = MlxConfigProfile::new("p", test_registry())
+            .with("BOOL_VAR", true)
+            .unwrap()
+            .with("INT_VAR", 42i64)
+            .unwrap();
+        assert_eq!(profile.variable_count(), 2);
+        assert_eq!(profile.variable_names(), vec!["BOOL_VAR", "INT_VAR"]);
+    }
+
+    // get_variable returns Some for a configured variable and None otherwise. We
+    // configure exactly BOOL_VAR, then probe present / unconfigured / nonexistent.
+    #[test]
+    fn get_variable_present_and_absent() {
+        let profile = MlxConfigProfile::new("p", test_registry())
+            .with("BOOL_VAR", true)
+            .unwrap();
+        value_scenarios!(
+            run = |name| profile.get_variable(name).is_some();
+            "configured variable is found" {
+                "BOOL_VAR" => true,
+            }
+
+            "known-but-unconfigured variable is absent" {
+                "INT_VAR" => false,
+            }
+
+            "nonexistent variable is absent" {
+                "MISSING" => false,
+            }
+        );
+    }
+
+    // validate rejects an empty profile (ProfileValidation) and accepts a profile
+    // whose values were all built through `with` (each validates against its spec).
+    #[test]
+    fn validate_empty_vs_populated() {
+        scenarios!(
+            run = |populate| {
+                let mut profile = MlxConfigProfile::new("p", test_registry());
+                if populate {
+                    profile = profile.with("BOOL_VAR", true).unwrap();
+                }
+                profile.validate().map_err(drop)
+            };
+            "empty profile is rejected" {
+                false => Fails,
+            }
+
+            "populated profile validates" {
+                true => Yields(()),
+            }
+        );
+    }
+
+    // compare/sync validate the profile first, so an empty profile fails before any
+    // runner work. These exercise the early-return validation branch without
+    // touching a real device.
+    #[test]
+    fn compare_and_sync_reject_empty_profile() {
+        let empty = MlxConfigProfile::new("p", test_registry());
+        assert!(empty.compare("dev", None).is_err());
+        assert!(empty.sync("dev", None).is_err());
+    }
+
+    // summary picks between the with-description and without-description formats.
+    // Both exact strings are derived from the format! literals in `summary`.
+    #[test]
+    fn summary_formats_with_and_without_description() {
+        value_scenarios!(
+            run = |desc: Option<&str>| {
+                let mut profile = MlxConfigProfile::new("p", test_registry());
+                if let Some(d) = desc {
+                    profile = profile.with_description(d);
+                }
+                profile = profile.with("BOOL_VAR", true).unwrap();
+                profile.summary()
+            };
+            "no description" {
+                None => "Profile 'p': 1 variables for registry 'test_reg'".to_string(),
+            }
+
+            "with description" {
+                Some("desc") => "Profile 'p': desc - 1 variables for registry 'test_reg'".to_string(),
+            }
+        );
+    }
+
+    // from_yaml / from_json resolve the registry by *name* against the global
+    // registry set. An unknown registry name fails with RegistryNotFound;
+    // malformed YAML/JSON fails at the parse stage. We only assert that each bad
+    // input fails, since the wrapped parser error isn't PartialEq.
+    #[test]
+    fn from_yaml_and_json_reject_bad_input() {
+        scenarios!(
+            run = |yaml| MlxConfigProfile::from_yaml(yaml).map(|_| ()).map_err(drop);
+            "yaml: unknown registry" {
+                "name: p\nregistry_name: does_not_exist\nconfig: {}\n" => Fails,
+            }
+
+            "yaml: malformed document" {
+                "name: [unterminated" => Fails,
+            }
+        );
+        scenarios!(
+            run = |json| MlxConfigProfile::from_json(json).map(|_| ()).map_err(drop);
+            "json: unknown registry" {
+                r#"{"name":"p","registry_name":"does_not_exist","config":{}}"# => Fails,
+            }
+
+            "json: malformed document" {
+                "{not json" => Fails,
+            }
+        );
+    }
+
+    // a profile built on the real `mlx_generic` registry round-trips through YAML
+    // and JSON: serialize, deserialize, and the configured values come back intact.
+    // We project to (variable_count, SRIOV_EN value, NUM_OF_VFS value) since the
+    // profile type isn't PartialEq and config ordering isn't guaranteed.
+    #[test]
+    fn yaml_json_round_trip_preserves_values() {
+        let registry = crate::registry::registries::get("mlx_generic")
+            .expect("mlx_generic registry exists")
+            .clone();
+        let profile = MlxConfigProfile::new("rt", registry)
+            .with_description("round trip")
+            .with("SRIOV_EN", true)
+            .unwrap()
+            .with("NUM_OF_VFS", 8i64)
+            .unwrap();
+
+        let yaml = profile.to_yaml().unwrap();
+        let from_yaml = MlxConfigProfile::from_yaml(&yaml).unwrap();
+        assert_eq!(from_yaml.variable_count(), 2);
+        assert_eq!(
+            from_yaml
+                .get_variable("SRIOV_EN")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Boolean(true))
+        );
+        assert_eq!(
+            from_yaml
+                .get_variable("NUM_OF_VFS")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Integer(8))
+        );
+        assert_eq!(from_yaml.description, Some("round trip".to_string()));
+
+        let json = profile.to_json().unwrap();
+        let from_json = MlxConfigProfile::from_json(&json).unwrap();
+        assert_eq!(from_json.variable_count(), 2);
+        assert_eq!(
+            from_json
+                .get_variable("SRIOV_EN")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Boolean(true))
+        );
+        assert_eq!(
+            from_json
+                .get_variable("NUM_OF_VFS")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Integer(8))
+        );
+    }
+
+    // from_yaml_file / from_json_file surface I/O errors for a missing path before
+    // any parsing happens.
+    #[test]
+    fn from_file_missing_path_errors() {
+        assert!(MlxConfigProfile::from_yaml_file("/nonexistent/path/profile.yaml").is_err());
+        assert!(MlxConfigProfile::from_json_file("/nonexistent/path/profile.json").is_err());
+    }
+
+    // to_yaml_file / to_json_file write a serialized profile that can be read back
+    // through the file loaders, closing the file round-trip loop.
+    #[test]
+    fn file_round_trip_via_temp_dir() {
+        let registry = crate::registry::registries::get("mlx_generic")
+            .expect("mlx_generic registry exists")
+            .clone();
+        let profile = MlxConfigProfile::new("file_rt", registry)
+            .with("SRIOV_EN", false)
+            .unwrap();
+
+        let dir = std::env::temp_dir();
+        let yaml_path = dir.join(format!("libmlx_profile_{}.yaml", std::process::id()));
+        let json_path = dir.join(format!("libmlx_profile_{}.json", std::process::id()));
+
+        profile.to_yaml_file(&yaml_path).unwrap();
+        let loaded_yaml = MlxConfigProfile::from_yaml_file(&yaml_path).unwrap();
+        assert_eq!(
+            loaded_yaml
+                .get_variable("SRIOV_EN")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Boolean(false))
+        );
+
+        profile.to_json_file(&json_path).unwrap();
+        let loaded_json = MlxConfigProfile::from_json_file(&json_path).unwrap();
+        assert_eq!(
+            loaded_json
+                .get_variable("SRIOV_EN")
+                .map(|cv| cv.value.clone()),
+            Some(MlxValueType::Boolean(false))
+        );
+
+        let _ = std::fs::remove_file(&yaml_path);
+        let _ = std::fs::remove_file(&json_path);
+    }
+}

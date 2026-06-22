@@ -49,8 +49,6 @@ type APIExpectedMachineCreateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected machine
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected machine
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -93,8 +91,6 @@ func (emcr *APIExpectedMachineCreateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&emcr.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&emcr.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -136,8 +132,6 @@ type APIExpectedMachineUpdateRequest struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected machine
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected machine
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -164,6 +158,10 @@ func (emur *APIExpectedMachineUpdateRequest) Validate() error {
 	}
 
 	err := validation.ValidateStruct(emur,
+		validation.Field(&emur.BmcMacAddress,
+			validation.NilOrNotEmpty.Error("BmcMacAddress cannot be empty"),
+			validation.When(emur.BmcMacAddress != nil && *emur.BmcMacAddress != "",
+				validationis.MAC)),
 		validation.Field(&emur.DefaultBmcUsername,
 			validation.NilOrNotEmpty.Error("BMC Username cannot be empty"),
 			validation.When(emur.DefaultBmcUsername != nil && *emur.DefaultBmcUsername != "",
@@ -195,8 +193,6 @@ func (emur *APIExpectedMachineUpdateRequest) Validate() error {
 			validation.NilOrNotEmpty.Error("Model cannot be empty")),
 		validation.Field(&emur.Description,
 			validation.NilOrNotEmpty.Error("Description cannot be empty")),
-		validation.Field(&emur.FirmwareVersion,
-			validation.NilOrNotEmpty.Error("FirmwareVersion cannot be empty")),
 	)
 
 	if err != nil {
@@ -244,8 +240,6 @@ type APIExpectedMachine struct {
 	Model *string `json:"model"`
 	// Description is the optional description of the expected machine
 	Description *string `json:"description"`
-	// FirmwareVersion is the optional firmware version of the expected machine
-	FirmwareVersion *string `json:"firmwareVersion"`
 	// SlotID is the optional slot identifier
 	SlotID *int32 `json:"slotId"`
 	// TrayIdx is the optional tray index
@@ -276,7 +270,6 @@ func NewAPIExpectedMachine(dibp *cdbm.ExpectedMachine) *APIExpectedMachine {
 		Manufacturer:             dibp.Manufacturer,
 		Model:                    dibp.Model,
 		Description:              dibp.Description,
-		FirmwareVersion:          dibp.FirmwareVersion,
 		SlotID:                   dibp.SlotID,
 		TrayIdx:                  dibp.TrayIdx,
 		HostID:                   dibp.HostID,

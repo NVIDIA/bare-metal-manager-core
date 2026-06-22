@@ -15,6 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
@@ -113,6 +114,7 @@ func ComponentFrom(dao model.Component) *component.Component {
 		RackID:      dao.RackID,
 		PowerState:  powerStateFromDAO(dao.PowerState),
 		Status:      dao.Status,
+		LeakStatus:  dao.LeakStatus,
 	}
 }
 
@@ -317,6 +319,104 @@ func TaskTo(task *taskdef.Task) *model.Task {
 		Report:         task.Report,
 		AppliedRuleID:  task.AppliedRuleID,
 		QueueExpiresAt: task.QueueExpiresAt,
+	}
+}
+
+// OperationRunFrom converts an operation-run DAO model to its domain object.
+func OperationRunFrom(dao *model.OperationRun) *operationrun.OperationRun {
+	if dao == nil {
+		return nil
+	}
+
+	return &operationrun.OperationRun{
+		ID:                dao.ID,
+		Name:              dao.Name,
+		Description:       dao.Description,
+		Status:            dao.Status,
+		StatusReason:      dao.StatusReason,
+		StatusMessage:     dao.StatusMessage,
+		Selector:          dao.Selector,
+		Options:           dao.Options,
+		OperationTemplate: dao.OperationTemplate,
+		OperationType:     dao.OperationType,
+		OperationCode:     dao.OperationCode,
+		CreatedAt:         dao.CreatedAt,
+		UpdatedAt:         dao.UpdatedAt,
+		StartedAt:         dao.StartedAt,
+		FinishedAt:        dao.FinishedAt,
+	}
+}
+
+// OperationRunTo converts an operation-run domain object to its DAO model.
+func OperationRunTo(run *operationrun.OperationRun) *model.OperationRun {
+	if run == nil {
+		return nil
+	}
+
+	return &model.OperationRun{
+		ID:                run.ID,
+		Name:              run.Name,
+		Description:       run.Description,
+		Status:            run.Status,
+		StatusReason:      run.StatusReason,
+		StatusMessage:     run.StatusMessage,
+		Selector:          run.Selector,
+		Options:           run.Options,
+		OperationTemplate: run.OperationTemplate,
+		OperationType:     run.OperationType,
+		OperationCode:     run.OperationCode,
+		CreatedAt:         run.CreatedAt,
+		UpdatedAt:         run.UpdatedAt,
+		StartedAt:         run.StartedAt,
+		FinishedAt:        run.FinishedAt,
+	}
+}
+
+// OperationRunTargetFrom converts an operation-run target DAO model to its
+// domain object.
+func OperationRunTargetFrom(dao *model.OperationRunTarget) *operationrun.OperationRunTarget {
+	if dao == nil {
+		return nil
+	}
+
+	return &operationrun.OperationRunTarget{
+		ID:              dao.ID,
+		OperationRunID:  dao.OperationRunID,
+		RackID:          dao.RackID,
+		SequenceIndex:   dao.SequenceIndex,
+		PhaseIndex:      dao.PhaseIndex,
+		ComponentFilter: dao.ComponentFilter,
+		TaskID:          dao.TaskID,
+		Status:          dao.Status,
+		Message:         dao.Message,
+		RetryAfter:      dao.RetryAfter,
+		RetryState:      dao.RetryState,
+		CreatedAt:       dao.CreatedAt,
+		UpdatedAt:       dao.UpdatedAt,
+	}
+}
+
+// OperationRunTargetTo converts an operation-run target domain object to its
+// DAO model.
+func OperationRunTargetTo(target *operationrun.OperationRunTarget) *model.OperationRunTarget {
+	if target == nil {
+		return nil
+	}
+
+	return &model.OperationRunTarget{
+		ID:              target.ID,
+		OperationRunID:  target.OperationRunID,
+		RackID:          target.RackID,
+		SequenceIndex:   target.SequenceIndex,
+		PhaseIndex:      target.PhaseIndex,
+		ComponentFilter: target.ComponentFilter,
+		TaskID:          target.TaskID,
+		Status:          target.Status,
+		Message:         target.Message,
+		RetryAfter:      target.RetryAfter,
+		RetryState:      target.RetryState,
+		CreatedAt:       target.CreatedAt,
+		UpdatedAt:       target.UpdatedAt,
 	}
 }
 

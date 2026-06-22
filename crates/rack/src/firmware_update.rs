@@ -15,18 +15,20 @@
  * limitations under the License.
  */
 
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{machine as db_machine, machine_topology as db_machine_topology, switch as db_switch};
 use eyre::{Result, eyre};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use librms::protos::rack_manager as rms;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::FirmwareUpgradeDeviceInfo;
 use model::rack_type::{RackHardwareClass, RackProfile};
 use sqlx::PgPool;
+
+use crate::rms_node_type::is_switch_node_type;
 
 #[derive(Debug, Clone)]
 pub struct RackFirmwareInventory {
@@ -226,7 +228,7 @@ pub fn build_new_node_info(
         })
     };
 
-    let host_endpoint = if matches!(node_type, rms::NodeType::Switch) {
+    let host_endpoint = if is_switch_node_type(node_type) {
         Some(rms::Endpoint {
             interface: build_host_interface(device),
             port: 0,

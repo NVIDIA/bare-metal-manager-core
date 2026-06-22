@@ -108,7 +108,7 @@ pub fn default_test_eth_virt_data() -> EthVirtData {
     let site_fabric_prefixes = { SiteFabricPrefixList::from_ipnetwork_vec(site_fabric_networks) };
     EthVirtData {
         asn: 65535,
-        dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
+        dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()],
         deny_prefixes: vec![],
         site_fabric_prefixes,
     }

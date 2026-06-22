@@ -15,3 +15,6 @@ hex = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
+
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }

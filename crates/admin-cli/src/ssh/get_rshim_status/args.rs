@@ -27,7 +27,7 @@ use super::super::common::SshArgs;
 EXAMPLES:
 
 Query the RSHIM status on a DPU BMC:
-    $ carbide-admin-cli ssh get-rshim-status 192.0.2.10:22 admin mypassword
+    $ nico-admin-cli ssh get-rshim-status 192.0.2.10:22 admin mypassword
 
 ")]
 pub struct Args {

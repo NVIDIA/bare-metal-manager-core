@@ -120,133 +120,253 @@ pub struct LabelFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
 
-    #[test]
-    fn fail_invalid_metadata() {
-        // Good metadata
-        let metadata = Metadata {
-            name: "nice_name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
-        };
-
-        assert!(metadata.validate(true).is_ok());
-
-        // And now lots of bad metadata
-
-        // name too short
-        let metadata = Metadata {
-            name: "x".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // name too short without requiring min length is ok
-        let metadata = Metadata {
-            name: "".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
-        };
-
-        assert!(metadata.validate(false).is_ok());
-
-        // name too long
-        let metadata = Metadata {
-            name: [0; 257].iter().fold(String::new(), |name, _| name + "a"),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // non-ascii name
-        let metadata = Metadata {
-            name: "것봐".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("key1".to_string(), "val1".to_string())]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // Empty key
-        let metadata = Metadata {
-            name: "nice name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("".to_string(), "val1".to_string())]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // Non-ascii key
-        let metadata = Metadata {
-            name: "nice name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([("것봐".to_string(), "val1".to_string())]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // Key too big
-        let metadata = Metadata {
-            name: "nice name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([(
-                [0; 256].iter().fold(String::new(), |name, _| name + "a"),
-                "val1".to_string(),
-            )]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // Value too big
-        let metadata = Metadata {
-            name: "nice name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: HashMap::from([(
-                "key1".to_string(),
-                [0; 256].iter().fold(String::new(), |name, _| name + "a"),
-            )]),
-        };
-
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
-
-        // Too many labels (17 > 16)
-        let metadata = Metadata {
-            name: "nice name".to_string(),
-            description: "anything is fine".to_string(),
-            labels: "abcdefghijklmnopq"
-                .chars()
-                .map(|c| (c.to_string(), "x".to_string()))
+    /// Build a `Metadata` from parts, with sensible defaults so each row only
+    /// names the field it is exercising.
+    fn meta(name: &str, description: &str, labels: &[(&str, &str)]) -> Metadata {
+        Metadata {
+            name: name.to_string(),
+            description: description.to_string(),
+            labels: labels
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
-        };
+        }
+    }
 
-        assert!(matches!(
-            metadata.validate(true),
-            Err(ConfigValidationError::InvalidValue(_))
-        ));
+    /// A string of `n` repeated `'a'` characters.
+    fn long(n: usize) -> String {
+        "a".repeat(n)
+    }
+
+    #[test]
+    fn validate_with_min_length_required() {
+        scenarios!(
+            run = |m| m.validate(true).map_err(drop);
+            "valid name, description, and label" {
+                meta("nice_name", "anything is fine", &[("key1", "val1")]) => Yields(()),
+            }
+
+            "no labels is fine" {
+                meta("nice_name", "", &[]) => Yields(()),
+            }
+
+            "name at min length (2)" {
+                meta("ab", "", &[]) => Yields(()),
+            }
+
+            "name one below min length (1)" {
+                meta("x", "", &[]) => Fails,
+            }
+
+            "empty name rejected when min length required" {
+                meta("", "", &[]) => Fails,
+            }
+
+            "name at max length (256)" {
+                Metadata {
+                    name: long(256),
+                    ..Metadata::default()
+                } => Yields(()),
+            }
+
+            "name one over max length (257)" {
+                Metadata {
+                    name: long(257),
+                    ..Metadata::default()
+                } => Fails,
+            }
+
+            "non-ascii name rejected" {
+                meta("것봐", "", &[]) => Fails,
+            }
+
+            "description at max length (1024)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    description: long(1024),
+                    ..Metadata::default()
+                } => Yields(()),
+            }
+
+            "description one over max length (1025)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    description: long(1025),
+                    ..Metadata::default()
+                } => Fails,
+            }
+
+            "empty label key rejected" {
+                meta("nice name", "", &[("", "val1")]) => Fails,
+            }
+
+            "non-ascii label key rejected" {
+                meta("nice name", "", &[("것봐", "val1")]) => Fails,
+            }
+
+            "label key at max length (255)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: HashMap::from([(long(255), "val1".to_string())]),
+                    ..Metadata::default()
+                } => Yields(()),
+            }
+
+            "label key one over max length (256)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: HashMap::from([(long(256), "val1".to_string())]),
+                    ..Metadata::default()
+                } => Fails,
+            }
+
+            "label value at max length (255)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: HashMap::from([("key1".to_string(), long(255))]),
+                    ..Metadata::default()
+                } => Yields(()),
+            }
+
+            "label value one over max length (256)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: HashMap::from([("key1".to_string(), long(256))]),
+                    ..Metadata::default()
+                } => Fails,
+            }
+
+            "empty label value is fine" {
+                meta("nice name", "", &[("key1", "")]) => Yields(()),
+            }
+
+            "labels at max count (16)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: "abcdefghijklmnop"
+                        .chars()
+                        .map(|c| (c.to_string(), "x".to_string()))
+                        .collect(),
+                    ..Metadata::default()
+                } => Yields(()),
+            }
+
+            "labels one over max count (17)" {
+                Metadata {
+                    name: "nice name".to_string(),
+                    labels: "abcdefghijklmnopq"
+                        .chars()
+                        .map(|c| (c.to_string(), "x".to_string()))
+                        .collect(),
+                    ..Metadata::default()
+                } => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn validate_without_min_length_required() {
+        scenarios!(
+            run = |m| m.validate(false).map_err(drop);
+            "empty name allowed when min length not required" {
+                meta("", "anything is fine", &[("key1", "val1")]) => Yields(()),
+            }
+
+            "single-char name allowed when min length not required" {
+                meta("x", "", &[]) => Yields(()),
+            }
+
+            "name still capped at max length (257 rejected)" {
+                Metadata {
+                    name: long(257),
+                    ..Metadata::default()
+                } => Fails,
+            }
+
+            "non-ascii name still rejected" {
+                meta("것봐", "", &[]) => Fails,
+            }
+
+            "label checks still apply (empty key rejected)" {
+                meta("", "", &[("", "val1")]) => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn validate_error_message_names_the_offending_field() {
+        scenarios!(
+            run = |(m, tokens)| {
+                let message = m.validate(true).unwrap_err().to_string();
+                Ok::<_, ()>(tokens.iter().all(|t| message.contains(t)))
+            };
+            "short-name error mentions length bounds" {
+                (meta("x", "", &[]), &["between", "256"][..]) => Yields(true),
+            }
+
+            "non-ascii name error mentions ASCII" {
+                (meta("것봐", "", &[]), &["ASCII"][..]) => Yields(true),
+            }
+
+            "long-description error mentions Description" {
+                (
+                    Metadata {
+                        name: "nice name".to_string(),
+                        description: long(1025),
+                        ..Metadata::default()
+                    },
+                    &["Description", "1024"][..],
+                ) => Yields(true),
+            }
+
+            "empty-key error mentions empty" {
+                (meta("nice name", "", &[("", "v")]), &["empty"][..]) => Yields(true),
+            }
+
+            "too-many-labels error mentions the count" {
+                (
+                    Metadata {
+                        name: "nice name".to_string(),
+                        labels: "abcdefghijklmnopq"
+                            .chars()
+                            .map(|c| (c.to_string(), "x".to_string()))
+                            .collect(),
+                        ..Metadata::default()
+                    },
+                    &["more than 16", "17"][..],
+                ) => Yields(true),
+            }
+        );
+    }
+
+    #[test]
+    fn constructors_produce_expected_metadata() {
+        value_scenarios!(
+            run = |m| m;
+            "new_with_default_name sets the default name" {
+                Metadata::new_with_default_name() => Metadata {
+                    name: "default_name".to_string(),
+                    description: String::new(),
+                    labels: HashMap::new(),
+                },
+            }
+
+            "default is fully empty" {
+                Metadata::default() => Metadata {
+                    name: String::new(),
+                    description: String::new(),
+                    labels: HashMap::new(),
+                },
+            }
+
+            "deserializer default matches Metadata::default" {
+                default_metadata_for_deserializer() => Metadata::default(),
+            }
+        );
     }
 }
