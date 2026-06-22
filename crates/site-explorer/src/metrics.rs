@@ -64,6 +64,34 @@ impl Display for PairingBlockerReason {
     }
 }
 
+/// Signals emitted while migrating a DPU's NIC mode toward its declared target.
+/// Each marks a step in the flip-and-reset flow that drives a DPU into the
+/// mode its host's `dpu_mode` calls for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DpuMigrationSignal {
+    /// Found a DPU whose actual mode differs from the target; will reconfigure.
+    ModeMismatchFound,
+    /// Issued a `set_nic_mode` flip to a DPU.
+    SetNicModeIssued,
+    /// Requested a host power-cycle to apply a queued NIC-mode change.
+    ResetRequested,
+    /// Registered a host with zero managed DPUs because its declared
+    /// `dpu_mode` is NicMode (distinct from NoDpu).
+    RegisteredZeroDpuForNicMode,
+}
+
+impl Display for DpuMigrationSignal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::ModeMismatchFound => "mode_mismatch_found",
+            Self::SetNicModeIssued => "set_nic_mode_issued",
+            Self::ResetRequested => "reset_requested",
+            Self::RegisteredZeroDpuForNicMode => "registered_zero_dpu_for_nic_mode",
+        };
+        write!(f, "{s}")
+    }
+}
+
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]
 pub struct SiteExplorationMetrics {
@@ -127,6 +155,11 @@ pub struct SiteExplorationMetrics {
     /// These are issues that prevent a host from being paired with its dpu(s)
     /// and require manual intervention.
     pub host_dpu_pairing_blockers: HashMap<String, usize>,
+    /// Total count of DPU NIC-mode migration signals by kind. These track the
+    /// flip-and-reset flow that drives a DPU into the mode its host's
+    /// `dpu_mode` declares (mismatch found, `set_nic_mode` issued, reset
+    /// requested, and zero-DPU registered for a NicMode host).
+    pub dpu_migration_signals: HashMap<String, usize>,
 }
 
 impl Default for SiteExplorationMetrics {
@@ -161,6 +194,7 @@ impl SiteExplorationMetrics {
             endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
             host_dpu_pairing_blockers: HashMap::new(),
+            dpu_migration_signals: HashMap::new(),
         }
     }
 
@@ -244,6 +278,14 @@ impl SiteExplorationMetrics {
         *self
             .host_dpu_pairing_blockers
             .entry(reason.to_string())
+            .or_default() += 1;
+    }
+
+    /// Increment the count of DPU NIC-mode migration signals by kind.
+    pub fn increment_dpu_migration_signal(&mut self, signal: DpuMigrationSignal) {
+        *self
+            .dpu_migration_signals
+            .entry(signal.to_string())
             .or_default() += 1;
     }
 }
@@ -583,6 +625,28 @@ impl SiteExplorerInstruments {
                             observer.observe(
                                 count as u64,
                                 &[attrs, &[KeyValue::new("reason", reason.clone())]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_dpu_migration_signals_count")
+                .with_description(
+                    "Count of DPU NIC-mode migration signals by kind -- mode-mismatch found, \
+                     set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode \
+                     host.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (signal, &count) in metrics.dpu_migration_signals.iter() {
+                            observer.observe(
+                                count as u64,
+                                &[attrs, &[KeyValue::new("signal", signal.clone())]].concat(),
                             );
                         }
                     })

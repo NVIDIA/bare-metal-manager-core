@@ -1504,6 +1504,7 @@ dependencies = [
 name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "hyper",
  "serde",
  "thiserror 2.0.18",
@@ -2594,6 +2595,7 @@ dependencies = [
  "carbide-health-metrics",
  "carbide-rack",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2799,6 +2801,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-test-support",
  "carbide-uuid",
  "eyre",
  "figment",
@@ -2919,6 +2922,7 @@ dependencies = [
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-ssh-console-mock-api-server",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -3496,6 +3500,7 @@ dependencies = [
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "libredfish",
