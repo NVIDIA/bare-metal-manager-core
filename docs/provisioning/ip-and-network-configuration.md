@@ -1,8 +1,8 @@
-# Day 0 IP and Network Configuration
+# IP and Network Configuration
 
 This guide is the single Day 0 reference for IP address management and in-band/out-of-band network configuration for a NICo deployment. It walks an operator through every IP pool that must exist, how DHCP and DNS are served, and how to verify each piece end-to-end. Follow this page once during initial site bring-up; subsequent host ingestion and tenant operations rely on the configuration described here.
 
-The values here are entered into the `siteConfig` TOML block of `helm-prereqs/values/ncx-core.yaml` (see [Quick Start Guide, Step 3c](../quick-start.md#3c-configure-ncx-core-site-deployment)) and into your site DNS and DHCP relay infrastructure. This page does not replace per-topic references — it consolidates them in the order an operator needs them. Sizing formulas, switch configuration, and BMC ingestion details are linked rather than duplicated.
+The values here are entered into the `siteConfig` TOML block of `helm-prereqs/values/ncx-core.yaml` (see [Quick Start Guide, Step 3c](../getting-started/quick-start.md#3c-configure-ncx-core-site-deployment)) and into your site DNS and DHCP relay infrastructure. This page does not replace per-topic references — it consolidates them in the order an operator needs them. Sizing formulas, switch configuration, and BMC ingestion details are linked rather than duplicated.
 
 ---
 
@@ -10,9 +10,9 @@ The values here are entered into the `siteConfig` TOML block of `helm-prereqs/va
 
 Before configuring the items on this page, complete:
 
-- [Hardware](../prerequisites/hardware.md) — server, DPU, and BMC inventory.
-- [Network Prerequisites](../prerequisites/network.md) — VNI/ASN allocation, BGP/EVPN, route targets, and switch configuration.
-- [BMC and Out-of-Band Setup](../prerequisites/bmc-oob-setup.md) — physical OOB connectivity and BMC credentials.
+- [Hardware](../getting-started/prerequisites/hardware.md) — server, DPU, and BMC inventory.
+- [Network Prerequisites](../getting-started/prerequisites/network.md) — VNI/ASN allocation, BGP/EVPN, route targets, and switch configuration.
+- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — physical OOB connectivity and BMC credentials.
 
 This page assumes the underlay and overlay routing decisions described in those pages have already been made.
 
@@ -30,7 +30,7 @@ NICo consumes IP addresses from three distinct sources:
 
 Plan capacity for all pools **before** running `setup.sh`. Pools can be grown at runtime without a restart, but an exhausted pool blocks the next provisioning operation immediately. A 20–25% headroom margin over expected peak allocation is a reasonable default.
 
-For per-pool sizing formulas (servers, DPUs, VPCs, instance types), see [Network Prerequisites — IP Address Pools](../prerequisites/network.md#ip-address-pools).
+For per-pool sizing formulas (servers, DPUs, VPCs, instance types), see [Network Prerequisites — IP Address Pools](../getting-started/prerequisites/network.md#ip-address-pools).
 
 ### 1.1 Loopback Address Pools
 
@@ -55,7 +55,7 @@ ranges = [
 ]
 ```
 
-For pool semantics, runtime inspection (`admin-cli resource-pool list`), and the `grow` operation, see [IP Resource Pools](../../manuals/networking/ip_resource_pools.md).
+For pool semantics, runtime inspection (`admin-cli resource-pool list`), and the `grow` operation, see [IP Resource Pools](../manuals/networking/ip_resource_pools.md).
 
 > **Note:** Tenant workload IPs (the addresses an instance sees on its NICs) are not managed through these pools.
 
@@ -69,7 +69,7 @@ For managed hosts (ingested machines), the host OS IP comes from the **admin net
 
 - The admin network is a NICo-managed pool. Allocations are made by `nico-api` and pushed to the host via DHCP.
 - Size the admin network for at least one usable IP per managed server, plus network and broadcast addresses. Multiple admin segments may be declared in `[networks.<name>]`; each managed host sources its admin IP from whichever segment matches.
-- When a tenant is assigned, the host's interfaces leave the admin network and join the relevant tenant networks (see [Network Prerequisites — Tenant Networks](../prerequisites/network.md#tenant-networks)).
+- When a tenant is assigned, the host's interfaces leave the admin network and join the relevant tenant networks (see [Network Prerequisites — Tenant Networks](../getting-started/prerequisites/network.md#tenant-networks)).
 
 The admin network is defined in the `[networks.admin]` block of `siteConfig`:
 
@@ -99,7 +99,7 @@ Mixing modes within the same site is supported — each host can use whichever m
 
 So a host with one DPU consumes three OOB addresses; a host without DPUs consumes one.
 
-The OOB management network is declared as one or more NICo-managed network segments in `siteConfig` `[networks.<name>]` (block names are operator-chosen). Each segment carries its own prefix, gateway, and MTU. The OOB switches **must run a DHCP relay** pointed at the `nico-dhcp` LoadBalancer VIP — they must not assign addresses themselves. See [BMC and Out-of-Band Setup](../prerequisites/bmc-oob-setup.md) for switch-side relay configuration.
+The OOB management network is declared as one or more NICo-managed network segments in `siteConfig` `[networks.<name>]` (block names are operator-chosen). Each segment carries its own prefix, gateway, and MTU. The OOB switches **must run a DHCP relay** pointed at the `nico-dhcp` LoadBalancer VIP — they must not assign addresses themselves. See [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) for switch-side relay configuration.
 
 ### 1.4 Predefined BMC IP Allocation for Expected Machines
 
@@ -125,7 +125,7 @@ When `bmc_ip_address` is present:
 - The first DHCP DISCOVER from that BMC's MAC is answered with the pre-allocated address — `nico-dhcp` does not draw from the dynamic OOB pool for that host.
 - The pre-allocated address must fall within a network segment prefix declared in `siteConfig` `[networks.<name>]`, and it must not overlap any range used by the dynamic pool for that segment.
 
-For the full `expected_machines.json` schema and upload command, see [Ingesting Hosts](../../provisioning/ingesting-hosts.md).
+For the full `expected_machines.json` schema and upload command, see [Ingesting Hosts](ingesting-hosts.md).
 
 ---
 
@@ -170,7 +170,7 @@ A real site declares one `admin` segment and one `underlay` segment per OOB-faci
 To configure these flows:
 
 1. **Declare the management network segments in `siteConfig`.** Use the schema above. The admin segment is not a singleton — a site may declare multiple admin/management segments, and the host's IP is sourced from whichever segment's `gateway` matches the relay's `giaddr` on the inbound DHCP request.
-2. **Configure the DHCP relay on every OOB switch** to forward DHCP traffic to the `nico-dhcp` LoadBalancer VIP (the IP assigned to the `nico-dhcp` service by MetalLB in [Quick Start Step 3h](../quick-start.md#3h-assign-service-vips)). The relay must be on the same L2 broadcast domain as the BMCs and DPUs it serves.
+2. **Configure the DHCP relay on every OOB switch** to forward DHCP traffic to the `nico-dhcp` LoadBalancer VIP (the IP assigned to the `nico-dhcp` service by MetalLB in [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)). The relay must be on the same L2 broadcast domain as the BMCs and DPUs it serves.
 3. **For predefined IPs**, upload `expected_machines.json` with `bmc_ip_address` populated **before** the host first powers on. Uploading after the BMC has already received a dynamic lease will not retroactively change its IP — release the lease (`nico-admin-cli ... em ...`) and power-cycle the BMC.
 4. **Set `dhcp_servers`** in `siteConfig` to the list of DHCP server IPs reachable from bare-metal hosts. This list is informational and is passed through to agents; it does not change how `nico-dhcp` itself serves leases. May be left as `[]`.
 
@@ -191,7 +191,7 @@ After deployment, validate the DHCP path end-to-end:
 kubectl get svc nico-dhcp -n nico-system
 ```
 
-Both EXTERNAL-IP and TYPE=`LoadBalancer` must be populated. A `<pending>` IP indicates a MetalLB issue — see the [Reference Installation](reference-install.md) guides for MetalLB troubleshooting.
+Both EXTERNAL-IP and TYPE=`LoadBalancer` must be populated. A `<pending>` IP indicates a MetalLB issue — see the [Reference Installation](../getting-started/installation-options/reference-install.md) guides for MetalLB troubleshooting.
 
 **Tail `nico-dhcp` logs while a BMC powers on:**
 
@@ -212,7 +212,7 @@ The lease IP and MAC should match what `nico-api` allocated. The lease file is a
 
 **From the OOB relay's vantage point**, verify packets are being forwarded by checking the switch's relay statistics (`show ip dhcp relay statistics` on Cumulus / SONiC). DISCOVER packets sent should match OFFER packets received.
 
-For DHCP-related stuck states during ingestion, see the [WaitingForNetworkConfig playbook](../../playbooks/stuck_objects/waiting_for_network_config.md).
+For DHCP-related stuck states during ingestion, see the [WaitingForNetworkConfig playbook](../playbooks/stuck_objects/waiting_for_network_config.md).
 
 ---
 
@@ -240,7 +240,7 @@ Both modes resolve the same records from the same source — the difference is o
 
 The zones served are seeded by the `initial_domain_name` field in `siteConfig` (for example, `mysite.example.com`). On first start, `nico-api` creates the corresponding domain record; `nico-dns` then exposes whatever records exist in that zone in `nico-api`'s database.
 
-UFM endpoints under `default.ufm.<initial_domain_name>` are one example of records served this way when InfiniBand is configured (see [InfiniBand Setup](../../playbooks/ib_runbook.md)).
+UFM endpoints under `default.ufm.<initial_domain_name>` are one example of records served this way when InfiniBand is configured (see [InfiniBand Setup](../playbooks/ib_runbook.md)).
 
 Operators do not edit `nico-dns` zone files directly. Zone content is a function of `nico-api`'s database state.
 
@@ -248,7 +248,7 @@ To configure `nico-dns`:
 
 1. Set `initial_domain_name` in `siteConfig` to your site's DNS domain.
 2. Choose the mode (PowerDNS remote backend or standalone) and configure the `nico-dns` Deployment / StatefulSet accordingly — set or omit `--listen` on the binary's command line, and include or exclude PowerDNS from the pod spec.
-3. Assign a stable LoadBalancer VIP to the front-end service that listens on UDP/TCP 53 (one per replica via `perPodAnnotations`; see [Quick Start Step 3h](../quick-start.md#3h-assign-service-vips)). In PowerDNS mode this is the PowerDNS service; in standalone mode it is the `nico-dns` service.
+3. Assign a stable LoadBalancer VIP to the front-end service that listens on UDP/TCP 53 (one per replica via `perPodAnnotations`; see [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)). In PowerDNS mode this is the PowerDNS service; in standalone mode it is the `nico-dns` service.
 4. Delegate the `initial_domain_name` zone from your upstream DNS to those VIPs, or configure your recursive resolver to forward queries for the zone to them.
 
 ### 3.2 `unbound` Recursive Resolver for Managed Machines
@@ -351,16 +351,16 @@ Use this checklist as the final gate before powering on the first host BMC:
 - [ ] `unbound.nico` resolves every NICo service hostname (verified with the `dig` loop in [section 3.4](#34-how-to-verify-dns-is-working)).
 - [ ] `nico-dhcp` logs show DISCOVER → OFFER for a test BMC power-on.
 
-When every item is checked, proceed to [Ingesting Hosts](../../provisioning/ingesting-hosts.md).
+When every item is checked, proceed to [Ingesting Hosts](ingesting-hosts.md).
 
 ---
 
 ## Related Pages
 
-- [Network Prerequisites](../prerequisites/network.md) — VNI/ASN/IPv4 sizing, BGP/EVPN, route targets, switch configuration.
-- [BMC and Out-of-Band Setup](../prerequisites/bmc-oob-setup.md) — OOB physical network, DHCP relay setup, BMC credentials.
-- [IP Resource Pools](../../manuals/networking/ip_resource_pools.md) — `lo-ip` / `vpc-dpu-lo` semantics, sizing, `admin-cli resource-pool grow`.
-- [Quick Start Guide](../quick-start.md) — the install flow that consumes the configuration described here.
-- [Reference Installation](reference-install.md) — pointers to the manual, manifest-level install and troubleshooting references.
-- [Ingesting Hosts](../../provisioning/ingesting-hosts.md) — `expected_machines.json` schema and upload commands.
+- [Network Prerequisites](../getting-started/prerequisites/network.md) — VNI/ASN/IPv4 sizing, BGP/EVPN, route targets, switch configuration.
+- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — OOB physical network, DHCP relay setup, BMC credentials.
+- [IP Resource Pools](../manuals/networking/ip_resource_pools.md) — `lo-ip` / `vpc-dpu-lo` semantics, sizing, `admin-cli resource-pool grow`.
+- [Quick Start Guide](../getting-started/quick-start.md) — the install flow that consumes the configuration described here.
+- [Reference Installation](../getting-started/installation-options/reference-install.md) — pointers to the manual, manifest-level install and troubleshooting references.
+- [Ingesting Hosts](ingesting-hosts.md) — `expected_machines.json` schema and upload commands.
 - [`deploy/DNS.md`](https://github.com/NVIDIA/infra-controller/blob/main/deploy/DNS.md) — canonical reference for NICo service hostnames, ports, and hardcoded-vs-configurable status.

@@ -52,8 +52,6 @@ navigation:
           contents:
             - page: Reference Installation
               path: getting-started/installation-options/reference-install.md
-            - page: Day 0 IP and Network Configuration
-              path: getting-started/installation-options/day0-ip-network-config.md
             - page: DPF Setup for NICo Integration
               path: manuals/dpf.md
               slug: dpf-setup
@@ -104,6 +102,8 @@ navigation:
 
     - section: Provisioning (Day 0)
       contents:
+        - page: IP and Network Configuration
+          path: provisioning/ip-and-network-configuration.md
         - page: Ingesting Hosts
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
