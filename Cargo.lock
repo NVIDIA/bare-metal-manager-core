@@ -928,6 +928,7 @@ dependencies = [
 name = "bms-dsx-exchange"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "chrono",
  "serde",
  "serde_json",
@@ -1843,6 +1844,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -2144,6 +2146,7 @@ dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
  "base64",
+ "carbide-test-support",
  "hex",
  "rand 0.10.1",
  "serde",
@@ -2717,6 +2720,7 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "clap",

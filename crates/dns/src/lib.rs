@@ -502,33 +502,49 @@ mod tests {
 
     #[test]
     fn classify_failure_maps_grpc_codes_to_dns_response_codes() {
+        use carbide_test_support::value_scenarios;
         use tonic::Code;
 
-        let cases = [
-            (Code::NotFound, ResponseCode::NXDomain, false),
-            (Code::InvalidArgument, ResponseCode::FormErr, false),
-            (Code::Unimplemented, ResponseCode::NotImp, false),
-            (Code::PermissionDenied, ResponseCode::Refused, false),
-            (Code::Unauthenticated, ResponseCode::Refused, false),
-            (Code::Internal, ResponseCode::ServFail, true),
-            (Code::Unavailable, ResponseCode::ServFail, true),
-            (Code::DeadlineExceeded, ResponseCode::ServFail, true),
-            (Code::ResourceExhausted, ResponseCode::ServFail, true),
-            (Code::Aborted, ResponseCode::ServFail, true),
-            (Code::Unknown, ResponseCode::ServFail, true),
-        ];
-
-        for (code, expected_code, expected_transient) in cases {
-            let classification = classify_failure(code);
-            assert_eq!(
-                classification.code, expected_code,
-                "response code for {code:?}"
-            );
-            assert_eq!(
-                classification.transient, expected_transient,
-                "transience for {code:?}"
-            );
+        /// The classification a gRPC code is expected to produce: the DNS
+        /// response code returned to the client and whether it is transient.
+        #[derive(Debug, PartialEq)]
+        struct Expected {
+            code: ResponseCode,
+            transient: bool,
         }
+
+        value_scenarios!(
+            run = |code| {
+                let NegativeClassification { code, transient } = classify_failure(code);
+                Expected { code, transient }
+            };
+            "stable, authoritative negatives" {
+                // The name genuinely does not exist.
+                Code::NotFound => Expected { code: ResponseCode::NXDomain, transient: false },
+                // A malformed query stays malformed on retry.
+                Code::InvalidArgument => Expected { code: ResponseCode::FormErr, transient: false },
+                // The upstream does not implement this qtype/operation.
+                Code::Unimplemented => Expected { code: ResponseCode::NotImp, transient: false },
+            }
+            "policy refusals" {
+                Code::PermissionDenied => Expected { code: ResponseCode::Refused, transient: false },
+                Code::Unauthenticated => Expected { code: ResponseCode::Refused, transient: false },
+            }
+            "transient failures cached briefly as ServFail" {
+                Code::Internal => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Unavailable => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::DeadlineExceeded => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::ResourceExhausted => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Aborted => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Cancelled => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::AlreadyExists => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::FailedPrecondition => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::OutOfRange => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::DataLoss => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Ok => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Unknown => Expected { code: ResponseCode::ServFail, transient: true },
+            }
+        );
     }
 
     #[test]

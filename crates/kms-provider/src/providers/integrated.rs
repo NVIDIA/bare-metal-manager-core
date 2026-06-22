@@ -229,8 +229,46 @@ mod tests {
         assert_eq!(*dek, *unwrapped);
     }
 
-    // Verifies that from_config loads keys from
-    // env vars.
+    // Verifies that from_config loads a key from each KeySource variant and
+    // rejects sources whose key material is malformed. Loading a key under a
+    // kek_id is observable through can_decrypt_kek, so each success row yields
+    // whether the configured key is present.
+    #[test]
+    fn from_config_loads_each_key_source_and_rejects_bad_material() {
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::scenarios;
+
+        // A key read from a file: write valid base64 to a temp path the File
+        // source then points at. The tempdir lives for the whole table.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file_path = dir.path().join("test-key");
+        std::fs::write(&file_path, encode_key(&make_test_key(2))).expect("write");
+
+        scenarios!(
+            run = |source: KeySource| {
+                let key_map = HashMap::from([("key".to_string(), source)]);
+                IntegratedKmsProvider::from_config(&key_map)
+                    .map(|p| p.can_decrypt_kek("key"))
+                    // KmsError isn't PartialEq; the failing rows assert only that
+                    // malformed material is rejected, so carry the message as a String.
+                    .map_err(|e| e.to_string())
+            };
+            "a valid key loads from any source" {
+                KeySource::File { file: file_path } => Yields(true),
+                KeySource::Value { value: encode_key(&make_test_key(3)) } => Yields(true),
+            }
+            "malformed key material is rejected" {
+                // Not valid base64.
+                KeySource::Value { value: "not-valid-base64!!!".to_string() } => Fails,
+                // Valid base64, but only 16 bytes — not a 256-bit key.
+                KeySource::Value { value: BASE64.encode([0u8; 16]) } => Fails,
+            }
+        );
+    }
+
+    // Verifies that from_config loads keys from env vars. Kept separate from the
+    // key-source table because it mutates process-wide environment and so must
+    // run serially.
     #[test]
     #[serial]
     fn from_config_env_source() {
@@ -251,73 +289,12 @@ mod tests {
         unsafe { std::env::remove_var("TEST_KMS_KEY_1") };
     }
 
-    // Verifies that from_config loads keys from files.
-    #[test]
-    fn from_config_file_source() {
-        let key = make_test_key(2);
-        let dir = tempfile::tempdir().expect("tempdir");
-        let file_path = dir.path().join("test-key");
-        std::fs::write(&file_path, encode_key(&key)).expect("write");
-
-        let mut key_map = HashMap::new();
-        key_map.insert("file-key".to_string(), KeySource::File { file: file_path });
-
-        let provider = IntegratedKmsProvider::from_config(&key_map).expect("from_config");
-        assert!(provider.can_decrypt_kek("file-key"));
-    }
-
-    // Verifies that from_config loads inline base64 values.
-    #[test]
-    fn from_config_value_source() {
-        let key = make_test_key(3);
-        let mut key_map = HashMap::new();
-        key_map.insert(
-            "inline-key".to_string(),
-            KeySource::Value {
-                value: encode_key(&key),
-            },
-        );
-
-        let provider = IntegratedKmsProvider::from_config(&key_map).expect("from_config");
-        assert!(provider.can_decrypt_kek("inline-key"));
-    }
-
-    // Verifies that from_config errors when no keys
-    // are provided.
+    // Verifies that from_config errors when no keys are provided. Kept separate
+    // from the key-source table: this exercises an empty map rather than a single
+    // source variant.
     #[test]
     fn from_config_empty_errors() {
         let result = IntegratedKmsProvider::from_config(&HashMap::new());
-        assert!(result.is_err());
-    }
-
-    // Verifies that from_config errors on invalid base64.
-    #[test]
-    fn from_config_invalid_base64_errors() {
-        let mut key_map = HashMap::new();
-        key_map.insert(
-            "bad-key".to_string(),
-            KeySource::Value {
-                value: "not-valid-base64!!!".to_string(),
-            },
-        );
-
-        let result = IntegratedKmsProvider::from_config(&key_map);
-        assert!(result.is_err());
-    }
-
-    // Verifies that from_config errors when a key
-    // is not 32 bytes.
-    #[test]
-    fn from_config_wrong_key_length_errors() {
-        let mut key_map = HashMap::new();
-        key_map.insert(
-            "short-key".to_string(),
-            KeySource::Value {
-                value: BASE64.encode([0u8; 16]),
-            },
-        );
-
-        let result = IntegratedKmsProvider::from_config(&key_map);
         assert!(result.is_err());
     }
 }
