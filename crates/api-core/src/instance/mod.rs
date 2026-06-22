@@ -28,7 +28,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use config_version::ConfigVersion;
-use db::db_read::DbReader;
+use db::vpc::VpcRowLock;
 use db::{
     self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
     network_security_group,
@@ -87,17 +87,19 @@ fn build_requested_linknet_prefix(
 use crate::{CarbideError, CarbideResult};
 
 async fn validate_zero_dpu_auto_vpc(
-    txn: impl DbReader<'_>,
+    txn: &mut PgConnection,
     vpc_id: VpcId,
     tenant_organization_id: &TenantOrganizationId,
 ) -> Result<model::vpc::Vpc, CarbideError> {
-    let vpc = db::vpc::find_by(txn, ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id))
-        .await?
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            CarbideError::FailedPrecondition(format!("VPC `{vpc_id}` does not exist"))
-        })?;
+    let vpc = db::vpc::find_by_with_lock(
+        txn,
+        ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        VpcRowLock::Mutation,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .ok_or_else(|| CarbideError::FailedPrecondition(format!("VPC `{vpc_id}` does not exist")))?;
 
     if vpc.config.tenant_organization_id != tenant_organization_id.to_string() {
         return Err(CarbideError::FailedPrecondition(format!(
