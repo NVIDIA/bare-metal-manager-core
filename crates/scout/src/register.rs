@@ -57,16 +57,8 @@ pub async fn run(
         crate::tpm::set_tpm_max_auth_fail()?;
 
         // create tss context
-        let mut tss_ctx = match attest::create_context_from_path(tpm_path) {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                let err = CarbideClientError::TpmError(format!("Could not create context: {e}"));
-                if tpm::is_recoverable_tpm_client_error(&err) {
-                    tpm::recover_tpm_and_reboot(tpm_path)?;
-                }
-                return Err(err);
-            }
-        };
+        let mut tss_ctx = attest::create_context_from_path(tpm_path)
+            .map_err(|e| CarbideClientError::TpmError(format!("Could not create context: {e}")))?;
 
         // CHANGETO - supply context externally
         hardware_info.tpm_description = attest::get_tpm_description(&mut tss_ctx);
@@ -74,12 +66,12 @@ pub async fn run(
         let result = match attest::create_attest_key_info(&mut tss_ctx) {
             Ok(result) => result,
             Err(e) => {
-                let err =
-                    CarbideClientError::TpmError(format!("Could not create AttestKeyInfo: {e}"));
-                if tpm::is_recoverable_tpm_client_error(&err) {
+                if tpm::should_attempt_tpm_recovery_for_attest_key_failure(&*e) {
                     tpm::recover_tpm_and_reboot(tpm_path)?;
                 }
-                return Err(err);
+                return Err(CarbideClientError::TpmError(format!(
+                    "Could not create AttestKeyInfo: {e}"
+                )));
             }
         };
 

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use std::fs::File;
-use std::io::Write;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -25,7 +25,7 @@ use tss_esapi::interface_types::session_handles::AuthSession;
 
 use crate::{CarbideClientError, attestation as attest};
 
-pub(crate) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/tmp/tpm_recovery_reboot_attempted";
+pub(crate) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/run/scout/tpm_recovery_reboot_attempted";
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
 pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
@@ -87,33 +87,46 @@ pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-pub(crate) fn is_recoverable_tpm_client_error(error: &CarbideClientError) -> bool {
-    match error {
-        CarbideClientError::TpmError(message) => {
-            message.contains("Could not create AttestKeyInfo")
-                || message.contains("Could not create context")
-                || message.contains("TPM2_Clear")
-        }
-        _ => false,
+/// Returns true when attestation-key setup failed after a TPM context was opened successfully.
+///
+/// Recovery is only attempted for this stage: context creation failures (bad path, missing device)
+/// are not recoverable via TPM clear.
+pub(crate) fn should_attempt_tpm_recovery_for_attest_key_failure(
+    source: &dyn std::error::Error,
+) -> bool {
+    let message = source.to_string().to_ascii_lowercase();
+    !message.contains("not supported")
+}
+
+fn claim_tpm_recovery_attempt() -> Result<(), CarbideClientError> {
+    if let Some(parent) = Path::new(TPM_RECOVERY_ATTEMPTED_PATH).parent() {
+        fs::create_dir_all(parent).map_err(CarbideClientError::StdIo)?;
     }
+
+    let mut marker = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(TPM_RECOVERY_ATTEMPTED_PATH)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            return Err(CarbideClientError::TpmError(
+                "TPM recovery was already attempted this boot cycle; refusing to loop".to_string(),
+            ));
+        }
+        Err(e) => return Err(CarbideClientError::StdIo(e)),
+    };
+    marker
+        .write_all(b"tpm recovery reboot requested\n")
+        .map_err(CarbideClientError::StdIo)
 }
 
 /// Clears the TPM and reboots the host once per boot cycle to recover from missing TPM material.
 pub(crate) fn recover_tpm_and_reboot(tpm_path: &str) -> Result<(), CarbideClientError> {
-    if Path::new(TPM_RECOVERY_ATTEMPTED_PATH).exists() {
-        return Err(CarbideClientError::TpmError(
-            "TPM recovery was already attempted this boot cycle; refusing to loop".to_string(),
-        ));
-    }
+    claim_tpm_recovery_attempt()?;
 
     tracing::warn!("Attempting automated TPM clear and reboot to recover attestation state");
     clear_tpm(tpm_path)?;
-
-    let mut marker =
-        File::create(TPM_RECOVERY_ATTEMPTED_PATH).map_err(CarbideClientError::StdIo)?;
-    marker
-        .write_all(b"tpm recovery reboot requested\n")
-        .map_err(CarbideClientError::StdIo)?;
 
     let output = Command::new("systemctl")
         .arg("reboot")
@@ -135,14 +148,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recoverable_tpm_errors_include_attest_key_info_failures() {
-        let err = CarbideClientError::TpmError("Could not create AttestKeyInfo: test".to_string());
-        assert!(is_recoverable_tpm_client_error(&err));
-    }
+    fn attest_key_failure_recovery_classification_cases() {
+        let cases: &[(&str, bool)] = &[
+            ("handle already exists", true),
+            ("tpm corruption detected", true),
+            ("feature not supported on this device", false),
+        ];
 
-    #[test]
-    fn non_tpm_client_errors_are_not_recoverable() {
-        let err = CarbideClientError::GenericError("transport failed".to_string());
-        assert!(!is_recoverable_tpm_client_error(&err));
+        for (message, want_recovery) in cases {
+            let err: Box<dyn std::error::Error> = Box::new(std::io::Error::other(*message));
+            assert_eq!(
+                should_attempt_tpm_recovery_for_attest_key_failure(&*err),
+                *want_recovery,
+                "message={message:?}"
+            );
+        }
     }
 }
