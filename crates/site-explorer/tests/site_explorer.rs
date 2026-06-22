@@ -2735,10 +2735,17 @@ async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
         .redfish_power_control_calls
         .lock()
         .unwrap();
-    let powercycle_pos = power_calls
+    // Scope the fallback-order check to the host under test so another
+    // endpoint's power actions can't skew the `PowerCycle`-before-`ACPowercycle`
+    // positions.
+    let host_power_calls = power_calls
+        .iter()
+        .filter(|(addr, _)| addr.ip() == host_bmc_ip)
+        .collect::<Vec<_>>();
+    let powercycle_pos = host_power_calls
         .iter()
         .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle));
-    let acpowercycle_pos = power_calls
+    let acpowercycle_pos = host_power_calls
         .iter()
         .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::ACPowercycle));
     assert!(

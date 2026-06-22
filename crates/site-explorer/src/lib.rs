@@ -2570,7 +2570,7 @@ impl SiteExplorer {
             tracing::warn!(
                 %bmc_ip_address,
                 error = %power_cycle_err,
-                "PowerCycle refused; falling back to ACPowercycle to apply the queued NIC mode change",
+                "PowerCycle failed; falling back to ACPowercycle to apply the queued NIC mode change",
             );
             self.redfish_power_control(
                 bmc_ip_address,
