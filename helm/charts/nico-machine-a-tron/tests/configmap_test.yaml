@@ -11,7 +11,7 @@ tests:
           value: nico-machine-a-tron-config-files
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "host_count = 3"
+          pattern: "host_count = 10"
       - matchRegex:
           path: data["mat.toml"]
           pattern: "use_single_bmc_mock = true"
@@ -19,16 +19,16 @@ tests:
   - it: should configure custom host count
     set:
       machines:
-        config:
-          hostCount: 10
-          dpuPerHostCount: 2
+        dell-hosts:
+          hostCount: 20
+          dpuPerHostCount: 4
     asserts:
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "host_count = 10"
+          pattern: "host_count = 20"
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "dpu_per_host_count = 2"
+          pattern: "dpu_per_host_count = 4"
 
   - it: should allow config override
     set:

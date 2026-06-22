@@ -17,7 +17,7 @@ data:
     {{- if .Values.machineATron.logFile }}
     log_file = {{ .Values.machineATron.logFile | quote }}
     {{- end }}
-    bmc_mock_port = {{ .Values.machineATron.bmcMockPort }}
+    bmc_mock_port = {{ .Values.service.bmcMock.port }}
     use_single_bmc_mock = {{ .Values.machineATron.useSingleBmcMock }}
     mock_bmc_ssh_server = {{ .Values.machineATron.mockBmcSshServer }}
     {{- if .Values.machineATron.mockBmcSshPort }}

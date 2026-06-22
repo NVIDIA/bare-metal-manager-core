@@ -119,10 +119,8 @@ machineATron:
   ## Log file path (empty = stdout)
   logFile: ""
 
-  ## BMC mock port (1266 is the devspace default)
-  bmcMockPort: 1266
-
   ## Use single BMC mock with header-based routing (required for k8s)
+  ## Port is configured via service.bmcMock.port
   useSingleBmcMock: true
 
   ## Enable mock BMC SSH server
@@ -130,7 +128,7 @@ machineATron:
   mockBmcSshPort: 2222
 
   ## If set, machine-a-tron will configure NICo to use this as bmc_proxy host
-  ## Combined with bmcMockPort to form host:port
+  ## Combined with service.bmcMock.port to form host:port
   configureBmcProxyHost: ""
 
   ## Directory for persisting machine state between restarts
