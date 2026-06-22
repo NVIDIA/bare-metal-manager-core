@@ -22,9 +22,9 @@ pub mod resource_record;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 pub fn normalize_domain(name: &str) -> String {
-    let normalize_domain = name.trim_end_matches('.').to_lowercase();
-    tracing::debug!("Normalized domain name: {} to: {}", name, normalize_domain);
-    normalize_domain
+    let normalized_domain = name.trim_end_matches('.').to_ascii_lowercase();
+    tracing::debug!(input = %name, normalized = %normalized_domain, "normalized domain name");
+    normalized_domain
 }
 
 /// Parse a reverse-DNS (PTR) query name into the address it points at -- the
@@ -77,10 +77,16 @@ mod tests {
 
     #[test]
     fn test_normalize_domain_name() {
-        let domain_name = "example.com.";
-        let expected = "example.com";
-        let normalized = super::normalize_domain(domain_name);
-        assert_eq!(normalized, expected);
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |name: &str| super::normalize_domain(name);
+            "strips the trailing dot and folds case to ASCII lowercase" {
+                "example.com." => "example.com".to_string(),
+                "EXAMPLE.COM." => "example.com".to_string(),
+                "Example.Com" => "example.com".to_string(),
+            }
+        );
     }
 
     #[test]
