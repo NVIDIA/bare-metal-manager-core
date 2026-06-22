@@ -172,29 +172,15 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 #[crate::sqlx_test]
 async fn test_delete(pool: sqlx::PgPool) -> () {
     create_fixture_expected_machines(&pool).await;
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-    let machine = get_expected_machine_1(&mut txn)
-        .await
-        .expect("Expected machine not found");
+    let mac = "0a:0b:0c:0d:0e:0f".parse().unwrap();
 
-    assert_eq!(machine.data.serial_number, "VVG121GG");
-
-    db::expected_machine::delete_by_mac(&mut txn, machine.bmc_mac_address)
-        .await
-        .expect("Error deleting expected_machine");
-
-    txn.commit().await.expect("Failed to commit transaction");
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
-
-    get_expected_machine_1(&mut txn).await;
-
-    assert!(get_expected_machine_1(&mut txn).await.is_none())
+    crate::test_support::expected_host::assert_delete_by_mac_removes_row(
+        &pool,
+        mac,
+        async |txn, mac| db::expected_machine::delete_by_mac(txn, mac).await,
+        async |txn, mac| db::expected_machine::find_by_bmc_mac_address(txn, mac).await,
+    )
+    .await;
 }
 
 #[crate::sqlx_test]

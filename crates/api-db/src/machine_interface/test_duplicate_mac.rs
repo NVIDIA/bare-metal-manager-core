@@ -14,49 +14,56 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use db::{self, ObjectColumnFilter, network_segment};
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::machine::machine_id::from_hardware_info;
 
+use std::str::FromStr;
+
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use mac_address::MacAddress;
+use model::address_selection_strategy::AddressSelectionStrategy;
+use model::network_segment::NetworkSegmentControllerState;
+
+use crate as db;
 use crate::DatabaseError;
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::test_support::network_segment::admin_segment;
+
+fn test_machine_id() -> MachineId {
+    MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        [0x42; 32],
+        MachineType::Dpu,
+    )
+}
 
 #[crate::sqlx_test]
 async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let dpu = host_config.get_and_assert_single_dpu();
-
-    let mut txn = env.pool.begin().await?;
-
-    let network_segment = db::network_segment::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::One(network_segment::IdColumn, env.admin_segment_ref()),
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+    let mut txn = pool.begin().await?;
+    let network_segment = db::network_segment::persist(
+        admin_segment("ADMIN_TEST", "192.0.2.0/24", "192.0.2.1", 3),
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
     )
-    .await?
-    .pop()
-    .unwrap();
+    .await?;
+    let mac_address = MacAddress::from_str("52:54:00:12:34:56").unwrap();
 
     let new_interface = db::machine_interface::create(
         &mut txn,
         std::slice::from_ref(&network_segment),
-        &dpu.oob_mac_address,
+        &mac_address,
         true,
         AddressSelectionStrategy::NextAvailableIp,
         None,
     )
     .await?;
 
-    let machine_id = from_hardware_info(&dpu.into()).unwrap();
+    let machine_id = test_machine_id();
     db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
 
     let duplicate_interface = db::machine_interface::create(
         &mut txn,
         std::slice::from_ref(&network_segment),
-        &dpu.oob_mac_address,
+        &mac_address,
         true,
         AddressSelectionStrategy::NextAvailableIp,
         None,

@@ -94,7 +94,7 @@ else
     vault secrets enable -path=certs pki
     vault write certs/root/generate/internal common_name=myvault.com ttl=87600h
     vault write certs/config/urls issuing_certificates=\"http://vault.example.com:8200/v1/pki/ca\" crl_distribution_points=\"http://vault.example.com:8200/v1/pki/crl\"
-    vault write certs/roles/role allowed_domains=example.com allow_subdomains=true max_ttl=72h require_cn=false allowed_uri_sans=\"spiffe://forge.local/*\"
+    vault write certs/roles/role allowed_domains=example.com allow_subdomains=true max_ttl=72h require_cn=false allowed_uri_sans=\"spiffe://nico.local/*\"
   " >/dev/null 2>&1
 
   ok "Vault initialized at $VAULT_ADDR"

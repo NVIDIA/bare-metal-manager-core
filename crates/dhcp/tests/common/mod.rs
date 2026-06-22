@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 mod dhcp_factory;
-mod kea;
+pub(crate) mod kea;
 
-pub use dhcp_factory::{DHCPFactory, RELAY_IP};
+pub use dhcp_factory::DHCPFactory;
 pub use kea::Kea;
-#[allow(unused_imports)] // not every test binary inspects lease entries
-pub use kea::LeaseEntry;

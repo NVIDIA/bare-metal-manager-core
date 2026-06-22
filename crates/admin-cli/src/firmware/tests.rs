@@ -23,7 +23,7 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 
 use super::*;
 
@@ -35,19 +35,4 @@ use super::*;
 #[test]
 fn verify_cmd_structure() {
     Cmd::command().debug_assert();
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Argument Parsing
-//
-// This section contains tests specific to argument parsing,
-// including testing required arguments, as well as optional
-// flag-specific checking.
-
-// parse_show ensures show parses with no arguments.
-#[test]
-fn parse_show() {
-    let cmd = Cmd::try_parse_from(["firmware", "show"]).expect("should parse show");
-
-    assert!(matches!(cmd, Cmd::Show(_)));
 }

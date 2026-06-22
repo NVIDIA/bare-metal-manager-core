@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use carbide_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath,
     HostConfig as ModelHostConfig, InterfaceInfo as ModelInterfaceInfo,
+    InterfaceInfoV6 as ModelInterfaceInfoV6,
 };
 use carbide_uuid::machine::MachineInterfaceId;
 use tokio::sync::mpsc;
@@ -76,6 +77,30 @@ impl TryFrom<proto::DhcpConfig> for ModelDhcpConfig {
                 .collect::<Result<Vec<_>, _>>()?,
             carbide_provisioning_server_ipv4: c.carbide_provisioning_server_ipv4.parse()?,
             carbide_dhcp_server: c.carbide_dhcp_server.parse()?,
+            carbide_nameservers_v6: c
+                .carbide_nameservers_v6
+                .iter()
+                .map(|s| s.parse())
+                .collect::<Result<Vec<_>, _>>()?,
+            carbide_ntpservers_v6: c
+                .carbide_ntpservers_v6
+                .iter()
+                .map(|s| s.parse())
+                .collect::<Result<Vec<_>, _>>()?,
+            carbide_dhcp_server_v6: c.carbide_dhcp_server_v6.map(|s| s.parse()).transpose()?,
+            dhcpv6_preferred_lifetime_secs: c.dhcpv6_preferred_lifetime_secs,
+            dhcpv6_valid_lifetime_secs: c.dhcpv6_valid_lifetime_secs,
+        })
+    }
+}
+
+impl TryFrom<proto::InterfaceInfoV6> for ModelInterfaceInfoV6 {
+    type Error = DhcpError;
+
+    fn try_from(i: proto::InterfaceInfoV6) -> Result<Self, Self::Error> {
+        Ok(ModelInterfaceInfoV6 {
+            address: i.address.map(|s| s.parse()).transpose()?,
+            prefix: i.prefix,
         })
     }
 }
@@ -91,6 +116,7 @@ impl TryFrom<proto::InterfaceInfo> for ModelInterfaceInfo {
             fqdn: i.fqdn,
             booturl: i.booturl,
             mtu: i.mtu,
+            ipv6: i.ipv6.map(ModelInterfaceInfoV6::try_from).transpose()?,
         })
     }
 }

@@ -178,14 +178,15 @@ pub async fn create_for(
     // tiny amounts of time.
     //
     let mut inserted_prefixes: Vec<NetworkPrefix> = Vec::with_capacity(prefixes.len());
-    let query = "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved)
-            VALUES ($1::uuid, $2::cidr, $3::inet, $4::integer)
+    let query = "INSERT INTO network_prefixes (segment_id, prefix, gateway, dhcpv6_link_address, num_reserved)
+            VALUES ($1::uuid, $2::cidr, $3::inet, $4::inet, $5::integer)
             RETURNING *";
     for prefix in prefixes {
         let new_prefix: NetworkPrefix = sqlx::query_as(query)
             .bind(segment_id)
             .bind(prefix.prefix)
             .bind(prefix.gateway)
+            .bind(prefix.dhcpv6_link_address)
             .bind(prefix.num_reserved)
             .fetch_one(inner_transaction.as_pgconn())
             .await

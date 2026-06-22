@@ -17,17 +17,21 @@
 
 use std::collections::HashMap;
 
+use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
+use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+use carbide_secrets::credentials::{CredentialKey, CredentialType};
+use libredfish::BiosProfileType;
+use libredfish::model::service_root::RedfishVendor;
+
+use super::{MachineStateHandlerSiteConfig, call_machine_setup_and_handle_no_dpu_error};
+
 /// Verify that `oem_manager_profiles` from the site config is forwarded to `machine_setup`.
 ///
 /// This test catches regressions where the argument gets dropped or replaced with an empty map.
 #[tokio::test]
 async fn test_oem_manager_profiles_passed_to_machine_setup() {
-    use carbide_redfish::libredfish::RedfishClientPool;
-    use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
-    use libredfish::BiosProfileType;
-    use libredfish::model::service_root::RedfishVendor;
+    let mut config = MachineStateHandlerSiteConfig::test_default();
 
-    let mut config = crate::tests::common::api_fixtures::get_config();
     // Build an oem_manager_profiles map with a Dell R760 PSU Hot Spare setting.
     // This mirrors the fix for the Dell R760 PSU fan issue (nvbugs-5834644).
     config.oem_manager_profiles = HashMap::from([(
@@ -44,9 +48,6 @@ async fn test_oem_manager_profiles_passed_to_machine_setup() {
         )]),
     )]);
 
-    use carbide_redfish::libredfish::RedfishAuth;
-    use carbide_secrets::credentials::{CredentialKey, CredentialType};
-
     let sim = RedfishSim::default();
     let timepoint = sim.timepoint();
     let client = sim
@@ -61,13 +62,8 @@ async fn test_oem_manager_profiles_passed_to_machine_setup() {
         .await
         .unwrap();
 
-    let result = carbide_machine_controller::handler::call_machine_setup_and_handle_no_dpu_error(
-        client.as_ref(),
-        None,
-        1,
-        &config.machine_state_handler_site_config(),
-    )
-    .await;
+    let result =
+        call_machine_setup_and_handle_no_dpu_error(client.as_ref(), None, 1, &config).await;
 
     assert!(result.is_ok());
 

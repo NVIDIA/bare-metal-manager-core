@@ -39,6 +39,7 @@ impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
                 ),
                 None => None,
             },
+            dhcpv6_link_address: None,
             num_reserved: value.reserve_first,
         })
     }

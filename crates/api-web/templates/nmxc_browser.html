@@ -20,8 +20,11 @@ See the <a href="https://docs.nvidia.com/networking/display/nmxcv11/grpc+api+doc
 		<select id="operation_input" name="operation">
 			<option value="" {% if operation.is_empty() %}selected{% endif %}>— choose —</option>
 			<option value="compute_node_info_list" {% if operation == "compute_node_info_list" %}selected{% endif %}>Compute node info list</option>
+			<option value="switch_node_info_list" {% if operation == "switch_node_info_list" %}selected{% endif %}>Switch node info list</option>
 			<option value="gpu_info" {% if operation == "gpu_info" %}selected{% endif %}>GPU info (by UID)</option>
 			<option value="gpu_info_list" {% if operation == "gpu_info_list" %}selected{% endif %}>GPU info list (domain)</option>
+			<option value="partition_info_list" {% if operation == "partition_info_list" %}selected{% endif %}>Partition info list</option>
+			<option value="get_domain_properties" {% if operation == "get_domain_properties" %}selected{% endif %}>Get domain properties</option>
 		</select>
 	</div>
 	<div>

@@ -926,6 +926,28 @@ pub async fn update_nvlink_status_observation(
     Ok(())
 }
 
+/// Clears `machines.nvlink_status_observation` for the given machine IDs.
+///
+/// Used when NMX-C is unreachable so instance state does not retain stale partition observations.
+pub async fn clear_nvlink_status_observations(
+    txn: &mut PgConnection,
+    machine_ids: &[MachineId],
+) -> Result<(), DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(());
+    }
+
+    let query = "UPDATE machines SET nvlink_status_observation = NULL WHERE id = ANY($1)";
+    let machine_id_strings: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
+    sqlx::query(query)
+        .bind(machine_id_strings)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
 pub async fn update_spx_status_observation(
     txn: &mut PgConnection,
     machine_id: &MachineId,

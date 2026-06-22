@@ -95,11 +95,13 @@ async fn test_advance_network_prefix_state(
                 NewNetworkPrefix {
                     prefix: "192.0.2.1/24".parse().expect("can't parse network"),
                     gateway: "192.0.2.1".parse().ok(),
+                    dhcpv6_link_address: None,
                     num_reserved: 1,
                 },
                 NewNetworkPrefix {
                     prefix: "2001:db8:f::/64".parse().expect("can't parse network"),
                     gateway: None,
+                    dhcpv6_link_address: None,
                     num_reserved: 100,
                 },
             ],
@@ -499,7 +501,9 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -511,7 +515,9 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -523,7 +529,9 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
                 prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
@@ -603,7 +611,9 @@ pub async fn test_create_initial_vpc_and_attached_network(
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::HostInband,
             prefix: "10.217.18.192/30".parse().unwrap(),
+            prefix_v6: None,
             gateway: "10.217.18.193".parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
@@ -668,7 +678,9 @@ pub async fn test_create_initial_network_fails_for_missing_vpc_name(
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::HostInband,
             prefix: "10.217.18.192/30".parse().unwrap(),
+            prefix_v6: None,
             gateway: "10.217.18.193".parse().unwrap(),
+            dhcpv6_link_address: None,
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),

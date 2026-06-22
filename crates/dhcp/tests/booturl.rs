@@ -23,7 +23,7 @@ use dhcproto::{Decodable, Decoder, v4};
 
 mod common;
 
-use common::{DHCPFactory, Kea, RELAY_IP};
+use common::{DHCPFactory, Kea};
 
 const READ_TIMEOUT: Duration = Duration::from_millis(200);
 const OFFER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -70,17 +70,7 @@ fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
         .unwrap();
     let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
-    let dhcp_out_port = 6667;
-    let dhcp_in_port = 6668;
-
-    // Start Kea process. Stops on drop.
-    let mut kea = Kea::new(api_server.local_http_addr(), dhcp_in_port, dhcp_out_port)?;
-    kea.run()?;
-
-    // UDP socket to Kea. We're pretending to be dhcp-relay.
-    let socket = UdpSocket::bind(format!("{RELAY_IP}:{dhcp_out_port}"))?;
-
-    socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
+    let (_kea, socket) = Kea::start(api_server.local_http_addr(), None)?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
     let pkt = {
@@ -124,17 +114,7 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
         .unwrap();
     let api_server = rt.block_on(mock_api_server::MockAPIServer::start());
 
-    let dhcp_out_port = 6669;
-    let dhcp_in_port = 6670;
-
-    // Start Kea process. Stops on drop.
-    let mut kea = Kea::new(api_server.local_http_addr(), dhcp_in_port, dhcp_out_port)?;
-    kea.run()?;
-
-    // UDP socket to Kea. We're pretending to be dhcp-relay.
-    let socket = UdpSocket::bind(format!("{RELAY_IP}:{dhcp_out_port}"))?;
-
-    socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
+    let (_kea, socket) = Kea::start(api_server.local_http_addr(), None)?;
     socket.set_read_timeout(Some(READ_TIMEOUT))?;
 
     let pkt = {
