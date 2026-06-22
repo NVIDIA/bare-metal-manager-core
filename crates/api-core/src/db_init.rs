@@ -202,9 +202,9 @@ pub async fn create_initial_vpcs(
 
 /// Create the static-assignments anchor segment if it doesn't exist.
 /// This segment holds external static IP assignments that don't fall
-/// within any managed network prefix. The 169.254.254.254/32 prefix is
-/// a link-local placeholder -- the allocator will never hand out IPs
-/// from it, it exists only because the schema requires a prefix.
+/// within any managed network prefix. The placeholder prefixes are never
+/// handed out by the allocator; they exist because the schema requires
+/// segment prefixes and because static assignments can be IPv4 or IPv6.
 pub async fn ensure_static_assignments_segment(
     api: &Api,
     txn: &mut db::Transaction<'_>,
@@ -224,12 +224,20 @@ pub async fn ensure_static_assignments_segment(
         subdomain_id,
         vpc_id: None,
         mtu: 1500,
-        prefixes: vec![NewNetworkPrefix {
-            prefix: "169.254.254.254/32".parse().unwrap(),
-            gateway: None,
-            dhcpv6_link_address: None,
-            num_reserved: 1,
-        }],
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "169.254.254.254/32".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "100::/128".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+        ],
         vlan_id: None,
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
@@ -288,8 +296,9 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
             continue;
         }
 
-        // Already SVI IP is allocated.
-        if segment.prefixes.iter().any(|x| x.svi_ip.is_some()) {
+        // Already SVI IP is allocated for every prefix. Prefixless segments
+        // still fall through so allocate_svi_ip reports the invalid state.
+        if !segment.prefixes.is_empty() && segment.prefixes.iter().all(|x| x.svi_ip.is_some()) {
             continue;
         }
 

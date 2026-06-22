@@ -3825,22 +3825,54 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+  // DHCP protocol family for this request.
+  // Omit only for legacy callers; the service infers the family from relay/link
+  // addresses. If present, ADDRESS_FAMILY_UNSPECIFIED is invalid.
+  // When either address_family or message_kind is present, both must be present,
+  // specified, and compatible.
   optional AddressFamily address_family = 8;
+  // DHCP message kind for this request.
+  // Omit only for legacy callers. If present, MESSAGE_KIND_UNSPECIFIED is invalid.
+  // ADDRESS_FAMILY_V4 is valid only with MESSAGE_KIND_V4_DISCOVER.
+  // ADDRESS_FAMILY_V6 is valid only with MESSAGE_KIND_V6_SOLICIT,
+  // MESSAGE_KIND_V6_REQUEST, or MESSAGE_KIND_V6_INFO_REQUEST.
+  // Mismatched pairs, such as ADDRESS_FAMILY_V4 with MESSAGE_KIND_V6_SOLICIT,
+  // are validation errors and must not be coerced.
   optional MessageKind message_kind = 9;
+  // DHCPv6 client DUID.
+  // Must be present and non-empty for DHCPv6 requests, including all V6
+  // MessageKind values and any request with ADDRESS_FAMILY_V6.
+  // Must be absent for DHCPv4 requests.
   optional bytes duid = 10;
 }
 
+// DHCP protocol family used to validate DhcpDiscovery.message_kind and duid.
+// Field absence means legacy inference; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
 enum AddressFamily {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.address_family instead
+  // when using legacy family inference.
   ADDRESS_FAMILY_UNSPECIFIED = 0;
+  // DHCPv4. Compatible only with MESSAGE_KIND_V4_DISCOVER and no DUID.
   ADDRESS_FAMILY_V4 = 1;
+  // DHCPv6. Compatible only with V6 MessageKind values and requires a DUID.
   ADDRESS_FAMILY_V6 = 2;
 }
 
+// DHCP message type used to validate DhcpDiscovery.address_family and duid.
+// Field absence means legacy behavior; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
 enum MessageKind {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.message_kind instead
+  // when using legacy behavior.
   MESSAGE_KIND_UNSPECIFIED = 0;
+  // DHCPv4 DISCOVER. Requires ADDRESS_FAMILY_V4 and forbids duid.
   MESSAGE_KIND_V4_DISCOVER = 1;
+  // DHCPv6 SOLICIT. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_SOLICIT = 2;
+  // DHCPv6 REQUEST. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_REQUEST = 3;
+  // DHCPv6 Information-request. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
 
@@ -3887,7 +3919,13 @@ message DhcpRecord {
   // Per site NTP server IPs
   repeated string ntp_servers = 13;
 
+  // DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When present, dhcpv6_valid_lifetime_secs must also be present and must be
+  // greater than or equal to this value.
   optional uint32 dhcpv6_preferred_lifetime_secs = 14;
+  // DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When both DHCPv6 lifetime fields are present, this value must be greater
+  // than or equal to dhcpv6_preferred_lifetime_secs.
   optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 

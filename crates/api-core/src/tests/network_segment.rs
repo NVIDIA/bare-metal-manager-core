@@ -42,7 +42,7 @@ use model::network_segment::{
 };
 use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use model::vpc::{UpdateVpcVirtualization, VpcDefinition};
+use model::vpc::{NewVpc, UpdateVpcVirtualization, VpcDefinition, VpcStatus};
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
@@ -56,6 +56,70 @@ use crate::tests::common::api_fixtures::{
     get_vpc_fixture_id,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
+
+/// Creates a VPC with one stretchable segment for direct SVI allocation tests.
+async fn create_stretchable_segment_for_svi_test(
+    txn: &mut sqlx::PgTransaction<'_>,
+    name: &str,
+    prefixes: Vec<NewNetworkPrefix>,
+) -> Result<(VpcId, NetworkSegmentId), db::DatabaseError> {
+    create_stretchable_segment_for_svi_test_with_vpc_type(
+        txn,
+        name,
+        VpcVirtualizationType::Flat,
+        prefixes,
+    )
+    .await
+}
+
+async fn create_stretchable_segment_for_svi_test_with_vpc_type(
+    txn: &mut sqlx::PgTransaction<'_>,
+    name: &str,
+    network_virtualization_type: VpcVirtualizationType,
+    prefixes: Vec<NewNetworkPrefix>,
+) -> Result<(VpcId, NetworkSegmentId), db::DatabaseError> {
+    // Seed a VPC that can be updated through the same DB path used by handlers.
+    let vpc_id = uuid::Uuid::new_v4().into();
+    db::vpc::persist(
+        NewVpc {
+            id: vpc_id,
+            tenant_organization_id: "tenant".to_string(),
+            network_virtualization_type,
+            metadata: model::metadata::Metadata {
+                name: format!("{name}-vpc"),
+                ..Default::default()
+            },
+            network_security_group_id: None,
+            routing_profile_type: None,
+            vni: None,
+        },
+        VpcStatus { vni: None },
+        txn.as_mut(),
+    )
+    .await?;
+
+    // Attach a stretchable segment whose prefixes should receive SVI IPs.
+    let segment = db::network_segment::persist(
+        NewNetworkSegment {
+            id: uuid::Uuid::new_v4().into(),
+            name: name.to_string(),
+            subdomain_id: None,
+            vpc_id: Some(vpc_id),
+            mtu: 1500,
+            prefixes,
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Admin,
+            can_stretch: Some(true),
+            allocation_strategy: Default::default(),
+        },
+        txn.as_mut(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+
+    Ok((vpc_id, segment.id))
+}
 
 #[crate::sqlx_test]
 async fn test_advance_network_prefix_state(
@@ -1152,6 +1216,194 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             assert!(prefix.svi_ip.is_some());
         }
     }
+
+    Ok(())
+}
+
+/// Verifies that converting a VPC to FNN allocates SVI IPs for every prefix
+/// on a dual-stack segment, not just the IPv4 prefix.
+#[crate::sqlx_test]
+async fn test_update_svi_ip_dual_stack_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let (vpc_id, segment_id) = create_stretchable_segment_for_svi_test(
+        &mut txn,
+        "dual-stack-svi",
+        vec![
+            NewNetworkPrefix {
+                prefix: "198.18.40.0/24".parse().unwrap(),
+                gateway: Some("198.18.40.1".parse().unwrap()),
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:4040::/64".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+        ],
+    )
+    .await?;
+
+    // Update virtualization through the DB path that refreshes SVI IPs.
+    let update_request = UpdateVpcVirtualization {
+        id: vpc_id,
+        if_version_match: None,
+        network_virtualization_type: VpcVirtualizationType::Fnn,
+    };
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    txn.commit().await?;
+
+    // Re-read the segment to verify both prefix families persisted SVI IPs.
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    assert_eq!(segment.prefixes.len(), 2);
+    assert!(
+        segment
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv4() && prefix.svi_ip.is_some())
+    );
+    assert!(
+        segment
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv6() && prefix.svi_ip.is_some())
+    );
+
+    Ok(())
+}
+
+/// Verifies that startup SVI backfill repairs partially populated dual-stack
+/// segments instead of skipping them when one prefix already has an SVI IP.
+#[crate::sqlx_test]
+async fn test_update_network_segments_svi_ip_backfills_partial_dual_stack_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    // Create the segment as FNN up front so this test covers the startup
+    // backfill path, not the VPC virtualization update path.
+    let (_vpc_id, segment_id) = create_stretchable_segment_for_svi_test_with_vpc_type(
+        &mut txn,
+        "partial-dual-stack-svi",
+        VpcVirtualizationType::Fnn,
+        vec![
+            NewNetworkPrefix {
+                prefix: "198.18.42.0/24".parse().unwrap(),
+                gateway: Some("198.18.42.1".parse().unwrap()),
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+            NewNetworkPrefix {
+                prefix: "2001:db8:4042::/64".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 3,
+            },
+        ],
+    )
+    .await?;
+
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    let ipv4_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv4())
+        .unwrap();
+    // Seed the partial state produced by older dual-stack behavior: IPv4 has
+    // an SVI, while the IPv6 prefix still needs to be backfilled on startup.
+    let ipv4_svi_ip = "198.18.42.2".parse().unwrap();
+    db::network_prefix::set_svi_ip(txn.as_mut(), ipv4_prefix.id, &ipv4_svi_ip).await?;
+    txn.commit().await?;
+
+    // This used to skip the segment because any prefix already had an SVI.
+    // The desired behavior is to allocate SVI addresses for missing prefixes.
+    db_init::update_network_segments_svi_ip(&pool).await?;
+
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    txn.rollback().await?;
+
+    let ipv4_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv4())
+        .unwrap();
+    let ipv6_prefix = segment
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv6())
+        .unwrap();
+    assert_eq!(ipv4_prefix.svi_ip, Some(ipv4_svi_ip));
+    // The IPv6 SVI is the third address in the IPv6 prefix, matching the
+    // normal SVI allocation rule used for both address families.
+    assert_eq!(ipv6_prefix.svi_ip.unwrap().to_string(), "2001:db8:4042::2");
+
+    Ok(())
+}
+
+/// Verifies that the FNN SVI allocation path supports IPv6-only segments.
+///
+/// This protects against reintroducing the old requirement that every
+/// stretchable segment must have an IPv4 prefix before SVI allocation.
+#[crate::sqlx_test]
+async fn test_update_svi_ip_ipv6_only_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let (vpc_id, segment_id) = create_stretchable_segment_for_svi_test(
+        &mut txn,
+        "ipv6-only-svi",
+        vec![NewNetworkPrefix {
+            prefix: "2001:db8:4041::/64".parse().unwrap(),
+            gateway: None,
+            dhcpv6_link_address: None,
+            num_reserved: 3,
+        }],
+    )
+    .await?;
+
+    // Update virtualization; the old IPv4 precheck rejected this segment.
+    let update_request = UpdateVpcVirtualization {
+        id: vpc_id,
+        if_version_match: None,
+        network_virtualization_type: VpcVirtualizationType::Fnn,
+    };
+    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    txn.commit().await?;
+
+    // Re-read the segment to verify the IPv6 SVI IP persisted.
+    let mut txn = pool.begin().await?;
+    let mut segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        network_segment::NetworkSegmentSearchConfig::default(),
+    )
+    .await?;
+    let segment = segments.remove(0);
+    assert_eq!(segment.prefixes.len(), 1);
+    assert!(segment.prefixes[0].prefix.is_ipv6());
+    assert!(segment.prefixes[0].svi_ip.is_some());
 
     Ok(())
 }

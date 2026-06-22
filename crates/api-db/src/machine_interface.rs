@@ -44,7 +44,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
 use crate::host_naming::{self, NamingContext};
-use crate::ip_allocator::{IpAllocator, UsedIpResolver};
+use crate::ip_allocator::{DhcpError, IpAllocator, UsedIpResolver};
 use crate::machine_interface_address::{AddressAlreadyInUseError, MachineInterfaceAddressWithType};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
 
@@ -835,10 +835,18 @@ async fn create_fast_path(
         for _ in 0..FAST_PATH_MAX_RETRIES {
             let mut fast_txn = Transaction::begin_inner(txn).await?;
 
-            // Make sure we're mutually exclusive with the slow path: a shared lock means many fast-path
-            // allocations can happen concurrently, but the slow path will hold this exclusively
-            // (waiting on any shared locks to complete)
-            lock_network_segment_shared(&mut fast_txn, segment).await?;
+            // Keep IPv4-only allocation concurrent, but serialize any segment
+            // containing IPv6 because the Rust allocator reads used addresses
+            // without taking per-IP candidate locks.
+            if segment
+                .prefixes
+                .iter()
+                .any(|prefix| prefix.prefix.is_ipv6())
+            {
+                lock_network_segment_exclusive(&mut fast_txn, segment).await?;
+            } else {
+                lock_network_segment_shared(&mut fast_txn, segment).await?;
+            }
 
             let segment_exhausted = match try_create_fast_path(
                 &mut fast_txn,
@@ -1060,17 +1068,97 @@ async fn try_create_fast_path(
 }
 
 /// Allocate one IP address from each prefix in the segment.
-/// For dual-stack segments this means one IPv4 and one IPv6 address.
+///
+/// For dual-stack segments this means one IPv4 and one IPv6 address. Callers
+/// must already hold the segment's exclusive lock when the segment contains
+/// IPv6 prefixes.
 async fn allocate_addresses_from_segment(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<Vec<IpAddr>> {
     let mut addresses = Vec::with_capacity(segment.prefixes.len());
     for prefix in &segment.prefixes {
-        let address = allocate_next_ip_with_retry(txn, segment, prefix).await?;
-        addresses.push(address);
+        if prefix.prefix.is_ipv6() {
+            // Use a single-prefix segment view so v6 allocation cannot consume
+            // or reason about unrelated prefixes on a dual-stack segment.
+            let single_prefix_segment = NetworkSegment {
+                prefixes: vec![prefix.clone()],
+                ..segment.clone()
+            };
+            addresses
+                .extend(allocate_v6_addresses_via_ip_allocator(txn, &single_prefix_segment).await?);
+        } else {
+            // IPv4 stays on the SQL fast path for its existing concurrency and
+            // allocation-order behavior.
+            let address = allocate_next_ip_with_retry(txn, segment, prefix).await?;
+            addresses.push(address);
+        }
     }
     Ok(addresses)
+}
+
+/// Allocates IPv6 DHCP addresses using the Rust `IpAllocator`.
+///
+/// The caller must hold the segment's exclusive advisory lock because
+/// `IpAllocator` reads the used-address set instead of taking per-IP advisory
+/// locks for each candidate.
+async fn allocate_v6_addresses_via_ip_allocator(
+    txn: &mut PgTransaction<'_>,
+    segment: &NetworkSegment,
+) -> DatabaseResult<Vec<IpAddr>> {
+    // Collect SVI IPs so the allocator treats those addresses as unavailable.
+    let reserved_ips = segment
+        .prefixes
+        .iter()
+        .filter_map(|prefix| prefix.svi_ip)
+        .collect();
+
+    let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
+        Box::new(UsedAdminNetworkIpResolver {
+            segment_id: segment.id,
+            busy_ips: reserved_ips,
+        });
+
+    // Limit the allocator input to IPv6 prefixes; IPv4 remains on the SQL fast
+    // path even when the original segment is dual-stack.
+    let ipv6_segment = NetworkSegment {
+        prefixes: segment
+            .prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv6())
+            .cloned()
+            .collect(),
+        ..segment.clone()
+    };
+
+    let allocator = IpAllocator::new(
+        txn.as_mut(),
+        &ipv6_segment,
+        dhcp_handler,
+        AddressSelectionStrategy::NextAvailableIp,
+    )
+    .await?;
+
+    let mut allocated_addresses = Vec::with_capacity(ipv6_segment.prefixes.len());
+    for (prefix_id, maybe_address) in allocator {
+        let address = match maybe_address {
+            Ok(address) => address,
+            Err(DatabaseError::DhcpError(DhcpError::PrefixExhausted(_))) => {
+                let prefix = ipv6_segment
+                    .prefixes
+                    .iter()
+                    .find(|prefix| prefix.id == prefix_id)
+                    .map_or_else(|| prefix_id.to_string(), |prefix| prefix.prefix.to_string());
+                return Err(DatabaseError::ResourceExhausted(format!(
+                    "No IP addresses left in prefix {prefix}"
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        allocated_addresses.push(address.ip());
+    }
+
+    Ok(allocated_addresses)
 }
 
 /// Create the actual machine interface once we know what addresses we want.
@@ -1146,16 +1234,22 @@ async fn allocate_next_ip_with_retry(
     segment: &NetworkSegment,
     prefix: &NetworkPrefix,
 ) -> DatabaseResult<IpAddr> {
+    // The SQL fast path is IPv4-only. IPv6 host-space math needs the Rust
+    // allocator's u128 arithmetic instead of PostgreSQL int4 shifts.
+    if prefix.prefix.is_ipv6() {
+        return Err(DatabaseError::internal(format!(
+            "IPv6 prefix {} cannot use the SQL fast-path allocator",
+            prefix.prefix
+        )));
+    }
+
     let reserved = if prefix.gateway.is_none() {
         prefix.num_reserved.max(2)
     } else {
         prefix.num_reserved.max(1)
     };
 
-    let network_bit_width = match prefix.prefix {
-        IpNetwork::V4(_) => 32,
-        IpNetwork::V6(_) => 128,
-    };
+    let host_bits = 32 - prefix.prefix.prefix() as i32;
 
     for _ in 0..FAST_PATH_MAX_RETRIES {
         // Grab FAST_PATH_CANDIDATE_BATCH IP's at once
@@ -1172,7 +1266,7 @@ LIMIT $6;
     "#;
         let candidates = sqlx::query_scalar::<_, IpAddr>(query)
             .bind(prefix.prefix.ip())
-            .bind(network_bit_width - prefix.prefix.prefix() as i32)
+            .bind(host_bits)
             .bind(reserved)
             .bind(prefix.gateway)
             .bind(prefix.svi_ip)
@@ -2301,23 +2395,52 @@ pub async fn allocate_address_for_family(
     family: carbide_network::ip::IpAddressFamily,
 ) -> DatabaseResult<Vec<IpAddr>> {
     let mut fast_txn = Transaction::begin_inner(txn).await?;
-    lock_network_segment_shared(&mut fast_txn, segment).await?;
+    if family == IpAddressFamily::Ipv6 {
+        lock_network_segment_exclusive(&mut fast_txn, segment).await?;
+    } else {
+        lock_network_segment_shared(&mut fast_txn, segment).await?;
+    }
 
     let mut allocated_addresses = Vec::new();
-    for prefix in segment
-        .prefixes
-        .iter()
-        .filter(|p| p.prefix.is_address_family(family))
-    {
-        let address = allocate_next_ip_with_retry(&mut fast_txn, segment, prefix).await?;
-        allocated_addresses.push(address);
-        insert_machine_interface_address(
-            fast_txn.as_pgconn(),
-            &interface_id,
-            &address,
-            AllocationType::Dhcp,
-        )
-        .await?;
+    if family == IpAddressFamily::Ipv6 {
+        // Use a family-only segment view so lease recovery allocates exactly one
+        // address from each IPv6 prefix and does not disturb IPv4 ordering.
+        let ipv6_segment = NetworkSegment {
+            prefixes: segment
+                .prefixes
+                .iter()
+                .filter(|prefix| prefix.prefix.is_ipv6())
+                .cloned()
+                .collect(),
+            ..segment.clone()
+        };
+        allocated_addresses =
+            allocate_v6_addresses_via_ip_allocator(&mut fast_txn, &ipv6_segment).await?;
+        for address in &allocated_addresses {
+            insert_machine_interface_address(
+                fast_txn.as_pgconn(),
+                &interface_id,
+                address,
+                AllocationType::Dhcp,
+            )
+            .await?;
+        }
+    } else {
+        for prefix in segment
+            .prefixes
+            .iter()
+            .filter(|p| p.prefix.is_address_family(family))
+        {
+            let address = allocate_next_ip_with_retry(&mut fast_txn, segment, prefix).await?;
+            allocated_addresses.push(address);
+            insert_machine_interface_address(
+                fast_txn.as_pgconn(),
+                &interface_id,
+                &address,
+                AllocationType::Dhcp,
+            )
+            .await?;
+        }
     }
 
     fast_txn.commit().await?;
