@@ -95,7 +95,7 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
-use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
+use self::metrics::{DpuMigrationSignal, PairingBlockerReason, exploration_error_to_metric_label};
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 
@@ -1121,6 +1121,7 @@ impl SiteExplorer {
                         host_dpu_mode,
                         &ep,
                         &mut dpu_exploration,
+                        metrics,
                     )
                     .await;
                 }
@@ -1138,6 +1139,7 @@ impl SiteExplorer {
                             host_dpu_mode,
                             &ep,
                             &mut dpu_exploration,
+                            metrics,
                         )
                         .await;
                     }
@@ -1179,6 +1181,7 @@ impl SiteExplorer {
                                     &dpu_ep,
                                     dpu_ep.report.model().unwrap_or_default(),
                                     host_dpu_mode,
+                                    metrics,
                                 )
                                 .await,
                             );
@@ -1256,6 +1259,9 @@ impl SiteExplorer {
                                 tracing::warn!(
                                     "power cycling host {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
                                     ep.address,
+                                );
+                                metrics.increment_dpu_migration_signal(
+                                    DpuMigrationSignal::ResetRequested,
                                 );
 
                                 if let Err(err) = self.redfish_powercycle(ep.address).await {
@@ -1408,7 +1414,12 @@ impl SiteExplorer {
             // earlier on after detecting the host_dpu_mode as such, so
             // this shouldn't fire.
             let dpus = match host_dpu_mode {
-                DpuMode::NicMode => Vec::new(),
+                DpuMode::NicMode => {
+                    metrics.increment_dpu_migration_signal(
+                        DpuMigrationSignal::RegisteredZeroDpuForNicMode,
+                    );
+                    Vec::new()
+                }
                 DpuMode::DpuMode => dpus_explored_for_host,
                 // Now that we continue/return early for NoDpu hosts,
                 // we shouldn't actually get here. Probably could be
@@ -1477,6 +1488,7 @@ impl SiteExplorer {
     /// `set_nic_mode` to auto-correct a mismatch -- happens here; the actual
     /// classification of its result lives in [`classify_matched_dpu`], which is
     /// unit-tested directly. Both the PCIe loop and the chassis fallback call this.
+    #[allow(clippy::too_many_arguments)]
     async fn record_host_dpu_device(
         &self,
         part_number: Option<&str>,
@@ -1485,6 +1497,7 @@ impl SiteExplorer {
         host_dpu_mode: DpuMode,
         host_ep: &ExploredEndpoint,
         exploration: &mut DpuExplorationState,
+        metrics: &mut SiteExplorationMetrics,
     ) {
         // Count every DPU the host reports, independent of whether we've
         // discovered its BMC yet.
@@ -1506,8 +1519,13 @@ impl SiteExplorer {
         // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
         let mode_check = match part_number {
             Some(model) => Some(
-                self.check_and_configure_dpu_mode(dpu_ep, model.to_string(), host_dpu_mode)
-                    .await,
+                self.check_and_configure_dpu_mode(
+                    dpu_ep,
+                    model.to_string(),
+                    host_dpu_mode,
+                    metrics,
+                )
+                .await,
             ),
             None => None,
         };
@@ -2865,6 +2883,7 @@ impl SiteExplorer {
         dpu_ep: &ExploredEndpoint,
         dpu_model: String,
         host_dpu_mode: DpuMode,
+        metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<bool> {
         // Compute the target NIC mode. `None` means "no opinion -- don't
         // attempt to reconfigure" (e.g., BF2 where the heuristic doesn't
@@ -2900,7 +2919,9 @@ impl SiteExplorer {
                     ?host_dpu_mode,
                     "site explorer found a DPU with a mode that does not match the target; will try to reconfigure"
                 );
+                metrics.increment_dpu_migration_signal(DpuMigrationSignal::ModeMismatchFound);
                 self.set_nic_mode(dpu_ep, target_nic_mode).await?;
+                metrics.increment_dpu_migration_signal(DpuMigrationSignal::SetNicModeIssued);
                 Ok(false)
             }
             None => {
