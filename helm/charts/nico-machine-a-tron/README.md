@@ -78,6 +78,42 @@ machines:
     adminDhcpRelayAddress: "192.168.176.1"
 ```
 
+#### DHCP Relay Addresses
+
+The `oobDhcpRelayAddress` and `adminDhcpRelayAddress` values tell NICo which network
+segment to allocate IPs from. These must match gateway addresses of networks configured
+in NICo's site config.
+
+**Note:** All machine groups typically share the same relay addresses since they connect
+to the same OOB and admin networks. The relay address is used only for network segment
+matching - NICo handles IP allocation from the configured prefix.
+
+#### NICo Network Configuration
+
+Machine-A-Tron requires corresponding networks to be configured in NICo's
+`nico-api-site-config.toml`. The relay addresses must match the gateway of these networks:
+
+```toml
+# OOB network for BMC management (matches oobDhcpRelayAddress)
+[networks.oob-bmc]
+type = "underlay"
+prefix = "192.168.192.0/24"      # Any prefix size works (/16, /23, /24, etc.)
+gateway = "192.168.192.1"        # This is the oobDhcpRelayAddress
+mtu = 1500
+reserve_first = 2
+
+# Admin network for host provisioning (matches adminDhcpRelayAddress)
+[networks.admin]
+type = "admin"
+prefix = "192.168.176.0/24"
+gateway = "192.168.176.1"        # This is the adminDhcpRelayAddress
+mtu = 9000
+reserve_first = 5
+```
+
+NICo uses PostgreSQL's `<<=` operator to match relay addresses against configured
+network prefixes, so the network size is fully configurable based on your environment.
+
 ### Hardware Types
 
 Supported `hwType` values (from `HostHardwareType` enum in `crates/bmc-mock/src/lib.rs`):
