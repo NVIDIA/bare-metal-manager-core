@@ -22,10 +22,12 @@ use model::expected_machine::{
     HostLifecycleProfile, LinkedExpectedMachine, UnexpectedMachine,
 };
 use model::metadata::Metadata;
+use model::network_segment::NetworkSegmentType;
 use uuid::Uuid;
 
 use crate as rpc;
 use crate::errors::RpcDataConversionError;
+use crate::model::RpcTryFrom;
 
 impl From<DpuMode> for rpc::forge::DpuMode {
     fn from(mode: DpuMode) -> Self {
@@ -87,6 +89,9 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway.map(|ip| ip.to_string()),
             primary: expected_host_nic.primary,
+            network_segment_type: expected_host_nic
+                .network_segment_type
+                .map(|segment_type| segment_type as i32),
         }
     }
 }
@@ -116,6 +121,10 @@ impl TryFrom<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
                 })?),
             },
             primary: expected_host_nic.primary,
+            network_segment_type: expected_host_nic
+                .network_segment_type
+                .map(NetworkSegmentType::rpc_try_from)
+                .transpose()?,
         })
     }
 }

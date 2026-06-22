@@ -511,27 +511,20 @@ pub async fn validate_existing_mac_and_create(
                 "No existing machine_interface with mac address exists yet, creating one",
             );
 
-            let segment_type = if let Some(nic) = host_nic.clone() {
-                if let Some(nic_type) = nic.nic_type {
-                    match nic_type.to_ascii_lowercase().as_str() {
-                        "bf3" => Some(NetworkSegmentType::Admin),
-                        "dpu" => Some(NetworkSegmentType::Admin),
-                        "bmc" => Some(NetworkSegmentType::Underlay),
-                        "oob" => Some(NetworkSegmentType::Underlay),
-                        "onboard" => Some(NetworkSegmentType::Admin),
-                        &_ => None, // (default) use the relay ip if not forcing a segment type
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            // A declared NIC narrows segment selection to a specific type: when
+            // the relay's prefix matches more than one segment (nested or
+            // overlapping prefixes), pick the one of the declared type -- the
+            // typed `network_segment_type`, or the legacy `nic_type` it
+            // supersedes. Otherwise the relay's matching segment(s) stand.
+            let segment_type = host_nic
+                .as_ref()
+                .and_then(ExpectedHostNic::resolved_network_segment_type);
 
             let network_segments = if let Some(network_segment_type) = segment_type {
-                // only if forcing a segment type
+                // Declared type -> the relay's segments of that type only.
                 db_network_segment::for_segment_type_all(txn, relays, network_segment_type).await?
             } else {
+                // No declaration -> every segment the relay's prefix matches.
                 db_network_segment::for_relay_all(txn, relays).await?
             };
 

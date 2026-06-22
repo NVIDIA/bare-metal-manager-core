@@ -5754,6 +5754,8 @@ message IpxeTemplateList {
 
 message ExpectedHostNic {
   string mac_address = 1;
+  // Legacy free-form segment hint (bf3, onboard, oob, ...). Kept for backward
+  // compatibility; declare network_segment_type instead, which wins.
   optional string nic_type = 2;
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
@@ -5768,6 +5770,12 @@ message ExpectedHostNic {
   // Some day this could be even possibly used to say "this dumb NIC
   // *is* the primary interface, even though I know I have a DPU."
   optional bool primary = 6;
+  // The network segment type this NIC's first DHCP lease should come from.
+  // A NIC's segment normally follows its DHCP relay; where segment prefixes
+  // nest or overlap and a relay matches several, this narrows the choice to
+  // the segment of this type. Supersedes nic_type; absent both, the relay's
+  // match stands.
+  optional NetworkSegmentType network_segment_type = 7;
 }
 
 // Per-host DPU operating mode. Lets site operators mix DPU-mode,
