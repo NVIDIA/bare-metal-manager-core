@@ -1586,6 +1586,7 @@ name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "cbindgen",
  "cc",
@@ -1621,6 +1622,7 @@ version = "0.1.0"
 dependencies = [
  "carbide-rpc",
  "carbide-rpc-utils",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -2133,6 +2135,7 @@ dependencies = [
 name = "carbide-ipxe-renderer"
 version = "0.0.1"
 dependencies = [
+ "carbide-test-support",
  "hex",
  "serde",
  "serde_yaml",
@@ -2562,6 +2565,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-mqtt-common",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "eyre",
