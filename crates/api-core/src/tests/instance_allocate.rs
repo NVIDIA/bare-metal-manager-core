@@ -521,6 +521,101 @@ async fn test_zero_dpu_instance_allocation_auto(
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn test_zero_dpu_auto_update_rejects_host_inband_segment_bound_to_different_vpc(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let zero_dpu_host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
+
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
+
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                network_security_group_id: None,
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
+                }),
+                infiniband: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+            }),
+            instance_id: None,
+            metadata: Some(Metadata {
+                name: "zero-dpu-auto-update".to_string(),
+                ..Default::default()
+            }),
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await
+    .expect("initial zero-DPU auto allocation should succeed")
+    .into_inner();
+
+    let conflicting_vpc_id = vpc_id_by_name(&env, "test flat vpc 2").await;
+    env.api
+        .attach_network_segment_to_vpc(tonic::Request::new(
+            forge::AttachNetworkSegmentToVpcRequest {
+                network_segment_id: Some(host_inband_segment.id),
+                vpc_id: Some(conflicting_vpc_id),
+                allow_replace: false,
+            },
+        ))
+        .await
+        .expect("operator should be able to bind the HostInband segment after allocation");
+
+    let result = env
+        .api
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: instance.id,
+            if_version_match: None,
+            config: instance.config,
+            metadata: instance.metadata,
+        }))
+        .await;
+
+    let err = result
+        .expect_err("auto-network update must reject HostInband segments bound to a different VPC");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        err.message()
+            .contains("shared Flat segments must be left unbound"),
+        "unexpected error message: {}",
+        err.message()
+    );
+
+    Ok(())
+}
+
 /// Zero-DPU instance allocation without `auto: true` (and without any network
 /// config at all) is the previous "send nothing" path, which was mainly because
 /// it worked, not because it was decided to be that way. Lets make sure it

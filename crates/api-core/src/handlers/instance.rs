@@ -25,6 +25,8 @@ use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
 use futures_util::FutureExt;
 use health_report::{
@@ -47,6 +49,7 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
+use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
@@ -1407,6 +1410,13 @@ async fn update_instance_network_config(
             .get(&instance.machine_id)
             .cloned()
             .unwrap_or_default();
+        validate_auto_inband_segment_vpc_bindings(
+            txn,
+            mh_snapshot,
+            &inband_segment_ids,
+            requested_auto_config.vpc_id,
+        )
+        .await?;
         *network = db::instance_network_config::add_inband_interfaces_to_config(
             network.clone(),
             &inband_segment_ids,
@@ -1462,6 +1472,36 @@ async fn update_instance_network_config(
         txn,
     )
     .await?;
+
+    Ok(())
+}
+
+async fn validate_auto_inband_segment_vpc_bindings(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    inband_segment_ids: &[NetworkSegmentId],
+    requested_vpc_id: VpcId,
+) -> Result<(), CarbideError> {
+    for segment_id in inband_segment_ids {
+        let Some(vpc) = db::vpc::find_by_segment(txn.as_mut(), *segment_id).await? else {
+            continue;
+        };
+
+        if vpc.id != requested_vpc_id {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "zero-DPU host {} has HostInband segment {} bound to VPC {}, but auto networking requested VPC {}; shared Flat segments must be left unbound",
+                mh_snapshot.host_snapshot.id, segment_id, vpc.id, requested_vpc_id,
+            )));
+        }
+
+        let vpc_iface = vpc.network_virtualization_type.fabric_interface_type();
+        if vpc_iface != FabricInterfaceType::Nic {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "zero-DPU host {} has HostInband segment {} bound to VPC {} ({}); zero-DPU hosts can only allocate into VPCs whose fabric_interface_type is `nic` (got `{vpc_iface}`)",
+                mh_snapshot.host_snapshot.id, segment_id, vpc.id, vpc.network_virtualization_type,
+            )));
+        }
+    }
 
     Ok(())
 }
