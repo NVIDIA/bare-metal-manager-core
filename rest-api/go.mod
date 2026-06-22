@@ -3,7 +3,7 @@
 
 module github.com/NVIDIA/infra-controller/rest-api
 
-go 1.25.4
+go 1.25.11
 
 require (
 	connectrpc.com/connect v1.18.1

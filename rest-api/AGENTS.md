@@ -180,9 +180,9 @@ make kind-down              # tear down cluster
 
 ### Prefer range-based iteration over C-style `for` loops
 
-The module is on Go 1.25, so reach for range-based iteration before the
-three-clause `for i := 0; i < n; i++` / `i--` form. Go 1.22 range-over-integer
-and Go 1.23 range-over-function iterators (`slices.Backward`, `slices.All`,
+The module is on Go 1.25.11, so reach for range-based iteration before the
+three-clause `for i := 0; i < n; i++` / `i--` form. Range-over-integer and
+range-over-function iterators (`slices.Backward`, `slices.All`,
 `slices.Values`, `maps.Keys`, `maps.Values`, …) drop the manual index
 bookkeeping that the older form makes a reader re-derive to trust.
 

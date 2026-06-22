@@ -15,7 +15,7 @@ View the latest OpenAPI schema in the [REST API Reference](https://docs.nvidia.c
 
 ## Prerequisites
 
-- Go 1.25.4 or later
+- Go 1.25.11 or later
 - Docker 20.10+ with BuildKit enabled
 - Make
 - [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (for local deployment)
