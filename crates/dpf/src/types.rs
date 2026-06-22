@@ -541,48 +541,24 @@ mod tests {
     /// `AsRef<str>` for `DpuPhase` renders each variant to its canonical name;
     /// a provisioning phase renders its detail string verbatim. Covers all six
     /// `DpuPhase` variants, including an empty-detail provisioning phase.
+    ///
+    /// `Display` delegates to `AsRef<str>`, so each row also asserts that
+    /// `to_string()` agrees with `as_ref()` before yielding the rendered name —
+    /// folding in the former `dpu_phase_display_matches_as_ref`.
     #[test]
     fn dpu_phase_as_ref_renders_each_variant() {
         value_scenarios!(
-            run = |phase| phase.as_ref().to_string();
+            run = |phase: DpuPhase| {
+                let as_ref = phase.as_ref().to_string();
+                assert_eq!(phase.to_string(), as_ref, "Display must match AsRef");
+                as_ref
+            };
             "provisioning renders its detail" {
                 DpuPhase::Provisioning("OsInstalling".into()) => "OsInstalling".to_string(),
             }
 
             "provisioning with empty detail renders empty" {
                 DpuPhase::Provisioning(String::new()) => String::new(),
-            }
-
-            "node effect" {
-                DpuPhase::NodeEffect => "NodeEffect".to_string(),
-            }
-
-            "rebooting" {
-                DpuPhase::Rebooting => "Rebooting".to_string(),
-            }
-
-            "ready" {
-                DpuPhase::Ready => "Ready".to_string(),
-            }
-
-            "error" {
-                DpuPhase::Error => "Error".to_string(),
-            }
-
-            "deleting" {
-                DpuPhase::Deleting => "Deleting".to_string(),
-            }
-        );
-    }
-
-    /// `Display` for `DpuPhase` delegates to `AsRef<str>`, so `to_string()`
-    /// yields the same canonical name for every variant.
-    #[test]
-    fn dpu_phase_display_matches_as_ref() {
-        value_scenarios!(
-            run = |phase| phase.to_string();
-            "provisioning renders its detail" {
-                DpuPhase::Provisioning("Pending".into()) => "Pending".to_string(),
             }
 
             "node effect" {

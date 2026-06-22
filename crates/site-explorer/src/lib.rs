@@ -1243,11 +1243,12 @@ impl SiteExplorer {
 
                         if !all_dpus_configured_properly_in_host {
                             // A queued `set_nic_mode` only takes effect after a host
-                            // power cycle, so drive one for every vendor -- the
-                            // Redfish `ComputerSystem.Reset` action is standard
-                            // across BMCs -- throttled by `reset_rate_limit`. A BMC
-                            // that refuses the request surfaces the host as needing
-                            // a manual power cycle via the pairing-blocker metric.
+                            // power cycle, so drive one for every vendor --
+                            // `redfish_powercycle` issues `PowerCycle` and falls back
+                            // to a cold `ACPowercycle` for vendors that refuse it --
+                            // throttled by `reset_rate_limit`. A BMC that refuses both
+                            // surfaces the host as needing a manual power cycle via
+                            // the pairing-blocker metric.
                             let time_since_redfish_powercycle = Utc::now().signed_duration_since(
                                 ep.last_redfish_powercycle.unwrap_or_default(),
                             );
@@ -1277,10 +1278,11 @@ impl SiteExplorer {
                                 // loop stays visible to operators instead of
                                 // rebooting hourly in silence.
                                 //
-                                // TODO(chet): If the power cycle doesn't appear to
-                                // be flipping the NIC to the expected mode, this is
-                                // where we'd want to introduce a cold power cycle
-                                // (`ForceOff`/`On` or similar).
+                                // The reset above already escalates a refused
+                                // `PowerCycle` to a cold `ACPowercycle`
+                                // (`redfish_powercycle`), so a host still unflipped
+                                // here is mid-flight or genuinely stuck -- either way
+                                // it stays visible via the metric.
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::ManualPowerCycleRequired,
                                 );
@@ -1323,9 +1325,15 @@ impl SiteExplorer {
             // If we know the booting interface of the host, we should use this for deciding
             // primary interface.
             let mut is_sorted = false;
+            // A declared `ExpectedHostNic.primary` (when the matched expected
+            // machine sets one) wins over the automatic DPU-PF pick, so the
+            // explored default names the same NIC the managed store will.
+            let declared_primary = expected_explored_endpoint_index
+                .matched_expected_machine(&ep.address)
+                .and_then(|expected| expected.data.declared_primary_mac());
             if let Some(mac_address) = ep
                 .report
-                .fetch_host_primary_interface_mac(&dpus_explored_for_host)
+                .fetch_host_primary_interface_mac(&dpus_explored_for_host, declared_primary)
             {
                 // Capture the boot interface's [stable] Redfish interface id
                 // alongside its MAC. Only persist when both resolve from the
@@ -2546,9 +2554,30 @@ impl SiteExplorer {
             })
     }
 
+    /// Drive a power cycle to apply a queued BlueField NIC-mode change.
+    ///
+    /// `PowerCycle` (Redfish `ComputerSystem.Reset`) is implemented only by Dell
+    /// and the DPU BMCs; other host vendors -- and Vikings -- refuse it. Fall
+    /// back to `ACPowercycle`, the cold AC cycle the HPE/Lenovo/Supermicro/GBx00
+    /// wrappers implement, so the queued change still applies without an
+    /// operator. If both are refused the error propagates and the caller
+    /// surfaces `ManualPowerCycleRequired`.
     async fn redfish_powercycle(&self, bmc_ip_address: IpAddr) -> SiteExplorerResult<()> {
-        self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+        if let Err(power_cycle_err) = self
+            .redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+            .await
+        {
+            tracing::warn!(
+                %bmc_ip_address,
+                error = %power_cycle_err,
+                "PowerCycle refused; falling back to ACPowercycle to apply the queued NIC mode change",
+            );
+            self.redfish_power_control(
+                bmc_ip_address,
+                libredfish::SystemPowerControl::ACPowercycle,
+            )
             .await?;
+        }
 
         let mut txn = self.txn_begin().await?;
 

@@ -29,7 +29,6 @@ use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
 use model::machine_boot_interface::MachineBootInterface;
-use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::PredictedMachineInterface;
 use model::site_explorer::{NicMode, PreingestionState};
 use sqlx::PgConnection;
@@ -53,15 +52,14 @@ use crate::api::{Api, log_machine_id, log_request_data};
 /// machine awaiting its first DHCP lease) resolves from its
 /// `predicted_machine_interfaces` instead: the predicted NIC's MAC and
 /// recorded Redfish interface id form the same [`MachineBootInterface`] the
-/// real row will hold once the lease promotes it. Predictions answer only
-/// when unambiguous -- exactly one non-underlay prediction. Predictions now
-/// carry a `primary_interface` flag, but this resolver doesn't consult it yet,
-/// so with several (e.g. a host whose report lists SuperNICs alongside the boot
-/// NIC) the declared `ExpectedHostNic.primary` is not applied here; resolution
-/// refuses to guess and the action keeps requiring an explicit MAC, which the
-/// matching prediction's recorded id completes.
-/// The machine-controller does not consult predictions at all yet -- its
-/// boot states wait out this window -- a known follow-up.
+/// real row will hold once the lease promotes it. The candidate is chosen by
+/// the shared `pick_boot_prediction` -- the declared `ExpectedHostNic.primary`
+/// (recorded on the prediction), else the sole non-underlay prediction. With
+/// several (e.g. a host whose report lists SuperNICs alongside the boot NIC) and
+/// none declared primary the boot NIC is unknowable; resolution refuses to guess
+/// and the action keeps requiring an explicit MAC, which the matching
+/// prediction's recorded id completes. The machine-controller resolves the same
+/// way, through the same `pick_boot_prediction`.
 ///
 /// Site-explorer's stored default (`ExploredEndpoint::boot_interface()`)
 /// answers only for endpoints no machine owns. An owned machine resolves
@@ -117,15 +115,12 @@ fn resolve_admin_boot_interface_target(
                 // machine-controller's boot_interface_target.
                 return Some(target_for(picked.mac_address, picked.boot_interface()));
             }
-            // The rows offered no boot candidate: the machine's predicted
-            // NICs answer, but only when unambiguous -- exactly one
-            // non-underlay prediction. Predictions now carry a primary flag,
-            // but this resolver doesn't consult it yet, so with several the
-            // declared intent isn't applied here.
-            let mut bootable = candidates.predicted.iter().filter(|predicted| {
-                predicted.expected_network_segment_type != NetworkSegmentType::Underlay
-            });
-            if let (Some(predicted), None) = (bootable.next(), bootable.next()) {
+            // The rows offered no boot candidate: the machine's predicted NICs
+            // answer, via the shared `pick_boot_prediction` -- the declared
+            // primary, else the sole non-underlay prediction. With several and
+            // none declared primary the boot NIC is unknowable, so it returns
+            // `None` and the action keeps requiring an explicit MAC.
+            if let Some(predicted) = model::machine::pick_boot_prediction(&candidates.predicted) {
                 return Some(target_for(
                     predicted.mac_address,
                     predicted.boot_interface(),
@@ -1123,6 +1118,8 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 
 #[cfg(test)]
 mod tests {
+    use model::network_segment::NetworkSegmentType;
+
     use super::*;
 
     fn row(mac: &str, primary: bool, boot_interface_id: Option<&str>) -> MachineInterfaceSnapshot {
@@ -1353,6 +1350,30 @@ mod tests {
             Some(BootInterfaceTarget::Pair(pair(
                 "00:00:5e:00:53:02",
                 "NIC.Slot.7-1-1"
+            ))),
+        );
+    }
+
+    // A declared-primary prediction disambiguates a multi-prediction host:
+    // `pick_boot_prediction` selects it, so resolution targets the declared NIC
+    // rather than refusing. (Multiple NON-primary predictions still refuse --
+    // see `no_mac_multiple_predictions_refuse_to_guess_a_boot_device`.)
+    #[test]
+    fn no_mac_declared_primary_prediction_wins_over_other_predictions() {
+        let declared_primary = PredictedMachineInterface {
+            primary_interface: true,
+            ..predicted("00:00:5e:00:53:01", Some("NIC.Embedded.1-1-1"))
+        };
+        let other = predicted("00:00:5e:00:53:02", Some("NIC.Slot.7-1-1"));
+        let c = BootInterfaceCandidates {
+            interfaces: vec![],
+            predicted: vec![other, declared_primary],
+        };
+        assert_eq!(
+            resolve_admin_boot_interface_target(None, Some(&c), None),
+            Some(BootInterfaceTarget::Pair(pair(
+                "00:00:5e:00:53:01",
+                "NIC.Embedded.1-1-1"
             ))),
         );
     }

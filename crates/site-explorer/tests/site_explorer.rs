@@ -2252,11 +2252,55 @@ async fn test_fetch_host_primary_interface_mac(
         });
     }
 
+    // No declaration: the automatic pick stands -- the lowest-PCI DPU host-PF
+    // (the second mock DPU, given the device paths set above).
     let expected_mac: MacAddress = mock_dpus[1].host_mac_address;
     let mac = host_report
-        .fetch_host_primary_interface_mac(&explored_dpus)
+        .fetch_host_primary_interface_mac(&explored_dpus, None)
         .unwrap();
     assert_eq!(mac, expected_mac);
+
+    // A declared primary on a DPU host-PF wins over the automatic pick -- here
+    // the first DPU, which the PCI ordering would NOT have chosen.
+    let declared_dpu_pf = mock_dpus[0].host_mac_address;
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(declared_dpu_pf))
+            .unwrap(),
+        declared_dpu_pf,
+    );
+
+    // The headline case: a declared *integrated* NIC -- which the DPU-only
+    // automatic pick can never name -- becomes the explored default.
+    let integrated_nic = host_report
+        .systems
+        .first()
+        .unwrap()
+        .ethernet_interfaces
+        .iter()
+        .filter_map(|e| e.mac_address)
+        .find(|mac| {
+            !explored_dpus
+                .iter()
+                .any(|d| d.host_pf_mac_address == Some(*mac))
+        })
+        .expect("the fixture host should have a non-DPU integrated NIC");
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(integrated_nic))
+            .unwrap(),
+        integrated_nic,
+    );
+
+    // A declared MAC absent from this report is ignored -- the automatic pick
+    // stands.
+    let absent_mac: MacAddress = "de:ad:be:ef:00:01".parse().unwrap();
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(absent_mac))
+            .unwrap(),
+        expected_mac,
+    );
     Ok(())
 }
 
@@ -2601,6 +2645,114 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
             .iter()
             .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
         "expected an automatic host PowerCycle on the non-Dell (Lenovo) host to apply the queued NIC mode change; power calls so far: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// `PowerCycle` is implemented only by Dell and the DPU BMCs; other vendors --
+/// and Vikings -- refuse it. When that happens, site-explorer falls back to a
+/// cold `ACPowercycle` so the queued NIC-mode change still applies without an
+/// operator, rather than parking immediately on `ManualPowerCycleRequired`.
+#[sqlx_test]
+async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    // DPU reports DPU mode; the operator-declared NicMode override forces the
+    // correction (and therefore the reset).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config.clone()],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2635-AC-FALLBACK".to_string(),
+                metadata: Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    // This vendor refuses `PowerCycle` (like a Viking); the reset must fall
+    // back to the cold `ACPowercycle`.
+    explorer
+        .endpoint_explorer()
+        .fail_power_control(libredfish::SystemPowerControl::PowerCycle);
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    db::explored_endpoints::set_preingestion_complete(dpu_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    // Second iteration: matching issues `set_nic_mode`, then the reset path
+    // tries `PowerCycle`, gets refused, and falls back to `ACPowercycle`.
+    explorer.run_single_iteration().await.unwrap();
+
+    let power_calls = explorer
+        .endpoint_explorer()
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    let powercycle_pos = power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle));
+    let acpowercycle_pos = power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::ACPowercycle));
+    assert!(
+        powercycle_pos.is_some(),
+        "expected `PowerCycle` to be attempted; power calls so far: {power_calls:?}"
+    );
+    assert!(
+        acpowercycle_pos.is_some(),
+        "expected the `ACPowercycle` fallback after `PowerCycle` was refused; power calls so far: {power_calls:?}"
+    );
+    // A fallback is only correct if `PowerCycle` is the one tried first.
+    assert!(
+        powercycle_pos < acpowercycle_pos,
+        "expected `PowerCycle` (at {powercycle_pos:?}) before the `ACPowercycle` fallback (at {acpowercycle_pos:?}); power calls: {power_calls:?}"
     );
 
     Ok(())

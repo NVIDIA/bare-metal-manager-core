@@ -20,7 +20,6 @@ use carbide_uuid::machine::{MACHINE_ID_PREFIX_LENGTH, MachineId, MachineType};
 use carbide_uuid::rack::RackId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
-use data_encoding::BASE32_DNSSEC;
 use db::ObjectFilter;
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -30,11 +29,7 @@ use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{
-    AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest, MachinesByIdsRequest,
-};
-use sha2::{Digest, Sha256};
-use tonic::Request;
+use rpc::forge::{AssociateMachinesWithInstanceTypeRequest, FindInstanceTypeIdsRequest};
 
 use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::test_support::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
@@ -581,61 +576,9 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test()]
-async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-
-    // create vector of machine IDs with more than max allowed
-    // it does not matter if these are real or not, since we are testing an error back for passing more than max
-    let end_index: u32 = env.config.max_find_by_ids + 1;
-    let machine_ids = (1..=end_index)
-        .map(|index| {
-            let serial = format!("machine_{index}");
-            let hash: [u8; 32] = Sha256::new_with_prefix(serial.as_bytes()).finalize().into();
-            let encoded = BASE32_DNSSEC.encode(&hash);
-            format!("{}s{}", MachineType::Dpu.id_prefix(), encoded)
-                .parse()
-                .unwrap()
-        })
-        .collect();
-    //build request
-    let request: Request<MachinesByIdsRequest> = Request::new(MachinesByIdsRequest {
-        machine_ids,
-        ..Default::default()
-    });
-    // execute
-    let response = env.api.find_machines_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing more than allowed number of machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-}
-
-#[crate::sqlx_test()]
-async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest::default());
-
-    let response = env.api.find_machines_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        "at least one ID must be provided",
-    );
-}
+// The empty-list and over-max guards for `find_machines_by_ids` are shared
+// API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.
 
 #[crate::sqlx_test]
 async fn test_machine_capabilities_response(

@@ -85,6 +85,7 @@ use model::machine::{
     dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
+use model::predicted_machine_interface::PredictedMachineInterface;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::ExploredEndpoint;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
@@ -98,7 +99,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
-use crate::boot_interface::boot_interface_target;
+use crate::boot_interface::{BootInterfaceResolution, resolve_boot_interface};
 use crate::config::{
     FirmwareGlobal, MachineStateHandlerSiteConfig, MachineValidationConfig, TimePeriod,
 };
@@ -3259,11 +3260,13 @@ async fn handle_dpu_reprovision(
                 .create_redfish_client_from_machine(&state.host_snapshot)
                 .await?;
 
+            let predictions = load_boot_predictions(ctx, &state.host_snapshot.id).await?;
             match advance_polling_bios_setup(
                 redfish_client.as_ref(),
                 state,
                 *retry_count,
                 &ctx.services.site_config.machine_state_controller,
+                &predictions,
             )
             .await?
             {
@@ -3339,6 +3342,7 @@ async fn handle_dpu_reprovision(
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     Ok(StateHandlerOutcome::wait(reason))
                 }
+                SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
             }
         }
         ReprovisionState::LockHostAfterBootRepair => {
@@ -3504,6 +3508,23 @@ fn dpu_reprovision_host_boot_failed_state(
     }
 }
 
+/// Load the host's predicted boot-interface candidates -- the interfaces a
+/// zero-DPU or NIC-mode host offers before its first DHCP lease creates real
+/// `machine_interfaces` rows. Empty once the host owns its rows (and for DPU
+/// hosts, which get their primary row at attach), so the resolver simply finds
+/// no prediction to fall back to.
+async fn load_boot_predictions(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    machine_id: &MachineId,
+) -> Result<Vec<PredictedMachineInterface>, StateHandlerError> {
+    // A pooled read connection, not a transaction -- this read-only lookup runs
+    // on the frequently-invoked boot-config path and needs no transaction.
+    let mut conn = ctx.services.db_pool.acquire().await?;
+    let predictions =
+        db::predicted_machine_interface::find_by_machine_id(&mut conn, machine_id).await?;
+    Ok(predictions)
+}
+
 /// Check whether host BIOS and DPU-first boot order remediation is required.
 async fn check_host_boot_config(
     redfish_client: &dyn Redfish,
@@ -3527,13 +3548,26 @@ async fn check_host_boot_config(
         ));
     }
 
-    // Resolve the interface whose boot option should be first in host UEFI.
-    let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-        StateHandlerError::GenericError(eyre::eyre!(
-            "Missing boot interface for host: {}",
-            mh_snapshot.host_snapshot.id
-        ))
-    })?;
+    // Resolve the interface whose boot option should be first in host UEFI. A
+    // zero-DPU host whose boot NIC has not taken its first HostInband lease yet
+    // falls back to its predicted boot NIC, and only waits when even that is
+    // unavailable.
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
+        BootInterfaceResolution::Ready(target) => target,
+        BootInterfaceResolution::AwaitingNic => {
+            return Ok(HostBootConfigDecision::Wait(format!(
+                "Waiting for zero-DPU host {} to discover its boot NIC before configuring boot.",
+                mh_snapshot.host_snapshot.id
+            )));
+        }
+        BootInterfaceResolution::Missing => {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "Missing boot interface for host: {}",
+                mh_snapshot.host_snapshot.id
+            )));
+        }
+    };
 
     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
 
@@ -4835,6 +4869,10 @@ enum SetBootOrderOutcome {
     Continue(SetBootOrderInfo),
     Done,
     WaitingForReboot(String),
+    /// No boot interface to act on yet -- e.g. a zero-DPU host whose boot NIC
+    /// has not been discovered. Distinct from `WaitingForReboot`: nothing was
+    /// rebooted, the caller just waits and retries.
+    Wait(String),
 }
 
 /// Decision from checking whether host boot repair is still required.
@@ -5237,6 +5275,9 @@ async fn handle_host_boot_order_setup(
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
+                SetBootOrderOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
             }
         }
         None => ManagedHostState::HostInit {
@@ -5616,11 +5657,14 @@ impl StateHandler for HostMachineStateHandler {
                         .services
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
+                    let predictions =
+                        load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
                     match advance_polling_bios_setup(
                         redfish_client.as_ref(),
                         mh_snapshot,
                         *retry_count,
                         &ctx.services.site_config.machine_state_controller,
+                        &predictions,
                     )
                     .await?
                     {
@@ -10809,11 +10853,13 @@ async fn handle_instance_host_platform_config(
                 },
             };
 
+            let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
             match advance_polling_bios_setup(
                 redfish_client.as_ref(),
                 mh_snapshot,
                 retry_count,
                 &ctx.services.site_config.machine_state_controller,
+                &predictions,
             )
             .await?
             {
@@ -10876,6 +10922,9 @@ async fn handle_instance_host_platform_config(
                 SetBootOrderOutcome::WaitingForReboot(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
+                SetBootOrderOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
             }
         }
         HostPlatformConfigurationState::LockHost => {
@@ -10907,6 +10956,7 @@ async fn set_host_boot_order(
     mh_snapshot: &ManagedHostStateSnapshot,
     set_boot_order_info: SetBootOrderInfo,
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
             // There used to be a `force_dpu_nic_mode`-gated short-circuit
@@ -10921,14 +10971,26 @@ async fn set_host_boot_order(
             // resulting `NoDpu` error as `Ok` and still hits `CheckBootOrder`
             // for verification.
             //
-            // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
-            // supporting hosts with DPU(s) and zero DPUs alike.
-            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface for host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
+            // Resolve the boot NIC the same way `CheckHostConfig` does,
+            // supporting hosts with DPU(s) and zero DPUs alike. Before the first
+            // HostInband lease creates a real row, a zero-DPU/NIC-mode host
+            // resolves via its predictions; it waits only when neither a real row
+            // nor a usable prediction exists.
+            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
+                BootInterfaceResolution::Ready(target) => target,
+                BootInterfaceResolution::AwaitingNic => {
+                    return Ok(SetBootOrderOutcome::Wait(format!(
+                        "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+                BootInterfaceResolution::Missing => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "Missing boot interface for host: {}",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+            };
 
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
@@ -11207,12 +11269,21 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface for host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
+            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
+                BootInterfaceResolution::Ready(target) => target,
+                BootInterfaceResolution::AwaitingNic => {
+                    return Ok(SetBootOrderOutcome::Wait(format!(
+                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying boot order.",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+                BootInterfaceResolution::Missing => {
+                    return Err(StateHandlerError::GenericError(eyre::eyre!(
+                        "Missing boot interface for host: {}",
+                        mh_snapshot.host_snapshot.id
+                    )));
+                }
+            };
 
             let boot_order_configured = boot_interface
                 .run(|bi| redfish_client.is_boot_order_setup(bi))
