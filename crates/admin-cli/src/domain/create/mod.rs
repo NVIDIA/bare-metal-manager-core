@@ -15,29 +15,17 @@
  * limitations under the License.
  */
 
-mod create;
-mod create_reverse;
-mod show;
+pub mod args;
+pub mod cmd;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowDomain;
-pub use show::cmd::handle_show;
+pub use args::Args;
 
-#[cfg(test)]
-mod tests;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
-
-    #[clap(about = "Create a domain")]
-    Create(create::Args),
-
-    #[clap(about = "Create a reverse-DNS (PTR) zone from a CIDR")]
-    CreateReverse(create_reverse::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::handle_create(&self, ctx.config.format, &ctx.api_client).await
+    }
 }

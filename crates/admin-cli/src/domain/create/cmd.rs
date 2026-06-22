@@ -15,29 +15,26 @@
  * limitations under the License.
  */
 
-mod create;
-mod create_reverse;
-mod show;
+use ::rpc::admin_cli::OutputFormat;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowDomain;
-pub use show::cmd::handle_show;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-#[cfg(test)]
-mod tests;
-
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
-
-    #[clap(about = "Create a domain")]
-    Create(create::Args),
-
-    #[clap(about = "Create a reverse-DNS (PTR) zone from a CIDR")]
-    CreateReverse(create_reverse::Args),
+pub async fn handle_create(
+    args: &Args,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let domain = api_client.create_domain(&args.name).await?;
+    if output_format == OutputFormat::Json {
+        println!("{}", serde_json::to_string_pretty(&domain)?);
+    } else {
+        println!(
+            "Created domain '{}' ({})",
+            domain.name,
+            domain.id.unwrap_or_default()
+        );
+    }
+    Ok(())
 }

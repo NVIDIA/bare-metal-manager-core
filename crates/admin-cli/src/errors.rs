@@ -48,6 +48,9 @@ pub enum CarbideCliError {
     #[error("Invalid datetime format: {0}. Use 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS'")]
     InvalidDateTimeFromUserInput(String),
 
+    #[error("{0}")]
+    InvalidReverseZoneCidr(String),
+
     #[error("Segment not found.")]
     SegmentNotFound,
 

@@ -15,29 +15,20 @@
  * limitations under the License.
  */
 
-mod create;
-mod create_reverse;
-mod show;
-
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowDomain;
-pub use show::cmd::handle_show;
-
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
+Create a forward domain:
+    $ nico-admin-cli domain create example.com
 
-    #[clap(about = "Create a domain")]
-    Create(create::Args),
+Create a reverse zone by its arpa name:
+    $ nico-admin-cli domain create 168.192.in-addr.arpa
 
-    #[clap(about = "Create a reverse-DNS (PTR) zone from a CIDR")]
-    CreateReverse(create_reverse::Args),
+")]
+pub struct Args {
+    #[clap(help = "The domain name to create (e.g. example.com or 168.192.in-addr.arpa)")]
+    pub name: String,
 }

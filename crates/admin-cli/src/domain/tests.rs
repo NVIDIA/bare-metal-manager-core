@@ -56,6 +56,7 @@ fn parse_show_variants() {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Show(args) => (args.all, args.domain.is_some()),
+                    other => unreachable!("show inputs only parse to Cmd::Show, got {other:?}"),
                 })
                 .map_err(drop)
         };
@@ -65,6 +66,55 @@ fn parse_show_variants() {
 
         "--all flag (deprecated)" {
             &["domain", "show", "--all"][..] => Yields((true, false)),
+        }
+    );
+}
+
+// create takes a single positional domain name and requires it.
+#[test]
+fn parse_create_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => args.name,
+                    other => unreachable!("create inputs only parse to Cmd::Create, got {other:?}"),
+                })
+                .map_err(drop)
+        };
+        "create takes a domain name" {
+            &["domain", "create", "168.192.in-addr.arpa"][..]
+                => Yields("168.192.in-addr.arpa".to_string()),
+        }
+        "create requires a name" {
+            &["domain", "create"][..] => Fails,
+        }
+    );
+}
+
+// create-reverse takes a single positional CIDR; clap rejects a non-CIDR.
+#[test]
+fn parse_create_reverse_variants() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::CreateReverse(args) => args.cidr.to_string(),
+                    other => unreachable!(
+                        "create-reverse inputs only parse to Cmd::CreateReverse, got {other:?}"
+                    ),
+                })
+                .map_err(drop)
+        };
+        "create-reverse takes a CIDR" {
+            &["domain", "create-reverse", "192.168.0.0/16"][..]
+                => Yields("192.168.0.0/16".to_string()),
+        }
+        "create-reverse rejects a non-CIDR" {
+            &["domain", "create-reverse", "not-a-cidr"][..] => Fails,
+        }
+        "create-reverse requires a CIDR" {
+            &["domain", "create-reverse"][..] => Fails,
         }
     );
 }

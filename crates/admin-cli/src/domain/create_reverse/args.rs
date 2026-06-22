@@ -15,29 +15,23 @@
  * limitations under the License.
  */
 
-mod create;
-mod create_reverse;
-mod show;
-
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowDomain;
-pub use show::cmd::handle_show;
-
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
+use ipnet::IpNet;
 
-use crate::cfg::dispatch::Dispatch;
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
+Create an IPv4 /16 reverse zone:
+    $ nico-admin-cli domain create-reverse 192.168.0.0/16
 
-    #[clap(about = "Create a domain")]
-    Create(create::Args),
+Create an IPv6 reverse zone:
+    $ nico-admin-cli domain create-reverse fd00::/16
 
-    #[clap(about = "Create a reverse-DNS (PTR) zone from a CIDR")]
-    CreateReverse(create_reverse::Args),
+")]
+pub struct Args {
+    #[clap(
+        help = "The network CIDR to create a reverse zone for (e.g. 192.168.0.0/16 or fd00::/16)"
+    )]
+    pub cidr: IpNet,
 }
