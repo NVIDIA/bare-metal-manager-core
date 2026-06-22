@@ -2790,6 +2790,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-test-support",
  "carbide-uuid",
  "eyre",
  "figment",
