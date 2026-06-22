@@ -40,9 +40,11 @@ helm install machine-a-tron ./helm/charts/nico-machine-a-tron -f my-values.yaml
 | `machineATron.nicoApiUrl` | URL of the NICo API server | `https://nico-api.nico-system.svc.cluster.local:1079` |
 | `machineATron.bmcMockPort` | Port for BMC mock service | `1266` |
 | `machineATron.useSingleBmcMock` | Use header-based BMC routing (required for k8s) | `true` |
-| `machines.config.hostCount` | Number of mock hosts to create | `10` |
-| `machines.config.dpuPerHostCount` | DPUs per host | `2` |
-| `machines.config.vpcCount` | Number of VPCs to create | `0` |
+| `machineATron.cleanupOnQuit` | Delete created machines from API on quit | `false` |
+| `terminationGracePeriodSeconds` | Graceful shutdown timeout | `60` |
+| `machines.<name>.hostCount` | Number of mock hosts to create | `10` |
+| `machines.<name>.dpuPerHostCount` | DPUs per host | `2` |
+| `machines.<name>.hwType` | Hardware type to simulate | `dell_poweredge_r750` |
 | `persistence.enabled` | Enable persistent storage for machine state | `false` |
 
 ### Machine Configuration
@@ -101,6 +103,20 @@ override_target_port = 1266
 override_target_host = "nico-machine-a-tron-bmc-mock"  # k8s service name
 enabled = true
 create_machines = true
+```
+
+## Graceful Shutdown
+
+The chart supports graceful shutdown when pods are deleted. This gives machine-a-tron
+time to clean up resources:
+
+```yaml
+# Shutdown timeout
+terminationGracePeriodSeconds: 60
+
+machineATron:
+  # Set to true to delete created machines from NICo API on shutdown
+  cleanupOnQuit: true
 ```
 
 ## Persistence
