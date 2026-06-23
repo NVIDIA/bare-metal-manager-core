@@ -19,6 +19,9 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::str::FromStr;
 
+use common::api_fixtures::network_segment::{
+    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY, create_host_inband_network_segment,
+};
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host_multi_dpu, create_managed_host_with_config,
     create_test_env,
@@ -322,6 +325,90 @@ async fn reconcile_admin_addresses_errors_without_any_primary_admin_interface(
     assert!(error.to_string().contains("no primary admin interface"));
 
     txn.rollback().await?;
+
+    Ok(())
+}
+
+/// A DpuMode host that boots from an integrated NIC has a HostInband primary and
+/// no primary *admin* interface -- its DPU admin links are present but dormant.
+/// Reconcile must treat that as valid (clean up the dormant links), not as the
+/// "no primary admin interface" error.
+#[crate::sqlx_test]
+async fn reconcile_admin_addresses_allows_host_inband_primary_with_dormant_dpu_links(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let mut txn = env.pool.begin().await?;
+
+    let host_inband_gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip();
+    let host_inband_segment = db::network_segment::for_segment_type_all(
+        &mut txn,
+        std::slice::from_ref(&host_inband_gateway),
+        NetworkSegmentType::HostInband,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .expect("the host-inband fixture segment should exist");
+
+    // Demote the DPU admin links: the integrated NIC is taking over as primary.
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    for interface in interfaces
+        .iter()
+        .filter(|interface| interface.primary_interface)
+    {
+        db::machine_interface::set_primary_interface(&interface.id, false, &mut txn).await?;
+    }
+
+    // Own a HostInband integrated NIC as the host's primary.
+    let host_nic = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&host_inband_segment),
+        &MacAddress::from_str("9a:9b:9c:9d:9e:b2")?,
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+    db::machine_interface::associate_interface_with_machine(
+        &host_nic.id,
+        MachineInterfaceAssociation::Machine(mh.id),
+        &mut txn,
+    )
+    .await?;
+
+    // No primary admin interface, but a HostInband primary exists -- the DPU admin
+    // links are legitimately dormant, not a broken host. Reconcile must not error.
+    db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id).await?;
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+
+    let host_nic = interfaces
+        .iter()
+        .find(|interface| interface.id == host_nic.id)
+        .unwrap();
+    assert!(host_nic.primary_interface);
+    assert!(host_nic.attached_dpu_machine_id.is_none());
+
+    let dpu_admin_interfaces = interfaces
+        .iter()
+        .filter(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(dpu_admin_interfaces.len(), 2);
+    for interface in dpu_admin_interfaces {
+        assert!(!interface.primary_interface);
+        assert!(interface.addresses.is_empty());
+    }
+
+    txn.commit().await?;
 
     Ok(())
 }
