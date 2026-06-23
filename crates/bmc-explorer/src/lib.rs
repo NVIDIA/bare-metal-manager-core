@@ -159,6 +159,10 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
                 need_oem_ami_config_bmc: true,
                 ..Default::default()
             },
+            hw::HwType::LenovoGb300 => manager::Config {
+                need_host_interfaces: true,
+                ..Default::default()
+            },
             hw::HwType::Supermicro => manager::Config {
                 need_host_interfaces: true,
                 need_oem_supermicro_kcs_interface: true,
@@ -371,6 +375,29 @@ fn lockdown_status<B: Bmc>(
             match (kcsacp, usb000, hi_enabled) {
                 (Some("Deny All"), Some("Disabled"), false) => Ok(InternalLockdownStatus::Enabled),
                 (Some("Allow All"), Some("Enabled"), true) => Ok(InternalLockdownStatus::Disabled),
+                _ => Ok(InternalLockdownStatus::Partial),
+            }
+            .map(|status| Some(LockdownStatus { status, message }))
+        }
+
+        // LenovoGB300 (Grace-based AMI host BMC) has neither the KCS BIOS
+        // attribute nor the OEM ConfigBMC endpoint. Lockdown is read from the
+        // USB support attribute (attribute-id prefixed enum, e.g.
+        // "USB000Disabled") together with the host interface state.
+        hw::HwType::LenovoGb300 => {
+            let bios = bios.as_ref().ok_or_else(Error::bmc_not_provided("bios"))?;
+            let usb000 = bios.attribute("USB000");
+            let usb000 = usb000.as_ref().and_then(|v| v.str_value());
+            let hi_enabled = explored_manager
+                .host_interfaces
+                .as_ref()
+                .ok_or_else(Error::bmc_not_provided("host interfaces"))?
+                .iter()
+                .any(|i| i.interface_enabled().is_none_or(identity));
+            let message = format!("usb_support={usb000:?}; host_interface={hi_enabled}");
+            match (usb000, hi_enabled) {
+                (Some("USB000Disabled"), false) => Ok(InternalLockdownStatus::Enabled),
+                (Some("USB000Enabled"), true) => Ok(InternalLockdownStatus::Disabled),
                 _ => Ok(InternalLockdownStatus::Partial),
             }
             .map(|status| Some(LockdownStatus { status, message }))

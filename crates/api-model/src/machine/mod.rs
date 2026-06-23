@@ -65,6 +65,7 @@ use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
+use crate::predicted_machine_interface::PredictedMachineInterface;
 use crate::state_history::StateHistoryRecord;
 
 pub mod slas;
@@ -304,6 +305,38 @@ fn pick_boot_interface_pair(
     interfaces: &[MachineInterfaceSnapshot],
 ) -> Option<MachineBootInterface> {
     pick_boot_interface(interfaces).and_then(MachineInterfaceSnapshot::boot_interface)
+}
+
+/// Pick the predicted interface a host should boot from in the window before
+/// its first DHCP lease creates a real `machine_interfaces` row. Mirrors
+/// `pick_boot_interface`'s precedence, one rung down -- predictions, not rows:
+///
+/// 1. A prediction flagged `primary_interface` wins -- the declared
+///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
+/// 2. Otherwise the sole non-underlay prediction. With several and none
+///    declared primary the boot NIC is unknowable (e.g. a host whose report
+///    lists SuperNICs alongside the boot NIC), so this returns `None` rather
+///    than guess against whichever NIC happens to sort first.
+///
+/// Public because both the machine-controller and admin boot-interface
+/// resolution apply it for the pre-first-lease window, when the real rows
+/// offer no candidate yet. Callers map the chosen prediction to a boot target
+/// via `PredictedMachineInterface::boot_interface()`.
+pub fn pick_boot_prediction(
+    predictions: &[PredictedMachineInterface],
+) -> Option<&PredictedMachineInterface> {
+    // The declared primary wins, exactly as in `pick_boot_interface`.
+    if let Some(primary) = predictions.iter().find(|p| p.primary_interface) {
+        return Some(primary);
+    }
+    // Otherwise only a sole non-underlay prediction is unambiguous.
+    let mut non_underlay = predictions
+        .iter()
+        .filter(|p| p.expected_network_segment_type != NetworkSegmentType::Underlay);
+    match (non_underlay.next(), non_underlay.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 impl ManagedHostStateSnapshot {
@@ -3449,6 +3482,77 @@ mod tests {
         let primary =
             build_mock_interface("10:00:00:00:00:01", true, Some(NetworkSegmentType::Admin));
         assert_eq!(pick_boot_interface_pair(&[primary]), None);
+    }
+
+    /// Build a mock `PredictedMachineInterface` with the fields
+    /// `pick_boot_prediction` inspects (MAC, primary flag, segment type).
+    fn build_mock_prediction(
+        mac: &str,
+        primary: bool,
+        segment_type: NetworkSegmentType,
+    ) -> PredictedMachineInterface {
+        PredictedMachineInterface {
+            id: uuid::Uuid::nil(),
+            machine_id: MachineId::from_str(
+                "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng",
+            )
+            .unwrap(),
+            mac_address: mac.parse().unwrap(),
+            expected_network_segment_type: segment_type,
+            boot_interface_id: None,
+            primary_interface: primary,
+        }
+    }
+
+    // A declared-primary prediction wins outright, mirroring pick_boot_interface
+    // -- regardless of how many other predictions there are.
+    #[test]
+    fn pick_boot_prediction_returns_the_declared_primary() {
+        let predictions = vec![
+            build_mock_prediction("05:00:00:00:00:01", false, NetworkSegmentType::HostInband),
+            build_mock_prediction("10:00:00:00:00:01", true, NetworkSegmentType::HostInband),
+            build_mock_prediction("20:00:00:00:00:01", false, NetworkSegmentType::HostInband),
+        ];
+        assert_eq!(
+            pick_boot_prediction(&predictions).map(|p| p.mac_address),
+            Some("10:00:00:00:00:01".parse().unwrap())
+        );
+    }
+
+    // With no declared primary, a sole non-underlay prediction is unambiguous.
+    #[test]
+    fn pick_boot_prediction_returns_the_sole_non_underlay_prediction() {
+        let predictions = vec![
+            build_mock_prediction("01:00:00:00:00:01", false, NetworkSegmentType::Underlay),
+            build_mock_prediction("10:00:00:00:00:01", false, NetworkSegmentType::HostInband),
+        ];
+        assert_eq!(
+            pick_boot_prediction(&predictions).map(|p| p.mac_address),
+            Some("10:00:00:00:00:01".parse().unwrap())
+        );
+    }
+
+    // Several non-underlay predictions and none declared primary: the boot NIC
+    // is unknowable, so refuse to guess rather than program boot order against
+    // whichever sorts first (the Gigawatt SuperNIC safety case).
+    #[test]
+    fn pick_boot_prediction_refuses_multiple_non_primary_predictions() {
+        let predictions = vec![
+            build_mock_prediction("10:00:00:00:00:01", false, NetworkSegmentType::HostInband),
+            build_mock_prediction("20:00:00:00:00:01", false, NetworkSegmentType::HostInband),
+        ];
+        assert!(pick_boot_prediction(&predictions).is_none());
+    }
+
+    // Underlay predictions are never a boot candidate on their own.
+    #[test]
+    fn pick_boot_prediction_ignores_underlay_only_predictions() {
+        let predictions = vec![build_mock_prediction(
+            "01:00:00:00:00:01",
+            false,
+            NetworkSegmentType::Underlay,
+        )];
+        assert!(pick_boot_prediction(&predictions).is_none());
     }
 
     // Check the case  where only the BMC has been discovered so far (which

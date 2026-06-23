@@ -143,7 +143,7 @@ pub(crate) async fn create(
             .first()
             .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
 
-        let virtualization_type = vpc.network_virtualization_type;
+        let virtualization_type = vpc.config.network_virtualization_type;
 
         // Segment compatibility (segment-type binding + IPv6 support)
         // and SVI allocation are both expressed as capability checks
@@ -214,7 +214,8 @@ pub(crate) async fn attach_to_vpc(
         .into());
     }
 
-    vpc.network_virtualization_type
+    vpc.config
+        .network_virtualization_type
         .ensure_supports_segment(&segment)
         .map_err(CarbideError::from)?;
 
@@ -365,6 +366,13 @@ pub(crate) async fn save(
             return Err(err.into());
         }
     };
+
+    // A network's reverse-DNS zone is derived from its prefix and created with
+    // it, so PTR lookups for the network's addresses resolve without anyone
+    // hand-authoring the zone.
+    for network_prefix in &network_segment.prefixes {
+        db::dns::ensure_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
+    }
 
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;

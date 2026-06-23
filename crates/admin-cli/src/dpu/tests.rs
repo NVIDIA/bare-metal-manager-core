@@ -50,14 +50,6 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_status ensures status routes to the Status variant
-// with no arguments.
-#[test]
-fn parse_status() {
-    let cmd = Cmd::try_parse_from(["dpu", "status"]).expect("should parse status");
-    assert!(matches!(cmd, Cmd::Status(_)));
-}
-
 // versions parses with and without --updates-only; the parsed flag mirrors
 // whether the switch was supplied.
 #[test]

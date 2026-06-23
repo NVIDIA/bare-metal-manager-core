@@ -744,6 +744,9 @@ mod tests {
         );
     }
 
+    // Total ordering over build versions. Each row pins the `cmp` result; the
+    // runner also asserts `partial_cmp` agrees (it must return `Some(cmp)`), so
+    // the PartialOrd impl is checked against Ord on every row.
     #[test]
     fn build_version_ordering() {
         struct Pair {
@@ -754,7 +757,13 @@ mod tests {
             run = |Pair { left, right }| {
                 let l = BuildVersion::try_from(left).unwrap();
                 let r = BuildVersion::try_from(right).unwrap();
-                l.cmp(&r)
+                let ordering = l.cmp(&r);
+                assert_eq!(
+                    l.partial_cmp(&r),
+                    Some(ordering),
+                    "partial_cmp must agree with cmp for {left} vs {right}",
+                );
+                ordering
             };
             "older date less than newer date" {
                 Pair {
@@ -824,28 +833,6 @@ mod tests {
                     left: "v0.0.4",
                     right: "v0.0.5",
                 } => Ordering::Less,
-            }
-        );
-    }
-
-    #[test]
-    fn build_version_partial_cmp_matches_cmp() {
-        value_scenarios!(
-            run = |(l, r)| {
-                BuildVersion::try_from(l)
-                    .unwrap()
-                    .partial_cmp(&BuildVersion::try_from(r).unwrap())
-            };
-            "less" {
-                ("v0.0.1", "v1.0.0") => Some(Ordering::Less),
-            }
-
-            "greater" {
-                ("v1.0.0", "v0.0.1") => Some(Ordering::Greater),
-            }
-
-            "equal" {
-                ("v1.0.0", "v1.0.0") => Some(Ordering::Equal),
             }
         );
     }

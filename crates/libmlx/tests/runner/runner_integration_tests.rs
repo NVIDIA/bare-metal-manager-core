@@ -54,15 +54,6 @@ fn set_outcome(assignments: &[(&str, &str)]) -> Result<(), String> {
     })
 }
 
-#[test]
-fn test_runner_temp_file_prefix() {
-    let registry = common::create_test_registry();
-    let mut runner = MlxConfigRunner::new("01:00.0".to_string(), registry);
-
-    // Should not panic when setting temp file prefix
-    runner.set_temp_file_prefix("/custom/tmp");
-}
-
 // Every invalid `set` assignment is rejected before any mlxconfig command runs.
 // The not-found rows pin the offending variable name (it's the contract, and the
 // runner reports the *first* invalid variable); the enum / boolean / array-bounds /
@@ -124,19 +115,6 @@ fn test_empty_assignments() {
     let result = runner.set(empty_assignments);
     // Should succeed (no operations to perform)
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_temp_file_prefix_setting() {
-    let registry = common::create_test_registry();
-    let mut runner = MlxConfigRunner::new("01:00.0".to_string(), registry);
-
-    // Test different temp file prefixes
-    runner.set_temp_file_prefix("/tmp");
-    runner.set_temp_file_prefix("/custom/temp");
-    runner.set_temp_file_prefix("/var/tmp");
-
-    // Should not panic or error
 }
 
 // The smoke tests below can't pin an outcome: without a mockable mlxconfig binary

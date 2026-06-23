@@ -64,6 +64,34 @@ impl Display for PairingBlockerReason {
     }
 }
 
+/// Signals emitted while migrating a DPU's NIC mode toward its declared target.
+/// Each marks a step in the flip-and-reset flow that drives a DPU into the
+/// mode its host's `dpu_mode` calls for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DpuMigrationSignal {
+    /// Found a DPU whose actual mode differs from the target; will reconfigure.
+    ModeMismatchFound,
+    /// Issued a `set_nic_mode` flip to a DPU.
+    SetNicModeIssued,
+    /// Requested a host power-cycle to apply a queued NIC-mode change.
+    ResetRequested,
+    /// Registered a host with zero managed DPUs because its declared
+    /// `dpu_mode` is NicMode (distinct from NoDpu).
+    RegisteredZeroDpuForNicMode,
+}
+
+impl Display for DpuMigrationSignal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::ModeMismatchFound => "mode_mismatch_found",
+            Self::SetNicModeIssued => "set_nic_mode_issued",
+            Self::ResetRequested => "reset_requested",
+            Self::RegisteredZeroDpuForNicMode => "registered_zero_dpu_for_nic_mode",
+        };
+        write!(f, "{s}")
+    }
+}
+
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]
 pub struct SiteExplorationMetrics {
@@ -97,6 +125,8 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations_expected_machines_missing_overall_count: usize,
     /// The time it took to explore endpoints
     pub endpoint_exploration_duration: Vec<Duration>,
+    /// Duration of each major Site Explorer iteration phase.
+    pub site_explorer_phase_latency: Vec<(&'static str, Duration)>,
     /// Total amount of managedhosts that has been identified via Site Exploration
     pub exploration_identified_managed_hosts: usize,
     /// The amount of Machine pairs (Host + DPU) that have been created by Site Explorer
@@ -127,6 +157,11 @@ pub struct SiteExplorationMetrics {
     /// These are issues that prevent a host from being paired with its dpu(s)
     /// and require manual intervention.
     pub host_dpu_pairing_blockers: HashMap<String, usize>,
+    /// Total count of DPU NIC-mode migration signals by kind. These track the
+    /// flip-and-reset flow that drives a DPU into the mode its host's
+    /// `dpu_mode` declares (mismatch found, `set_nic_mode` issued, reset
+    /// requested, and zero-DPU registered for a NicMode host).
+    pub dpu_migration_signals: HashMap<String, usize>,
 }
 
 impl Default for SiteExplorationMetrics {
@@ -149,6 +184,7 @@ impl SiteExplorationMetrics {
             endpoint_explorations_identified_managed_hosts_overall_count: HashMap::new(),
             endpoint_explorations_expected_machines_missing_overall_count: 0,
             endpoint_exploration_duration: Vec::new(),
+            site_explorer_phase_latency: Vec::new(),
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
             create_machines_latency: None,
@@ -161,6 +197,7 @@ impl SiteExplorationMetrics {
             endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
             host_dpu_pairing_blockers: HashMap::new(),
+            dpu_migration_signals: HashMap::new(),
         }
     }
 
@@ -246,12 +283,25 @@ impl SiteExplorationMetrics {
             .entry(reason.to_string())
             .or_default() += 1;
     }
+
+    pub fn record_phase_latency(&mut self, phase: &'static str, duration: Duration) {
+        self.site_explorer_phase_latency.push((phase, duration));
+    }
+
+    /// Increment the count of DPU NIC-mode migration signals by kind.
+    pub fn increment_dpu_migration_signal(&mut self, signal: DpuMigrationSignal) {
+        *self
+            .dpu_migration_signals
+            .entry(signal.to_string())
+            .or_default() += 1;
+    }
 }
 
 /// Instruments that are used by the Site Explorer
 pub struct SiteExplorerInstruments {
     pub endpoint_exploration_duration: Histogram<f64>,
     pub site_explorer_iteration_latency: Histogram<f64>,
+    pub site_explorer_phase_latency: Histogram<f64>,
     pub site_explorer_create_machines_latency: Histogram<f64>,
     pub site_explorer_create_power_shelves_latency: Histogram<f64>,
     pub site_explorer_create_switches_latency: Histogram<f64>,
@@ -469,6 +519,12 @@ impl SiteExplorerInstruments {
             .with_unit("ms")
             .build();
 
+        let site_explorer_phase_latency = meter
+            .f64_histogram("carbide_site_explorer_phase_latency")
+            .with_description("The time it took to perform one site explorer iteration phase")
+            .with_unit("ms")
+            .build();
+
         let site_explorer_create_machines_latency = meter
             .f64_histogram("carbide_site_explorer_create_machines_latency")
             .with_description("The time it took to perform create_machines inside site-explorer")
@@ -593,6 +649,28 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
+                .u64_observable_gauge("carbide_site_explorer_dpu_migration_signals_count")
+                .with_description(
+                    "Count of DPU NIC-mode migration signals by kind -- mode-mismatch found, \
+                     set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode \
+                     host.",
+                )
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (signal, &count) in metrics.dpu_migration_signals.iter() {
+                            observer.observe(
+                                count as u64,
+                                &[attrs, &[KeyValue::new("signal", signal.clone())]].concat(),
+                            );
+                        }
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_expected_power_shelves_missing_overall_count",
                 )
@@ -669,6 +747,7 @@ impl SiteExplorerInstruments {
         SiteExplorerInstruments {
             endpoint_exploration_duration,
             site_explorer_iteration_latency,
+            site_explorer_phase_latency,
             site_explorer_create_machines_latency,
             site_explorer_create_power_shelves_latency,
             site_explorer_create_switches_latency,
@@ -702,6 +781,13 @@ impl SiteExplorerInstruments {
         for duration in metrics.endpoint_exploration_duration.iter() {
             self.endpoint_exploration_duration
                 .record(duration.as_secs_f64() * 1000.0, &[]);
+        }
+
+        for (phase, duration) in metrics.site_explorer_phase_latency.iter() {
+            self.site_explorer_phase_latency.record(
+                duration.as_secs_f64() * 1000.0,
+                &[KeyValue::new("phase", *phase)],
+            );
         }
     }
 }
@@ -763,6 +849,7 @@ impl MetricHolder {
         self.instruments.emit_latency_metrics(&metrics);
         // We don't need to store the latency metrics anymore
         metrics.endpoint_exploration_duration.clear();
+        metrics.site_explorer_phase_latency.clear();
         // And store the remaining metrics
         self.last_iteration_metrics.update(metrics);
     }

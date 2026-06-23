@@ -111,6 +111,55 @@ pub async fn find_record(
 
     Ok(result)
 }
+
+#[derive(Debug, Clone)]
+pub struct DbPtrRecord {
+    pub ttl: i32,
+    /// The FQDN the PTR record answers with (e.g. `host-1.dwrt1.com.`).
+    pub ptr_content: String,
+    pub domain_id: DomainId,
+}
+
+impl<'r> FromRow<'r, PgRow> for DbPtrRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, Error> {
+        Ok(DbPtrRecord {
+            ptr_content: row.try_get("ptr_content")?,
+            ttl: row.try_get("ttl")?,
+            domain_id: row.try_get("domain_id")?,
+        })
+    }
+}
+
+/// Find the PTR answers for an address: the FQDN(s) the forward shortname view
+/// publishes for whichever primary or BMC interface holds it. The `WHERE` matches
+/// `dns_records_shortname_combined`'s (primary or BMC), so a forward A/AAAA record
+/// and its PTR round-trip; the joins are otherwise narrower (no `dns_record_types`,
+/// since PTR's type is fixed) and the TTL uses `COALESCE(meta.ttl, 300)` to match
+/// the TTL the forward record is actually served with. The lookup is by `address`,
+/// so it rides the `machine_interface_addresses_address_idx` index rather than scanning.
+pub async fn find_ptr_record(
+    txn: impl DbReader<'_>,
+    address: IpAddr,
+) -> Result<Vec<DbPtrRecord>, DatabaseError> {
+    let query = r#"
+    SELECT
+        concat(mi.hostname, '.', d.name, '.') AS ptr_content,
+        COALESCE(meta.ttl, 300) AS ttl,
+        d.id AS domain_id
+    FROM machine_interface_addresses mia
+    JOIN machine_interfaces mi ON mi.id = mia.interface_id
+    JOIN domains d ON d.id = mi.domain_id
+    LEFT JOIN dns_record_metadata meta ON meta.id = mi.id
+    WHERE mia.address = $1::inet
+      AND (mi.primary_interface = TRUE OR mi.interface_type = 'Bmc')"#;
+
+    sqlx::query_as::<_, DbPtrRecord>(query)
+        .bind(address.to_string())
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn get_all_records_all_domains(
     txn: impl DbReader<'_>,
 ) -> Result<Vec<DbResourceRecord>, DatabaseError> {

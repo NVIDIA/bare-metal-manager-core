@@ -47,6 +47,23 @@ type SSHKeyAssociation struct {
 	CreatedBy     uuid.UUID    `bun:"created_by,type:uuid,notnull"`
 }
 
+type SSHKeyAssociationCreateInput struct {
+	SSHKeyID      uuid.UUID
+	SSHKeyGroupID uuid.UUID
+	CreatedBy     uuid.UUID
+}
+
+type SSHKeyAssociationUpdateInput struct {
+	SSHKeyAssociationID uuid.UUID
+	SSHKeyID            *uuid.UUID
+	SSHKeyGroupID       *uuid.UUID
+}
+
+type SSHKeyAssociationFilterInput struct {
+	SSHKeyIDs      []uuid.UUID
+	SSHKeyGroupIDs []uuid.UUID
+}
+
 var _ bun.BeforeAppendModelHook = (*SSHKeyAssociation)(nil)
 
 // BeforeAppendModel is a hook that is called before the model is appended to the query
@@ -73,15 +90,15 @@ func (ska *SSHKeyAssociation) BeforeCreateTable(ctx context.Context, query *bun.
 // SSHKeyAssociationDAO is an interface for interacting with the SSHKeyAssociation model
 type SSHKeyAssociationDAO interface {
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx, sshKeyID uuid.UUID, sshKeyGroupID uuid.UUID, createdBy uuid.UUID) (*SSHKeyAssociation, error)
+	Create(ctx context.Context, tx *db.Tx, input SSHKeyAssociationCreateInput) (*SSHKeyAssociation, error)
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*SSHKeyAssociation, error)
 	//
-	GetAll(ctx context.Context, tx *db.Tx, sshKeyIDs []uuid.UUID, sshKeyGroupIDs []uuid.UUID, includeRelations []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]SSHKeyAssociation, int, error)
+	GetAll(ctx context.Context, tx *db.Tx, filter SSHKeyAssociationFilterInput, page paginator.PageInput, includeRelations []string) ([]SSHKeyAssociation, int, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, sshKeyID *uuid.UUID, sshKeyGroupID *uuid.UUID) (*SSHKeyAssociation, error)
+	Update(ctx context.Context, tx *db.Tx, input SSHKeyAssociationUpdateInput) (*SSHKeyAssociation, error)
 	//
-	DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 }
 
 // SSHKeyAssociationSQLDAO is an implementation of the SSHKeyAssociationDAO interface
@@ -91,24 +108,22 @@ type SSHKeyAssociationSQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new SSHKeyAssociation from the given parameters
-func (skasd SSHKeyAssociationSQLDAO) CreateFromParams(
+// Create creates a new SSHKeyAssociation from the given parameters
+func (skasd SSHKeyAssociationSQLDAO) Create(
 	ctx context.Context, tx *db.Tx,
-	sshKeyID uuid.UUID,
-	sshKeyGroupID uuid.UUID,
-	createdBy uuid.UUID,
+	input SSHKeyAssociationCreateInput,
 ) (*SSHKeyAssociation, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.CreateFromParams")
+	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.Create")
 	if sshKeyAssociationDAOSpan != nil {
 		defer sshKeyAssociationDAOSpan.End()
 	}
 
 	ska := &SSHKeyAssociation{
 		ID:            uuid.New(),
-		SSHKeyID:      sshKeyID,
-		SSHKeyGroupID: sshKeyGroupID,
-		CreatedBy:     createdBy,
+		SSHKeyID:      input.SSHKeyID,
+		SSHKeyGroupID: input.SSHKeyGroupID,
+		CreatedBy:     input.CreatedBy,
 	}
 
 	_, err := db.GetIDB(tx, skasd.dbSession).NewInsert().Model(ska).Exec(ctx)
@@ -158,7 +173,7 @@ func (skasd SSHKeyAssociationSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id 
 // errors are returned only when there is a db related error
 // if records not found, then error is nil, but length of returned slice is 0
 // if orderBy is nil, then records are ordered by column specified in SSHKeyAssociationOrderByDefault in ascending order
-func (skasd SSHKeyAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, sshKeyIDs []uuid.UUID, sshKeyGroupIDs []uuid.UUID, includeRelations []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]SSHKeyAssociation, int, error) {
+func (skasd SSHKeyAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter SSHKeyAssociationFilterInput, page paginator.PageInput, includeRelations []string) ([]SSHKeyAssociation, int, error) {
 	// Create a child span and set the attributes for current request
 	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.GetAll")
 	if sshKeyAssociationDAOSpan != nil {
@@ -168,14 +183,13 @@ func (skasd SSHKeyAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, sshK
 	skas := []SSHKeyAssociation{}
 
 	query := db.GetIDB(tx, skasd.dbSession).NewSelect().Model(&skas)
-	if sshKeyIDs != nil {
-		query = query.Where("ska.ssh_key_id IN (?)", bun.In(sshKeyIDs))
-		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "ssh_key_id", sshKeyIDs)
+	if filter.SSHKeyIDs != nil {
+		query = query.Where("ska.ssh_key_id IN (?)", bun.In(filter.SSHKeyIDs))
+		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "ssh_key_id", filter.SSHKeyIDs)
 	}
-
-	if sshKeyGroupIDs != nil {
-		query = query.Where("ska.sshkey_group_id IN (?)", bun.In(sshKeyGroupIDs))
-		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "sshkey_group_id", sshKeyGroupIDs)
+	if filter.SSHKeyGroupIDs != nil {
+		query = query.Where("ska.sshkey_group_id IN (?)", bun.In(filter.SSHKeyGroupIDs))
+		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "sshkey_group_id", filter.SSHKeyGroupIDs)
 	}
 
 	for _, relation := range includeRelations {
@@ -183,11 +197,11 @@ func (skasd SSHKeyAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, sshK
 	}
 
 	// if no order is passed, set default to make sure objects return always in the same order and pagination works properly
-	if orderBy == nil {
-		orderBy = paginator.NewDefaultOrderBy(SSHKeyAssociationOrderByDefault)
+	if page.OrderBy == nil {
+		page.OrderBy = paginator.NewDefaultOrderBy(SSHKeyAssociationOrderByDefault)
 	}
 
-	paginator, err := paginator.NewPaginator(ctx, query, offset, limit, orderBy, SSHKeyAssociationOrderByFields)
+	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, page.OrderBy, SSHKeyAssociationOrderByFields)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -200,41 +214,36 @@ func (skasd SSHKeyAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, sshK
 	return skas, paginator.Total, nil
 }
 
-// UpdateFromParams updates specified fields of an existing SSHKeyAssociation
-func (skasd SSHKeyAssociationSQLDAO) UpdateFromParams(
-	ctx context.Context, tx *db.Tx,
-	id uuid.UUID,
-	sshKeyID *uuid.UUID,
-	sshKeyGroupID *uuid.UUID,
-) (*SSHKeyAssociation, error) {
+// Update updates specified fields of an existing SSHKeyAssociation
+func (skasd SSHKeyAssociationSQLDAO) Update(ctx context.Context, tx *db.Tx, input SSHKeyAssociationUpdateInput) (*SSHKeyAssociation, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.UpdateFromParams")
+	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.Update")
 	if sshKeyAssociationDAOSpan != nil {
 		defer sshKeyAssociationDAOSpan.End()
-		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "id", id.String())
+		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "id", input.SSHKeyAssociationID.String())
 	}
 
 	ska := &SSHKeyAssociation{
-		ID: id,
+		ID: input.SSHKeyAssociationID,
 	}
 
 	updatedFields := []string{}
 
-	if sshKeyID != nil {
-		ska.SSHKeyID = *sshKeyID
+	if input.SSHKeyID != nil {
+		ska.SSHKeyID = *input.SSHKeyID
 		updatedFields = append(updatedFields, "ssh_key_id")
-		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "ssh_key_id", sshKeyID.String())
+		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "ssh_key_id", input.SSHKeyID.String())
 	}
-	if sshKeyGroupID != nil {
-		ska.SSHKeyGroupID = *sshKeyGroupID
+	if input.SSHKeyGroupID != nil {
+		ska.SSHKeyGroupID = *input.SSHKeyGroupID
 		updatedFields = append(updatedFields, "sshkey_group_id")
-		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "sshkey_group_id", sshKeyGroupID.String())
+		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "sshkey_group_id", input.SSHKeyGroupID.String())
 	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, skasd.dbSession).NewUpdate().Model(ska).Column(updatedFields...).Where("ska.id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, skasd.dbSession).NewUpdate().Model(ska).Column(updatedFields...).Where("ska.id = ?", input.SSHKeyAssociationID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -248,12 +257,12 @@ func (skasd SSHKeyAssociationSQLDAO) UpdateFromParams(
 	return nv, nil
 }
 
-// DeleteByID deletes an SSHKeyAssociation by ID
+// Delete deletes an SSHKeyAssociation by ID
 // error is returned only if there is a db error
 // if the object being deleted doesnt exist, error is not returned
-func (skasd SSHKeyAssociationSQLDAO) DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
+func (skasd SSHKeyAssociationSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
 	// Create a child span and set the attributes for current request
-	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.DeleteByID")
+	ctx, sshKeyAssociationDAOSpan := skasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyAssociationDAO.Delete")
 	if sshKeyAssociationDAOSpan != nil {
 		defer sshKeyAssociationDAOSpan.End()
 		skasd.tracerSpan.SetAttribute(sshKeyAssociationDAOSpan, "id", id.String())

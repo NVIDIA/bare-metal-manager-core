@@ -18,7 +18,6 @@
 #![allow(deprecated)]
 
 use ::rpc::forge as rpc;
-use carbide_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::network_segment::create_network_segment;
@@ -187,52 +186,6 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test()]
-async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
-
-    // create vector of IDs with more than max allowed
-    // it does not matter if these are real or not, since we are testing an error back for passing more than max
-    let end_index: u32 = env.config.max_find_by_ids + 1;
-    let network_segments_ids: Vec<NetworkSegmentId> = (1..=end_index)
-        .map(|_| uuid::Uuid::new_v4().into())
-        .collect();
-
-    let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
-        network_segments_ids,
-        include_history: false,
-        include_num_free_ips: false,
-    });
-
-    let response = env.api.find_network_segments_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-}
-
-#[crate::sqlx_test()]
-async fn test_find_network_segments_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
-
-    let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest::default());
-
-    let response = env.api.find_network_segments_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        "at least one ID must be provided",
-    );
-}
+// The empty-list and over-max guards for `find_network_segments_by_ids` are
+// shared API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.

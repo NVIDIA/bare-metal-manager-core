@@ -25,9 +25,9 @@ use crate::{
     ipxe_template, jump, machine, machine_interfaces, machine_validation, managed_host,
     managed_switch, mlx, network_devices, network_security_group, network_segment, nvl_domain,
     nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints, operating_system, os_image, ping,
-    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
-    sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
-    vpc_peering, vpc_prefix,
+    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, secrets, set,
+    site_explorer, sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table,
+    version, vpc, vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -202,6 +202,8 @@ pub enum CliCommand {
     ExtensionService(extension_service::Cmd),
     #[clap(about = "Firmware related actions", subcommand)]
     Firmware(firmware::Cmd),
+    #[clap(about = "Secrets management", subcommand)]
+    Secrets(secrets::Cmd),
     #[clap(
         about = "Regenerate the docs/manuals/nico-admin-cli markdown reference",
         hide = true

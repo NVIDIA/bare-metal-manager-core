@@ -125,19 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn test_should_monitor_key_consistency() {
-        let manager = ShardManager {
-            shard: 0,
-            shards_count: 3,
-        };
-        let key = "AA:BB:CC:DD:EE:FF";
-        assert_eq!(
-            manager.should_monitor_key(key),
-            manager.should_monitor_key(key)
-        );
-    }
-
-    #[test]
     fn test_same_rack_id_same_shard() {
         let ep_a = endpoint("42:9e:b1:bd:9d:dd", Some("rack-7"));
         let ep_b = endpoint("42:9e:b2:bd:9d:dd", Some("rack-7"));

@@ -404,14 +404,12 @@ pub async fn update_virtualization(
             continue;
         }
 
-        let Some(prefix) = network_segment.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
-            return Err(DatabaseError::internal(format!(
-                "NetworkSegment {} does not have Ipv4 Prefix attached.",
-                network_segment.id
-            )));
-        };
-
-        if prefix.svi_ip.is_none() {
+        if network_segment.prefixes.is_empty()
+            || network_segment
+                .prefixes
+                .iter()
+                .any(|prefix| prefix.svi_ip.is_none())
+        {
             // If we can't update SVI IP in any of these segment, we have to fail whole operation.
             crate::network_segment::allocate_svi_ip(&network_segment, txn).await?;
         }

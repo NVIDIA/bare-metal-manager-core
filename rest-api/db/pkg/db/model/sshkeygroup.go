@@ -308,7 +308,13 @@ func (skgsd SSHKeyGroupSQLDAO) GenerateAndUpdateVersion(ctx context.Context, tx 
 
 	// Retrieve SSH Key Group Association details for calculating hash version based on SSH Key Group ID
 	skgsaDAO := NewSSHKeyGroupSiteAssociationDAO(skgsd.dbSession)
-	dbskgsas, _, err := skgsaDAO.GetAll(ctx, tx, []uuid.UUID{id}, nil, nil, nil, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbskgsas, _, err := skgsaDAO.GetAll(ctx, tx, SSHKeyGroupSiteAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{id}}, paginator.PageInput{
+		Limit: cutil.GetPtr(paginator.TotalLimit),
+		OrderBy: &paginator.OrderBy{
+			Field: "created",
+			Order: paginator.OrderAscending,
+		},
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +331,13 @@ func (skgsd SSHKeyGroupSQLDAO) GenerateAndUpdateVersion(ctx context.Context, tx 
 
 	// Retrieve SSH Key Association details for calculating hash version based on SSH Key ID
 	skaDAO := NewSSHKeyAssociationDAO(skgsd.dbSession)
-	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{id}, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbska, _, err := skaDAO.GetAll(ctx, tx, SSHKeyAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{id}}, paginator.PageInput{
+		Limit: cutil.GetPtr(paginator.TotalLimit),
+		OrderBy: &paginator.OrderBy{
+			Field: "created",
+			Order: paginator.OrderAscending,
+		},
+	}, nil)
 	if err != nil {
 		return nil, err
 	}

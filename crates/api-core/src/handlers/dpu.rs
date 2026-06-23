@@ -258,9 +258,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
                 .await?;
 
-            network_virtualization_type = vpc.network_virtualization_type;
+            network_virtualization_type = vpc.config.network_virtualization_type;
 
-            vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
+            vpc_vni = vpc.status.vni.map(|x| x as u32);
 
             let suppress_tenant_security_groups = match &snapshot.managed_state {
                 ManagedHostState::Assigned { instance_state } => {

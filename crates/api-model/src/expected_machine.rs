@@ -170,6 +170,22 @@ pub struct ExpectedMachineData {
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
 
+impl ExpectedMachineData {
+    /// The MAC the operator declared as this host's boot interface via
+    /// `ExpectedHostNic.primary`. This is the single source of declared boot
+    /// intent the writers consult -- site-explorer ingestion, DHCP, and
+    /// prediction promotion -- so they all agree on which NIC wins. The API
+    /// enforces at most one `primary` host NIC, so the first match is the
+    /// declaration. `None` leaves the boot interface to today's automation
+    /// (DPU takeover during ingestion, else the `pick_boot_interface` fallback).
+    pub fn declared_primary_mac(&self) -> Option<MacAddress> {
+        self.host_nics
+            .iter()
+            .find(|nic| nic.primary == Some(true))
+            .map(|nic| nic.mac_address)
+    }
+}
+
 /// Per-host lifecycle profile for settings that affect state-machine progression.
 /// `Option<bool>` fields support CLI patch semantics (`None` = not specified,
 /// keep existing DB value via `COALESCE`). Converts to the runtime `HostProfile`
@@ -426,5 +442,41 @@ mod tests {
             disable_lockdown: Some(false),
         };
         assert!(!hlp.is_empty());
+    }
+
+    /// `declared_primary_mac` returns the MAC of the one NIC flagged
+    /// `primary: Some(true)`, and `None` when nothing is declared. `primary:
+    /// Some(false)` is an explicit non-primary, not a declaration.
+    #[test]
+    fn declared_primary_mac_returns_the_flagged_nic() {
+        let mac_a: MacAddress = "AA:BB:CC:00:00:01".parse().unwrap();
+        let mac_b: MacAddress = "AA:BB:CC:00:00:02".parse().unwrap();
+
+        let nic = |mac: MacAddress, primary: Option<bool>| ExpectedHostNic {
+            mac_address: mac,
+            primary,
+            ..Default::default()
+        };
+
+        // Nothing declared -- empty, or only explicit non-primaries.
+        assert_eq!(ExpectedMachineData::default().declared_primary_mac(), None);
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, None), nic(mac_b, Some(false))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            None
+        );
+
+        // The declared NIC wins.
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, Some(false)), nic(mac_b, Some(true))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            Some(mac_b)
+        );
     }
 }

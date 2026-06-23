@@ -2622,6 +2622,82 @@ async fn test_add_rejects_multiple_primary_host_nics(
     Ok(())
 }
 
+/// The declared primary survives whichever order its NICs DHCP in: leasing the
+/// non-primary NIC first, then the declared primary, still lands the declared
+/// primary as `primary_interface` and the other as non-primary.
+#[crate::sqlx_test]
+async fn test_declared_primary_survives_dhcp_arrival_order(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = {
+        let mut config = get_config();
+        config.rack_management_enabled = true;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9F:10".parse().unwrap();
+    let primary_mac: MacAddress = "9A:9B:9C:9D:9F:11".parse().unwrap();
+    let other_mac: MacAddress = "9A:9B:9C:9D:9F:12".parse().unwrap();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-PRIMARY-003".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: primary_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: other_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: None,
+                },
+            ],
+            ..Default::default()
+        }))
+        .await?;
+
+    // The non-primary NIC leases first, then the declared primary.
+    for mac in [other_mac, primary_mac] {
+        let mac_str = mac.to_string();
+        env.api
+            .discover_dhcp(
+                common::rpc_builder::DhcpDiscovery::builder(
+                    &mac_str,
+                    common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+                )
+                .tonic_request(),
+            )
+            .await?;
+    }
+
+    let mut txn = env.pool.begin().await?;
+    let primary = db::machine_interface::find_by_mac_address(&mut *txn, primary_mac).await?;
+    let other = db::machine_interface::find_by_mac_address(&mut *txn, other_mac).await?;
+    assert_eq!(primary.len(), 1);
+    assert_eq!(other.len(), 1);
+    assert!(
+        primary[0].primary_interface,
+        "the declared primary NIC should be primary even when it leases last"
+    );
+    assert!(
+        !other[0].primary_interface,
+        "the non-declared NIC should not be primary"
+    );
+
+    Ok(())
+}
+
 /// Simple test to have some round-trip coverage for `ExpectedMachine.dpu_mode`
 /// to make sure a `NicMode` setting makes it from the API to the DB and back
 /// correctly. Verifies:

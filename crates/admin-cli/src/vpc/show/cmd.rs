@@ -98,6 +98,40 @@ async fn show_vpc_details(
     Ok(())
 }
 
+#[allow(deprecated)]
+fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
+    if let Some(config) = vpc.config.clone() {
+        config
+    } else {
+        forgerpc::VpcConfig {
+            tenant_organization_id: vpc.tenant_organization_id.clone(),
+            tenant_keyset_id: vpc.tenant_keyset_id.clone(),
+            network_virtualization_type: vpc.network_virtualization_type,
+            network_security_group_id: vpc.network_security_group_id.clone(),
+            default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
+            vni: vpc.vni,
+            routing_profile_type: vpc.routing_profile_type.clone(),
+        }
+    }
+}
+
+#[allow(deprecated)]
+fn vpc_allocated_vni(vpc: &forgerpc::Vpc) -> u32 {
+    vpc.status
+        .as_ref()
+        .and_then(|status| status.vni)
+        .or(vpc.deprecated_vni)
+        .unwrap_or_default()
+}
+
+#[allow(deprecated)]
+fn vpc_virt_type(vpc: &forgerpc::Vpc) -> i32 {
+    vpc_config(vpc)
+        .network_virtualization_type
+        .or(vpc.network_virtualization_type)
+        .unwrap_or_default()
+}
+
 fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     let mut table = Table::new();
 
@@ -115,18 +149,17 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 
     for vpc in vpcs.vpcs {
         let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
-        let virt_type = forgerpc::VpcVirtualizationType::try_from(
-            vpc.network_virtualization_type.unwrap_or_default(),
-        )
-        .unwrap_or_default()
-        .as_str_name()
-        .to_string();
+        let config = vpc_config(&vpc);
+        let virt_type = forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc))
+            .unwrap_or_default()
+            .as_str_name()
+            .to_string();
 
         table.add_row(row![
             vpc.id.unwrap_or_default(),
             metadata.name,
-            vpc.tenant_organization_id,
-            vpc.network_security_group_id.unwrap_or_default(),
+            config.tenant_organization_id,
+            config.network_security_group_id.unwrap_or_default(),
             vpc.version,
             vpc.created.unwrap_or_default(),
             virt_type,
@@ -146,9 +179,11 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     table.into()
 }
 
+#[allow(deprecated)]
 fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
+    let config = vpc_config(vpc);
 
     let vpc_name = vpc
         .metadata
@@ -159,10 +194,10 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let data: Vec<(&'static str, Cow<str>)> = vec![
         ("ID", vpc.id.unwrap_or_default().to_string().into()),
         ("NAME", vpc_name),
-        ("TENANT ORG", vpc.tenant_organization_id.as_str().into()),
+        ("TENANT ORG", config.tenant_organization_id.as_str().into()),
         (
             "NETWORK SECURITY GROUP",
-            vpc.network_security_group_id().into(),
+            config.network_security_group_id.unwrap_or_default().into(),
         ),
         ("VERSION", vpc.version.as_str().into()),
         (
@@ -180,19 +215,17 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
                 None => "".into(),
             },
         ),
-        ("TENANT KEYSET", vpc.tenant_keyset_id().into()),
         (
-            "VNI",
-            format!("{}", vpc.status.and_then(|s| s.vni).unwrap_or_default()).into(),
+            "TENANT KEYSET",
+            config.tenant_keyset_id.unwrap_or_default().into(),
         ),
+        ("VNI", format!("{}", vpc_allocated_vni(vpc)).into()),
         (
             "NW VIRTUALIZATION",
-            forgerpc::VpcVirtualizationType::try_from(
-                vpc.network_virtualization_type.unwrap_or_default(),
-            )
-            .unwrap_or_default()
-            .as_str_name()
-            .into(),
+            forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(vpc))
+                .unwrap_or_default()
+                .as_str_name()
+                .into(),
         ),
     ];
 

@@ -543,6 +543,8 @@ impl CredentialKey {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
     use crate::test_support::credentials::TestCredentialManager;
 
@@ -666,145 +668,255 @@ mod tests {
         let rack_id = RackId::new("rack-01");
         let mac: MacAddress = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-        let cases: Vec<(CredentialKey, &str)> = vec![
-            (CredentialKey::DpuHbn { machine_id }, "machines/"),
-            (
-                CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::DpuHardwareDefault,
-                },
-                "machines/all_dpus/",
-            ),
-            (
-                CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                },
-                "machines/all_dpus/",
-            ),
-            (
-                CredentialKey::HostRedfish {
-                    credential_type: CredentialType::HostHardwareDefault {
-                        vendor: bmc_vendor::BMCVendor::Nvidia,
-                    },
-                },
-                "machines/all_hosts/",
-            ),
-            (
-                CredentialKey::HostRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                },
-                "machines/all_hosts/",
-            ),
-            (
-                CredentialKey::UfmAuth {
-                    fabric: "test-fabric".to_string(),
-                },
-                "ufm/",
-            ),
-            (
-                CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
-                },
-                "machines/all_dpus/",
-            ),
-            (
-                CredentialKey::DpuUefi {
-                    credential_type: CredentialType::SiteDefault,
-                },
-                "machines/all_dpus/",
-            ),
-            (
-                CredentialKey::HostUefi {
-                    credential_type: CredentialType::SiteDefault,
-                },
-                "machines/all_hosts/",
-            ),
-            (
-                CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::SiteWideRoot,
-                },
-                "machines/bmc/",
-            ),
-            (
-                CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcRoot {
-                        bmc_mac_address: mac,
-                    },
-                },
-                "machines/bmc/",
-            ),
-            (
-                CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::BmcForgeAdmin {
-                        bmc_mac_address: mac,
-                    },
-                },
-                "machines/bmc/",
-            ),
-            (
-                CredentialKey::NicLockdownIkm {
-                    credential_type: NicLockdownIkm::SiteWide { version: 0 },
-                },
-                "machines/nic_lockdown_ikm/",
-            ),
-            (
-                CredentialKey::ExtensionService {
-                    service_id: "svc1".to_string(),
-                    version: "v1".to_string(),
-                },
-                "machines/extension-services/",
-            ),
-            (
-                CredentialKey::NmxM {
-                    nmxm_id: "nmxm1".to_string(),
-                },
-                "nmxm/",
-            ),
-            (
-                CredentialKey::SwitchNvosAdmin {
-                    bmc_mac_address: mac,
-                },
-                "switch_nvos/",
-            ),
-            (
-                CredentialKey::MqttAuth {
-                    credential_type: MqttCredentialType::Dpa,
-                },
-                "mqtt/",
-            ),
-            (
-                CredentialKey::MqttAuth {
-                    credential_type: MqttCredentialType::DsxExchangeEventBus,
-                },
-                "mqtt/",
-            ),
-            (
-                CredentialKey::MqttAuth {
-                    credential_type: MqttCredentialType::DsxExchangeConsumer,
-                },
-                "mqtt/",
-            ),
-            (
-                CredentialKey::RackMaintenanceAccessToken { rack_id },
-                "racks/",
-            ),
-        ];
-
-        for (key, expected_prefix) in &cases {
-            let path = key.to_key_str();
-            assert!(!path.is_empty(), "{key:?} produced an empty path");
-            assert!(
-                !path.starts_with('/'),
-                "{key:?} path {path:?} should not start with /"
-            );
-            assert!(
-                !path.ends_with('/'),
-                "{key:?} path {path:?} should not end with /"
-            );
-            assert!(
-                path.starts_with(expected_prefix),
-                "{key:?} path {path:?} should start with {expected_prefix:?}"
-            );
+        // Each row is a key and the path prefix its `to_key_str()` must carry. A
+        // path is well-formed when it is non-empty, has no leading or trailing
+        // slash, and starts with that prefix.
+        struct Row {
+            key: CredentialKey,
+            expected_prefix: &'static str,
         }
+
+        // The four invariants of a well-formed key path, checked as named fields
+        // rather than folded into one bool so a failing row names the invariant
+        // it broke. A well-formed path holds all four.
+        #[derive(Debug, PartialEq)]
+        struct PathChecks {
+            non_empty: bool,
+            no_leading_slash: bool,
+            no_trailing_slash: bool,
+            has_expected_prefix: bool,
+        }
+
+        impl PathChecks {
+            const fn all_hold() -> Self {
+                Self {
+                    non_empty: true,
+                    no_leading_slash: true,
+                    no_trailing_slash: true,
+                    has_expected_prefix: true,
+                }
+            }
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "dpu hbn",
+                    input: Row {
+                        key: CredentialKey::DpuHbn { machine_id },
+                        expected_prefix: "machines/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu redfish hardware default",
+                    input: Row {
+                        key: CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::DpuHardwareDefault,
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu redfish site default",
+                    input: Row {
+                        key: CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "host redfish hardware default",
+                    input: Row {
+                        key: CredentialKey::HostRedfish {
+                            credential_type: CredentialType::HostHardwareDefault {
+                                vendor: bmc_vendor::BMCVendor::Nvidia,
+                            },
+                        },
+                        expected_prefix: "machines/all_hosts/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "host redfish site default",
+                    input: Row {
+                        key: CredentialKey::HostRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        expected_prefix: "machines/all_hosts/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "ufm auth",
+                    input: Row {
+                        key: CredentialKey::UfmAuth {
+                            fabric: "test-fabric".to_string(),
+                        },
+                        expected_prefix: "ufm/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu uefi hardware default",
+                    input: Row {
+                        key: CredentialKey::DpuUefi {
+                            credential_type: CredentialType::DpuHardwareDefault,
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu uefi site default",
+                    input: Row {
+                        key: CredentialKey::DpuUefi {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "host uefi site default",
+                    input: Row {
+                        key: CredentialKey::HostUefi {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        expected_prefix: "machines/all_hosts/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc site wide root",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::SiteWideRoot,
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc root",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::BmcRoot {
+                                bmc_mac_address: mac,
+                            },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc forge admin",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::BmcForgeAdmin {
+                                bmc_mac_address: mac,
+                            },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "nic lockdown ikm",
+                    input: Row {
+                        key: CredentialKey::NicLockdownIkm {
+                            credential_type: NicLockdownIkm::SiteWide { version: 0 },
+                        },
+                        expected_prefix: "machines/nic_lockdown_ikm/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "extension service",
+                    input: Row {
+                        key: CredentialKey::ExtensionService {
+                            service_id: "svc1".to_string(),
+                            version: "v1".to_string(),
+                        },
+                        expected_prefix: "machines/extension-services/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "nmxm",
+                    input: Row {
+                        key: CredentialKey::NmxM {
+                            nmxm_id: "nmxm1".to_string(),
+                        },
+                        expected_prefix: "nmxm/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "switch nvos admin",
+                    input: Row {
+                        key: CredentialKey::SwitchNvosAdmin {
+                            bmc_mac_address: mac,
+                        },
+                        expected_prefix: "switch_nvos/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "mqtt dpa",
+                    input: Row {
+                        key: CredentialKey::MqttAuth {
+                            credential_type: MqttCredentialType::Dpa,
+                        },
+                        expected_prefix: "mqtt/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "mqtt dsx exchange event bus",
+                    input: Row {
+                        key: CredentialKey::MqttAuth {
+                            credential_type: MqttCredentialType::DsxExchangeEventBus,
+                        },
+                        expected_prefix: "mqtt/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "mqtt dsx exchange consumer",
+                    input: Row {
+                        key: CredentialKey::MqttAuth {
+                            credential_type: MqttCredentialType::DsxExchangeConsumer,
+                        },
+                        expected_prefix: "mqtt/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "rack maintenance access token",
+                    input: Row {
+                        key: CredentialKey::RackMaintenanceAccessToken { rack_id },
+                        expected_prefix: "racks/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+            ],
+            |Row {
+                 key,
+                 expected_prefix,
+             }| {
+                let path = key.to_key_str();
+                PathChecks {
+                    non_empty: !path.is_empty(),
+                    no_leading_slash: !path.starts_with('/'),
+                    no_trailing_slash: !path.ends_with('/'),
+                    has_expected_prefix: path.starts_with(expected_prefix),
+                }
+            },
+        );
     }
 
     // Verifies that every CredentialKey's to_key_str()

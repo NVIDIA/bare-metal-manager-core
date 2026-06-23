@@ -34,11 +34,13 @@ serde = { features = ["derive"], workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 vaultrs = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

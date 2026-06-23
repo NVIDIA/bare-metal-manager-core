@@ -615,7 +615,9 @@ pub async fn show_html(
     }
     .to_query_params();
 
-    let has_dpf_warning = hosts.iter().any(|h| !h.dpf_used_for_ingestion);
+    let has_dpf_warning = hosts
+        .iter()
+        .any(|h| !h.dpus.is_empty() && !h.dpf_used_for_ingestion);
 
     let tmpl = ManagedHostShow {
         grouped_hosts,

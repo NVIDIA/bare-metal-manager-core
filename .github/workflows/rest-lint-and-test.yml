@@ -12,7 +12,7 @@ defaults:
     working-directory: rest-api
 
 env:
-  GO_VERSION: "1.25.4"
+  GO_VERSION: "1.25.11"
 
 jobs:
   style:

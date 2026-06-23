@@ -125,19 +125,7 @@ pub fn get() -> CarbideConfig {
         )]
         .into_iter()
         .collect(),
-        machine_state_controller: MachineStateControllerConfig {
-            dpu_wait_time: Duration::seconds(1),
-            power_down_wait: Duration::seconds(1),
-            failure_retry_time: Duration::seconds(1),
-            dpu_up_threshold: Duration::weeks(52),
-            controller: StateControllerConfig::default(),
-            scout_reporting_timeout: Duration::weeks(52),
-            uefi_boot_wait: Duration::seconds(0),
-            max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
-            ),
-            polling_bios_setup_stuck_threshold:
-                MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
-        },
+        machine_state_controller: MachineStateControllerConfig::test_default(),
         network_segment_state_controller: NetworkSegmentStateControllerConfig {
             network_segment_drain_time: Duration::seconds(2),
             controller: StateControllerConfig::default(),
@@ -253,6 +241,7 @@ pub fn get() -> CarbideConfig {
         config_ctx: None,
         tracing: TracingConfig::default(),
         ntp_servers: vec![],
+        secrets: None,
     }
 }
 

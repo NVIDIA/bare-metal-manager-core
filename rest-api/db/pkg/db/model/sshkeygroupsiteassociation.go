@@ -80,6 +80,33 @@ type SSHKeyGroupSiteAssociation struct {
 	CreatedBy       uuid.UUID    `bun:"created_by,type:uuid,notnull"`
 }
 
+// SSHKeyGroupSiteAssociationCreateInput input parameters for Create method
+type SSHKeyGroupSiteAssociationCreateInput struct {
+	SSHKeyGroupID uuid.UUID
+	SiteID        uuid.UUID
+	Version       *string
+	Status        string
+	CreatedBy     uuid.UUID
+}
+
+// SSHKeyGroupSiteAssociationUpdateInput input parameters for Update method
+type SSHKeyGroupSiteAssociationUpdateInput struct {
+	ID              uuid.UUID
+	SSHKeyGroupID   *uuid.UUID
+	SiteID          *uuid.UUID
+	Version         *string
+	Status          *string
+	IsMissingOnSite *bool
+}
+
+// SSHKeyGroupSiteAssociationFilterInput input parameters for GetAll filters
+type SSHKeyGroupSiteAssociationFilterInput struct {
+	SSHKeyGroupIDs []uuid.UUID
+	SiteID         *uuid.UUID
+	Version        *string
+	Status         *string
+}
+
 // ToKeysetIdentifierProto builds the workflow proto identifier for this
 // association's SSH Key Group, scoped to the owning organization. The
 // SSHKeyGroup relation must be loaded for Org to be present.
@@ -210,19 +237,19 @@ func (skgsa *SSHKeyGroupSiteAssociation) BeforeCreateTable(ctx context.Context, 
 // SSHKeyGroupSiteAssociationDAO is an interface for interacting with the SSHKeyGroupSiteAssociation model
 type SSHKeyGroupSiteAssociationDAO interface {
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx, sshKeyGroupID uuid.UUID, siteID uuid.UUID, version *string, status string, createdBy uuid.UUID) (*SSHKeyGroupSiteAssociation, error)
+	Create(ctx context.Context, tx *db.Tx, input SSHKeyGroupSiteAssociationCreateInput) (*SSHKeyGroupSiteAssociation, error)
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*SSHKeyGroupSiteAssociation, error)
 	//
 	GetBySSHKeyGroupIDAndSiteID(ctx context.Context, tx *db.Tx, sshKeyGroupID uuid.UUID, siteID uuid.UUID, includeRelations []string) (*SSHKeyGroupSiteAssociation, error)
 	//
-	GetAll(ctx context.Context, tx *db.Tx, sshKeyGroupIDs []uuid.UUID, siteID *uuid.UUID, version *string, status *string, includeRelations []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]SSHKeyGroupSiteAssociation, int, error)
+	GetAll(ctx context.Context, tx *db.Tx, filter SSHKeyGroupSiteAssociationFilterInput, page paginator.PageInput, includeRelations []string) ([]SSHKeyGroupSiteAssociation, int, error)
 	//
 	GenerateAndUpdateVersion(ctx context.Context, tx *db.Tx, ID uuid.UUID) (*SSHKeyGroupSiteAssociation, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, sshKeyGroupID *uuid.UUID, siteID *uuid.UUID, version *string, status *string, isMissingOnSite *bool) (*SSHKeyGroupSiteAssociation, error)
+	Update(ctx context.Context, tx *db.Tx, input SSHKeyGroupSiteAssociationUpdateInput) (*SSHKeyGroupSiteAssociation, error)
 	//
-	DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 }
 
 // SSHKeyGroupSiteAssociationSQLDAO is an implementation of the SSHKeyGroupSiteAssociationDAO interface
@@ -232,28 +259,24 @@ type SSHKeyGroupSiteAssociationSQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new SSHKeyGroupSiteAssociation from the given parameters
-func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) CreateFromParams(
+// Create creates a new SSHKeyGroupSiteAssociation from the given parameters
+func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) Create(
 	ctx context.Context, tx *db.Tx,
-	sshKeyGroupID uuid.UUID,
-	siteID uuid.UUID,
-	version *string,
-	status string,
-	createdBy uuid.UUID,
+	input SSHKeyGroupSiteAssociationCreateInput,
 ) (*SSHKeyGroupSiteAssociation, error) {
 	// Create a child span and set the attributes for current request
-	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.CreateFromParams")
+	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.Create")
 	if SSHKeyGroupSiteAssociationDAOSpan != nil {
 		defer SSHKeyGroupSiteAssociationDAOSpan.End()
 	}
 
 	skgsa := &SSHKeyGroupSiteAssociation{
 		ID:            uuid.New(),
-		SSHKeyGroupID: sshKeyGroupID,
-		SiteID:        siteID,
-		Version:       version,
-		Status:        status,
-		CreatedBy:     createdBy,
+		SSHKeyGroupID: input.SSHKeyGroupID,
+		SiteID:        input.SiteID,
+		Version:       input.Version,
+		Status:        input.Status,
+		CreatedBy:     input.CreatedBy,
 	}
 
 	_, err := db.GetIDB(tx, skgsasd.dbSession).NewInsert().Model(skgsa).Exec(ctx)
@@ -334,7 +357,7 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GetBySSHKeyGroupIDAndSiteID(ctx 
 // errors are returned only when there is a db related error
 // if records not found, then error is nil, but length of returned slice is 0
 // if orderBy is nil, then records are ordered by column specified in SSHKeyGroupSiteAssociationOrderByDefault in ascending order
-func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, sshKeyGroupIDs []uuid.UUID, siteID *uuid.UUID, version *string, status *string, includeRelations []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]SSHKeyGroupSiteAssociation, int, error) {
+func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter SSHKeyGroupSiteAssociationFilterInput, page paginator.PageInput, includeRelations []string) ([]SSHKeyGroupSiteAssociation, int, error) {
 	// Create a child span and set the attributes for current request
 	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.GetAll")
 	if SSHKeyGroupSiteAssociationDAOSpan != nil {
@@ -344,21 +367,21 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GetAll(ctx context.Context, tx *
 	skgsas := []SSHKeyGroupSiteAssociation{}
 
 	query := db.GetIDB(tx, skgsasd.dbSession).NewSelect().Model(&skgsas)
-	if sshKeyGroupIDs != nil {
-		query = query.Where("skgsa.sshkey_group_id IN (?)", bun.In(sshKeyGroupIDs))
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "sshkey_group_id", sshKeyGroupIDs)
+	if filter.SSHKeyGroupIDs != nil {
+		query = query.Where("skgsa.sshkey_group_id IN (?)", bun.In(filter.SSHKeyGroupIDs))
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "sshkey_group_id", filter.SSHKeyGroupIDs)
 	}
-	if siteID != nil {
-		query = query.Where("skgsa.site_id = ?", *siteID)
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "site_id", siteID.String())
+	if filter.SiteID != nil {
+		query = query.Where("skgsa.site_id = ?", *filter.SiteID)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "site_id", filter.SiteID.String())
 	}
-	if version != nil {
-		query = query.Where("skgsa.version = ?", version)
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "version", *version)
+	if filter.Version != nil {
+		query = query.Where("skgsa.version = ?", filter.Version)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "version", *filter.Version)
 	}
-	if status != nil {
-		query = query.Where("skgsa.status = ?", *status)
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "status", *status)
+	if filter.Status != nil {
+		query = query.Where("skgsa.status = ?", *filter.Status)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "status", *filter.Status)
 	}
 
 	for _, relation := range includeRelations {
@@ -366,11 +389,11 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GetAll(ctx context.Context, tx *
 	}
 
 	// if no order is passed, set default to make sure objects return always in the same order and pagination works properly
-	if orderBy == nil {
-		orderBy = paginator.NewDefaultOrderBy(SSHKeyGroupSiteAssociationOrderByDefault)
+	if page.OrderBy == nil {
+		page.OrderBy = paginator.NewDefaultOrderBy(SSHKeyGroupSiteAssociationOrderByDefault)
 	}
 
-	paginator, err := paginator.NewPaginator(ctx, query, offset, limit, orderBy, SSHKeyGroupSiteAssociationOrderByFields)
+	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, page.OrderBy, SSHKeyGroupSiteAssociationOrderByFields)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -397,7 +420,13 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GenerateAndUpdateVersion(ctx con
 
 	// Retrieve SSH Key Association details for calculating hash version based on SSH Key ID
 	skaDAO := NewSSHKeyAssociationDAO(skgsasd.dbSession)
-	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{dbskgsa.SSHKeyGroupID}, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbska, _, err := skaDAO.GetAll(ctx, tx, SSHKeyAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{dbskgsa.SSHKeyGroupID}}, paginator.PageInput{
+		Limit: cutil.GetPtr(paginator.TotalLimit),
+		OrderBy: &paginator.OrderBy{
+			Field: "created",
+			Order: paginator.OrderAscending,
+		},
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +439,10 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GenerateAndUpdateVersion(ctx con
 	version := hex.EncodeToString(hash.Sum(nil))
 
 	// Update SSHKeyGroupSiteAssociation with new version
-	uskgsa, err := skgsasd.UpdateFromParams(ctx, tx, id, nil, nil, &version, nil, nil)
+	uskgsa, err := skgsasd.Update(ctx, tx, SSHKeyGroupSiteAssociationUpdateInput{
+		ID:      id,
+		Version: &version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -418,59 +450,54 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GenerateAndUpdateVersion(ctx con
 	return uskgsa, nil
 }
 
-// UpdateFromParams updates specified fields of an existing SSHKeyGroupSiteAssociation
-func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) UpdateFromParams(
+// Update updates specified fields of an existing SSHKeyGroupSiteAssociation
+func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) Update(
 	ctx context.Context, tx *db.Tx,
-	id uuid.UUID,
-	sshKeyGroupID *uuid.UUID,
-	siteID *uuid.UUID,
-	version *string,
-	status *string,
-	isMissingOnSite *bool,
+	input SSHKeyGroupSiteAssociationUpdateInput,
 ) (*SSHKeyGroupSiteAssociation, error) {
 	// Create a child span and set the attributes for current request
-	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.UpdateFromParams")
+	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.Update")
 	if SSHKeyGroupSiteAssociationDAOSpan != nil {
 		defer SSHKeyGroupSiteAssociationDAOSpan.End()
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "id", id.String())
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "id", input.ID.String())
 	}
 
 	skgsa := &SSHKeyGroupSiteAssociation{
-		ID: id,
+		ID: input.ID,
 	}
 
 	updatedFields := []string{}
 
-	if sshKeyGroupID != nil {
-		skgsa.SSHKeyGroupID = *sshKeyGroupID
+	if input.SSHKeyGroupID != nil {
+		skgsa.SSHKeyGroupID = *input.SSHKeyGroupID
 		updatedFields = append(updatedFields, "sshkey_group_id")
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "sshkey_group_id", sshKeyGroupID.String())
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "sshkey_group_id", input.SSHKeyGroupID.String())
 	}
-	if siteID != nil {
-		skgsa.SiteID = *siteID
+	if input.SiteID != nil {
+		skgsa.SiteID = *input.SiteID
 		updatedFields = append(updatedFields, "site_id")
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "site_id", siteID.String())
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "site_id", input.SiteID.String())
 	}
-	if version != nil {
-		skgsa.Version = version
+	if input.Version != nil {
+		skgsa.Version = input.Version
 		updatedFields = append(updatedFields, "version")
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "version", *version)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "version", *input.Version)
 	}
-	if status != nil {
-		skgsa.Status = *status
+	if input.Status != nil {
+		skgsa.Status = *input.Status
 		updatedFields = append(updatedFields, "status")
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "status", *status)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "status", *input.Status)
 	}
-	if isMissingOnSite != nil {
-		skgsa.IsMissingOnSite = *isMissingOnSite
+	if input.IsMissingOnSite != nil {
+		skgsa.IsMissingOnSite = *input.IsMissingOnSite
 		updatedFields = append(updatedFields, "is_missing_on_site")
-		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "is_missing_on_site", *isMissingOnSite)
+		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "is_missing_on_site", *input.IsMissingOnSite)
 	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, skgsasd.dbSession).NewUpdate().Model(skgsa).Column(updatedFields...).Where("skgsa.id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, skgsasd.dbSession).NewUpdate().Model(skgsa).Column(updatedFields...).Where("skgsa.id = ?", input.ID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -484,12 +511,12 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) UpdateFromParams(
 	return nv, nil
 }
 
-// DeleteByID deletes an SSHKeyGroupSiteAssociation by ID
+// Delete deletes an SSHKeyGroupSiteAssociation by ID
 // error is returned only if there is a db error
 // if the object being deleted doesnt exist, error is not returned
-func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
+func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
 	// Create a child span and set the attributes for current request
-	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.DeleteByID")
+	ctx, SSHKeyGroupSiteAssociationDAOSpan := skgsasd.tracerSpan.CreateChildInCurrentContext(ctx, "SSHKeyGroupSiteAssociationDAO.Delete")
 	if SSHKeyGroupSiteAssociationDAOSpan != nil {
 		defer SSHKeyGroupSiteAssociationDAOSpan.End()
 		skgsasd.tracerSpan.SetAttribute(SSHKeyGroupSiteAssociationDAOSpan, "id", id.String())

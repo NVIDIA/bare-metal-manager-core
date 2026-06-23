@@ -760,7 +760,6 @@ fn test_nvos_polling_unknown_state_preserves_status_and_sets_error() {
 /// test_expected_incomplete_device_counts_stays verifies that a rack with a
 /// topology expecting more devices than currently exist stays in Created.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_incomplete_device_counts_stays(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -803,8 +802,8 @@ async fn test_expected_incomplete_device_counts_stays(
         .await?;
 
     assert!(
-        matches!(outcome, StateHandlerOutcome::DoNothing { .. }),
-        "Rack with incomplete device counts should stay in Expected"
+        matches!(outcome, StateHandlerOutcome::Wait { .. }),
+        "Rack with incomplete device counts should wait in Created"
     );
 
     Ok(())
@@ -871,7 +870,6 @@ async fn test_expected_counts_match_but_not_linked_stays(
 /// test_expected_zero_topology_transitions_to_discovering verifies that a rack
 /// with zero expected devices in topology immediately transitions to Discovering.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_zero_topology_transitions_to_discovering(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -888,18 +886,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create rack with a profile expecting 2 compute, 0 switches, 0 PS.
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("Empty")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-
-    // Simulate that both compute trays are already linked by setting
-    // compute_trays to have 2 entries matching expected_compute_trays.
+    // Create the rack with the "Empty" profile, which expects zero devices.
     db_rack::create(
         &mut txn,
         &rack_id,
@@ -947,9 +934,11 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 }
 
 /// test_expected_more_discovered_than_expected_transitions verifies that a
-/// rack with more discovered compute trays than expected still transitions.
+/// rack with more compute hosts present than the profile expects still
+/// transitions out of Created: the Created handler only waits while counts
+/// are below the expected minimum, so an over-count satisfies the threshold
+/// and advances to Discovering.
 #[crate::sqlx_test]
-#[ignore]
 async fn test_expected_more_discovered_than_expected_transitions(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -963,12 +952,11 @@ async fn test_expected_more_discovered_than_expected_transitions(
     )
     .await;
 
+    // Rack profile "Single" expects 1 compute, 0 switches, 0 PS. Seed two
+    // host machines tied to the rack so the actual compute count (2) exceeds
+    // the expected count (1), exercising the over-discovery path.
     let rack_id = new_rack_id();
-    // let mac1 = MacAddress::new([0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50]);
-
     let mut txn = pool.acquire().await?;
-
-    // Rack type "Single" expects 1 compute, 0 switches, 0 PS.
     db_rack::create(
         &mut txn,
         &rack_id,
@@ -977,10 +965,24 @@ async fn test_expected_more_discovered_than_expected_transitions(
         None,
     )
     .await?;
+    drop(txn);
 
-    // Simulate more compute_trays discovered than expected_compute_trays.
-
-    db_rack::update(&mut txn, &rack_id, &RackConfig::default()).await?;
+    new_host(
+        &env,
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        }),
+    )
+    .await?;
+    new_host(
+        &env,
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        }),
+    )
+    .await?;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
 
@@ -998,7 +1000,6 @@ async fn test_expected_more_discovered_than_expected_transitions(
         .handle_object_state(&rack_id, &mut rack, &RackState::Created, &mut ctx)
         .await?;
 
-    // The Ordering::Less branch treats this as compute_done = true.
     match outcome {
         StateHandlerOutcome::Transition { next_state, .. } => {
             assert!(
@@ -1016,11 +1017,11 @@ async fn test_expected_more_discovered_than_expected_transitions(
     Ok(())
 }
 
-/// test_discovering_waits_for_compute_ready verifies that the handler
-/// reports an error for the Discovering state when managed hosts are missing.
+/// test_discovering_waits_when_compute_not_ready verifies that the Discovering
+/// handler waits (rather than erroring) when the rack does not yet have enough
+/// Ready/Assigned compute hosts to satisfy the expected count.
 #[crate::sqlx_test]
-#[ignore]
-async fn test_discovering_waits_for_compute_ready(
+async fn test_discovering_waits_when_compute_not_ready(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = config_with_rack_profiles();
@@ -1036,9 +1037,8 @@ async fn test_discovering_waits_for_compute_ready(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create a rack in Discovering state with a compute tray that doesn't
-    // have a managed host record yet.
-
+    // Create a rack whose profile expects compute hosts but register none of
+    // them, so no host has reached a Ready/Assigned state.
     let mut rack = db_rack::create(
         &mut txn,
         &rack_id,
@@ -1058,13 +1058,15 @@ async fn test_discovering_waits_for_compute_ready(
         pending_db_writes: &mut db_writes,
     };
 
-    // The Discovering state should fail because the managed host doesn't exist.
-    let result = handler
+    // The Discovering handler waits (does not fault) while not enough compute
+    // hosts are Ready/Assigned.
+    let outcome = handler
         .handle_object_state(&rack_id, &mut rack, &RackState::Discovering, &mut ctx)
-        .await;
+        .await?;
     assert!(
-        result.is_err(),
-        "Discovering should error when managed host is missing"
+        matches!(outcome, StateHandlerOutcome::Wait { .. }),
+        "Discovering should wait when compute hosts are not yet ready, got {:?}",
+        std::mem::discriminant(&outcome)
     );
 
     Ok(())
