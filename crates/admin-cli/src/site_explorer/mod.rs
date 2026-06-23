@@ -23,6 +23,7 @@ mod explore;
 pub mod get_report;
 mod have_credentials;
 mod is_bmc_in_managed_host;
+mod mlx_devices;
 mod re_explore;
 mod refresh_endpoint;
 mod remediation;
@@ -41,6 +42,8 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(about = "Retrieves the latest site exploration report", subcommand)]
     GetReport(get_report::Args),
+    #[clap(about = "Report Mellanox/BlueField device NIC firmware from explored Redfish data.")]
+    MlxDevices(mlx_devices::Args),
     #[clap(
         about = "Asks carbide-api to explore a single host and prints the report. Does not store it."
     )]

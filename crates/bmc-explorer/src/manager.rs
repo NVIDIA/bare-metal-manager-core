@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use carbide_network::deserialize_input_mac_to_address;
+use carbide_network::{deserialize_input_mac_to_address, is_locally_administered_mac};
 use model::site_explorer::{
     EthernetInterface as ModelEthernetInterface, Manager as ModelManager, UefiDevicePath,
 };
@@ -173,6 +173,20 @@ impl<B: Bmc> ExploredManager<B> {
                         Err(err)
                     }
                 })?;
+
+            // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+            // globally unique, so this signals transient pre-sync data (seen briefly
+            // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+            if iface.id().inner().eq_ignore_ascii_case("eth0")
+                && let Some(mac) = mac_address
+                && is_locally_administered_mac(mac)
+            {
+                tracing::warn!(
+                    manager_id = %self.manager.id().inner(),
+                    eth0_mac = %mac,
+                    "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+                );
+            }
 
             let uefi_device_path = iface
                 .uefi_device_path()

@@ -189,6 +189,44 @@ pub async fn set_primary_interface(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Clears `primary_interface` on every interface a machine currently owns.
+///
+/// Used when a new interface takes over as the machine's sole primary -- e.g. a
+/// declared integrated host NIC promoted ahead of the DPU admin link it replaces
+/// on a DpuMode host -- so the incoming primary never collides with the outgoing
+/// one on the `one_primary_interface_per_machine` index.
+pub async fn demote_primary_interfaces_for_machine(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machine_interfaces SET primary_interface=false WHERE machine_id=$1 AND primary_interface=true";
+    sqlx::query(query)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Whether a machine owns any interface flagged `primary_interface`, in any segment.
+///
+/// Lets admin-address reconciliation distinguish a genuinely broken host (no
+/// primary at all) from one that legitimately boots from a non-admin primary --
+/// a HostInband integrated NIC on a DpuMode host -- whose DPU admin links are
+/// then all dormant.
+pub async fn machine_has_primary_interface(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT EXISTS(SELECT 1 FROM machine_interfaces WHERE machine_id=$1 AND primary_interface=true)";
+    let (exists,): (bool,) = sqlx::query_as(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(exists)
+}
+
 /// Records the vendor-native Redfish `EthernetInterface.Id` on the machine_interface
 /// row(s) with the given MAC. Captured by site-explorer per exploration; callers only
 /// invoke this when the id resolves from the current report, so a wiped MAC leaves the
@@ -511,27 +549,20 @@ pub async fn validate_existing_mac_and_create(
                 "No existing machine_interface with mac address exists yet, creating one",
             );
 
-            let segment_type = if let Some(nic) = host_nic.clone() {
-                if let Some(nic_type) = nic.nic_type {
-                    match nic_type.to_ascii_lowercase().as_str() {
-                        "bf3" => Some(NetworkSegmentType::Admin),
-                        "dpu" => Some(NetworkSegmentType::Admin),
-                        "bmc" => Some(NetworkSegmentType::Underlay),
-                        "oob" => Some(NetworkSegmentType::Underlay),
-                        "onboard" => Some(NetworkSegmentType::Admin),
-                        &_ => None, // (default) use the relay ip if not forcing a segment type
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            // A declared NIC narrows segment selection to a specific type: when
+            // the relay's prefix matches more than one segment (nested or
+            // overlapping prefixes), pick the one of the declared type -- the
+            // typed `network_segment_type`, or the legacy `nic_type` it
+            // supersedes. Otherwise the relay's matching segment(s) stand.
+            let segment_type = host_nic
+                .as_ref()
+                .and_then(ExpectedHostNic::resolved_network_segment_type);
 
             let network_segments = if let Some(network_segment_type) = segment_type {
-                // only if forcing a segment type
+                // Declared type -> the relay's segments of that type only.
                 db_network_segment::for_segment_type_all(txn, relays, network_segment_type).await?
             } else {
+                // No declaration -> every segment the relay's prefix matches.
                 db_network_segment::for_relay_all(txn, relays).await?
             };
 
@@ -1599,6 +1630,14 @@ pub async fn move_predicted_machine_interface_to_machine(
         .await?;
     }
 
+    // A primary prediction takes over as the host's sole primary: demote any
+    // current primary (e.g. the DPU admin link on a DpuMode host that boots from
+    // a declared integrated NIC) before this row joins the machine, so the two
+    // never collide on `one_primary_interface_per_machine`.
+    if predicted_machine_interface.primary_interface {
+        demote_primary_interfaces_for_machine(&predicted_machine_interface.machine_id, txn).await?;
+    }
+
     // Take either the newly-created interface or the anonymous one we found, and associate it with
     // this machine.
     associate_interface_with_machine(
@@ -1779,32 +1818,41 @@ pub async fn reconcile_admin_addresses_for_host(
         .collect::<Vec<_>>();
     lock_admin_interface_addresses(txn.as_pgconn(), &interface_ids).await?;
 
-    let primary_index = interfaces
+    // The active primary admin interface to repair, paired with its segment --
+    // present only when the host boots from a DPU admin link. A host that boots
+    // from a non-admin primary (a HostInband integrated NIC on a DpuMode host)
+    // has no primary in the admin set, which is valid, not broken: every DPU
+    // admin link is then dormant and only gets cleaned up below. A host with no
+    // primary interface at all is the genuine error.
+    let primary_to_repair = match interfaces
         .iter()
         .position(|interface| interface.primary_interface)
-        .ok_or_else(|| {
-            DatabaseError::internal(format!(
-                "Host {host_machine_id} has DPU-backed admin interfaces but no primary admin interface"
-            ))
-        })?;
-    let primary_segment = if interfaces[primary_index].is_dpu_backed_host_link {
-        Some(
-            *segments_by_id
-                .get(&interfaces[primary_index].segment_id)
+    {
+        Some(index) if interfaces[index].is_dpu_backed_host_link => {
+            let segment = *segments_by_id
+                .get(&interfaces[index].segment_id)
                 .ok_or_else(|| {
                     DatabaseError::internal(format!(
                         "Primary admin segment {} was not loaded for host {host_machine_id}",
-                        interfaces[primary_index].segment_id
+                        interfaces[index].segment_id
                     ))
-                })?,
-        )
-    } else {
-        None
+                })?;
+            Some((index, segment))
+        }
+        Some(_) => None,
+        None => {
+            if !machine_has_primary_interface(host_machine_id, txn.as_pgconn()).await? {
+                return Err(DatabaseError::internal(format!(
+                    "Host {host_machine_id} has DPU-backed admin interfaces but no primary admin interface"
+                )));
+            }
+            None
+        }
     };
 
     let mut active_config_changed = false;
 
-    if let Some(primary_segment) = primary_segment {
+    if let Some((primary_index, primary_segment)) = primary_to_repair {
         // Repair the active interface first. If a dormant DPU-backed interface already owns a
         // same-segment DHCP address, move it so the host keeps its current admin IP across
         // primary-DPU changes. If there is no reusable address, allocate only the missing family.
@@ -1929,7 +1977,7 @@ pub async fn reconcile_admin_addresses_for_host(
         }
     }
 
-    if let Some(primary_segment) = primary_segment {
+    if let Some((primary_index, primary_segment)) = primary_to_repair {
         // Finally, make the primary DPU-backed interface metadata match the address that
         // will be visible through DHCP, DNS, and DPU admin config.
         let primary = &interfaces[primary_index];

@@ -151,6 +151,34 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
+pub(crate) async fn get_explored_mlx_devices(
+    api: &Api,
+    request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
+    log_request_data(&request);
+
+    let host_filter = request
+        .into_inner()
+        .host_bmc_ip
+        .map(|ip| IpAddr::from_str(&ip))
+        .transpose()
+        .map_err(CarbideError::AddressParseError)?;
+
+    // Load every explored endpoint: the projection reads each host's PCIe
+    // inventory, and the serial join needs the DPU endpoints alongside them.
+    let endpoints = db::explored_endpoints::find_all(&api.database_connection).await?;
+
+    let devices = model::site_explorer::collect_explored_mlx_devices(&endpoints)
+        .into_iter()
+        .filter(|device| host_filter.is_none_or(|ip| device.host_bmc_ip == ip))
+        .map(::rpc::site_explorer::ExploredMlxDevice::from)
+        .collect();
+
+    Ok(Response::new(::rpc::site_explorer::ExploredMlxDeviceList {
+        devices,
+    }))
+}
+
 pub(crate) async fn clear_site_exploration_error(
     api: &Api,
     request: Request<rpc::ClearSiteExplorationErrorRequest>,

@@ -746,6 +746,22 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
             _ => Err(err),
         })?;
 
+    // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+    // globally unique, so this signals transient pre-sync data (seen briefly
+    // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+    if let Some(eth0) = ethernet_interfaces.iter().find(|e| {
+        e.id.as_deref()
+            .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
+    }) && let Some(mac) = eth0.mac_address
+        && crate::is_locally_administered_mac(mac)
+    {
+        tracing::warn!(
+            manager_id = %manager.id,
+            eth0_mac = %mac,
+            "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+        );
+    }
+
     Ok(Manager {
         ethernet_interfaces,
         id: manager.id,

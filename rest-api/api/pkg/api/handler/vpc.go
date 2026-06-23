@@ -1818,5 +1818,5 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	// Return response
 	logger.Info().Msg("finishing API handler")
 
-	return c.String(http.StatusAccepted, "Deletion request was accepted")
+	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 }

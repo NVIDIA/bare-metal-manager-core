@@ -9707,7 +9707,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			if tt.args.respCode != http.StatusAccepted {
 				return
 			}
-			assert.Contains(t, rec.Body.String(), "Deletion request was accepted")
+			assertDeletionAcceptedResponse(t, rec.Body.Bytes())
 
 			// Verify Instance in terminating state
 			insDAO := cdbm.NewInstanceDAO(dbSession)

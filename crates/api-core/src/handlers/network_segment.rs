@@ -265,14 +265,18 @@ pub(crate) async fn delete(
         }
     };
 
-    let response = Ok(db::network_segment::mark_as_deleted(&segment, &mut txn)
-        .await
-        .map(|_| rpc::NetworkSegmentDeletionResult {})
-        .map(Response::new)?);
+    db::network_segment::mark_as_deleted(&segment, &mut txn).await?;
+
+    // A network's reverse-DNS zone exists only because the network does, so it
+    // is dropped with the segment -- the inverse of the create-time hook in
+    // `save`.
+    for network_prefix in &segment.prefixes {
+        db::dns::remove_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
+    }
 
     txn.commit().await?;
 
-    response
+    Ok(Response::new(rpc::NetworkSegmentDeletionResult {}))
 }
 
 pub(crate) async fn for_vpc(
