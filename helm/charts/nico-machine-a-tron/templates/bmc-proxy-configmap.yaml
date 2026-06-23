@@ -1,0 +1,50 @@
+{{- if .Values.bmcProxy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}-bmc-proxy-config
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bmc-proxy
+data:
+  nginx.conf: |
+    worker_processes auto;
+
+    events {
+      worker_connections 65535;
+      use epoll;
+      multi_accept on;
+    }
+
+    http {
+      upstream machine_a_tron_backend {
+        server {{ include "nico-machine-a-tron.name" . }}:{{ .Values.service.bmcMock.port }};
+        keepalive 256;
+      }
+
+      server {
+        listen 443 ssl;
+
+        ssl_certificate /etc/ssl/certs/tls.crt;
+        ssl_certificate_key /etc/ssl/private/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!annul:!MD5;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        location / {
+          proxy_pass https://machine_a_tron_backend;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          # Key header: tells machine-a-tron which BMC IP was requested
+          proxy_set_header Forwarded "host=$server_addr";
+          proxy_ssl_verify off;
+        }
+      }
+    }
+{{- end }}

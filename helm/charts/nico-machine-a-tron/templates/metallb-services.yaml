@@ -1,0 +1,103 @@
+{{- if .Values.bmcProxy.enabled }}
+{{- if .Values.bmcProxy.ipRange }}
+{{- $root := . }}
+{{- $namespace := include "nico-machine-a-tron.namespace" . }}
+{{- $name := include "nico-machine-a-tron.name" . }}
+{{- $port := .Values.bmcProxy.service.port | default 443 }}
+
+{{/*
+Calculate total BMC count from all machine groups:
+  totalBMCs = sum(hostCount + hostCount * dpuPerHostCount) for each group
+*/}}
+{{- $totalBMCs := 0 }}
+{{- range $groupName, $group := .Values.machines }}
+{{- if $group }}
+{{- $hostCount := $group.hostCount | default 0 }}
+{{- $dpuPerHost := $group.dpuPerHostCount | default 0 }}
+{{- $groupTotal := add $hostCount (mul $hostCount $dpuPerHost) }}
+{{- $totalBMCs = add $totalBMCs $groupTotal }}
+{{- end }}
+{{- end }}
+
+{{/*
+SCALE LIMIT: Maximum /18 subnet (16384 IPs) to protect cluster stability
+- Creating too many services risks overwhelming kube-proxy and MetalLB
+- Use BGP mode with aggregation for large scale deployments
+*/}}
+{{- $maxServices := 16384 }}
+{{- if gt $totalBMCs $maxServices }}
+{{- fail (printf "SCALE LIMIT EXCEEDED: %d BMCs requested, maximum is %d (/18 subnet). Reduce hostCount or dpuPerHostCount." $totalBMCs $maxServices) }}
+{{- end }}
+
+{{/*
+Parse IP range: "10.100.0.2-10.100.7.254" -> start IP parts
+We generate services from startIP to startIP + totalBMCs - 1
+TODO: Need a more elegant solution
+*/}}
+{{- $ipRange := .Values.bmcProxy.ipRange }}
+{{- $startIP := (split "-" $ipRange)._0 }}
+{{- $ipParts := split "." $startIP }}
+{{- $octet1 := $ipParts._0 | int }}
+{{- $octet2 := $ipParts._1 | int }}
+{{- $octet3 := $ipParts._2 | int }}
+{{- $octet4 := $ipParts._3 | int }}
+
+{{/* Generate services for each BMC */}}
+{{- range $i := until (int $totalBMCs) }}
+{{/*
+Calculate IP: baseIP + offset
+Handle octet overflow: .4 → .3 → .2 → .1
+*/}}
+{{- $offset := $i }}
+{{- $o4 := add $octet4 $offset }}
+{{- $o3 := $octet3 }}
+{{- $o2 := $octet2 }}
+{{- $o1 := $octet1 }}
+
+{{/* Handle octet 4 overflow */}}
+{{- if gt $o4 255 }}
+{{- $o3 = add $o3 (div $o4 256) }}
+{{- $o4 = mod $o4 256 }}
+{{- end }}
+
+{{/* Handle octet 3 overflow */}}
+{{- if gt $o3 255 }}
+{{- $o2 = add $o2 (div $o3 256) }}
+{{- $o3 = mod $o3 256 }}
+{{- end }}
+
+{{/* Handle octet 2 overflow */}}
+{{- if gt $o2 255 }}
+{{- $o1 = add $o1 (div $o2 256) }}
+{{- $o2 = mod $o2 256 }}
+{{- end }}
+
+{{- $currentIP := printf "%d.%d.%d.%d" (int $o1) (int $o2) (int $o3) (int $o4) }}
+{{- $safeName := $currentIP | replace "." "-" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-bmc-{{ $safeName }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: bmc-lb
+    bmc-ip: "{{ $currentIP }}"
+    bmc-index: "{{ $i }}"
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "{{ $currentIP }}"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: bmc-proxy
+  ports:
+    - name: https
+      port: {{ $port }}
+      targetPort: 443
+      protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
