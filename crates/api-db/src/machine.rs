@@ -335,6 +335,58 @@ pub async fn find_id_by_bmc_ip(
     crate::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip.to_string()).await
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteExplorerMachineAuditState {
+    pub bmc_ip: IpAddr,
+    pub machine_id: MachineId,
+    pub site_explorer_health_report: Option<HealthReport>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct SiteExplorerMachineAuditStateRow {
+    bmc_ip: IpAddr,
+    machine_id: MachineId,
+    site_explorer_health_report: Option<sqlx::types::Json<HealthReport>>,
+}
+
+pub async fn find_site_explorer_machine_audit_states_by_bmc_ips(
+    txn: impl DbReader<'_>,
+    bmc_ips: &[IpAddr],
+) -> Result<Vec<SiteExplorerMachineAuditState>, DatabaseError> {
+    if bmc_ips.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query = r#"
+        SELECT
+            mia.address AS bmc_ip,
+            mi.machine_id,
+            m.health_reports->'merges'->'site-explorer' AS site_explorer_health_report
+        FROM machine_interfaces mi
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        JOIN machines m ON m.id = mi.machine_id
+        WHERE mi.interface_type = 'Bmc'
+            AND mi.machine_id IS NOT NULL
+            AND mia.address = ANY($1::inet[])
+    "#;
+    let bmc_ip_networks: Vec<ipnetwork::IpNetwork> =
+        bmc_ips.iter().map(|bmc_ip| (*bmc_ip).into()).collect();
+    let rows: Vec<SiteExplorerMachineAuditStateRow> = sqlx::query_as(query)
+        .bind(bmc_ip_networks)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SiteExplorerMachineAuditState {
+            bmc_ip: row.bmc_ip,
+            machine_id: row.machine_id,
+            site_explorer_health_report: row.site_explorer_health_report.map(|report| report.0),
+        })
+        .collect())
+}
+
 /// Finds machines associated with a specified instance type
 ///
 /// * `txn`              - A reference to an active DB transaction

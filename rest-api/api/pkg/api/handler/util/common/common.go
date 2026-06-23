@@ -304,7 +304,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 	// each release+creation attempt to deal with cases where a machine's health
 	// status isn't being properly reported and thus a bad machine isn't
 	// being pulled from rotation.
-	// As of Go 1.21, the default behavior is to use auto-seeding and fastrand64,
+	// Modern Go defaults to auto-seeding and fast random number generation,
 	// so we can rely on just calling the top-level Shuffle as needed.
 	rand.Shuffle(
 		len(machines),

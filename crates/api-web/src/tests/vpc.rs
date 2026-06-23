@@ -40,6 +40,7 @@ async fn response_body(response: Response) -> String {
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);

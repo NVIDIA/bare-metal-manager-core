@@ -24,7 +24,7 @@ use tracing::info;
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
 
-use crate::{CarbideClientError, attestation as attest};
+use crate::{CarbideClientError, attestation as attest, platform, tpm};
 
 pub async fn run(
     forge_api: &str,
@@ -36,7 +36,9 @@ pub async fn run(
     let mut hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 
-    let is_dpu = hardware_info.tpm_ek_certificate.is_none();
+    // Missing TPM EK material must not be treated as DPU detection. DPUs are
+    // identified from platform SMBIOS data, not from TPM availability.
+    let is_dpu = !platform::is_host();
 
     if machine_interface_id.is_none() && !is_dpu {
         return Err(CarbideClientError::GenericError(
@@ -61,9 +63,17 @@ pub async fn run(
         // CHANGETO - supply context externally
         hardware_info.tpm_description = attest::get_tpm_description(&mut tss_ctx);
 
-        let result = attest::create_attest_key_info(&mut tss_ctx).map_err(|e| {
-            CarbideClientError::TpmError(format!("Could not create AttestKeyInfo: {e}"))
-        })?;
+        let result = match attest::create_attest_key_info(&mut tss_ctx) {
+            Ok(result) => result,
+            Err(e) => {
+                if tpm::should_attempt_tpm_recovery_for_attest_key_failure(&*e) {
+                    tpm::recover_tpm_and_reboot(tpm_path)?;
+                }
+                return Err(CarbideClientError::TpmError(format!(
+                    "Could not create AttestKeyInfo: {e}"
+                )));
+            }
+        };
 
         hardware_info.attest_key_info = Some(result.0);
         endorsement_key_handle_opt = Some(result.1);

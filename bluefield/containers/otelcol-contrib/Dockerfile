@@ -29,7 +29,7 @@
 # its libraries are present (see journaldreceiver/examples/container/README.md
 # in opentelemetry-collector-contrib).
 
-ARG GO_VERSION=1.22.0
+ARG GO_VERSION=1.25.11
 ARG OTELCOL_VERSION=0.101.0
 
 # ---------------------------------------------------------------------------

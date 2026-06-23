@@ -13,7 +13,10 @@
 !include/
 !include/**
 !pxe
-pxe/**
 !pxe/templates
 !pxe/templates/
 !pxe/templates/**
+!pxe/
+!pxe/ipxe/
+!pxe/ipxe/local/
+!pxe/ipxe/local/embed.ipxe

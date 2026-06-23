@@ -123,7 +123,7 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 
 	// Get public keys associated to this SSHKeyGroup
 	skaDAO := cdbm.NewSSHKeyAssociationDAO(mskg.dbSession)
-	skas, total, err := skaDAO.GetAll(ctx, nil, nil, []uuid.UUID{skgsa.SSHKeyGroupID}, []string{cdbm.SSHKeyRelationName}, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+	skas, total, err := skaDAO.GetAll(ctx, nil, cdbm.SSHKeyAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{skgsa.SSHKeyGroupID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SSHKeyRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Associations from DB by SSHKeyGroup ID")
 		return err
@@ -279,7 +279,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(mskg.dbSession)
 
-	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &site.ID, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupSiteAssociationFilterInput{SiteID: &site.ID}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get SSH Key Group Site Associations for Site from DB")
 		return nil, err
@@ -336,7 +336,10 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 		}
 
 		// Update SSHKeyGroupSiteAssociation missing flag as it is now found on Site
-		_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cwutil.GetPtr(false))
+		_, serr := skgsaDAO.Update(ctx, nil, cdbm.SSHKeyGroupSiteAssociationUpdateInput{
+			ID:              skgsa.ID,
+			IsMissingOnSite: cwutil.GetPtr(false),
+		})
 		if serr != nil {
 			slogger.Error().Err(serr).Msg("failed to update SSH Key Group Site Association missing flag in DB")
 			continue
@@ -357,7 +360,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 				// SSH Key Group was not found on Site
 				if skgsa.Status == cdbm.SSHKeyGroupSiteAssociationStatusDeleting {
 					// If the SSHKeyGroupSiteAssociation was being deleted, we can proceed with removing it from the DB
-					serr := skgsaDAO.DeleteByID(ctx, nil, skgsa.ID)
+					serr := skgsaDAO.Delete(ctx, nil, skgsa.ID)
 					if serr != nil {
 						slogger.Error().Err(serr).Msg("failed to delete SSH Key Group Site Association from DB")
 						continue
@@ -375,7 +378,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 						}
 
 						// Set isMissingOnSite flag to true and update status, user can decide on deletion
-						_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cwutil.GetPtr(true))
+						_, serr := skgsaDAO.Update(ctx, nil, cdbm.SSHKeyGroupSiteAssociationUpdateInput{ID: skgsa.ID, IsMissingOnSite: cwutil.GetPtr(true)})
 						if serr != nil {
 							slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB for SSH Key Group Site Association")
 							continue
@@ -496,7 +499,7 @@ func (mskg ManageSSHKeyGroup) updateSSHKeyGroupSiteAssociationStatusInDB(ctx con
 	if status != nil {
 		skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(mskg.dbSession)
 
-		_, err := skgsaDAO.UpdateFromParams(ctx, tx, skgsaID, nil, nil, nil, status, nil)
+		_, err := skgsaDAO.Update(ctx, tx, cdbm.SSHKeyGroupSiteAssociationUpdateInput{ID: skgsaID, Status: status})
 		if err != nil {
 			return err
 		}
@@ -540,7 +543,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 	var sgMessage *string
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(mskg.dbSession)
-	skgsas, skgsaTotal, err := skgsaDAO.GetAll(ctx, nil, []uuid.UUID{skgID}, nil, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+	skgsas, skgsaTotal, err := skgsaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupSiteAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{skgID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get SSHKey Group Associations from DB for SSH Key Group")
 		return err
@@ -571,7 +574,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			}
 
 			// Remove all SSH Key associations
-			skas, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{skgID}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+			skas, _, err := skaDAO.GetAll(ctx, tx, cdbm.SSHKeyAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{skgID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to retrieve SSH Key Assocications from DB by SSHKeyGroup ID")
 				terr := tx.Rollback()
@@ -582,7 +585,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			}
 
 			for _, ska := range skas {
-				serr := skaDAO.DeleteByID(ctx, tx, ska.ID)
+				serr := skaDAO.Delete(ctx, tx, ska.ID)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("failed to delete SSH Key Association from DB")
 					terr := tx.Rollback()
@@ -594,7 +597,9 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			}
 
 			// Remove all Instance associations
-			skgias, _, err := skgiaDAO.GetAll(ctx, tx, []uuid.UUID{skgID}, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+			skgias, _, err := skgiaDAO.GetAll(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+				SSHKeyGroupIDs: []uuid.UUID{skgID},
+			}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance associations from DB")
 				terr := tx.Rollback()
@@ -604,7 +609,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 				return err
 			}
 			for _, skgia := range skgias {
-				serr := skgiaDAO.DeleteByID(ctx, tx, skgia.ID)
+				serr := skgiaDAO.Delete(ctx, tx, skgia.ID)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("failed to delete SSH Key Group Instance association from DB")
 					terr := tx.Rollback()

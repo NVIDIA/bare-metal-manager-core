@@ -55,6 +55,7 @@ mod discovery;
 mod firmware_upgrade;
 mod machine_validation;
 mod mlx_device;
+mod platform;
 mod register;
 mod stream;
 mod tpm;

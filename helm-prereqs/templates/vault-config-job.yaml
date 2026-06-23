@@ -254,6 +254,15 @@ spec:
               path "{{ .Values.vault.kvMount }}/data/bgp/*" {
                 capabilities = ["create", "read", "patch", "list", "update", "delete"]
               }
+              path "{{ .Values.vault.kvMount }}/data/switch_nvos/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/switch_nvos/*" {
+                capabilities = ["read", "list", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/destroy/switch_nvos/*" {
+                capabilities = ["delete"]
+              }
               POLICY
 
               # ---- K8s auth role for cert-manager ----

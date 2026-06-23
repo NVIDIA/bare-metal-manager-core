@@ -454,7 +454,7 @@ func TestGenerateVersionHash(t *testing.T) {
 	}
 }
 
-func TestSSHKeyGroupSQLDAO_UpdateFromParams(t *testing.T) {
+func TestSSHKeyGroupSQLDAO_Update(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()

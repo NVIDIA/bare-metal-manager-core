@@ -171,8 +171,6 @@ impl DpuMachine {
         let mat_id = self.mat_id;
         let dpu_info = self.dpu_info.clone();
         let dpu_index = self.dpu_index;
-        let bmc_dhcp_id = self.state_machine.bmc_dhcp_id;
-        let machine_dhcp_id = self.state_machine.machine_dhcp_id;
         let live_state = self.state_machine.live_state.clone();
         let join_handle = tokio::task::Builder::new()
             .name(&format!("DPU {}", self.mat_id))
@@ -196,8 +194,6 @@ impl DpuMachine {
             mat_id,
             dpu_info,
             dpu_index,
-            bmc_dhcp_id,
-            machine_dhcp_id,
             join_handle: Mutex::new(Some(join_handle)),
         }))
     }
@@ -340,8 +336,6 @@ struct DpuMachineActor {
     mat_id: Uuid,
     dpu_info: DpuMachineInfo,
     dpu_index: u8,
-    bmc_dhcp_id: Uuid,
-    machine_dhcp_id: Uuid,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -425,8 +419,6 @@ impl DpuMachineHandle {
             settings: self.0.dpu_info.settings.clone(),
             installed_os: self.0.live_state.read().unwrap().installed_os,
             dpu_index: self.0.dpu_index,
-            bmc_dhcp_id: self.0.bmc_dhcp_id,
-            machine_dhcp_id: self.0.machine_dhcp_id,
         }
     }
 

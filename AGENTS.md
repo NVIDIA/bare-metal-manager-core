@@ -147,6 +147,10 @@ directly as documented above.
 
 ## Coding Conventions
 
+Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
+for scope control, reuse-before-new-code, evidence-backed assumptions, and
+verification expectations.
+
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 

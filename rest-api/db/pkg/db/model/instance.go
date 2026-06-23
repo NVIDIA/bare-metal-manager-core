@@ -179,9 +179,9 @@ type Instance struct {
 	MCType string `bun:"mc_type,scanonly"`
 }
 
-// AggregatedInstanceStatus returns the status reported by the API by
+// GetAggregatedStatus returns the status reported by the API by
 // combining lifecycle status with power status when the Instance is Ready.
-func AggregatedInstanceStatus(status string, powerStatus *string) string {
+func (i *Instance) GetAggregatedStatus(status string, powerStatus *string) string {
 	agStatus := status
 
 	if powerStatus == nil {
@@ -202,11 +202,11 @@ func AggregatedInstanceStatus(status string, powerStatus *string) string {
 	return agStatus
 }
 
-// InstanceStatusCounts holds instance row counts grouped by aggregated API status.
+// InstanceCountByStatus holds instance row counts grouped by aggregated API status.
 // Counts reflect the same status values returned on individual Instance objects
-// (lifecycle status with Ready+power overrides applied via instanceAggregatedStatusSQL).
+// (lifecycle status with Ready+power overrides applied via instanceAggregatedStatusQuery).
 
-type InstanceStatusCounts struct {
+type InstanceCountByStatus struct {
 	Total        int `json:"total"`
 	Pending      int `json:"pending"`
 	Provisioning int `json:"provisioning"`
@@ -220,12 +220,44 @@ type InstanceStatusCounts struct {
 	Unknown      int `json:"unknown"`
 }
 
-type instanceStatusCountRow struct {
+type instanceStatusCountQueryResult struct {
 	Status     string `bun:"status"`
 	TotalCount int64  `bun:"total_count"`
 }
 
-func instanceAggregatedStatusSQL() string {
+// FromQueryResults populates the receiver from aggregated status count query rows.
+func (c *InstanceCountByStatus) FromQueryResults(rows []instanceStatusCountQueryResult) {
+	for _, row := range rows {
+		count := int(row.TotalCount)
+		switch row.Status {
+		case InstanceStatusPending:
+			c.Pending = count
+		case InstanceStatusProvisioning:
+			c.Provisioning = count
+		case InstanceStatusConfiguring:
+			c.Configuring = count
+		case InstanceStatusReady:
+			c.Ready = count
+		case InstanceStatusUpdating:
+			c.Updating = count
+		case InstanceStatusRepairing:
+			c.Repairing = count
+		case InstanceStatusTerminating:
+			c.Terminating = count
+		case InstanceStatusError:
+			c.Error = count
+		case InstancePowerStatusRebooting:
+			c.Rebooting = count
+		case InstanceStatusUnknown:
+			c.Unknown += count
+		default:
+			c.Unknown += count
+		}
+		c.Total += count
+	}
+}
+
+func instanceAggregatedStatusQuery() string {
 	return fmt.Sprintf(
 		"CASE WHEN i.status = '%s' AND i.power_status IN ('%s', '%s') THEN i.power_status ELSE i.status END",
 		InstanceStatusReady,
@@ -405,7 +437,7 @@ type InstanceDAO interface {
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*Instance, error)
 	//
-	GetCountByStatus(ctx context.Context, tx *db.Tx, tenantID *uuid.UUID, siteID *uuid.UUID) (InstanceStatusCounts, error)
+	GetCountByStatus(ctx context.Context, tx *db.Tx, tenantID *uuid.UUID, siteID *uuid.UUID) (InstanceCountByStatus, error)
 	//
 	GetAll(ctx context.Context, tx *db.Tx, filter InstanceFilterInput, page paginator.PageInput, includeRelations []string) ([]Instance, int, error)
 	//
@@ -482,7 +514,7 @@ func (isd InstanceSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, 
 // GetCountByStatus returns count of Instances for given status
 // Errors are returned only when there is a db related error
 // if records not found, then error is nil and all counts are zero
-func (isd InstanceSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, tenantID *uuid.UUID, siteID *uuid.UUID) (InstanceStatusCounts, error) {
+func (isd InstanceSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, tenantID *uuid.UUID, siteID *uuid.UUID) (InstanceCountByStatus, error) {
 	i := &Instance{}
 	// Create a child span and set the attributes for current request
 	ctx, instanceDAOSpan := isd.tracerSpan.CreateChildInCurrentContext(ctx, "InstanceDAO.GetCountByStatus")
@@ -490,7 +522,7 @@ func (isd InstanceSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, tenan
 		defer instanceDAOSpan.End()
 	}
 
-	var statusQueryResults []instanceStatusCountRow
+	var statusQueryResults []instanceStatusCountQueryResult
 	query := db.GetIDB(tx, isd.dbSession).NewSelect().Model(i)
 	if tenantID != nil {
 		query = query.Where("i.tenant_id = ?", *tenantID)
@@ -507,45 +539,18 @@ func (isd InstanceSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, tenan
 		}
 	}
 
-	aggregatedStatusExpr := instanceAggregatedStatusSQL()
+	aggregatedStatusExpr := instanceAggregatedStatusQuery()
 	err := query.
 		ColumnExpr(aggregatedStatusExpr+" AS status").
 		ColumnExpr("COUNT(*) AS total_count").
 		GroupExpr(aggregatedStatusExpr).
 		Scan(ctx, &statusQueryResults)
 	if err != nil {
-		return InstanceStatusCounts{}, err
+		return InstanceCountByStatus{}, err
 	}
 
-	var results InstanceStatusCounts
-	for _, row := range statusQueryResults {
-		count := int(row.TotalCount)
-		switch row.Status {
-		case InstanceStatusPending:
-			results.Pending = count
-		case InstanceStatusProvisioning:
-			results.Provisioning = count
-		case InstanceStatusConfiguring:
-			results.Configuring = count
-		case InstanceStatusReady:
-			results.Ready = count
-		case InstanceStatusUpdating:
-			results.Updating = count
-		case InstanceStatusRepairing:
-			results.Repairing = count
-		case InstanceStatusTerminating:
-			results.Terminating = count
-		case InstanceStatusError:
-			results.Error = count
-		case InstancePowerStatusRebooting:
-			results.Rebooting = count
-		case InstanceStatusUnknown:
-			results.Unknown = count
-		default:
-			results.Unknown += count
-		}
-		results.Total += count
-	}
+	var results InstanceCountByStatus
+	results.FromQueryResults(statusQueryResults)
 
 	return results, nil
 }
@@ -652,7 +657,7 @@ func (isd InstanceSQLDAO) setQueryWithFilter(filter InstanceFilterInput, query *
 	}
 
 	if filter.Statuses != nil {
-		query = query.Where("("+instanceAggregatedStatusSQL()+") IN (?)", bun.In(filter.Statuses))
+		query = query.Where("("+instanceAggregatedStatusQuery()+") IN (?)", bun.In(filter.Statuses))
 		if instanceDAOSpan != nil {
 			isd.tracerSpan.SetAttribute(instanceDAOSpan, "statuses", filter.Statuses)
 		}

@@ -10386,7 +10386,9 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
 /// declared zero-DPU (`expected_dpu_count == 0`). Other error variants and
 /// successful results pass through untouched. The `dpu_mode` gate in
 /// site-explorer is what guarantees `expected_dpu_count == 0` actually
-/// means the host was configured as `NoDpu`.
+/// means the host carries no managed DPU -- either `NoDpu` (no DPU hardware)
+/// or `NicMode` (a DPU intentionally running as a plain NIC). Neither has a
+/// DPU to answer Redfish, so a `NoDpu` error is expected, not a fault.
 fn handle_no_dpu_error(
     result: Result<Option<String>, RedfishError>,
     expected_dpu_count: usize,

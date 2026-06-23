@@ -310,11 +310,14 @@ impl EndpointExplorationReport {
     /// The boot interface MAC for this endpoint's explored default -- the boot
     /// interface site-explorer records before any machine owns the endpoint.
     ///
-    /// A declared `ExpectedHostNic.primary` wins when this report has that NIC,
-    /// whatever its type (an integrated NIC as readily as a DPU host-PF), so the
-    /// explored default agrees with the managed store's declared primary across
-    /// the ownership handoff. Absent a declaration, it falls back to the
-    /// automatic pick: the lowest-PCI DPU host-PF interface.
+    /// A declared `ExpectedHostNic.primary` wins when this report has that NIC
+    /// as a full pair -- its MAC present on a system ethernet interface with a
+    /// non-empty Redfish interface id -- whatever its type (an integrated NIC as
+    /// readily as a DPU host-PF), so the explored default agrees with the managed
+    /// store's declared primary across the ownership handoff. A declared NIC
+    /// whose id this report has not resolved yet falls back, alongside the
+    /// no-declaration case, to the automatic pick: the lowest-PCI DPU host-PF
+    /// interface.
     pub fn fetch_host_primary_interface_mac(
         &self,
         explored_dpus: &[ExploredDpu],

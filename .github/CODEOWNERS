@@ -17,9 +17,9 @@
 /helm/ @NVIDIA/dsx-sw-helm
 /helm-prereqs/ @NVIDIA/dsx-sw-helm @shayan1995
 
-# Documentation
-/docs/ @CoCo-Ben
-/fern/ @CoCo-Ben
+# Documentation (To be re-enabled once as have a doc reviewer)
+#/docs/ @CoCo-Ben
+#/fern/ @CoCo-Ben
 
 # Network IP module
 /common/network/src/ip/ @DrewBloechl
