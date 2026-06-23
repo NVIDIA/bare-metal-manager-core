@@ -108,6 +108,8 @@ impl BackendTlsConfig {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     #[test]
@@ -118,75 +120,138 @@ mod tests {
         assert_eq!(cfg.compute_tray_backend, ComputeBackend::Rms);
     }
 
-    fn tls_config(
-        cert_dir: Option<&str>,
-        ca: Option<&str>,
-        cert: Option<&str>,
-        key: Option<&str>,
-    ) -> BackendTlsConfig {
+    /// One `BackendTlsConfig` worth of path inputs for a resolver table.
+    struct Row {
+        cert_dir: Option<&'static str>,
+        ca: Option<&'static str>,
+        cert: Option<&'static str>,
+        key: Option<&'static str>,
+    }
+
+    fn tls_config(row: Row) -> BackendTlsConfig {
         BackendTlsConfig {
-            cert_dir: cert_dir.map(String::from),
-            ca_cert_path: ca.map(String::from),
-            client_cert_path: cert.map(String::from),
-            client_key_path: key.map(String::from),
+            cert_dir: row.cert_dir.map(String::from),
+            ca_cert_path: row.ca.map(String::from),
+            client_cert_path: row.cert.map(String::from),
+            client_key_path: row.key.map(String::from),
             domain: None,
         }
     }
 
     #[test]
-    fn resolve_ca_cert_explicit_path_wins() {
-        let cfg = tls_config(Some("/dir"), Some("/explicit/ca.pem"), None, None);
-        assert_eq!(cfg.resolve_ca_cert_path().unwrap(), "/explicit/ca.pem");
-    }
-
-    #[test]
-    fn resolve_ca_cert_falls_back_to_dir() {
-        let cfg = tls_config(Some("/certs"), None, None, None);
-        assert_eq!(cfg.resolve_ca_cert_path().unwrap(), "/certs/ca.crt");
-    }
-
-    #[test]
-    fn resolve_ca_cert_none_when_nothing_set() {
-        let cfg = tls_config(None, None, None, None);
-        assert!(cfg.resolve_ca_cert_path().is_none());
-    }
-
-    #[test]
-    fn resolve_client_cert_explicit_path_wins() {
-        let cfg = tls_config(Some("/dir"), None, Some("/explicit/client.pem"), None);
-        assert_eq!(
-            cfg.resolve_client_cert_path().unwrap(),
-            "/explicit/client.pem"
+    fn resolve_ca_cert_path_explicit_wins_then_dir_then_none() {
+        check_values(
+            [
+                Check {
+                    scenario: "explicit path wins",
+                    input: Row {
+                        cert_dir: Some("/dir"),
+                        ca: Some("/explicit/ca.pem"),
+                        cert: None,
+                        key: None,
+                    },
+                    expect: Some("/explicit/ca.pem".to_string()),
+                },
+                Check {
+                    scenario: "falls back to dir",
+                    input: Row {
+                        cert_dir: Some("/certs"),
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: Some("/certs/ca.crt".to_string()),
+                },
+                Check {
+                    scenario: "none when nothing set",
+                    input: Row {
+                        cert_dir: None,
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: None,
+                },
+            ],
+            |row| tls_config(row).resolve_ca_cert_path(),
         );
     }
 
     #[test]
-    fn resolve_client_cert_falls_back_to_dir() {
-        let cfg = tls_config(Some("/certs"), None, None, None);
-        assert_eq!(cfg.resolve_client_cert_path().unwrap(), "/certs/tls.crt");
+    fn resolve_client_cert_path_explicit_wins_then_dir_then_none() {
+        check_values(
+            [
+                Check {
+                    scenario: "explicit path wins",
+                    input: Row {
+                        cert_dir: Some("/dir"),
+                        ca: None,
+                        cert: Some("/explicit/client.pem"),
+                        key: None,
+                    },
+                    expect: Some("/explicit/client.pem".to_string()),
+                },
+                Check {
+                    scenario: "falls back to dir",
+                    input: Row {
+                        cert_dir: Some("/certs"),
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: Some("/certs/tls.crt".to_string()),
+                },
+                Check {
+                    scenario: "none when nothing set",
+                    input: Row {
+                        cert_dir: None,
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: None,
+                },
+            ],
+            |row| tls_config(row).resolve_client_cert_path(),
+        );
     }
 
     #[test]
-    fn resolve_client_cert_none_when_nothing_set() {
-        let cfg = tls_config(None, None, None, None);
-        assert!(cfg.resolve_client_cert_path().is_none());
-    }
-
-    #[test]
-    fn resolve_client_key_explicit_path_wins() {
-        let cfg = tls_config(Some("/dir"), None, None, Some("/explicit/key.pem"));
-        assert_eq!(cfg.resolve_client_key_path().unwrap(), "/explicit/key.pem");
-    }
-
-    #[test]
-    fn resolve_client_key_falls_back_to_dir() {
-        let cfg = tls_config(Some("/certs"), None, None, None);
-        assert_eq!(cfg.resolve_client_key_path().unwrap(), "/certs/tls.key");
-    }
-
-    #[test]
-    fn resolve_client_key_none_when_nothing_set() {
-        let cfg = tls_config(None, None, None, None);
-        assert!(cfg.resolve_client_key_path().is_none());
+    fn resolve_client_key_path_explicit_wins_then_dir_then_none() {
+        check_values(
+            [
+                Check {
+                    scenario: "explicit path wins",
+                    input: Row {
+                        cert_dir: Some("/dir"),
+                        ca: None,
+                        cert: None,
+                        key: Some("/explicit/key.pem"),
+                    },
+                    expect: Some("/explicit/key.pem".to_string()),
+                },
+                Check {
+                    scenario: "falls back to dir",
+                    input: Row {
+                        cert_dir: Some("/certs"),
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: Some("/certs/tls.key".to_string()),
+                },
+                Check {
+                    scenario: "none when nothing set",
+                    input: Row {
+                        cert_dir: None,
+                        ca: None,
+                        cert: None,
+                        key: None,
+                    },
+                    expect: None,
+                },
+            ],
+            |row| tls_config(row).resolve_client_key_path(),
+        );
     }
 }

@@ -514,8 +514,8 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
     let external_vpc = db::vpc::find_by_segment(txn.as_mut(), external_segment_id)
         .await
         .unwrap();
-    let internal_vni = internal_vpc.status.unwrap().vni.unwrap() as u32;
-    let external_vni = external_vpc.status.unwrap().vni.unwrap() as u32;
+    let internal_vni = internal_vpc.status.vni.unwrap() as u32;
+    let external_vni = external_vpc.status.vni.unwrap() as u32;
     let profiles_by_vni = response
         .tenant_interfaces
         .into_iter()

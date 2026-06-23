@@ -17,6 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
+use carbide_network::ip::IpAddressFamily;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::dns::{Domain, NewDomain};
@@ -350,6 +351,259 @@ async fn test_machine_interface_create_dual_stack(
             "address {addr} was allocated to both interfaces"
         );
     }
+
+    Ok(())
+}
+
+/// Verifies that IPv6 single-address allocation works across representative
+/// prefix widths that the old SQL fast path could not enumerate correctly.
+///
+/// This exercises both initial DHCP allocation and family-specific reallocation
+/// so shifts around /64, /96, and wider prefixes stay IPv6-safe.
+#[crate::sqlx_test]
+async fn test_machine_interface_ipv6_allocation_shift_widths(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    for (index, (name, prefix)) in [
+        ("IPV6-SHIFT-64", "2001:db8:6400::/64"),
+        ("IPV6-SHIFT-65", "2001:db8:6500::/65"),
+        ("IPV6-SHIFT-80", "2001:db8:8000::/80"),
+        ("IPV6-SHIFT-96", "2001:db8:9600::/96"),
+        ("IPV6-SHIFT-97", "2001:db8:9700::/97"),
+        ("IPV6-SHIFT-112", "2001:db8:1120::/112"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Create an IPv6-only segment for the representative prefix width.
+        let network_segment = db::network_segment::persist(
+            NewNetworkSegment {
+                name: name.to_string(),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![NewNetworkPrefix {
+                    prefix: prefix.parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 2,
+                }],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Underlay,
+                id: uuid::Uuid::new_v4().into(),
+                can_stretch: None,
+                allocation_strategy: AllocationStrategy::Dynamic,
+            },
+            &mut txn,
+            NetworkSegmentControllerState::Ready,
+        )
+        .await?;
+
+        // Initial DHCP allocation should succeed through the IPv6 allocator.
+        let interface = db::machine_interface::create(
+            &mut txn,
+            std::slice::from_ref(&network_segment),
+            &MacAddress::from_str(&format!("aa:bb:cc:dd:40:{index:02x}")).unwrap(),
+            true,
+            AddressSelectionStrategy::NextAvailableIp,
+            None,
+        )
+        .await?;
+        assert_eq!(interface.addresses.len(), 1);
+        assert!(interface.addresses[0].is_ipv6());
+        assert!(
+            network_segment.prefixes[0]
+                .prefix
+                .contains(interface.addresses[0])
+        );
+
+        // Lease reallocation for the same family should use the same IPv6-safe path.
+        db::machine_interface_address::delete(&mut txn, &interface.id).await?;
+        let allocated = db::machine_interface::allocate_address_for_family(
+            &mut txn,
+            interface.id,
+            &network_segment,
+            IpAddressFamily::Ipv6,
+        )
+        .await?;
+        assert_eq!(allocated.len(), 1);
+        assert!(allocated[0].is_ipv6());
+        assert!(network_segment.prefixes[0].prefix.contains(allocated[0]));
+    }
+
+    Ok(())
+}
+
+/// Verifies that IPv6 exhaustion on one candidate segment falls through to the
+/// next candidate segment instead of aborting allocation.
+///
+/// This protects the fast path from treating IPv6 PrefixExhausted differently
+/// than IPv4 ResourceExhausted when later segments still have capacity.
+#[crate::sqlx_test]
+async fn test_machine_interface_ipv6_exhausted_segment_falls_through(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    // Create one exhausted IPv6 segment followed by one segment with capacity.
+    let exhausted_segment = db::network_segment::persist(
+        NewNetworkSegment {
+            name: "IPV6-EXHAUSTED-FIRST".to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: "2001:db8:7100::/127".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 2,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Underlay,
+            id: uuid::Uuid::new_v4().into(),
+            can_stretch: None,
+            allocation_strategy: AllocationStrategy::Dynamic,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let available_segment = db::network_segment::persist(
+        NewNetworkSegment {
+            name: "IPV6-AVAILABLE-SECOND".to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: "2001:db8:7200::/126".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 2,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Underlay,
+            id: uuid::Uuid::new_v4().into(),
+            can_stretch: None,
+            allocation_strategy: AllocationStrategy::Dynamic,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+
+    // Allocate across both candidates; the exhausted first segment should not abort the request.
+    let interface = db::machine_interface::create(
+        &mut txn,
+        &[exhausted_segment, available_segment.clone()],
+        &MacAddress::from_str("aa:bb:cc:dd:41:00").unwrap(),
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+    assert_eq!(interface.segment_id, available_segment.id);
+    assert_eq!(interface.addresses.len(), 1);
+    assert!(
+        available_segment.prefixes[0]
+            .prefix
+            .contains(interface.addresses[0])
+    );
+    let interface_id = interface.id;
+    txn.commit().await?;
+
+    // Re-read the interface to verify the fallback segment persisted.
+    let mut txn = pool.begin().await?;
+    let persisted = db::machine_interface::find_one(txn.as_mut(), interface_id).await?;
+    assert_eq!(persisted.segment_id, available_segment.id);
+    assert!(persisted.addresses.iter().any(|address| address.is_ipv6()));
+
+    Ok(())
+}
+
+/// Verifies that DHCP reallocation can restore IPv4 and IPv6 independently on
+/// a dual-stack segment.
+///
+/// This covers the family-filtered allocation wrapper used when one address
+/// family must be refreshed without disturbing the other family.
+#[crate::sqlx_test]
+async fn test_allocate_address_for_family_dual_stack_round_trip(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    // Create a dual-stack admin segment and allocate both families initially.
+    let network_segment = db::network_segment::persist(
+        NewNetworkSegment {
+            name: "DUAL-STACK-REALLOCATE".to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![
+                NewNetworkPrefix {
+                    prefix: "10.88.1.0/24".parse().unwrap(),
+                    gateway: Some("10.88.1.1".parse().unwrap()),
+                    dhcpv6_link_address: None,
+                    num_reserved: 1,
+                },
+                NewNetworkPrefix {
+                    prefix: "2001:db8:8801::/64".parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 2,
+                },
+            ],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Underlay,
+            id: uuid::Uuid::new_v4().into(),
+            can_stretch: None,
+            allocation_strategy: AllocationStrategy::Dynamic,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&network_segment),
+        &MacAddress::from_str("aa:bb:cc:dd:40:ff").unwrap(),
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+    assert_eq!(interface.addresses.len(), 2);
+
+    // Remove the leases, then recover each family independently.
+    db::machine_interface_address::delete(&mut txn, &interface.id).await?;
+    let allocated_v4 = db::machine_interface::allocate_address_for_family(
+        &mut txn,
+        interface.id,
+        &network_segment,
+        IpAddressFamily::Ipv4,
+    )
+    .await?;
+    let allocated_v6 = db::machine_interface::allocate_address_for_family(
+        &mut txn,
+        interface.id,
+        &network_segment,
+        IpAddressFamily::Ipv6,
+    )
+    .await?;
+
+    // Re-read from the database to verify both family rows persisted.
+    let persisted = db::machine_interface::find_one(txn.as_mut(), interface.id).await?;
+    assert_eq!(allocated_v4.len(), 1);
+    assert_eq!(allocated_v6.len(), 1);
+    assert!(allocated_v4[0].is_ipv4());
+    assert!(allocated_v6[0].is_ipv6());
+    assert!(persisted.addresses.iter().any(|address| address.is_ipv4()));
+    assert!(persisted.addresses.iter().any(|address| address.is_ipv6()));
 
     Ok(())
 }

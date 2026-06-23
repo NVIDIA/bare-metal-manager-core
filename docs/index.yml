@@ -52,8 +52,6 @@ navigation:
           contents:
             - page: Reference Installation
               path: getting-started/installation-options/reference-install.md
-            - page: Day 0 IP and Network Configuration
-              path: getting-started/installation-options/day0-ip-network-config.md
             - page: DPF Setup for NICo Integration
               path: manuals/dpf.md
               slug: dpf-setup
@@ -104,6 +102,8 @@ navigation:
 
     - section: Provisioning (Day 0)
       contents:
+        - page: IP and Network Configuration
+          path: provisioning/ip-and-network-configuration.md
         - page: Ingesting Hosts
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
@@ -119,6 +119,12 @@ navigation:
       contents:
         - page: Network Isolation
           path: configuration/network-isolation.md
+        - section: InfiniBand
+          contents:
+            - page: InfiniBand Setup
+              path: playbooks/ib_runbook.md
+            - page: InfiniBand Partitioning
+              path: manuals/networking/infiniband_partitioning.md
         - page: Tenant Management
           path: configuration/tenant_management.md
         - page: Organization & Permissions
@@ -150,8 +156,6 @@ navigation:
           path: manuals/network_isolation.md
         - page: Network Security Groups
           path: manuals/networking/network_security_groups.md
-        - page: InfiniBand Partitioning
-          path: manuals/networking/infiniband_partitioning.md
         - page: Machine Identity KEK Rotation
           path: manuals/machine_identity_kek_rotation.md
         - page: Machine Identity Verification
@@ -210,8 +214,6 @@ navigation:
               path: playbooks/force_delete.md
             - page: Rebooting a Machine
               path: playbooks/machine_reboot.md
-            - page: InfiniBand Setup
-              path: playbooks/ib_runbook.md
             - section: Stuck Objects
               contents:
                 - page: Overview and General Troubleshooting

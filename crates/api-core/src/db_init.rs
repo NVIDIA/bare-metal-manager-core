@@ -105,7 +105,8 @@ pub async fn create_initial_networks(
         ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {
             match db::vpc::find_by_name(&mut txn, vpc_name).await?.as_slice() {
                 [vpc] => {
-                    vpc.network_virtualization_type
+                    vpc.config
+                        .network_virtualization_type
                         .ensure_supports_segment(&ns)?;
                     Some(vpc.id)
                 }
@@ -202,9 +203,9 @@ pub async fn create_initial_vpcs(
 
 /// Create the static-assignments anchor segment if it doesn't exist.
 /// This segment holds external static IP assignments that don't fall
-/// within any managed network prefix. The 169.254.254.254/32 prefix is
-/// a link-local placeholder -- the allocator will never hand out IPs
-/// from it, it exists only because the schema requires a prefix.
+/// within any managed network prefix. The placeholder prefixes are never
+/// handed out by the allocator; they exist because the schema requires
+/// segment prefixes and because static assignments can be IPv4 or IPv6.
 pub async fn ensure_static_assignments_segment(
     api: &Api,
     txn: &mut db::Transaction<'_>,
@@ -224,12 +225,20 @@ pub async fn ensure_static_assignments_segment(
         subdomain_id,
         vpc_id: None,
         mtu: 1500,
-        prefixes: vec![NewNetworkPrefix {
-            prefix: "169.254.254.254/32".parse().unwrap(),
-            gateway: None,
-            dhcpv6_link_address: None,
-            num_reserved: 1,
-        }],
+        prefixes: vec![
+            NewNetworkPrefix {
+                prefix: "169.254.254.254/32".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+            NewNetworkPrefix {
+                prefix: "100::/128".parse().unwrap(),
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            },
+        ],
         vlan_id: None,
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
@@ -284,12 +293,13 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         };
 
         // SVI IP is needed only for FNN.
-        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+        if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {
             continue;
         }
 
-        // Already SVI IP is allocated.
-        if segment.prefixes.iter().any(|x| x.svi_ip.is_some()) {
+        // Already SVI IP is allocated for every prefix. Prefixless segments
+        // still fall through so allocate_svi_ip reports the invalid state.
+        if !segment.prefixes.is_empty() && segment.prefixes.iter().all(|x| x.svi_ip.is_some()) {
             continue;
         }
 
@@ -401,8 +411,8 @@ pub(crate) async fn create_admin_vpc(
     };
 
     if let Some(mut existing_vpc) = existing_vpc {
-        let existing_vni = existing_vpc.status.as_ref().and_then(|status| status.vni);
-        if existing_vni != Some(configured_vni) || existing_vpc.vni != Some(configured_vni) {
+        let existing_vni = existing_vpc.status.vni;
+        if existing_vni != Some(configured_vni) || existing_vpc.config.vni != Some(configured_vni) {
             if let Some(conflicting_vpc) = db::vpc::find_by_vni(&mut txn, configured_vni)
                 .await?
                 .into_iter()

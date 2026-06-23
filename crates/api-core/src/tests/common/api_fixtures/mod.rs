@@ -2737,6 +2737,7 @@ pub async fn update_machine_validation_run(
             validation_id,
             duration_to_complete,
             total,
+            selected_tests: Vec::new(),
         }))
         .await
         .unwrap()

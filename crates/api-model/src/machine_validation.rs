@@ -18,7 +18,9 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::machine_validation::MachineValidationId;
+use carbide_uuid::machine_validation::{
+    MachineValidationAttemptId, MachineValidationId, MachineValidationRunItemId,
+};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
@@ -114,6 +116,51 @@ pub struct MachineValidationStatus {
     pub completed: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
+pub enum MachineValidationRunItemState {
+    #[default]
+    Pending,
+    Running,
+    Success,
+    Skipped,
+    Failed,
+}
+
+impl Display for MachineValidationRunItemState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
+pub enum MachineValidationAttemptState {
+    #[default]
+    Pending,
+    Running,
+    Success,
+    Skipped,
+    Failed,
+}
+
+impl Display for MachineValidationAttemptState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+fn decode_state<T>(raw: String, column: &'static str) -> Result<T, sqlx::Error>
+where
+    T: FromStr,
+    T::Err: Display,
+{
+    T::from_str(&raw).map_err(|err| {
+        sqlx::Error::Decode(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("invalid {column}: {raw} ({err})"),
+        )))
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct MachineValidation {
     pub id: MachineValidationId,
@@ -152,6 +199,104 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             status: Some(status),
             duration_to_complete: row.try_get("duration_to_complete")?,
             // description: row.try_get("description")?, // unused
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MachineValidationRunItem {
+    pub id: MachineValidationRunItemId,
+    pub run_id: MachineValidationId,
+    pub current_attempt_id: Option<MachineValidationAttemptId>,
+    pub test_id: String,
+    pub test_version: Option<String>,
+    pub display_name: String,
+    pub context: String,
+    pub component: Option<String>,
+    pub state: MachineValidationRunItemState,
+    pub order_index: i32,
+    pub attempt: i32,
+    pub max_attempts: i32,
+    pub timeout_seconds: i64,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+    pub skip_reason: Option<String>,
+    pub failure_reason: Option<String>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineValidationRunItem {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let state_raw: String = row.try_get("state")?;
+
+        Ok(MachineValidationRunItem {
+            id: row.try_get("id")?,
+            run_id: row.try_get("run_id")?,
+            current_attempt_id: match row
+                .try_get::<Option<MachineValidationAttemptId>, _>("current_attempt_id")
+            {
+                Ok(value) => value,
+                Err(sqlx::Error::ColumnNotFound(_)) => None,
+                Err(err) => return Err(err),
+            },
+            test_id: row.try_get("test_id")?,
+            test_version: row.try_get("test_version")?,
+            display_name: row.try_get("display_name")?,
+            context: row.try_get("context")?,
+            component: row.try_get("component")?,
+            state: decode_state(state_raw, "machine_validation_run_items.state")?,
+            order_index: row.try_get("order_index")?,
+            attempt: row.try_get("attempt")?,
+            max_attempts: row.try_get("max_attempts")?,
+            timeout_seconds: row.try_get("timeout_seconds")?,
+            started_at: row.try_get("started_at")?,
+            ended_at: row.try_get("ended_at")?,
+            last_heartbeat_at: row.try_get("last_heartbeat_at")?,
+            skip_reason: row.try_get("skip_reason")?,
+            failure_reason: row.try_get("failure_reason")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MachineValidationAttempt {
+    pub id: MachineValidationAttemptId,
+    pub run_item_id: MachineValidationRunItemId,
+    pub attempt_number: i32,
+    pub state: MachineValidationAttemptState,
+    pub command: Option<String>,
+    pub args: Option<String>,
+    pub container_image: Option<String>,
+    pub execute_in_host: Option<bool>,
+    pub exit_code: Option<i32>,
+    pub failure_classification: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+    pub stdout_summary: Option<String>,
+    pub stderr_summary: Option<String>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MachineValidationAttempt {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let state_raw: String = row.try_get("state")?;
+
+        Ok(MachineValidationAttempt {
+            id: row.try_get("id")?,
+            run_item_id: row.try_get("run_item_id")?,
+            attempt_number: row.try_get("attempt_number")?,
+            state: decode_state(state_raw, "machine_validation_attempts.state")?,
+            command: row.try_get("command")?,
+            args: row.try_get("args")?,
+            container_image: row.try_get("container_image")?,
+            execute_in_host: row.try_get("execute_in_host")?,
+            exit_code: row.try_get("exit_code")?,
+            failure_classification: row.try_get("failure_classification")?,
+            started_at: row.try_get("started_at")?,
+            ended_at: row.try_get("ended_at")?,
+            last_heartbeat_at: row.try_get("last_heartbeat_at")?,
+            stdout_summary: row.try_get("stdout_summary")?,
+            stderr_summary: row.try_get("stderr_summary")?,
         })
     }
 }
@@ -387,6 +532,134 @@ mod tests {
 
             "Failed" {
                 MachineValidationState::Failed => Yields(MachineValidationState::Failed),
+            }
+        );
+    }
+
+    #[test]
+    fn run_item_state_from_str_parses_every_variant_and_rejects_the_rest() {
+        scenarios!(
+            run = |s| MachineValidationRunItemState::from_str(s).map_err(drop);
+            "Pending" {
+                "Pending" => Yields(MachineValidationRunItemState::Pending),
+            }
+
+            "Running" {
+                "Running" => Yields(MachineValidationRunItemState::Running),
+            }
+
+            "Success" {
+                "Success" => Yields(MachineValidationRunItemState::Success),
+            }
+
+            "Skipped" {
+                "Skipped" => Yields(MachineValidationRunItemState::Skipped),
+            }
+
+            "Failed" {
+                "Failed" => Yields(MachineValidationRunItemState::Failed),
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "unknown variant" {
+                "Started" => Fails,
+            }
+
+            "lowercase is not accepted" {
+                "pending" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn run_item_state_display_renders_the_variant_name() {
+        value_scenarios!(
+            run = |state| state.to_string();
+            "Pending" {
+                MachineValidationRunItemState::Pending => "Pending".to_string(),
+            }
+
+            "Running" {
+                MachineValidationRunItemState::Running => "Running".to_string(),
+            }
+
+            "Success" {
+                MachineValidationRunItemState::Success => "Success".to_string(),
+            }
+
+            "Skipped" {
+                MachineValidationRunItemState::Skipped => "Skipped".to_string(),
+            }
+
+            "Failed" {
+                MachineValidationRunItemState::Failed => "Failed".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn attempt_state_from_str_parses_every_variant_and_rejects_the_rest() {
+        scenarios!(
+            run = |s| MachineValidationAttemptState::from_str(s).map_err(drop);
+            "Pending" {
+                "Pending" => Yields(MachineValidationAttemptState::Pending),
+            }
+
+            "Running" {
+                "Running" => Yields(MachineValidationAttemptState::Running),
+            }
+
+            "Success" {
+                "Success" => Yields(MachineValidationAttemptState::Success),
+            }
+
+            "Skipped" {
+                "Skipped" => Yields(MachineValidationAttemptState::Skipped),
+            }
+
+            "Failed" {
+                "Failed" => Yields(MachineValidationAttemptState::Failed),
+            }
+
+            "empty string" {
+                "" => Fails,
+            }
+
+            "unknown variant" {
+                "Started" => Fails,
+            }
+
+            "lowercase is not accepted" {
+                "pending" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn attempt_state_display_renders_the_variant_name() {
+        value_scenarios!(
+            run = |state| state.to_string();
+            "Pending" {
+                MachineValidationAttemptState::Pending => "Pending".to_string(),
+            }
+
+            "Running" {
+                MachineValidationAttemptState::Running => "Running".to_string(),
+            }
+
+            "Success" {
+                MachineValidationAttemptState::Success => "Success".to_string(),
+            }
+
+            "Skipped" {
+                MachineValidationAttemptState::Skipped => "Skipped".to_string(),
+            }
+
+            "Failed" {
+                MachineValidationAttemptState::Failed => "Failed".to_string(),
             }
         );
     }

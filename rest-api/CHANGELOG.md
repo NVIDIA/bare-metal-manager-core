@@ -1311,8 +1311,8 @@ Each release lists pull requests grouped by category, with the most recent versi
 - **Only run promotion workflow on main branch** ([#42](https://github.com/NVIDIA/infra-controller/rest-api/pull/42))
   Restricts the release promotion job to the main branch, preventing unmerged PR branches from showing a perpetually pending "Promote to Release Candidate" check.
 
-- **Updated Go version to 1.25.4 and fixed unit tests** ([#31](https://github.com/NVIDIA/infra-controller/rest-api/pull/31))
-  Upgrades the Go toolchain to 1.25.4 across all modules and fixes unit tests affected by the version change.
+- **Updated Go version to 1.25.11 and fixed unit tests** ([#31](https://github.com/NVIDIA/infra-controller/rest-api/pull/31))
+  Upgrades the Go toolchain to 1.25.11 across all modules and fixes unit tests affected by the version change.
 
 - **Add golangci-lint and revive config files** ([#30](https://github.com/NVIDIA/infra-controller/rest-api/pull/30))
   Adds the previously missing golangci-lint and revive configuration files required for consistent linting across the project.

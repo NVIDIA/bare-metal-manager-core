@@ -103,6 +103,7 @@ mod rms;
 mod route_server;
 mod rpc;
 mod scout_stream;
+mod secrets;
 mod set;
 mod site_explorer;
 mod sku;
@@ -274,6 +275,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::ResourcePool(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::RouteServer(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ScoutStream(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::Secrets(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Set(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ssh(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::SiteExplorer(cmd) => cmd.dispatch(ctx).await?,

@@ -463,6 +463,7 @@ impl InternalRBACRules {
             "UpdateOperatingSystemCachableIpxeTemplateArtifacts",
             vec![ForgeAdminCLI],
         );
+        x.perm("ReWrapSecrets", vec![ForgeAdminCLI]);
         x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
@@ -483,6 +484,18 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm("GetMachineValidationRuns", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindMachineValidationRunItemIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "FindMachineValidationRunItemsByIds",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "GetMachineValidationAttempt",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
