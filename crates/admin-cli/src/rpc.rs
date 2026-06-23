@@ -75,7 +75,8 @@ fn maybe_unimplemented(status: &tonic::Status) -> bool {
     )
 }
 
-const MACHINE_LIST_FETCH_CONCURRENCY: usize = 8;
+// Benchmarks showed 4 had better overall performance while still overlapping page fetch latency.
+const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
 
 // Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
 // access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
@@ -122,7 +123,7 @@ impl ApiClient {
                         .await
                         .map(|machines| (index, machines))
                 })
-                .buffer_unordered(MACHINE_LIST_FETCH_CONCURRENCY)
+                .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
                 .try_collect::<Vec<_>>()
                 .await?;
 
@@ -247,8 +248,19 @@ impl ApiClient {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
-        for ids in all_ids.instance_ids.chunks(page_size) {
-            let list = self.0.find_instances_by_ids(ids.to_vec()).await?;
+        let mut instance_pages = stream::iter(all_ids.instance_ids.chunks(page_size).enumerate())
+            .map(|(index, ids)| async move {
+                self.0
+                    .find_instances_by_ids(ids.to_vec())
+                    .await
+                    .map(|list| (index, list))
+            })
+            .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        instance_pages.sort_by_key(|(index, _)| *index);
+        for (_, list) in instance_pages {
             all_list.instances.extend(list.instances);
         }
 
@@ -599,8 +611,20 @@ impl ApiClient {
         let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
-        for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
-            let list = self.get_explored_endpoints_by_ids(ids).await?;
+
+        let mut endpoint_pages =
+            stream::iter(endpoint_ids.endpoint_ids.chunks(page_size).enumerate())
+                .map(|(index, ids)| async move {
+                    self.get_explored_endpoints_by_ids(ids)
+                        .await
+                        .map(|list| (index, list))
+                })
+                .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
+                .try_collect::<Vec<_>>()
+                .await?;
+
+        endpoint_pages.sort_by_key(|(index, _)| *index);
+        for (_, list) in endpoint_pages {
             all_endpoints.endpoints.extend(list.endpoints);
         }
 
@@ -638,10 +662,23 @@ impl ApiClient {
         let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
-        for ids in host_ids.host_ids.chunks(page_size) {
-            let list = self.0.find_explored_managed_hosts_by_ids(ids).await?;
+
+        let mut host_pages = stream::iter(host_ids.host_ids.chunks(page_size).enumerate())
+            .map(|(index, ids)| async move {
+                self.0
+                    .find_explored_managed_hosts_by_ids(ids)
+                    .await
+                    .map(|list| (index, list))
+            })
+            .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        host_pages.sort_by_key(|(index, _)| *index);
+        for (_, list) in host_pages {
             all_hosts.managed_hosts.extend(list.managed_hosts);
         }
+
         Ok(all_hosts.managed_hosts)
     }
 
@@ -2242,7 +2279,6 @@ impl ApiClient {
     ) -> CarbideCliResult<RemediationList> {
         let all_remediation_ids = self.0.find_remediation_ids().await?;
 
-        use futures::{StreamExt, TryStreamExt, stream};
         let remediations = stream::iter(all_remediation_ids.remediation_ids.chunks(page_size))
             .then(|remediation_ids| async move {
                 self.0
