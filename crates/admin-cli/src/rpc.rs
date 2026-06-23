@@ -116,19 +116,13 @@ impl ApiClient {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
-        let mut machine_pages =
-            stream::iter(all_machine_ids.machine_ids.chunks(page_size).enumerate())
-                .map(|(index, machine_ids)| async move {
-                    self.get_machines_by_ids(machine_ids)
-                        .await
-                        .map(|machines| (index, machines))
-                })
-                .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
-                .try_collect::<Vec<_>>()
-                .await?;
+        let machine_pages = stream::iter(all_machine_ids.machine_ids.chunks(page_size))
+            .map(|machine_ids| self.get_machines_by_ids(machine_ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
 
-        machine_pages.sort_by_key(|(index, _)| *index);
-        for (_, machines) in machine_pages {
+        for machines in machine_pages {
             all_machines.machines.extend(machines.machines);
         }
 
@@ -248,19 +242,13 @@ impl ApiClient {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
-        let mut instance_pages = stream::iter(all_ids.instance_ids.chunks(page_size).enumerate())
-            .map(|(index, ids)| async move {
-                self.0
-                    .find_instances_by_ids(ids.to_vec())
-                    .await
-                    .map(|list| (index, list))
-            })
-            .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
+        let instance_pages = stream::iter(all_ids.instance_ids.chunks(page_size))
+            .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
             .try_collect::<Vec<_>>()
             .await?;
 
-        instance_pages.sort_by_key(|(index, _)| *index);
-        for (_, list) in instance_pages {
+        for list in instance_pages {
             all_list.instances.extend(list.instances);
         }
 
@@ -612,19 +600,13 @@ impl ApiClient {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
 
-        let mut endpoint_pages =
-            stream::iter(endpoint_ids.endpoint_ids.chunks(page_size).enumerate())
-                .map(|(index, ids)| async move {
-                    self.get_explored_endpoints_by_ids(ids)
-                        .await
-                        .map(|list| (index, list))
-                })
-                .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
-                .try_collect::<Vec<_>>()
-                .await?;
+        let endpoint_pages = stream::iter(endpoint_ids.endpoint_ids.chunks(page_size))
+            .map(|ids| self.get_explored_endpoints_by_ids(ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
 
-        endpoint_pages.sort_by_key(|(index, _)| *index);
-        for (_, list) in endpoint_pages {
+        for list in endpoint_pages {
             all_endpoints.endpoints.extend(list.endpoints);
         }
 
@@ -663,19 +645,13 @@ impl ApiClient {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
 
-        let mut host_pages = stream::iter(host_ids.host_ids.chunks(page_size).enumerate())
-            .map(|(index, ids)| async move {
-                self.0
-                    .find_explored_managed_hosts_by_ids(ids)
-                    .await
-                    .map(|list| (index, list))
-            })
-            .buffer_unordered(PAGED_LIST_FETCH_CONCURRENCY)
+        let host_pages = stream::iter(host_ids.host_ids.chunks(page_size))
+            .map(|ids| self.0.find_explored_managed_hosts_by_ids(ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
             .try_collect::<Vec<_>>()
             .await?;
 
-        host_pages.sort_by_key(|(index, _)| *index);
-        for (_, list) in host_pages {
+        for list in host_pages {
             all_hosts.managed_hosts.extend(list.managed_hosts);
         }
 
