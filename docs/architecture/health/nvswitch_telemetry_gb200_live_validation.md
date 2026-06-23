@@ -149,7 +149,7 @@ Unit coverage that locks this behavior:
 ## Blocker escalations (Stage 0)
 
 Stage 0 live probe (2026-06-20) classified all 193 GB200-applicable NVSWITCH catalog rows.
-40 rows are escalated below (21 config-threshold, 13 absent-from-live-probe, 6 string-valued). No
+34 rows are escalated below (21 config-threshold, 13 absent-from-live-probe). No
 row is deferred — each has an explicit disposition and a named resolution path.
 
 ### Group A — Config-threshold rows (21 rows, BLOCKER-THRESHOLD)
@@ -244,21 +244,11 @@ requires a specific counter-clear event to populate.
 scrape. This may be a naming discrepancy or a field absent in the installed NMX-T version.
 Escalate to NMX-T owner with the NMX-T version string from the test rig.
 
-### Group E — String-valued rows (6 rows, BLOCKER-STRING)
+### String-valued rows — RESOLVED (6 rows, now implemented)
 
-These catalog rows are present live but carry string values with no numeric encoding, so they
-cannot be emitted as numeric `MetricSample`s (the producer is numeric-only). They are not silently
-dropped — they are escalated pending a string/label export path (or enum-coding for the FSM-style ones).
-
-| Row | Metric            | Live source / value                                                         |
-|-----|-------------------|-----------------------------------------------------------------------------|
-| 862 | CONTACT           | gNMI `/platform-general/state/contact` (empty on rig)                       |
-| 863 | LOCATION          | gNMI `/platform-general/state/location` (empty on rig)                      |
-| 864 | NODE-DESCRIPTION  | gNMI `/platform-general/state/platform-name` ("x86_64-nvidia_n5400_ld-r0")  |
-| 876 | ASIC-NAME         | gNMI `/components/component/state/name` (e.g. "ASIC1")                       |
-| 961 | PHY-MANAGER-STATE | gNMI `/interfaces/interface/phy-diag/state/phy-manager-state` (FSM enum)     |
-| 965 | VL-CAPABILITIES   | gNMI `/interfaces/interface/infiniband/state/vl-capabilities` ("VL0-VL7")   |
-
-**Resolution:** add a string/label export path (e.g. an info-style series or label) for the
-descriptive rows, or enum-code the FSM-style ones (`PHY-MANAGER-STATE`) like the existing
-`physical_port_state` converter. Tracked as a follow-up (#11).
+These 6 catalog rows are string-valued and were previously escalated; they are now implemented:
+- `961 PHY-MANAGER-STATE` — enum-coded to `interface_phy_manager_state` (active/linkup = 1, else 0).
+- `965 VL-CAPABILITIES`, `862 CONTACT`, `863 LOCATION`, `864 NODE-DESCRIPTION` — emitted as
+  info-metrics (value 1 with the string carried in a label; skipped when empty, so `CONTACT`/`LOCATION`
+  emit only when configured).
+- `876 ASIC-NAME` — covered by the existing `component_name` label on every component metric (not re-emitted).

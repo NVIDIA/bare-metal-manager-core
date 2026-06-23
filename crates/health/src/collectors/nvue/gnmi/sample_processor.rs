@@ -152,6 +152,24 @@ impl GnmiSampleProcessor {
                 Some(v) => self.emit_iface("interface_supported_width", iface_name, v, "lanes"),
                 None => debug_unmapped_value(elems, val, "interface_supported_width"),
             }
+        } else if leaf_matches(elems, &["phy-diag", "state", "phy-manager-state"]) {
+            // PHY-MANAGER-STATE (row 961): a dynamic PHY FSM string. Enum-code it
+            // rather than carry it as an info label (the value changes over time).
+            let v = phy_manager_state_to_f64(typed_value_to_string(val).as_deref());
+            self.emit_iface("interface_phy_manager_state", iface_name, v, "state");
+        } else if leaf_matches(elems, &["infiniband", "state", "vl-capabilities"]) {
+            // VL-CAPABILITIES (row 965): a stable capability string (e.g.
+            // "VL0-VL7"). Surface it as an info-metric: a constant 1.0 sample
+            // whose information lives in the `vl_capabilities` label. Empty
+            // strings carry no information and emit nothing.
+            if let Some(caps) = typed_value_to_string(val).filter(|s| !s.is_empty()) {
+                self.emit_iface_info(
+                    "interface_vl_capabilities_info",
+                    iface_name,
+                    "vl_capabilities",
+                    &caps,
+                );
+            }
         }
     }
 
@@ -164,6 +182,42 @@ impl GnmiSampleProcessor {
             unit,
             "interface_name",
             iface_name,
+        );
+    }
+
+    /// emit a per-interface info-metric: a constant `1.0` sample whose
+    /// information is carried by an extra string label alongside the
+    /// `interface_name` label. Used for stable interface capability strings.
+    fn emit_iface_info(
+        &self,
+        metric_type: &str,
+        iface_name: &str,
+        info_label_name: &'static str,
+        info_label_value: &str,
+    ) {
+        let Some(sink) = &self.data_sink else { return };
+
+        let mut key = String::with_capacity(metric_type.len() + 1 + iface_name.len());
+        key.push_str(metric_type);
+        key.push(':');
+        key.push_str(iface_name);
+
+        let labels = vec![
+            (Cow::Borrowed("interface_name"), iface_name.to_string()),
+            (Cow::Borrowed(info_label_name), info_label_value.to_string()),
+        ];
+
+        sink.handle_event(
+            &self.event_context,
+            &CollectorEvent::Metric(Box::new(MetricSample {
+                key,
+                name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
+                metric_type: metric_type.to_string(),
+                unit: "info".to_string(),
+                value: 1.0,
+                labels,
+                context: None,
+            })),
         );
     }
 
@@ -197,6 +251,9 @@ impl GnmiSampleProcessor {
         {
             self.emit_comp("component_cpu_utilization", comp_name, v, "percent");
         }
+        // ASIC-NAME (row 876): `state/name` is intentionally not emitted; the
+        // same value is already surfaced as the `component_name` label on every
+        // component metric, so a dedicated series would be redundant.
     }
 
     /// emit a `/components/component` canonical series keyed on `component_name`
@@ -213,10 +270,32 @@ impl GnmiSampleProcessor {
 
     fn process_platform_general_metric(&self, elems: &[&PathElem], val: &proto::TypedValue) {
         // Explicit per-leaf canonical mappings for `/platform-general/state`.
-        // This is a switch-level singleton: only the four numeric memory/disk
-        // leaves proven live in the Stage-0 probe are mapped; every other
-        // platform-general leaf (contact, location, platform-name, ...) falls
-        // through and is never exported.
+        // This is a switch-level singleton: the four numeric memory/disk leaves
+        // are numeric gauges; contact/location/platform-name are stable strings
+        // surfaced as switch-level info-metrics. Every other platform-general
+        // leaf falls through and is never exported.
+        //
+        // String info-metrics first (CONTACT 862, LOCATION 863,
+        // NODE-DESCRIPTION 864): each emits a constant 1.0 sample whose
+        // information is carried by a single string label. Empty strings carry
+        // no information and emit nothing (CONTACT/LOCATION are empty on the
+        // GB200 rig, so only NODE-DESCRIPTION emits live).
+        let info: Option<(&str, &'static str)> = if leaf_matches(elems, &["state", "contact"]) {
+            Some(("platform_contact_info", "contact"))
+        } else if leaf_matches(elems, &["state", "location"]) {
+            Some(("platform_location_info", "location"))
+        } else if leaf_matches(elems, &["state", "platform-name"]) {
+            Some(("platform_node_description_info", "node_description"))
+        } else {
+            None
+        };
+        if let Some((metric_type, info_label_name)) = info {
+            if let Some(s) = typed_value_to_string(val).filter(|s| !s.is_empty()) {
+                self.emit_switch_info(metric_type, info_label_name, &s);
+            }
+            return;
+        }
+
         let metric_type = if leaf_matches(elems, &["state", "memory-used"]) {
             "platform_memory_used"
         } else if leaf_matches(elems, &["state", "memory-total-size"]) {
@@ -250,6 +329,36 @@ impl GnmiSampleProcessor {
                 unit: unit.to_string(),
                 value,
                 labels: Vec::new(),
+                context: None,
+            })),
+        );
+    }
+
+    /// emit a switch-level singleton info-metric: a constant `1.0` sample whose
+    /// information is carried by a single string label. Like `emit_switch`,
+    /// endpoint identity is added by PrometheusSink from EventContext.
+    fn emit_switch_info(
+        &self,
+        metric_type: &str,
+        info_label_name: &'static str,
+        info_label_value: &str,
+    ) {
+        let Some(sink) = &self.data_sink else { return };
+
+        let labels = vec![(
+            Cow::Borrowed(info_label_name),
+            info_label_value.to_string(),
+        )];
+
+        sink.handle_event(
+            &self.event_context,
+            &CollectorEvent::Metric(Box::new(MetricSample {
+                key: metric_type.to_string(),
+                name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
+                metric_type: metric_type.to_string(),
+                unit: "info".to_string(),
+                value: 1.0,
+                labels,
                 context: None,
             })),
         );
@@ -653,6 +762,24 @@ fn physical_port_state_to_f64(state: Option<&str>) -> f64 {
         Some(s) if s.eq_ignore_ascii_case("polling") => 2.0,
         Some(s) if s.eq_ignore_ascii_case("port_configuration_training") => 3.0,
         _ => 0.0,
+    }
+}
+
+/// PHY manager FSM state string -> numeric code. The PHY manager reports a
+/// dynamic FSM label (e.g. "Active_or_Linkup", "Disabled"); a substring match
+/// is used because the exact tokens vary. 1.0 == the PHY is active or linked
+/// up, 0.0 otherwise (including empty/None). Mirrors `physical_port_state_to_f64`.
+fn phy_manager_state_to_f64(state: Option<&str>) -> f64 {
+    match state {
+        Some(s) => {
+            let lower = s.to_ascii_lowercase();
+            if lower.contains("active") || lower.contains("linkup") {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        None => 0.0,
     }
 }
 
@@ -1360,12 +1487,15 @@ mod tests {
         let CollectorEvent::Metric(sample) = event else {
             panic!("expected a Metric event");
         };
-        // shared producer invariants for every interface mapping
+        // shared producer invariants for every interface mapping. The
+        // `interface_name` label is always present as the first (entity) label;
+        // info-metrics may carry additional info labels after it, so assert the
+        // first label rather than the exact set.
         assert_eq!(sample.name, NVUE_GNMI_SAMPLE_STREAM_ID);
         assert_eq!(ctx.collector_type, NVUE_GNMI_SAMPLE_STREAM_ID);
         assert_eq!(
-            sample.labels,
-            vec![(Cow::Borrowed("interface_name"), "acp0".to_string())]
+            sample.labels.first(),
+            Some(&(Cow::Borrowed("interface_name"), "acp0".to_string()))
         );
         (*sample, ctx)
     }
@@ -1684,6 +1814,97 @@ mod tests {
     }
 
     #[test]
+    fn test_phy_manager_state_to_f64_helper() {
+        // substring match, case-insensitive: active/linkup => 1.0
+        assert_eq!(phy_manager_state_to_f64(Some("Active_or_Linkup")), 1.0);
+        assert_eq!(phy_manager_state_to_f64(Some("LINKUP")), 1.0);
+        assert_eq!(phy_manager_state_to_f64(Some("active")), 1.0);
+        // anything else => 0.0
+        assert_eq!(phy_manager_state_to_f64(Some("Disabled")), 0.0);
+        assert_eq!(phy_manager_state_to_f64(Some("")), 0.0);
+        assert_eq!(phy_manager_state_to_f64(None), 0.0);
+    }
+
+    #[test]
+    fn test_interface_phy_manager_state_enum() {
+        // PHY-MANAGER-STATE (row 961): dynamic FSM string enum-coded to 1/0.
+        for (raw, expected) in [
+            ("Active_or_Linkup", 1.0),
+            ("LINKUP", 1.0),
+            ("Disabled", 0.0),
+            ("", 0.0),
+        ] {
+            let (sample, _) = run_interface_leaf(
+                &["phy-diag", "state", "phy-manager-state"],
+                make_typed_value_string(raw),
+            );
+            assert_eq!(sample.metric_type, "interface_phy_manager_state");
+            assert_eq!(sample.unit, "state");
+            assert_eq!(sample.value, expected, "phy-manager-state {raw:?}");
+        }
+    }
+
+    #[test]
+    fn test_interface_vl_capabilities_info() {
+        // VL-CAPABILITIES (row 965): non-empty string -> one info sample whose
+        // information is carried by the `vl_capabilities` label alongside
+        // `interface_name`. The shared invariant assert in `run_interface_leaf`
+        // only checks the first (interface_name) label, so assert the full set
+        // explicitly here.
+        let (sample, _) = run_interface_leaf(
+            &["infiniband", "state", "vl-capabilities"],
+            make_typed_value_string("VL0-VL7"),
+        );
+        assert_eq!(sample.metric_type, "interface_vl_capabilities_info");
+        assert_eq!(sample.unit, "info");
+        assert_eq!(sample.value, 1.0);
+        assert_eq!(
+            sample.labels,
+            vec![
+                (Cow::Borrowed("interface_name"), "acp0".to_string()),
+                (Cow::Borrowed("vl_capabilities"), "VL0-VL7".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_interface_vl_capabilities_empty_is_not_exported() {
+        // An empty vl-capabilities string carries no information and emits nothing.
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: Some(proto::Path {
+                elem: vec![
+                    make_path_elem("interfaces", &[]),
+                    make_path_elem("interface", &[("name", "acp0")]),
+                ],
+                ..Default::default()
+            }),
+            update: vec![proto::Update {
+                path: Some(proto::Path {
+                    elem: vec![
+                        make_path_elem("infiniband", &[]),
+                        make_path_elem("state", &[]),
+                        make_path_elem("vl-capabilities", &[]),
+                    ],
+                    ..Default::default()
+                }),
+                val: Some(make_typed_value_string("")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        proc.process_notification(&notification);
+        assert_eq!(
+            sink.events.lock().expect("lock poisoned").len(),
+            0,
+            "empty vl-capabilities must not emit a metric"
+        );
+    }
+
+    #[test]
     fn test_interface_link_width_enum() {
         let (active, _) = run_interface_leaf(
             &["infiniband", "state", "width"],
@@ -1745,8 +1966,9 @@ mod tests {
 
     #[test]
     fn test_unknown_interface_leaf_is_not_exported() {
-        // a live but unmapped leaf (phy-manager-state is flagged, not mapped)
-        // must never produce a MetricSample.
+        // a live but unmapped leaf (e.g. ip-address, which is not in any
+        // canonical mapping arm or the numeric table) must never produce a
+        // MetricSample.
         let sink = Arc::new(CapturingSink::default());
         let mut proc = test_processor();
         proc.data_sink = Some(sink.clone());
@@ -1762,13 +1984,12 @@ mod tests {
             update: vec![proto::Update {
                 path: Some(proto::Path {
                     elem: vec![
-                        make_path_elem("phy-diag", &[]),
                         make_path_elem("state", &[]),
-                        make_path_elem("phy-manager-state", &[]),
+                        make_path_elem("ip-address", &[]),
                     ],
                     ..Default::default()
                 }),
-                val: Some(make_typed_value_string("SUBFSM_ACTIVE_E")),
+                val: Some(make_typed_value_string("10.0.0.1")),
                 ..Default::default()
             }],
             ..Default::default()
@@ -2034,9 +2255,10 @@ mod tests {
     }
 
     #[test]
-    fn test_platform_general_string_leaf_is_not_exported() {
-        // String leaves at the same level (contact, location, platform-name)
-        // are out of scope: they must fall through unmapped and emit nothing.
+    fn test_platform_general_unmapped_string_leaf_is_not_exported() {
+        // A platform-general string leaf that is not one of the mapped info
+        // leaves (contact/location/platform-name) must fall through and emit
+        // nothing, while still being counted as the platform-general entity.
         let sink = Arc::new(CapturingSink::default());
         let mut proc = test_processor();
         proc.data_sink = Some(sink.clone());
@@ -2048,7 +2270,7 @@ mod tests {
                     elem: vec![
                         make_path_elem("platform-general", &[]),
                         make_path_elem("state", &[]),
-                        make_path_elem("platform-name", &[]),
+                        make_path_elem("product-name", &[]),
                     ],
                     ..Default::default()
                 }),
@@ -2065,5 +2287,118 @@ mod tests {
             0,
             "unmapped platform-general string leaf must not emit a metric"
         );
+    }
+
+    #[test]
+    fn test_platform_general_empty_info_string_is_not_exported() {
+        // CONTACT/LOCATION are empty on the GB200 rig; an empty info string
+        // carries no information and must emit nothing.
+        for leaf in ["contact", "location", "platform-name"] {
+            let sink = Arc::new(CapturingSink::default());
+            let mut proc = test_processor();
+            proc.data_sink = Some(sink.clone());
+            let notification = proto::Notification {
+                timestamp: 0,
+                prefix: None,
+                update: vec![proto::Update {
+                    path: Some(proto::Path {
+                        elem: vec![
+                            make_path_elem("platform-general", &[]),
+                            make_path_elem("state", &[]),
+                            make_path_elem(leaf, &[]),
+                        ],
+                        ..Default::default()
+                    }),
+                    val: Some(make_typed_value_string("")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let count = proc.process_notification(&notification);
+            assert_eq!(count, 1, "platform-general entity is still counted for {leaf}");
+            assert_eq!(
+                sink.events.lock().expect("lock poisoned").len(),
+                0,
+                "empty info string must not emit a metric for {leaf}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_platform_general_node_description_info() {
+        // NODE-DESCRIPTION (row 864): a non-empty platform-name emits a single
+        // switch-level info-metric carrying the raw string as `node_description`.
+        let sample = run_platform_general_leaf_info(
+            &["state", "platform-name"],
+            "x86_64-nvidia_n5400_ld-r0",
+        );
+        assert_eq!(sample.metric_type, "platform_node_description_info");
+        assert_eq!(sample.unit, "info");
+        assert_eq!(sample.value, 1.0);
+        assert_eq!(
+            sample.labels,
+            vec![(
+                Cow::Borrowed("node_description"),
+                "x86_64-nvidia_n5400_ld-r0".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn test_platform_general_contact_and_location_info() {
+        // CONTACT (862) / LOCATION (863): non-empty strings emit their info
+        // series with the matching single label.
+        for (leaf, metric_type, label, raw) in [
+            ("contact", "platform_contact_info", "contact", "noc@example.com"),
+            ("location", "platform_location_info", "location", "rack-7"),
+        ] {
+            let sample = run_platform_general_leaf_info(&["state", leaf], raw);
+            assert_eq!(sample.metric_type, metric_type, "leaf {leaf}");
+            assert_eq!(sample.unit, "info", "leaf {leaf}");
+            assert_eq!(sample.value, 1.0, "leaf {leaf}");
+            assert_eq!(
+                sample.labels,
+                vec![(Cow::Borrowed(label), raw.to_string())],
+                "leaf {leaf}"
+            );
+        }
+    }
+
+    /// Drive a single `/platform-general/<tail...>` string update and return the
+    /// one captured info `MetricSample`. Unlike `run_platform_general_leaf`, the
+    /// switch-level info series carries a single string label (no per-entity
+    /// name), so the empty-labels invariant does not apply.
+    fn run_platform_general_leaf_info(tail: &[&str], raw: &str) -> MetricSample {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+
+        let mut elems = vec![make_path_elem("platform-general", &[])];
+        elems.extend(tail.iter().map(|n| make_path_elem(n, &[])));
+
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: None,
+            update: vec![proto::Update {
+                path: Some(proto::Path {
+                    elem: elems,
+                    ..Default::default()
+                }),
+                val: Some(make_typed_value_string(raw)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        proc.process_notification(&notification);
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 1, "expected exactly one emitted metric");
+        let (ctx, event) = events[0].clone();
+        let CollectorEvent::Metric(sample) = event else {
+            panic!("expected a Metric event");
+        };
+        assert_eq!(sample.name, NVUE_GNMI_SAMPLE_STREAM_ID);
+        assert_eq!(ctx.collector_type, NVUE_GNMI_SAMPLE_STREAM_ID);
+        *sample
     }
 }

@@ -17,8 +17,8 @@ Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_
 
 | Disposition    | Count | Meaning                                                               |
 |----------------|-------|-----------------------------------------------------------------------|
-| implemented    | 153   | PRESENT/RESOLVED-LIVE allowlist hit, or IMPLEMENTED (MAX-SPEED via NVUE REST) |
-| blocker        | 40    | ABSENT-BLOCKER (leaf not live), BLOCKER-THRESHOLD (config-only), or BLOCKER-STRING (string-valued) |
+| implemented    | 159   | PRESENT/RESOLVED-LIVE allowlist hit, IMPLEMENTED (NVUE REST / info / enum-coded), or covered by an existing label |
+| blocker        | 34    | ABSENT-BLOCKER (leaf not live) or BLOCKER-THRESHOLD (config-only) |
 
 ### final_status breakdown
 
@@ -26,15 +26,14 @@ Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_
 |-------------------|-------|
 | PRESENT           | 136   |
 | RESOLVED-LIVE     | 16    |
-| IMPLEMENTED       | 1     |
+| IMPLEMENTED       | 7     |
 | ABSENT-BLOCKER    | 13    |
 | BLOCKER-THRESHOLD | 21    |
-| BLOCKER-STRING    | 6     |
 
 ## Blocker escalations
 
 See `nvswitch_telemetry_gb200_live_validation.md` section "Blocker escalations (Stage 0)" for the
-full annotated list of 40 rows, grouped by root cause, with resolution path and re-probe
+full annotated list of 34 rows, grouped by root cause, with resolution path and re-probe
 conditions.
 
 ## Notes on implemented rows
