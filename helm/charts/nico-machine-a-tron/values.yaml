@@ -4,13 +4,13 @@
 ##
 ## DEPLOYMENT MODES (mutually exclusive):
 ##
-## 1. OVERRIDE MODE (Development) - bmcProxy.enabled: false
+## 1. OVERRIDE MODE (Development) - nginxBmcProxy.enabled: false
 ##    - NICo Site-Explorer redirects ALL Redfish calls to machine-a-tron
 ##    - Simple setup, no MetalLB required
 ##    - INCOMPATIBLE with real hardware (all BMC traffic goes to mock)
 ##    - Requires: NICo site config with override_target_host set
 ##
-## 2. METALLB MODE (Large-Scale Testing) - bmcProxy.enabled: true
+## 2. METALLB MODE (Large-Scale Testing) - nginxBmcProxy.enabled: true
 ##    - Each simulated BMC gets dedicated external IP via MetalLB
 ##    - Compatible with real hardware (can run alongside real machines)
 ##    - Requires: MetalLB with BGP for scale, dedicated IP range
@@ -257,75 +257,71 @@ externalService:
 ##
 ## Example: 500 hosts with 2 DPUs each = 500 + 1000 = 1500 services (fits in /21)
 ##
-bmcProxy:
+nginxBmcProxy:
   ## Enable the NGINX BMC proxy with MetalLB LoadBalancer services
   enabled: false
 
-  ## IP range start address for MetalLB pool
-  ## Services are created sequentially: startIP, startIP+1, startIP+2, ...
+  ## ==========================================================================
+  ## NGINX Reverse Proxy Settings
+  ## ==========================================================================
+  image: nginx:alpine
+  replicas: 1
+  resources:
+    limits:
+      cpu: 2
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 256Mi
+
+  ## TLS certificate secret name (defaults to machine-a-tron certificate)
+  tlsSecretName: ""
+
+  ## Service port (external-facing)
+  servicePort: 443
+
+  ## ==========================================================================
+  ## MetalLB IP Pool Configuration
+  ## ==========================================================================
+  ## IP range for MetalLB pool. Services are created sequentially.
   ## Number of services = total BMCs (auto-calculated from machine config)
   ##
   ## IMPORTANT: This IP range must match the NICo network configuration
   ## so that IPs allocated by NICo match the MetalLB service IPs.
   ##
+  ## NICo network config (nico-api-site-config.toml):
+  ##   [networks.simulated-oob]
+  ##   type = "underlay"
+  ##   prefix = "10.100.0.0/21"
+  ##   gateway = "10.100.0.1"
+  ##
+  ## Machine-a-tron config (values.yaml):
+  ##   machines.dell-hosts.oobDhcpRelayAddress: "10.100.0.1"
+  ##
   ## Examples by scale:
   ##   /21 (2048 IPs):   "10.100.0.2-10.100.7.254"
-  ##   /20 (4096 IPs):   "10.100.0.2-10.100.15.254"
-  ##   /19 (8192 IPs):   "10.100.0.2-10.100.31.254"
-  ##   /18 (16384 IPs):  "10.100.0.2-10.100.63.254" (max, requires BGP)
+  ##   /18 (16384 IPs):  "10.100.0.2-10.100.63.254" max supported
   ipRange: ""
 
-  ## MetalLB IPAddressPool configuration
   ipPool:
     ## Create the MetalLB IPAddressPool resource
     create: true
-    ## Namespace for MetalLB resources (default: metallb-system)
+    ## Namespace for MetalLB resources
     namespace: metallb-system
     ## Enable auto-assign from this pool
     autoAssign: true
-    ## L2 Advertisement (only for small-scale testing, NOT for production)
+    ## L2 Advertisement (only for small-scale testing)
     l2Advertisement: false
-    ## Interfaces for L2 advertisement (optional)
-    # l2Interfaces:
-    #   - eth0
 
   ## ==========================================================================
   ## BGP Configuration - REQUIRED for large scale deployments
   ## ==========================================================================
   ## BGP mode with route aggregation prevents overwhelming upstream routers
-  ## with thousands of individual /32 routes. Instead, we announce a single
-  ## /18 supernet summary route (16000+ services)
-  ##
+  ## with thousands of individual /32 routes.
   bgp:
-    ## Enable BGP mode. It's REQUIRED for large scale machine-a-tron tests
     enabled: false
     ## Route aggregation length - announces single /18 instead of 16000+ /32s
-    ## This is MANDATORY for large scale deployment
     aggregationLength: 18
-
-  ## NGINX reverse proxy settings
-  nginx:
-    image: nginx:alpine
-    replicas: 1
-    resources:
-      limits:
-        cpu: 2
-        memory: 1Gi
-      requests:
-        cpu: 500m
-        memory: 256Mi
-
-  ## TLS settings for NGINX
-  tls:
-    ## Use the machine-a-tron certificate for NGINX
-    secretName: "" # defaults to {{ .Release.Name }}-certificate
-
-  ## Service settings
-  service:
-    ## Port NGINX listens on (external-facing)
-    port: 443
-    ## Protocol for health checks
-    protocol: TCP
 
 configFiles:
   ## Override the entire mat.toml config (leave empty to use generated config)

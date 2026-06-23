@@ -169,9 +169,9 @@ flowchart LR
 helm upgrade --install nico ./helm \
   --namespace nico-system \
   --set nico-machine-a-tron.enabled=true \
-  --set nico-machine-a-tron.bmcProxy.enabled=true \
-  --set nico-machine-a-tron.bmcProxy.ipRange="10.100.0.0-10.100.7.254" \
-  --set nico-machine-a-tron.bmcProxy.bgp.enabled=true \
+  --set nico-machine-a-tron.nginxBmcProxy.enabled=true \
+  --set nico-machine-a-tron.nginxBmcProxy.ipRange="10.100.0.0-10.100.7.254" \
+  --set nico-machine-a-tron.nginxBmcProxy.bgp.enabled=true \
   --set nico-machine-a-tron.machines.dell-hosts.hostCount=100 \
   --set nico-machine-a-tron.machines.dell-hosts.dpuPerHostCount=2 \
   --set nico-machine-a-tron.machines.dell-hosts.oobDhcpRelayAddress="10.100.0.1"
@@ -237,7 +237,7 @@ SCALE LIMIT EXCEEDED: 16500 BMCs requested, maximum is 16384 (/18 subnet).
 For deployments with 2000+ services, BGP mode with route aggregation is **required**:
 
 ```yaml
-bmcProxy:
+nginxBmcProxy:
   enabled: true
   ipRange: "10.100.0.2-10.100.15.254"  # /20 range
 
@@ -279,9 +279,9 @@ individual /32 route. With thousands of services, this overwhelms upstream route
 | `machines.<name>.hwType` | Hardware type | `dell_poweredge_r750` |
 | `machines.<name>.oobDhcpRelayAddress` | BMC network gateway | `10.100.0.1` |
 | `machines.<name>.adminDhcpRelayAddress` | Admin network gateway | `10.101.0.1` |
-| `bmcProxy.enabled` | Enable MetalLB mode | `false` |
-| `bmcProxy.ipRange` | MetalLB IP pool range | `""` |
-| `bmcProxy.bgp.enabled` | Enable BGP advertisement | `false` |
+| `nginxBmcProxy.enabled` | Enable MetalLB mode | `false` |
+| `nginxBmcProxy.ipRange` | MetalLB IP pool range | `""` |
+| `nginxBmcProxy.bgp.enabled` | Enable BGP advertisement | `false` |
 | `terminationGracePeriodSeconds` | Shutdown timeout | `60` |
 
 ### Machine Groups

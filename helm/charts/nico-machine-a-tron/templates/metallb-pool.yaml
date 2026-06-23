@@ -1,21 +1,21 @@
-{{- if .Values.bmcProxy.enabled }}
-{{- if .Values.bmcProxy.ipPool.create }}
-{{- if .Values.bmcProxy.ipRange }}
+{{- if .Values.nginxBmcProxy.enabled }}
+{{- if .Values.nginxBmcProxy.ipPool.create }}
+{{- if .Values.nginxBmcProxy.ipRange }}
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: {{ include "nico-machine-a-tron.name" . }}-bmc-pool
-  namespace: {{ .Values.bmcProxy.ipPool.namespace | default "metallb-system" }}
+  namespace: {{ .Values.nginxBmcProxy.ipPool.namespace | default "metallb-system" }}
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
 spec:
   addresses:
-    - {{ .Values.bmcProxy.ipRange }}
-  {{- if .Values.bmcProxy.ipPool.autoAssign }}
-  autoAssign: {{ .Values.bmcProxy.ipPool.autoAssign }}
+    - {{ .Values.nginxBmcProxy.ipRange }}
+  {{- if .Values.nginxBmcProxy.ipPool.autoAssign }}
+  autoAssign: {{ .Values.nginxBmcProxy.ipPool.autoAssign }}
   {{- end }}
-{{- if .Values.bmcProxy.bgp.enabled }}
+{{- if .Values.nginxBmcProxy.bgp.enabled }}
 ---
 ## BGP Advertisement with route aggregation
 ## CRITICAL: aggregationLength prevents advertising 2000+ individual /32 routes
@@ -24,7 +24,7 @@ apiVersion: metallb.io/v1beta1
 kind: BGPAdvertisement
 metadata:
   name: {{ include "nico-machine-a-tron.name" . }}-bmc-bgp
-  namespace: {{ .Values.bmcProxy.ipPool.namespace | default "metallb-system" }}
+  namespace: {{ .Values.nginxBmcProxy.ipPool.namespace | default "metallb-system" }}
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
 spec:
@@ -32,22 +32,22 @@ spec:
     - {{ include "nico-machine-a-tron.name" . }}-bmc-pool
   ## Aggregate all service IPs into a single /18 announcement
   ## This is MANDATORY for ultra-scale (2000+ services)
-  aggregationLength: {{ .Values.bmcProxy.bgp.aggregationLength | default 18 }}
-  {{- if .Values.bmcProxy.bgp.aggregationLengthV6 }}
-  aggregationLengthV6: {{ .Values.bmcProxy.bgp.aggregationLengthV6 }}
+  aggregationLength: {{ .Values.nginxBmcProxy.bgp.aggregationLength | default 18 }}
+  {{- if .Values.nginxBmcProxy.bgp.aggregationLengthV6 }}
+  aggregationLengthV6: {{ .Values.nginxBmcProxy.bgp.aggregationLengthV6 }}
   {{- end }}
-  {{- if .Values.bmcProxy.bgp.localPref }}
-  localPref: {{ .Values.bmcProxy.bgp.localPref }}
+  {{- if .Values.nginxBmcProxy.bgp.localPref }}
+  localPref: {{ .Values.nginxBmcProxy.bgp.localPref }}
   {{- end }}
-  {{- if .Values.bmcProxy.bgp.communities }}
+  {{- if .Values.nginxBmcProxy.bgp.communities }}
   communities:
-    {{- toYaml .Values.bmcProxy.bgp.communities | nindent 4 }}
+    {{- toYaml .Values.nginxBmcProxy.bgp.communities | nindent 4 }}
   {{- end }}
-  {{- if .Values.bmcProxy.bgp.peers }}
+  {{- if .Values.nginxBmcProxy.bgp.peers }}
   peers:
-    {{- toYaml .Values.bmcProxy.bgp.peers | nindent 4 }}
+    {{- toYaml .Values.nginxBmcProxy.bgp.peers | nindent 4 }}
   {{- end }}
-{{- else if .Values.bmcProxy.ipPool.l2Advertisement }}
+{{- else if .Values.nginxBmcProxy.ipPool.l2Advertisement }}
 ---
 ## L2 Advertisement - only suitable for small scale or same-segment testing
 ## WARNING: Not recommended for production ultra-scale deployments
@@ -55,15 +55,15 @@ apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: {{ include "nico-machine-a-tron.name" . }}-bmc-l2
-  namespace: {{ .Values.bmcProxy.ipPool.namespace | default "metallb-system" }}
+  namespace: {{ .Values.nginxBmcProxy.ipPool.namespace | default "metallb-system" }}
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
 spec:
   ipAddressPools:
     - {{ include "nico-machine-a-tron.name" . }}-bmc-pool
-  {{- if .Values.bmcProxy.ipPool.l2Interfaces }}
+  {{- if .Values.nginxBmcProxy.ipPool.l2Interfaces }}
   interfaces:
-    {{- toYaml .Values.bmcProxy.ipPool.l2Interfaces | nindent 4 }}
+    {{- toYaml .Values.nginxBmcProxy.ipPool.l2Interfaces | nindent 4 }}
   {{- end }}
 {{- end }}
 {{- end }}

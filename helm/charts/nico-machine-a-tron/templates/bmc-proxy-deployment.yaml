@@ -1,4 +1,4 @@
-{{- if .Values.bmcProxy.enabled }}
+{{- if .Values.nginxBmcProxy.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,18 +6,18 @@ metadata:
   namespace: {{ include "nico-machine-a-tron.namespace" . }}
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
-    app.kubernetes.io/component: bmc-proxy
+    app.kubernetes.io/component: nginx-bmc-proxy
 spec:
-  replicas: {{ .Values.bmcProxy.nginx.replicas | default 1 }}
+  replicas: {{ .Values.nginxBmcProxy.replicas | default 1 }}
   selector:
     matchLabels:
       {{- include "nico-machine-a-tron.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: bmc-proxy
+      app.kubernetes.io/component: nginx-bmc-proxy
   template:
     metadata:
       labels:
         {{- include "nico-machine-a-tron.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: bmc-proxy
+        app.kubernetes.io/component: nginx-bmc-proxy
       annotations:
         checksum/nginx-config: {{ include (print $.Template.BasePath "/bmc-proxy-configmap.yaml") . | sha256sum }}
     spec:
@@ -32,7 +32,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: nginx
-          image: {{ .Values.bmcProxy.nginx.image | default "nginx:alpine" }}
+          image: {{ .Values.nginxBmcProxy.image | default "nginx:alpine" }}
           imagePullPolicy: IfNotPresent
           ports:
             - name: https
@@ -49,7 +49,7 @@ spec:
             - name: tls-key
               mountPath: /etc/ssl/private
               readOnly: true
-          {{- with .Values.bmcProxy.nginx.resources }}
+          {{- with .Values.nginxBmcProxy.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -69,13 +69,13 @@ spec:
             name: {{ include "nico-machine-a-tron.name" . }}-bmc-proxy-config
         - name: tls-certs
           secret:
-            secretName: {{ .Values.bmcProxy.tls.secretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
+            secretName: {{ .Values.nginxBmcProxy.tlsSecretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
             items:
               - key: tls.crt
                 path: tls.crt
         - name: tls-key
           secret:
-            secretName: {{ .Values.bmcProxy.tls.secretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
+            secretName: {{ .Values.nginxBmcProxy.tlsSecretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
             items:
               - key: tls.key
                 path: tls.key

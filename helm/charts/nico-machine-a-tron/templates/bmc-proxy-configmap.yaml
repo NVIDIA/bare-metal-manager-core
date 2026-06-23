@@ -1,4 +1,4 @@
-{{- if .Values.bmcProxy.enabled }}
+{{- if .Values.nginxBmcProxy.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,7 +6,7 @@ metadata:
   namespace: {{ include "nico-machine-a-tron.namespace" . }}
   labels:
     {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
-    app.kubernetes.io/component: bmc-proxy
+    app.kubernetes.io/component: nginx-bmc-proxy
 data:
   nginx.conf: |
     worker_processes auto;

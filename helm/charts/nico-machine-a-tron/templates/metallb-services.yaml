@@ -1,9 +1,9 @@
-{{- if .Values.bmcProxy.enabled }}
-{{- if .Values.bmcProxy.ipRange }}
+{{- if .Values.nginxBmcProxy.enabled }}
+{{- if .Values.nginxBmcProxy.ipRange }}
 {{- $root := . }}
 {{- $namespace := include "nico-machine-a-tron.namespace" . }}
 {{- $name := include "nico-machine-a-tron.name" . }}
-{{- $port := .Values.bmcProxy.service.port | default 443 }}
+{{- $port := .Values.nginxBmcProxy.servicePort | default 443 }}
 
 {{/*
 Calculate total BMC count from all machine groups:
@@ -34,7 +34,7 @@ Parse IP range: "10.100.0.2-10.100.7.254" -> start IP parts
 We generate services from startIP to startIP + totalBMCs - 1
 TODO: Need a more elegant solution
 */}}
-{{- $ipRange := .Values.bmcProxy.ipRange }}
+{{- $ipRange := .Values.nginxBmcProxy.ipRange }}
 {{- $startIP := (split "-" $ipRange)._0 }}
 {{- $ipParts := split "." $startIP }}
 {{- $octet1 := $ipParts._0 | int }}
@@ -92,7 +92,7 @@ spec:
   externalTrafficPolicy: Local
   selector:
     {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 4 }}
-    app.kubernetes.io/component: bmc-proxy
+    app.kubernetes.io/component: nginx-bmc-proxy
   ports:
     - name: https
       port: {{ $port }}
