@@ -17,23 +17,22 @@ Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_
 
 | Disposition    | Count | Meaning                                                               |
 |----------------|-------|-----------------------------------------------------------------------|
-| implemented    | 159   | PRESENT/RESOLVED-LIVE allowlist hit, IMPLEMENTED (NVUE REST / info / enum-coded), or covered by an existing label |
-| blocker        | 34    | ABSENT-BLOCKER (leaf not live) or BLOCKER-THRESHOLD (config-only) |
+| implemented    | 180   | PRESENT/RESOLVED-LIVE allowlist hit, IMPLEMENTED (NVUE REST / info / enum-coded), or covered by an existing label |
+| blocker        | 13    | ABSENT-BLOCKER — leaf/family not live on this platform |
 
 ### final_status breakdown
 
 | final_status      | Count |
 |-------------------|-------|
 | PRESENT           | 136   |
-| RESOLVED-LIVE     | 16    |
-| IMPLEMENTED       | 7     |
+| RESOLVED-LIVE     | 8     |
+| IMPLEMENTED       | 36    |
 | ABSENT-BLOCKER    | 13    |
-| BLOCKER-THRESHOLD | 21    |
 
 ## Blocker escalations
 
 See `nvswitch_telemetry_gb200_live_validation.md` section "Blocker escalations (Stage 0)" for the
-full annotated list of 34 rows, grouped by root cause, with resolution path and re-probe
+full annotated list of 13 rows, grouped by root cause, with resolution path and re-probe
 conditions.
 
 ## Notes on implemented rows
@@ -43,22 +42,17 @@ conditions.
 - **RESOLVED-LIVE** rows have no direct catalog-listed source but a live token match was found in
   gNMI or NMX-T output. Match tokens are recorded in `match_detail`. These are accepted as
   covered; if live validation on a production rig disputes a mapping, re-escalate immediately.
-- **IMPLEMENTED — MAX-SPEED (row 894):** sourced from NVUE REST `/nvue_v1/platform/environment/fan`
-  `.max-speed` (not Redfish — confirmed live). The 4 `/platform-general` memory/disk rows
-  (`886/887/888/889`) are PRESENT via the new gNMI `platform-general` subscribe path.
+- **IMPLEMENTED** rows are sourced beyond the plain gNMI/NMX-T allowlist:
+  - NVUE REST `/nvue_v1/platform/environment/{fan,temperature}` → MAX-SPEED (894); the 21 temp
+    `*-CRITICAL/MAX/STATE` rows (`.crit`/`.max`/`.state`) and the 8 `*-TEMP-CURRENT` rows
+    (`.current`), emitted per sensor as `platform_temperature{,_max,_critical,_state}` with a `sensor` label.
+  - gNMI `platform-general` subscribe path → the 4 memory/disk rows (`886-889`).
+  - String rows → `interface_phy_manager_state` (enum-coded), `*_info` info-metrics, and the existing `component_name` label (`ASIC-NAME`).
 
 ## Notes on blocker rows
 
 No row is marked "deferred." Every blocker has an explicit escalation disposition:
 
-- **BLOCKER-THRESHOLD (21 rows):** The catalog entry represents a threshold/limit/alarm-state
-  value, not a streamed telemetry counter. These are configuration parameters unavailable as live
-  gNMI leaves. Source owner must confirm whether a future gNMI path or Redfish sensor threshold
-  can expose them; until confirmed they cannot be implemented without a new data source.
-- **BLOCKER-STRING (6 rows):** string-valued catalog rows with no numeric encoding — `CONTACT`,
-  `LOCATION`, `NODE-DESCRIPTION` (platform), `ASIC-NAME`, `PHY-MANAGER-STATE`, `VL-CAPABILITIES`.
-  Present live but cannot be emitted as numeric metrics; need a string/label export path (tracked
-  as #11), or enum-coding for the FSM-style ones. Not silently dropped — escalated.
 - **ABSENT-BLOCKER — cable/transceiver leaves (7 rows: 981, 982, 2293, 2296-2299):** the catalog's
   gNMI transceiver-diag path is absent live — the N5400_LD NVLink switch enumerates **no gNMI
   transceiver components** (confirmed live; 64+ active backplane links, so *not* an uncabled rig).

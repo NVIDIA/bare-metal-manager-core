@@ -36,26 +36,26 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 868,REVISION,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 869,DEVICE-HARDWARE-REVISION,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 870,CPU_CORE_NUMBER,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['core-to-phy-link-width-enabled', 'core-to-phy-link-proto-enabled'] nmxt~['Port_Number', 'sw_serial_number']"
-872,ASIC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-873,ASIC-TEMP-MAX,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-874,ASIC-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
+872,ASIC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+873,ASIC-TEMP-MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+874,ASIC-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
 875,ASIC-TEMP-CURRENT,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 876,ASIC-NAME,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,covered by component_name label on component metrics
-879,AMBIENT-MNG-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-880,AMBIENT-MNG-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-881,CPU_PACK_TEMP_CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'PortMalformedPacketErrors']"
-882,CPU_PACK_TEMP_MAX,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'PortMalformedPacketErrors']"
-883,CPU_PACK_TEMP_STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'PortMalformedPacketErrors']"
-884,CPU_PACK_TEMP_CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'PortMalformedPacketErrors']"
+879,AMBIENT-MNG-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+880,AMBIENT-MNG-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
+881,CPU_PACK_TEMP_CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+882,CPU_PACK_TEMP_MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+883,CPU_PACK_TEMP_STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+884,CPU_PACK_TEMP_CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
 885,CPU-UTIL,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 886,MEM-UTIL,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 887,MEM-TOTAL-SIZE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 888,DISK-TOTAL-SIZE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 889,DISK-USED,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-890,SODIMM_TEMP_CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-891,SODIMM_TEMP_MAX,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-892,SODIMM_TEMP_STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-893,SODIMM_TEMP_CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
+890,SODIMM_TEMP_CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+891,SODIMM_TEMP_MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+892,SODIMM_TEMP_STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+893,SODIMM_TEMP_CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
 894,MAX-SPEED,BMC Redfish live resource only,IMPLEMENTED,implemented,nvue rest /platform/environment/fan .max-speed
 897,PORT-LOGICAL-STATE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 898,FEC-MODE-ACTIVE,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
@@ -148,22 +148,22 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 989,LINK-PARTNER-LID,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 990,LINK-PARTNER-PORT-NUM,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 1174,CPU-STATE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-1241,DRIVE-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1242,DRIVE-TEMP-MAX,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1243,DRIVE-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1244,DRIVE-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1245,HSC-VINDC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1246,HSC-VINDC-TEMP-MAX,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1247,HSC-VINDC-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1248,HSC-VINDC-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1249,PDB-CONV-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1251,PDB-CONV-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1252,PDB-CONV-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1253,PMIC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1255,PMIC-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1256,PMIC-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1259,SWB-ASIC-PCB-TEMP-STATE,source-equivalent required; no new CLI collector by default,BLOCKER-THRESHOLD,blocker,"gnmi~['asic-temp', 'psi-fsm-state'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
-1260,SWB-ASIC-PCB-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['asic-temp', 'ambient-temperature'] nmxt~['Chip_Temp', 'last_host_logical_recovery_attempts_count']"
+1241,DRIVE-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1242,DRIVE-TEMP-MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1243,DRIVE-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1244,DRIVE-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
+1245,HSC-VINDC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1246,HSC-VINDC-TEMP-MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1247,HSC-VINDC-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1248,HSC-VINDC-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
+1249,PDB-CONV-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1251,PDB-CONV-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1252,PDB-CONV-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
+1253,PMIC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1255,PMIC-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1256,PMIC-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
+1259,SWB-ASIC-PCB-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
+1260,SWB-ASIC-PCB-TEMP-CURRENT,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature .current (corrected from gNMI rescue)
 1688,LINK-RECOVERY-SUCCESS-CNT,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 1689,TOTAL-LINK-RECOVERY-SUCCESS-CNT,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 1690,TIME-SINCE-LAST-RECOVERY,NMX-T explicit allowlist,PRESENT,implemented,nmxt family

@@ -228,6 +228,10 @@ system_health_enabled = true
 cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
+# Per-sensor temperatures from `/nvue_v1/platform/environment/temperature`
+# (current/max/crit in celsius + sensor state). Emits only the fields each
+# sensor actually reports.
+platform_environment_temperature_enabled = true
 
 # NVUE gNMI streaming collector. Disabled by default in code; explicitly
 # enabled here for the GB200 NVLink switch-host scenario. Subscribes to

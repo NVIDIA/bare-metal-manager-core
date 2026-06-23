@@ -69,6 +69,27 @@ fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
     max_speed.and_then(|s| s.trim().parse::<f64>().ok())
 }
 
+/// NVUE reports temperatures (current/max/crit) as strings in degrees Celsius
+/// (e.g. "105.00"). Parse to f64; return `None` when the field is absent or
+/// unparseable so callers emit nothing rather than fabricating a value. Shares
+/// the same trim-then-parse contract as `fan_max_speed_to_f64`.
+fn temp_to_f64(value: Option<&str>) -> Option<f64> {
+    value.and_then(|s| s.trim().parse::<f64>().ok())
+}
+
+/// Map a temperature sensor's string `state` to a numeric gauge: "ok"
+/// (case-insensitive) => 1.0, any other non-empty value => 0.0, absent => None
+/// (so callers emit nothing rather than fabricating a value).
+fn temp_state_to_f64(state: Option<&str>) -> Option<f64> {
+    state.map(|s| {
+        if s.trim().eq_ignore_ascii_case("ok") {
+            1.0
+        } else {
+            0.0
+        }
+    })
+}
+
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
     pub data_sink: Option<Arc<dyn DataSink>>,
@@ -281,6 +302,68 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             }
         }
 
+        match self.client.get_platform_environment_temperature().await {
+            Ok(Some(temps)) => {
+                for (sensor_name, temp) in &temps {
+                    // Each field is optional; emit only the ones present/parseable
+                    // rather than fabricating absent thresholds.
+                    let sensor_label =
+                        || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
+
+                    if let Some(value) = temp_to_f64(temp.current.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    if let Some(value) = temp_to_f64(temp.max.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature_max",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    if let Some(value) = temp_to_f64(temp.crit.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature_critical",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    if let Some(value) = temp_state_to_f64(temp.state.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature_state",
+                            Some(sensor_name),
+                            value,
+                            "state",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment temperature"
+                );
+            }
+        }
+
         if saw_auth_failure {
             tracing::warn!(
                 switch_id = %self.switch_id,
@@ -436,6 +519,26 @@ mod tests {
         assert_eq!(fan_max_speed_to_f64(None), None);
     }
 
+    #[test]
+    fn test_temp_to_f64_parsing() {
+        assert_eq!(temp_to_f64(Some("105.00")), Some(105.0));
+        assert_eq!(temp_to_f64(Some(" 43 ")), Some(43.0));
+        assert_eq!(temp_to_f64(Some("120.00")), Some(120.0));
+        assert_eq!(temp_to_f64(Some("x")), None);
+        assert_eq!(temp_to_f64(Some("")), None);
+        assert_eq!(temp_to_f64(None), None);
+    }
+
+    #[test]
+    fn test_temp_state_to_f64_mapping() {
+        assert_eq!(temp_state_to_f64(Some("ok")), Some(1.0));
+        assert_eq!(temp_state_to_f64(Some("OK")), Some(1.0));
+        assert_eq!(temp_state_to_f64(Some(" ok ")), Some(1.0));
+        assert_eq!(temp_state_to_f64(Some("warning")), Some(0.0));
+        assert_eq!(temp_state_to_f64(Some("")), Some(0.0));
+        assert_eq!(temp_state_to_f64(None), None);
+    }
+
     /// Drives the same parse + emit logic `run_iteration` uses for the
     /// platform/environment/fan endpoint against a captured sink, asserting the
     /// emitted MAX-SPEED sample shape. Table-driven over representative payloads.
@@ -566,6 +669,140 @@ mod tests {
         }
     }
 
+    /// Drives the same parse + emit logic `run_iteration` uses for the
+    /// platform/environment/temperature endpoint against a captured sink. A
+    /// fully-populated sensor (ASIC1) emits all four series; a sparse sensor
+    /// (Ambient-MNG-Temp, only current + state) emits exactly two and must NOT
+    /// fabricate the absent max/critical thresholds.
+    #[test]
+    fn test_platform_temperature_emit() {
+        use crate::collectors::nvue::rest::client::TemperatureEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        let json = r#"{
+            "ASIC1": {"crit": "120.00", "current": "43.00", "max": "105.00", "state": "ok"},
+            "Ambient-MNG-Temp": {"current": "27.00", "state": "ok"}
+        }"#;
+
+        let sink = Arc::new(CapturingSink {
+            samples: StdMutex::new(Vec::new()),
+        });
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let temps: TemperatureEnvironmentResponse =
+            serde_json::from_str(json).expect("temperature json parses");
+        // Mirror run_iteration's emit loop exactly.
+        for (sensor_name, temp) in &temps {
+            let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
+            if let Some(value) = temp_to_f64(temp.current.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(value) = temp_to_f64(temp.max.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature_max",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(value) = temp_to_f64(temp.crit.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature_critical",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(value) = temp_state_to_f64(temp.state.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature_state",
+                    Some(sensor_name),
+                    value,
+                    "state",
+                    sensor_label(),
+                );
+            }
+        }
+
+        let samples = sink.samples.lock().unwrap();
+        // ASIC1: 4 series; Ambient-MNG-Temp: 2 series (current + state) = 6 total.
+        assert_eq!(samples.len(), 6, "unexpected emitted sample count");
+
+        // Helper: find a sample by metric_type + sensor label.
+        let find = |metric_type: &str, sensor: &str| {
+            samples.iter().find(|s| {
+                s.metric_type == metric_type
+                    && s.labels
+                        .iter()
+                        .any(|(k, v)| k == "sensor" && v == sensor)
+            })
+        };
+
+        // ASIC1: all four series present with correct name/unit/value/label/key.
+        let expected_asic1: &[(&str, &str, f64)] = &[
+            ("platform_temperature", "celsius", 43.0),
+            ("platform_temperature_max", "celsius", 105.0),
+            ("platform_temperature_critical", "celsius", 120.0),
+            ("platform_temperature_state", "state", 1.0),
+        ];
+        for (metric_type, unit, value) in expected_asic1 {
+            let sample = find(metric_type, "ASIC1")
+                .unwrap_or_else(|| panic!("no ASIC1 sample for {metric_type}"));
+            assert_eq!(sample.name, COLLECTOR_NAME);
+            assert_eq!(&sample.metric_type, metric_type);
+            assert_eq!(&sample.unit, unit);
+            assert_eq!(sample.value, *value, "value for {metric_type}");
+            assert_eq!(sample.key, format!("{metric_type}:ASIC1"));
+            assert_eq!(sample.labels.len(), 1);
+            assert_eq!(sample.labels[0].0, "sensor");
+            assert_eq!(sample.labels[0].1, "ASIC1");
+        }
+
+        // Ambient-MNG-Temp: only current + state emitted.
+        let ambient_current = find("platform_temperature", "Ambient-MNG-Temp")
+            .expect("ambient current sample");
+        assert_eq!(ambient_current.value, 27.0);
+        assert_eq!(ambient_current.unit, "celsius");
+        assert!(
+            find("platform_temperature_state", "Ambient-MNG-Temp").is_some(),
+            "ambient state sample expected"
+        );
+
+        // A sensor missing max/crit must NOT emit those series.
+        assert!(
+            find("platform_temperature_max", "Ambient-MNG-Temp").is_none(),
+            "ambient sensor without max must not emit platform_temperature_max"
+        );
+        assert!(
+            find("platform_temperature_critical", "Ambient-MNG-Temp").is_none(),
+            "ambient sensor without crit must not emit platform_temperature_critical"
+        );
+    }
+
     struct ScriptedProvider {
         calls: AtomicUsize,
         // Each call pops the front of this queue; an empty queue yields an
@@ -618,6 +855,7 @@ mod tests {
             sdn_partitions_enabled: false,
             interfaces_enabled: false,
             platform_environment_fan_enabled: false,
+            platform_environment_temperature_enabled: false,
         }
     }
 

@@ -34,6 +34,7 @@ const NVUE_CLUSTER_APPS: &str = "/nvue_v1/cluster/apps";
 const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
 const NVUE_PLATFORM_ENVIRONMENT_FAN: &str = "/nvue_v1/platform/environment/fan";
+const NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE: &str = "/nvue_v1/platform/environment/temperature";
 
 #[derive(Clone)]
 pub struct UsernamePassword {
@@ -133,6 +134,16 @@ impl RestClient {
             return Ok(None);
         }
         let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_FAN)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment_temperature(
+        &self,
+    ) -> Result<Option<TemperatureEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_temperature_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE)?;
         self.do_get(url, &[]).await.map(Some)
     }
 
@@ -307,6 +318,22 @@ pub struct FanData {
     /// intentionally not captured — only max-speed is in scope.
     #[serde(rename = "max-speed")]
     pub max_speed: Option<String>,
+}
+
+pub type TemperatureEnvironmentResponse = HashMap<String, TempData>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TempData {
+    /// Current temperature in degrees Celsius, reported by NVUE as a string
+    /// (e.g. "43.00"). Each per-sensor field is optional — NVUE reports only a
+    /// subset for many sensors (e.g. ambient sensors expose only current+state).
+    pub current: Option<String>,
+    /// Maximum (warning) threshold in degrees Celsius, as a string (e.g. "105.00").
+    pub max: Option<String>,
+    /// Critical threshold in degrees Celsius, as a string (e.g. "120.00").
+    pub crit: Option<String>,
+    /// Sensor state as a string (e.g. "ok").
+    pub state: Option<String>,
 }
 
 pub type InterfacesResponse = HashMap<String, InterfaceData>;
@@ -584,6 +611,36 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_platform_environment_temperature() {
+        let json = r#"{
+            "ASIC1": {"crit": "120.00", "current": "43.00", "max": "105.00", "state": "ok"},
+            "Ambient-MNG-Temp": {"current": "27.00", "state": "ok"},
+            "PDB-Conv-1-Temp": {"crit": "115.00", "current": "38.00", "state": "ok"}
+        }"#;
+
+        let resp: TemperatureEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 3);
+
+        let asic1 = &resp["ASIC1"];
+        assert_eq!(asic1.current.as_deref(), Some("43.00"));
+        assert_eq!(asic1.max.as_deref(), Some("105.00"));
+        assert_eq!(asic1.crit.as_deref(), Some("120.00"));
+        assert_eq!(asic1.state.as_deref(), Some("ok"));
+
+        // Ambient sensor reports only current + state.
+        let ambient = &resp["Ambient-MNG-Temp"];
+        assert_eq!(ambient.current.as_deref(), Some("27.00"));
+        assert!(ambient.max.is_none());
+        assert!(ambient.crit.is_none());
+        assert_eq!(ambient.state.as_deref(), Some("ok"));
+
+        // PDB sensor has crit + current + state but no max.
+        let pdb = &resp["PDB-Conv-1-Temp"];
+        assert_eq!(pdb.crit.as_deref(), Some("115.00"));
+        assert!(pdb.max.is_none());
+    }
+
+    #[test]
     fn test_parse_empty_responses() {
         let empty_map: ClusterAppsResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_map.is_empty());
@@ -596,5 +653,8 @@ mod tests {
 
         let empty_fans: FanEnvironmentResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_fans.is_empty());
+
+        let empty_temps: TemperatureEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_temps.is_empty());
     }
 }

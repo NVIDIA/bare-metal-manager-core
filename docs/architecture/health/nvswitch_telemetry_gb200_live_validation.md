@@ -149,42 +149,16 @@ Unit coverage that locks this behavior:
 ## Blocker escalations (Stage 0)
 
 Stage 0 live probe (2026-06-20) classified all 193 GB200-applicable NVSWITCH catalog rows.
-34 rows are escalated below (21 config-threshold, 13 absent-from-live-probe). No
+13 rows are escalated below — all ABSENT-BLOCKER (no live source on this platform). No
 row is deferred — each has an explicit disposition and a named resolution path.
 
-### Group A — Config-threshold rows (21 rows, BLOCKER-THRESHOLD)
+### Temperature threshold rows — RESOLVED (21 rows, formerly BLOCKER-THRESHOLD)
 
-These catalog entries represent threshold/limit/alarm-state values configured on the device, not
-streamed telemetry counters. They are not exposed as live gNMI leaves and cannot be implemented
-without a new data source.
-
-**Resolution:** Source owner (NVOS gNMI / Redfish sensor threshold team) must confirm whether
-a future gNMI path or Redfish sensor `ThresholdHigh`/`ThresholdLow`/`ReadingRangeMax` field
-can expose these. Until confirmed, they are out-of-scope for this branch.
-
-| Row  | Metric                  |
-|------|-------------------------|
-| 872  | ASIC-TEMP-CRITICAL      |
-| 873  | ASIC-TEMP-MAX           |
-| 874  | ASIC-TEMP-STATE         |
-| 879  | AMBIENT-MNG-TEMP-STATE  |
-| 881  | CPU_PACK_TEMP_CRITICAL  |
-| 882  | CPU_PACK_TEMP_MAX       |
-| 883  | CPU_PACK_TEMP_STATE     |
-| 890  | SODIMM_TEMP_CRITICAL    |
-| 891  | SODIMM_TEMP_MAX         |
-| 892  | SODIMM_TEMP_STATE       |
-| 1241 | DRIVE-TEMP-CRITICAL     |
-| 1242 | DRIVE-TEMP-MAX          |
-| 1243 | DRIVE-TEMP-STATE        |
-| 1245 | HSC-VINDC-TEMP-CRITICAL |
-| 1246 | HSC-VINDC-TEMP-MAX      |
-| 1247 | HSC-VINDC-TEMP-STATE    |
-| 1249 | PDB-CONV-TEMP-CRITICAL  |
-| 1251 | PDB-CONV-TEMP-STATE     |
-| 1253 | PMIC-TEMP-CRITICAL      |
-| 1255 | PMIC-TEMP-STATE         |
-| 1259 | SWB-ASIC-PCB-TEMP-STATE |
+The 21 temperature `*-CRITICAL` / `*-MAX` / `*-STATE` rows (ASIC / CPU-Pack / SODIMM / Drive /
+HSC-VinDC / PDB-Conv / PMIC / SWB-ASIC-PCB / Ambient-MNG) are now implemented from NVUE REST
+`/nvue_v1/platform/environment/temperature` (`.crit` / `.max` / `.state` per sensor; only the fields
+a sensor actually exposes are emitted). The 8 `*-TEMP-CURRENT` rows were re-sourced from `.current`
+on the same endpoint, correcting an earlier spurious gNMI token match. No longer escalated.
 
 ### Group B — Cable/transceiver leaves (7 rows, ABSENT-BLOCKER)
 

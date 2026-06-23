@@ -1030,6 +1030,7 @@ impl Default for NvueRestConfig {
 /// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
 /// - interfaces_enabled: Poll `/nvue_v1/interface`.
 /// - platform_environment_fan_enabled: Poll `/nvue_v1/platform/environment/fan`.
+/// - platform_environment_temperature_enabled: Poll `/nvue_v1/platform/environment/temperature`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueRestPaths {
@@ -1038,6 +1039,7 @@ pub struct NvueRestPaths {
     pub sdn_partitions_enabled: bool,
     pub interfaces_enabled: bool,
     pub platform_environment_fan_enabled: bool,
+    pub platform_environment_temperature_enabled: bool,
 }
 
 impl Default for NvueRestPaths {
@@ -1048,6 +1050,7 @@ impl Default for NvueRestPaths {
             sdn_partitions_enabled: true,
             interfaces_enabled: true,
             platform_environment_fan_enabled: true,
+            platform_environment_temperature_enabled: true,
         }
     }
 }
