@@ -45,17 +45,17 @@ real hardware** since all BMC traffic goes to the mock.
 
 ```mermaid
 flowchart LR
-    subgraph NICo["NICo Cluster"]
+    subgraph NICo["NICo Cluster (nico-system)"]
         SE[Site-Explorer]
         API[NICo API]
     end
 
-    subgraph MAT["Machine-A-Tron"]
-        BMC[BMC Mock<br/>Single endpoint]
+    subgraph MAT["nico-mat namespace"]
+        BMC[Machine-A-Tron Pod<br/>BMC Mock]
     end
 
     SE -->|"ALL Redfish calls<br/>override_target_host"| BMC
-    BMC <-->|"DHCP, status"| API
+    BMC <-->|"gRPC: DHCP, status"| API
 ```
 
 ### Setup
@@ -64,7 +64,7 @@ flowchart LR
 
 ```bash
 helm upgrade --install nico ./helm \
-  --namespace nico-system \
+  --namespace nico-mat \
   --set nico-machine-a-tron.enabled=true \
   --set nico-machine-a-tron.machines.dell-hosts.hostCount=10 \
   --set nico-machine-a-tron.machines.dell-hosts.dpuPerHostCount=2
@@ -124,7 +124,7 @@ to coexist on the same NICo instance.
 
 ```mermaid
 flowchart LR
-    subgraph NICo["NICo Cluster"]
+    subgraph NICo["NICo Cluster (nico-system)"]
         SE[Site-Explorer]
     end
 
@@ -133,15 +133,20 @@ flowchart LR
         R2[Real BMC<br/>10.50.0.11]
     end
 
-    subgraph MetalLB["MetalLB (Simulated BMCs)"]
-        LB1["10.100.0.2"]
-        LB2["10.100.0.3"]
-        LBN["... 13500 IPs"]
-    end
+    subgraph MAT["nico-mat namespace"]
+        subgraph MetalLB["MetalLB Services"]
+            LB1["10.100.0.2"]
+            LB2["10.100.0.3"]
+            LBN["..."]
+        end
 
-    subgraph MAT["Machine-A-Tron Pod"]
-        NGINX["NGINX Proxy"]
-        BMC["BMC Mock Registry"]
+        subgraph NGX["NGINX Pod"]
+            NGINX["NGINX Proxy"]
+        end
+
+        subgraph MATpod["Machine-A-Tron Pod"]
+            BMC["BMC Mock Registry"]
+        end
     end
 
     SE -->|"Redfish"| R1
@@ -152,7 +157,7 @@ flowchart LR
     LB1 --> NGINX
     LB2 --> NGINX
     LBN --> NGINX
-    NGINX -->|"Forwarded header"| BMC
+    NGINX -->|"Forwarded: host=IP"| BMC
 ```
 
 ### Prerequisites (MetalLB Mode)
@@ -167,7 +172,7 @@ flowchart LR
 
 ```bash
 helm upgrade --install nico ./helm \
-  --namespace nico-system \
+  --namespace nico-mat \
   --set nico-machine-a-tron.enabled=true \
   --set nico-machine-a-tron.nginxBmcProxy.enabled=true \
   --set nico-machine-a-tron.nginxBmcProxy.ipRange="10.100.0.0-10.100.7.254" \
@@ -383,7 +388,7 @@ serviceMonitor:
 
 Check logs:
 ```bash
-kubectl -n nico-system logs deployment/nico-machine-a-tron
+kubectl -n nico-mat logs deployment/nico-machine-a-tron
 ```
 
 Common causes:
