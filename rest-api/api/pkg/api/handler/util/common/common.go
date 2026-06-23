@@ -347,7 +347,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 			// If any capability types require matching, compare the machine's capabilities
 			// with the instance type's capabilities specified in the map.
 			if requireCapabilityMatch {
-				isMatch, _, apiErr := MatchInstanceTypeCapabilitiesForMachines(ctx, logger, dbSession, instanceType.ID, []string{mc.ID}, capabilityTypeMap)
+				isMatch, _, apiErr := MatchInstanceTypeCapabilitiesForMachines(ctx, logger, tx, dbSession, instanceType.ID, []string{mc.ID}, capabilityTypeMap)
 				if !isMatch || apiErr != nil {
 					continue
 				}
@@ -888,7 +888,7 @@ func GetIsProviderRequest(ctx context.Context, logger zerolog.Logger, dbSession 
 }
 
 // MatchInstanceTypeCapabilitiesForMachines is a utility function to check if Instance Type Capabilities are present in the Capabilities of Machines
-func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, instanceTypeID uuid.UUID, machineIds []string, capabilityTypeMap map[cdbm.MachineCapabilityType]bool) (bool, *string, *cutil.APIError) {
+func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolog.Logger, tx *cdb.Tx, dbSession *cdb.Session, instanceTypeID uuid.UUID, machineIds []string, capabilityTypeMap map[cdbm.MachineCapabilityType]bool) (bool, *string, *cutil.APIError) {
 	if len(machineIds) == 0 {
 		return true, nil, nil
 	}
@@ -896,7 +896,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
 	// Get existing Machine Capability records for this InstanceType
-	instmcs, total, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	instmcs, total, err := mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Machine Capabilities for Instance Type from DB")
 		return false, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine Capabilities for Instance Type, DB error", nil)
@@ -915,7 +915,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	}
 
 	// Get Machine Capabilities for Machines
-	mmcs, mtotal, serr := mcDAO.GetAll(ctx, nil, machineIds, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	mmcs, mtotal, serr := mcDAO.GetAll(ctx, tx, machineIds, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if serr != nil {
 		logger.Error().Err(serr).Msg("failed to retrieve Machine Capabilities for Machine from DB")
 		return false, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine Capabilities for Machine, DB error", nil)
