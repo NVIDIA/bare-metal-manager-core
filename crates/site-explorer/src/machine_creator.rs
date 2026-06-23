@@ -435,12 +435,38 @@ impl MachineCreator {
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
+        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // when set, otherwise the boot interface preserved across `--delete-interfaces`
+        // in `retained_boot_interfaces`. The retained fallback lets a host with no
+        // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
+        // with a settled boot interface, so the controller has a boot target to
+        // provision from instead of parking with no primary at all.
         let declared_primary = machine_data.and_then(|data| data.declared_primary_mac());
+        let primary_mac = match declared_primary {
+            Some(declared) => Some(declared),
+            None => {
+                let mut recovered = None;
+                for mac_address in &mac_addresses {
+                    if db::retained_boot_interface::find_by_mac(
+                        &mut *txn,
+                        *mac_address,
+                        self.config.retained_boot_interface_window,
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        recovered = Some(*mac_address);
+                        break;
+                    }
+                }
+                recovered
+            }
+        };
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
-            let is_declared_primary = declared_primary == Some(mac_address);
+            let is_primary = primary_mac == Some(mac_address);
             if let Some(machine_interface) =
                 db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
@@ -467,10 +493,10 @@ impl MachineCreator {
                     // Reconcile its primary flag to the declaration before adopting it: an anonymous
                     // DHCP row defaults to primary=true, so without this two pre-ingestion leases
                     // would both arrive primary and collide on association.
-                    if machine_interface.primary_interface != is_declared_primary {
+                    if machine_interface.primary_interface != is_primary {
                         db::machine_interface::set_primary_interface(
                             &machine_interface.id,
-                            is_declared_primary,
+                            is_primary,
                             txn,
                         )
                         .await?;
@@ -502,7 +528,7 @@ impl MachineCreator {
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
                         boot_interface_id,
-                        primary_interface: is_declared_primary,
+                        primary_interface: is_primary,
                     },
                     txn,
                 )
