@@ -111,7 +111,12 @@ certificate:
   ## are appended to the generated list).
   dnsNames: []
   uris: []
-  extraDnsNames: []
+  # carbide-api.forge: the forge-dpu-agent (v0.10.3) still dials the API by this
+  # legacy name during the carbide->nico rename; without this SAN the DPU agent
+  # rejects the serving cert (TLS BadCertificate) and never heartbeats (DPUs stuck
+  # at WaitingForNetworkConfig). See issue #2823.
+  extraDnsNames:
+    - carbide-api.forge
   extraUris: []
 
 migrationJob:
