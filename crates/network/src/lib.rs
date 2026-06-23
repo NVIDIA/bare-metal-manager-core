@@ -357,4 +357,48 @@ mod tests {
             },
         );
     }
+
+    // The locally-administered bit is 0x02 of the first octet. Drives the table
+    // off the parsed MAC's first octet so the bit math is exercised directly.
+    #[test]
+    fn is_locally_administered_mac_reads_the_u_l_bit() {
+        check_cases(
+            [
+                Case {
+                    scenario: "globally-unique NVIDIA-style mac (U/L bit clear)",
+                    input: "A0:88:C2:46:0C:68",
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "all zeros (U/L bit clear)",
+                    input: "00:00:00:00:00:00",
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "locally-administered bit set (0x02)",
+                    input: "02:00:00:00:00:00",
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "locally-administered among other first-octet bits (0x06)",
+                    input: "06:11:22:33:44:55",
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "multicast bit set but U/L bit clear (0x01)",
+                    input: "01:00:00:00:00:00",
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "all f's — every bit set, U/L included",
+                    input: "FF:FF:FF:FF:FF:FF",
+                    expect: Yields(true),
+                },
+            ],
+            |input| {
+                let mac = deserialize_input_mac_to_address(input).expect("valid test mac");
+                Ok::<_, ()>(is_locally_administered_mac(mac))
+            },
+        );
+    }
 }
