@@ -1031,6 +1031,8 @@ impl Default for NvueRestConfig {
 /// - interfaces_enabled: Poll `/nvue_v1/interface`.
 /// - platform_environment_fan_enabled: Poll `/nvue_v1/platform/environment/fan`.
 /// - platform_environment_temperature_enabled: Poll `/nvue_v1/platform/environment/temperature`.
+/// - platform_environment_status_enabled: Poll `/nvue_v1/platform/environment` parent
+///   summary for the aggregate `FAN_STATUS` LED state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueRestPaths {
@@ -1040,6 +1042,7 @@ pub struct NvueRestPaths {
     pub interfaces_enabled: bool,
     pub platform_environment_fan_enabled: bool,
     pub platform_environment_temperature_enabled: bool,
+    pub platform_environment_status_enabled: bool,
 }
 
 impl Default for NvueRestPaths {
@@ -1051,6 +1054,7 @@ impl Default for NvueRestPaths {
             interfaces_enabled: true,
             platform_environment_fan_enabled: true,
             platform_environment_temperature_enabled: true,
+            platform_environment_status_enabled: true,
         }
     }
 }

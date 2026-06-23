@@ -3,7 +3,8 @@
 > **Implementation note.** GB200 telemetry is collected via **explicit catalog-row
 > allowlists** over the live host surfaces: NMX-T (`switch_nmxt`), NVOS gNMI
 > (`nvue_gnmi`, explicit per-leaf), NVUE REST (`fan_max_speed` from
-> `/platform/environment/fan`), and standard Redfish sensors (`hw_sensor`). There is
+> `/platform/environment/fan`, `fan_led` from `/platform/environment`), and standard
+> Redfish sensors (`hw_sensor`). There is
 > **no** standalone Redfish `TelemetryService` collector and **no** generic/sanitized
 > source preservation — both were evaluated against the live GB200 BMC and removed.
 > Unknown gNMI/NMX-T sources are dropped and debug-logged, never emitted. nv-redfish is
@@ -19,8 +20,8 @@ For the GB200 phase, enable all switch telemetry collectors below:
   - `collectors.sensors` for standard Redfish sensor readings and threshold/range context (the temp/thermal `hw_sensor` series plus `*_range_max`/`*_range_min`).
 - HOST endpoint (`switch.endpoint_role = "host"`):
   - `collectors.nmxt` for NMX-T Prometheus telemetry on port `9352`.
-  - `collectors.nvue.rest` for NVUE health/app/partition/interface diagnostics and `fan_max_speed` from `/platform/environment/fan`.
-  - `collectors.nvue.gnmi` for SAMPLE telemetry from `components`, `interfaces`, and `platform-general` (memory/disk), plus ON_CHANGE system events.
+  - `collectors.nvue.rest` for NVUE health/app/partition/interface diagnostics, `fan_max_speed` from `/platform/environment/fan`, and `fan_led` (aggregate `FAN_STATUS`) from `/platform/environment`.
+  - `collectors.nvue.gnmi` for SAMPLE telemetry from `components`, `interfaces`, and `platform-general` (memory/disk via `/state`, OS/BMC/EROT firmware versions via `/versions`), plus ON_CHANGE system events.
 
 No TelemetryService proxy ACL changes are required — collection uses the standard Redfish sensor paths plus the host NMX-T/gNMI/NVUE endpoints.
 
@@ -127,9 +128,9 @@ cargo run -p carbide-health --bin forge-hw-health -- /path/to/gb200-switch-local
 
 1. `/telemetry` output contains `hw_sensor` samples for the BMC endpoint (temp/thermal readings; plus `*_range_max`/`*_range_min` where the sensor exposes ranges).
 2. `/telemetry` output contains `switch_nmxt` samples for the HOST endpoint — only the explicit `NMXT_METRIC_MAP` families with the allowlisted identity labels (no sanitized/unknown source names).
-3. `/telemetry` output contains `nvue_gnmi` samples for the HOST endpoint: canonical `interface_*` (incl. `interface_link_speed_active` in gbps), `component_*`, and `platform_memory_used/total` + `platform_disk_total/used`.
-4. `/telemetry` output contains the NVUE REST `fan_max_speed` sample (HOST). Logs show the NMX-T, NVUE REST, and NVUE gNMI collectors started for the expected roles; matched-but-uncoercible leaves are debug-logged, not emitted.
-5. The two catalog rows with no listed source (`CABLE-SNR-MEDIA-LANE-N`, `CABLE-SNR-HOST-LANE-N`) are checked explicitly in live output. If they do not appear through Redfish MetricReports, NMX-T, or gNMI, open a catalog/source-owner follow-up immediately; keep them open until source-owner resolution.
+3. `/telemetry` output contains `nvue_gnmi` samples for the HOST endpoint: canonical `interface_*` (incl. `interface_link_speed_active` in gbps and `interface_plr_bw_loss_percent`), `component_*`, `platform_memory_used/total` + `platform_disk_total/used`, and the switch-level `platform_{os,bmc,erot}_version_info` info-metrics (value 1.0, version carried in the label).
+4. `/telemetry` output contains the NVUE REST `fan_max_speed` and `fan_led` samples (HOST). Logs show the NMX-T, NVUE REST, and NVUE gNMI collectors started for the expected roles; matched-but-uncoercible leaves are debug-logged, not emitted.
+5. The two catalog rows with no listed source (`CABLE-SNR-MEDIA-LANE-N` row 2294, `CABLE-SNR-HOST-LANE-N` row 2295) are checked explicitly in live output. NMX-T exposes `rx_power_lane_0/1` (rows 977/978) but **no SNR family**, so neither row is emitted today (an earlier rescue pass spuriously token-matched `rx_power_lane_5`/`cable-proto-cap-ext` — corrected to ABSENT-BLOCKER). If they do not appear through Redfish MetricReports, NMX-T, or gNMI, open a catalog/source-owner follow-up immediately; keep them open until source-owner resolution.
 
 ## Series-shape acceptance checks
 
@@ -137,20 +138,28 @@ Only explicit catalog-row mappings are emitted; unknown sources are dropped (deb
 
 1. Capture the distinct `(name, metric_type, key)` tuples from two consecutive `/telemetry` scrapes after collectors are warm.
 2. Confirm the tuple set is stable across scrapes except for expected link/error-counter changes.
-3. Confirm every emitted series is one of the known families: `hw_sensor`, `switch_nmxt`, `nvue_gnmi` (`interface_*`/`component_*`/`platform_*`), or `fan_max_speed`. No `nvswitch_*`, `source_metric`, or `redfish_telemetry_service` series may appear.
+3. Confirm every emitted series is one of the known families: `hw_sensor`, `switch_nmxt`, `nvue_gnmi` (`interface_*`/`component_*`/`platform_*`, incl. `platform_{os,bmc,erot}_version_info`), `fan_max_speed`, or `fan_led`. No `nvswitch_*`, `source_metric`, or `redfish_telemetry_service` series may appear.
 4. Confirm NMX-T identity labels are the allowlisted `NMXT_LABEL_MAP` set (bounded per port); no raw/unknown source names as labels.
 
 Unit coverage that locks this behavior:
 
 - NMX-T: `test_nmxt_metric_map_locks_type_and_unit`, `test_unknown_nmxt_sources_not_allowlisted`.
-- NVUE gNMI: `test_interface_link_speed_active_gbps`, `test_platform_general_numeric_leaf_mappings`, `test_platform_general_string_leaf_is_not_exported` (string leaves emit nothing).
-- NVUE REST: `test_fan_max_speed_emit`.
+- NVUE gNMI: `test_interface_link_speed_active_gbps`, `test_platform_general_numeric_leaf_mappings`, `test_platform_general_string_leaf_is_not_exported` (string leaves emit nothing), `test_interface_numeric_leaf_table_mappings` (locks `interface_plr_bw_loss_percent` type/unit), `test_platform_general_version_info_metrics` + `test_platform_general_empty_version_string_is_not_exported` (OS/BMC/EROT version info-metrics), `test_nvue_subscribe_paths_all_enabled` (the `/platform-general/versions` subscribe path is added).
+- NVUE REST: `test_fan_max_speed_emit`, `test_fan_led_emit` (green/ok=1, amber=0, absent FAN_STATUS emits nothing) + `test_parse_platform_environment_fan_status`.
 
 ## Blocker escalations (Stage 0)
 
 Stage 0 live probe (2026-06-20) classified all 193 GB200-applicable NVSWITCH catalog rows.
-13 rows are escalated below — all ABSENT-BLOCKER (no live source on this platform). No
-row is deferred — each has an explicit disposition and a named resolution path.
+**16 rows remain ABSENT-BLOCKER** (no live source on this platform) — these are the escalations
+in Groups B–D plus the rescue-match audit below. No row is deferred — each has an explicit
+disposition and a named resolution path.
+
+The remaining subsections here (temperature, string-valued, and firmware/PLR/fan-LED, all marked
+**RESOLVED**) are *not* escalations; they are kept for provenance, recording rows that earlier
+passes had escalated but that are now implemented, so the trail from the Stage-0 blocker set down
+to the final 16 is auditable. A post-implementation audit on 2026-06-23 moved 3 rows *into* the
+blocker set — 870 CPU_CORE_NUMBER, 2294/2295 CABLE-SNR-MEDIA/HOST-LANE-N — that an earlier pass
+had token-matched but no lane actually emits (see "Rescue-match audit" below).
 
 ### Temperature threshold rows — RESOLVED (21 rows, formerly BLOCKER-THRESHOLD)
 
@@ -226,3 +235,33 @@ These 6 catalog rows are string-valued and were previously escalated; they are n
   info-metrics (value 1 with the string carried in a label; skipped when empty, so `CONTACT`/`LOCATION`
   emit only when configured).
 - `876 ASIC-NAME` — covered by the existing `component_name` label on every component metric (not re-emitted).
+
+### Firmware-version / PLR / fan-LED rows — RESOLVED (5 rows, now implemented)
+
+These 5 catalog rows were previously rescue-matched by token but not emitted by any lane; each
+now has an explicit, unit-tested emit path:
+- `764 OS-VERSION`, `767 BMC-VERSION`, `766 EROT-FW-VERSION` — gNMI now also subscribes
+  `/platform-general/versions` (sibling of `/state`); the `versions/state/{nos-version,
+  fw-version-bmc,fw-version-erot}` leaves emit switch-level info-metrics
+  `platform_{os,bmc,erot}_version_info` (value 1.0, raw version carried in the
+  `{os,bmc,erot}_version` label; empty strings emit nothing).
+- `942 PLR-BW-LOSS-PERCENT` — gNMI `interfaces/interface/phy-diag/state/plr-bw-loss-percent`
+  added to the numeric interface-leaf allowlist as `interface_plr_bw_loss_percent` (unit `percent`).
+- `967 FAN-LED` — re-sourced from NVUE REST: the `/nvue_v1/platform/environment` parent summary's
+  aggregate `FAN_STATUS.state` LED is emitted as switch-level `fan_led` (green/ok = 1.0, any other
+  state = 0.0, absent = nothing), gated on `platform_environment_status_enabled` (default true).
+  The catalog's CLI LED path (`nv show platform environment led`) is not used.
+
+### Rescue-match audit — 3 rows re-classified to ABSENT-BLOCKER (2026-06-23)
+
+A verification pass over the 8 `RESOLVED-LIVE` rows found 3 that an earlier token-rescue had marked
+`implemented` but that **no collector lane actually emits**. They are now ABSENT-BLOCKER:
+- **`870 CPU_CORE_NUMBER`** — catalog source is NVOS CLI only (`nv show system cpu`). The rescue
+  token `core-to-phy-link-width-enabled` is a gNMI link-width *config knob*, not a CPU core count.
+  No gNMI/NMX-T emit arm exists. Resolution: new CLI collector or NVOS gNMI exposure; escalate to
+  NVOS owner (same path as `765 OS-KERNEL`).
+- **`2294 CABLE-SNR-MEDIA-LANE-N` / `2295 CABLE-SNR-HOST-LANE-N`** — catalog lists no source. NMX-T
+  has `rx_power_lane_0/1` (power, rows 977/978) but no per-lane **SNR** family; the rescue tokens
+  (`rx_power_lane_5`, `cable-proto-cap-ext`) do not exist as live SNR sources. No emit arm exists.
+  Resolution: source-owner follow-up (see "Evidence to capture" step 5); keep open until an NVLink
+  per-lane SNR source is identified or the rows are declared N/A for NVLink backplane switches.

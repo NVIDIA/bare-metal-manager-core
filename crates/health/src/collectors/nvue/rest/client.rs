@@ -35,6 +35,7 @@ const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
 const NVUE_PLATFORM_ENVIRONMENT_FAN: &str = "/nvue_v1/platform/environment/fan";
 const NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE: &str = "/nvue_v1/platform/environment/temperature";
+const NVUE_PLATFORM_ENVIRONMENT: &str = "/nvue_v1/platform/environment";
 
 #[derive(Clone)]
 pub struct UsernamePassword {
@@ -144,6 +145,16 @@ impl RestClient {
             return Ok(None);
         }
         let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment(
+        &self,
+    ) -> Result<Option<PlatformEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_status_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT)?;
         self.do_get(url, &[]).await.map(Some)
     }
 
@@ -333,6 +344,20 @@ pub struct TempData {
     /// Critical threshold in degrees Celsius, as a string (e.g. "120.00").
     pub crit: Option<String>,
     /// Sensor state as a string (e.g. "ok").
+    pub state: Option<String>,
+}
+
+/// Parent `/nvue_v1/platform/environment` summary. Keys are aggregate status
+/// entries (e.g. `FAN_STATUS`) as well as the `fan`/`temperature` subtrees.
+/// Only the LED-style summary entries carry a top-level `state`; the nested
+/// subtree objects have a different shape and deserialize with `state` absent
+/// (serde ignores unknown keys, including the LED `type` discriminator we do
+/// not consume), so they are harmlessly skipped by callers.
+pub type PlatformEnvironmentResponse = HashMap<String, EnvItem>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EnvItem {
+    /// Aggregate status string (e.g. "green"/"amber" for `FAN_STATUS`).
     pub state: Option<String>,
 }
 
@@ -641,6 +666,31 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_platform_environment_fan_status() {
+        // Parent summary carries the aggregate `FAN_STATUS` LED entry alongside
+        // nested `fan`/`temperature` subtree objects of a different shape. The
+        // LED entry parses into `state`; the nested objects parse with `state`
+        // absent (serde ignores unknown keys) and are skipped by callers.
+        let json = r#"{
+            "FAN_STATUS": {"state": "green", "type": "led"},
+            "PSU_STATUS": {"state": "amber", "type": "led"},
+            "fan": {
+                "FAN1/1": {"current-speed": "10096", "max-speed": "33000", "state": "ok"}
+            },
+            "temperature": {
+                "ASIC1": {"current": "43.00", "state": "ok"}
+            }
+        }"#;
+
+        let resp: PlatformEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp["FAN_STATUS"].state.as_deref(), Some("green"));
+        assert_eq!(resp["PSU_STATUS"].state.as_deref(), Some("amber"));
+        // nested subtree objects have no top-level state -> None.
+        assert!(resp["fan"].state.is_none());
+        assert!(resp["temperature"].state.is_none());
+    }
+
+    #[test]
     fn test_parse_empty_responses() {
         let empty_map: ClusterAppsResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_map.is_empty());
@@ -656,5 +706,8 @@ mod tests {
 
         let empty_temps: TemperatureEnvironmentResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_temps.is_empty());
+
+        let empty_env: PlatformEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_env.is_empty());
     }
 }

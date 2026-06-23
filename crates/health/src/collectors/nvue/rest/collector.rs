@@ -90,6 +90,22 @@ fn temp_state_to_f64(state: Option<&str>) -> Option<f64> {
     })
 }
 
+/// Map the aggregate `FAN_STATUS` LED state from the platform/environment parent
+/// summary to a numeric gauge: "green"/"ok" (case-insensitive) => 1.0, any other
+/// non-empty value (e.g. "amber"/"red") => 0.0, absent/empty => None (so callers
+/// emit nothing rather than fabricating a value).
+fn fan_led_to_f64(state: Option<&str>) -> Option<f64> {
+    let s = state?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.eq_ignore_ascii_case("green") || s.eq_ignore_ascii_case("ok") {
+        Some(1.0)
+    } else {
+        Some(0.0)
+    }
+}
+
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
     pub data_sink: Option<Arc<dyn DataSink>>,
@@ -364,6 +380,29 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             }
         }
 
+        match self.client.get_platform_environment().await {
+            Ok(Some(env)) => {
+                // Switch-level aggregate FAN_STATUS LED; emit only when present
+                // and the state maps to a value, absent → nothing.
+                if let Some(value) =
+                    env.get("FAN_STATUS").and_then(|s| fan_led_to_f64(s.state.as_deref()))
+                {
+                    self.emit_metric("fan_led", None, value, "state", vec![]);
+                    entity_count += 1;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment status"
+                );
+            }
+        }
+
         if saw_auth_failure {
             tracing::warn!(
                 switch_id = %self.switch_id,
@@ -537,6 +576,23 @@ mod tests {
         assert_eq!(temp_state_to_f64(Some("warning")), Some(0.0));
         assert_eq!(temp_state_to_f64(Some("")), Some(0.0));
         assert_eq!(temp_state_to_f64(None), None);
+    }
+
+    #[test]
+    fn test_fan_led_to_f64_mapping() {
+        // green/ok (case-insensitive) => 1.0
+        assert_eq!(fan_led_to_f64(Some("green")), Some(1.0));
+        assert_eq!(fan_led_to_f64(Some("GREEN")), Some(1.0));
+        assert_eq!(fan_led_to_f64(Some(" green ")), Some(1.0));
+        assert_eq!(fan_led_to_f64(Some("ok")), Some(1.0));
+        assert_eq!(fan_led_to_f64(Some("OK")), Some(1.0));
+        // any other non-empty value => 0.0
+        assert_eq!(fan_led_to_f64(Some("amber")), Some(0.0));
+        assert_eq!(fan_led_to_f64(Some("red")), Some(0.0));
+        // absent/empty => None (emit nothing)
+        assert_eq!(fan_led_to_f64(Some("")), None);
+        assert_eq!(fan_led_to_f64(Some("   ")), None);
+        assert_eq!(fan_led_to_f64(None), None);
     }
 
     /// Drives the same parse + emit logic `run_iteration` uses for the
@@ -803,6 +859,102 @@ mod tests {
         );
     }
 
+    /// Drives the same parse + emit logic `run_iteration` uses for the
+    /// platform/environment parent summary against a captured sink, asserting the
+    /// emitted switch-level `fan_led` sample shape. "green"/"ok" => 1.0,
+    /// "amber" => 0.0, and an absent `FAN_STATUS` emits nothing.
+    #[test]
+    fn test_fan_led_emit() {
+        use crate::collectors::nvue::rest::client::PlatformEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        struct Case {
+            name: &'static str,
+            json: &'static str,
+            // expected emitted fan_led value, or None when nothing must emit.
+            expected: Option<f64>,
+        }
+
+        let cases = [
+            Case {
+                name: "green LED emits 1.0",
+                json: r#"{"FAN_STATUS": {"state": "green", "type": "led"}}"#,
+                expected: Some(1.0),
+            },
+            Case {
+                name: "ok LED emits 1.0",
+                json: r#"{"FAN_STATUS": {"state": "ok", "type": "led"}}"#,
+                expected: Some(1.0),
+            },
+            Case {
+                name: "amber LED emits 0.0",
+                json: r#"{"FAN_STATUS": {"state": "amber", "type": "led"}}"#,
+                expected: Some(0.0),
+            },
+            Case {
+                name: "absent FAN_STATUS emits nothing",
+                json: r#"{"PSU_STATUS": {"state": "green", "type": "led"}}"#,
+                expected: None,
+            },
+        ];
+
+        for case in cases {
+            let sink = Arc::new(CapturingSink {
+                samples: StdMutex::new(Vec::new()),
+            });
+            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+            collector.data_sink = Some(sink.clone());
+
+            let env: PlatformEnvironmentResponse =
+                serde_json::from_str(case.json).expect("env json parses");
+            // Mirror run_iteration's emit logic exactly.
+            if let Some(value) =
+                env.get("FAN_STATUS").and_then(|s| fan_led_to_f64(s.state.as_deref()))
+            {
+                collector.emit_metric("fan_led", None, value, "state", vec![]);
+            }
+
+            let samples = sink.samples.lock().unwrap();
+            match case.expected {
+                Some(expected_value) => {
+                    assert_eq!(samples.len(), 1, "case '{}': expected one sample", case.name);
+                    let sample = &samples[0];
+                    assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
+                    assert_eq!(sample.metric_type, "fan_led", "case '{}'", case.name);
+                    assert_eq!(sample.unit, "state", "case '{}'", case.name);
+                    assert_eq!(sample.value, expected_value, "case '{}'", case.name);
+                    assert_eq!(sample.key, "fan_led", "case '{}'", case.name);
+                    assert!(
+                        sample.labels.is_empty(),
+                        "case '{}': fan_led is switch-level, no per-entity label",
+                        case.name
+                    );
+                }
+                None => assert_eq!(
+                    samples.len(),
+                    0,
+                    "case '{}': absent FAN_STATUS must not emit a sample",
+                    case.name
+                ),
+            }
+        }
+    }
+
     struct ScriptedProvider {
         calls: AtomicUsize,
         // Each call pops the front of this queue; an empty queue yields an
@@ -856,6 +1008,7 @@ mod tests {
             interfaces_enabled: false,
             platform_environment_fan_enabled: false,
             platform_environment_temperature_enabled: false,
+            platform_environment_status_enabled: false,
         }
     }
 

@@ -280,12 +280,23 @@ impl GnmiSampleProcessor {
         // information is carried by a single string label. Empty strings carry
         // no information and emit nothing (CONTACT/LOCATION are empty on the
         // GB200 rig, so only NODE-DESCRIPTION emits live).
+        //
+        // The firmware version info-metrics (OS-VERSION 868, BMC-VERSION 869,
+        // EROT-FW-VERSION 870) live under the sibling `/platform-general/versions`
+        // subtree rather than `/state`; they follow the same info-metric contract
+        // (constant 1.0 sample, single string label, empty strings emit nothing).
         let info: Option<(&str, &'static str)> = if leaf_matches(elems, &["state", "contact"]) {
             Some(("platform_contact_info", "contact"))
         } else if leaf_matches(elems, &["state", "location"]) {
             Some(("platform_location_info", "location"))
         } else if leaf_matches(elems, &["state", "platform-name"]) {
             Some(("platform_node_description_info", "node_description"))
+        } else if leaf_matches(elems, &["versions", "state", "nos-version"]) {
+            Some(("platform_os_version_info", "os_version"))
+        } else if leaf_matches(elems, &["versions", "state", "fw-version-bmc"]) {
+            Some(("platform_bmc_version_info", "bmc_version"))
+        } else if leaf_matches(elems, &["versions", "state", "fw-version-erot"]) {
+            Some(("platform_erot_version_info", "erot_version"))
         } else {
             None
         };
@@ -697,6 +708,11 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
             &["phy-diag", "state", "plr-xmit-retry-events-within-t-sec-max"],
             "interface_plr_xmit_retry_codes_within_minute",
             "count",
+        ),
+        (
+            &["phy-diag", "state", "plr-bw-loss-percent"],
+            "interface_plr_bw_loss_percent",
+            "percent",
         ),
         // existing pre-branch mapping retained (leaf out of GB200 row set but
         // restored upstream; kept so the canonical series is not dropped)
@@ -1742,6 +1758,11 @@ mod tests {
                 "interface_plr_xmit_retry_codes_within_minute",
                 "count",
             ),
+            (
+                &["phy-diag", "state", "plr-bw-loss-percent"],
+                "interface_plr_bw_loss_percent",
+                "percent",
+            ),
         ];
 
         for (tail, expected_name, expected_unit) in cases {
@@ -2360,6 +2381,81 @@ mod tests {
                 sample.labels,
                 vec![(Cow::Borrowed(label), raw.to_string())],
                 "leaf {leaf}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_platform_general_version_info_metrics() {
+        // OS-VERSION (868) / BMC-VERSION (869) / EROT-FW-VERSION (870): non-empty
+        // version strings under `/platform-general/versions/state` each emit one
+        // switch-level info-metric carrying the raw version in a single label.
+        // Values are the authoritative live GB200 Stage-0 capture.
+        for (tail, metric_type, label, raw) in [
+            (
+                ["versions", "state", "nos-version"],
+                "platform_os_version_info",
+                "os_version",
+                "nvos-25.02.2553",
+            ),
+            (
+                ["versions", "state", "fw-version-bmc"],
+                "platform_bmc_version_info",
+                "bmc_version",
+                "88.0002.1336",
+            ),
+            (
+                ["versions", "state", "fw-version-erot"],
+                "platform_erot_version_info",
+                "erot_version",
+                "01.04.0026.0000_n04",
+            ),
+        ] {
+            let sample = run_platform_general_leaf_info(&tail, raw);
+            assert_eq!(sample.metric_type, metric_type, "leaf {tail:?}");
+            assert_eq!(sample.unit, "info", "leaf {tail:?}");
+            assert_eq!(sample.value, 1.0, "leaf {tail:?}");
+            assert_eq!(
+                sample.labels,
+                vec![(Cow::Borrowed(label), raw.to_string())],
+                "leaf {tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_platform_general_empty_version_string_is_not_exported() {
+        // An empty version string carries no information and must emit nothing,
+        // while still being counted as the platform-general entity.
+        for tail in [
+            ["versions", "state", "nos-version"],
+            ["versions", "state", "fw-version-bmc"],
+            ["versions", "state", "fw-version-erot"],
+        ] {
+            let sink = Arc::new(CapturingSink::default());
+            let mut proc = test_processor();
+            proc.data_sink = Some(sink.clone());
+            let mut elems = vec![make_path_elem("platform-general", &[])];
+            elems.extend(tail.iter().map(|n| make_path_elem(n, &[])));
+            let notification = proto::Notification {
+                timestamp: 0,
+                prefix: None,
+                update: vec![proto::Update {
+                    path: Some(proto::Path {
+                        elem: elems,
+                        ..Default::default()
+                    }),
+                    val: Some(make_typed_value_string("")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let count = proc.process_notification(&notification);
+            assert_eq!(count, 1, "platform-general entity is still counted for {tail:?}");
+            assert_eq!(
+                sink.events.lock().expect("lock poisoned").len(),
+                0,
+                "empty version string must not emit a metric for {tail:?}"
             );
         }
     }

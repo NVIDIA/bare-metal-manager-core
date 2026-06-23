@@ -1,9 +1,9 @@
 catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,match_detail
 763,NET-FW-VER,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
-764,OS-VERSION,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['fw-version-bmc', 'nos-version'] nmxt~['cable_fw_version', 'FW_Version']"
+764,OS-VERSION,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi platform-general/versions/state/nos-version -> platform_os_version_info
 765,OS-KERNEL,source-equivalent required; no new CLI collector by default,ABSENT-BLOCKER,blocker,no live token match (CLI-only)
-766,EROT-FW-VERSION,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['fw-version-bmc', 'nos-version'] nmxt~['cable_fw_version', 'FW_Version']"
-767,BMC-VERSION,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['fw-version-bmc', 'nos-version'] nmxt~['cable_fw_version', 'FW_Version']"
+766,EROT-FW-VERSION,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi platform-general/versions/state/fw-version-erot -> platform_erot_version_info
+767,BMC-VERSION,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi platform-general/versions/state/fw-version-bmc -> platform_bmc_version_info
 794,LINK-DOWNED-COUNTER,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 795,PORT-MALFORMED-PACKET-ERRORS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 796,PORT-NEIGHBOR-MTU-DISCARDS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
@@ -35,7 +35,7 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 867,PORT-LABEL,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 868,REVISION,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 869,DEVICE-HARDWARE-REVISION,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
-870,CPU_CORE_NUMBER,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['core-to-phy-link-width-enabled', 'core-to-phy-link-proto-enabled'] nmxt~['Port_Number', 'sw_serial_number']"
+870,CPU_CORE_NUMBER,NVOS CLI only (nv show system cpu); no live gNMI/NMX-T source,ABSENT-BLOCKER,blocker,false token match (gnmi core-to-phy-link-width-enabled is a link knob not a CPU core count); not emitted
 872,ASIC-TEMP-CRITICAL,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
 873,ASIC-TEMP-MAX,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
 874,ASIC-TEMP-STATE,source-equivalent required; no new CLI collector by default,IMPLEMENTED,implemented,nvue rest /platform/environment/temperature (.crit/.max/.state)
@@ -98,7 +98,7 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 939,PLR-XMIT-RETRYS-EVENTS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 940,PLR-SYNC-EVENTS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 941,PLR-XMIT-RETRY-CODES-WITHIN-MINUTE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-942,PLR-BW-LOSS-PERCENT,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['plr-xmit-retry-events', 'plr-rcv-code-err'] nmxt~['PlrRcvUncorrectableCode', 'PlrXmitRetryEvents']"
+942,PLR-BW-LOSS-PERCENT,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi interfaces/interface/phy-diag/state/plr-bw-loss-percent -> interface_plr_bw_loss_percent (percent)
 943,RQ-GENERAL-ERROR,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 944,TIME-TO-LINKS-UP,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 945,STATUS-OPCODE,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
@@ -123,7 +123,7 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 964,SUPPORTED-WIDTH,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 965,VL-CAPABILITIES,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi info metric interface_vl_capabilities_info
 966,FAN-STATE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-967,FAN-LED,source-equivalent required; no new CLI collector by default,RESOLVED-LIVE,implemented,"gnmi~['pd-link-speed-enabled', 'phy-hst-link-speed-enabled'] nmxt~[]"
+967,FAN-LED,NVUE REST explicit mapping,IMPLEMENTED,implemented,nvue-rest /nvue_v1/platform/environment FAN_STATUS.state -> fan_led (green/ok=1 else 0)
 968,CABLE-PART-NUMBER,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 969,CABLE-SERIAL-NUMBER,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 970,CABLE-TRANSMITTER-TECHNOLOGY,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
@@ -186,8 +186,8 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 1707,RQ-NUM-LLE,NMX-T explicit allowlist,ABSENT-BLOCKER,blocker,nmxt not live: rq_num_lle
 1708,SQ-NUM-WRFE,NMX-T explicit allowlist,ABSENT-BLOCKER,blocker,nmxt not live: sq_num_wrfe
 2293,CABLE-OPER-STATUS,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/transceiver-diag/state/module-oper-status
-2294,CABLE-SNR-MEDIA-LANE-N,live source resolution required,RESOLVED-LIVE,implemented,"gnmi~['cable-proto-cap-ext'] nmxt~['tx_power_lane_3', 'rx_power_lane_5']"
-2295,CABLE-SNR-HOST-LANE-N,live source resolution required,RESOLVED-LIVE,implemented,"gnmi~['cable-proto-cap-ext', 'hostname'] nmxt~['tx_power_lane_3', 'rx_power_lane_5']"
+2294,CABLE-SNR-MEDIA-LANE-N,no source listed in catalog; no live gNMI/NMX-T source,ABSENT-BLOCKER,blocker,false token match (NMX-T has rx_power_lane_0/1 but no SNR field); not emitted; source-owner follow-up open
+2295,CABLE-SNR-HOST-LANE-N,no source listed in catalog; no live gNMI/NMX-T source,ABSENT-BLOCKER,blocker,false token match (NMX-T has rx_power_lane_0/1 but no SNR field); not emitted; source-owner follow-up open
 2296,NVSWITCH-CABLE-RX-POWER-LANE-LOW-N,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/thresholds/threshold/state/input-power-lower
 2297,NVSWITCH-CABLE-TX-POWER-LANE-LOW-N,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/thresholds/threshold/state/output-power-lower
 2298,NVSWITCH-CABLE-RX-POWER-LANE-HIGH-N,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/thresholds/threshold/state/input-power-upper

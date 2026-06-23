@@ -17,31 +17,39 @@ Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_
 
 | Disposition    | Count | Meaning                                                               |
 |----------------|-------|-----------------------------------------------------------------------|
-| implemented    | 180   | PRESENT/RESOLVED-LIVE allowlist hit, IMPLEMENTED (NVUE REST / info / enum-coded), or covered by an existing label |
-| blocker        | 13    | ABSENT-BLOCKER — leaf/family not live on this platform |
+| implemented    | 177   | PRESENT allowlist hit, IMPLEMENTED (NVUE REST / info / enum-coded / discovered live source), or covered by an existing label |
+| blocker        | 16    | ABSENT-BLOCKER — leaf/family not live on this platform |
 
 ### final_status breakdown
 
 | final_status      | Count |
 |-------------------|-------|
 | PRESENT           | 136   |
-| RESOLVED-LIVE     | 8     |
-| IMPLEMENTED       | 36    |
-| ABSENT-BLOCKER    | 13    |
+| IMPLEMENTED       | 41    |
+| ABSENT-BLOCKER    | 16    |
 
 ## Blocker escalations
 
 See `nvswitch_telemetry_gb200_live_validation.md` section "Blocker escalations (Stage 0)" for the
-full annotated list of 13 rows, grouped by root cause, with resolution path and re-probe
+full annotated list of 16 rows, grouped by root cause, with resolution path and re-probe
 conditions.
 
 ## Notes on implemented rows
 
 - **PRESENT** rows have an explicit gNMI or NMX-T allowlist mapping confirmed live by the Stage 0
   probe. No further work required before merge.
-- **RESOLVED-LIVE** rows have no direct catalog-listed source but a live token match was found in
-  gNMI or NMX-T output. Match tokens are recorded in `match_detail`. These are accepted as
-  covered; if live validation on a production rig disputes a mapping, re-escalate immediately.
+- **IMPLEMENTED via discovered live sources (5 rows)** — these had no direct catalog-listed source
+  originally (the catalog marked them CLI-only / "resolution required"), but each now has an
+  explicit, unit-tested emit path; `match_detail` records the concrete live leaf/endpoint:
+  - 764 OS-VERSION, 767 BMC-VERSION, 766 EROT-FW-VERSION → gNMI `platform-general/versions/state/`
+    `{nos-version,fw-version-bmc,fw-version-erot}` info-metrics (`platform_os/bmc/erot_version_info`).
+  - 942 PLR-BW-LOSS-PERCENT → gNMI `interfaces/interface/phy-diag/state/plr-bw-loss-percent`
+    (`interface_plr_bw_loss_percent`, percent).
+  - 967 FAN-LED → NVUE REST `/nvue_v1/platform/environment` `FAN_STATUS.state` (`fan_led`,
+    green/ok=1 else 0).
+  - Audit note: an earlier pass token-matched 3 further rows (870 CPU_CORE_NUMBER, 2294
+    CABLE-SNR-MEDIA-LANE-N, 2295 CABLE-SNR-HOST-LANE-N) on spurious substrings; on verification no
+    lane emits them, so they were re-classified to ABSENT-BLOCKER (see "Notes on blocker rows").
 - **IMPLEMENTED** rows are sourced beyond the plain gNMI/NMX-T allowlist:
   - NVUE REST `/nvue_v1/platform/environment/{fan,temperature}` → MAX-SPEED (894); the 21 temp
     `*-CRITICAL/MAX/STATE` rows (`.crit`/`.max`/`.state`) and the 8 `*-TEMP-CURRENT` rows
@@ -70,3 +78,12 @@ No row is marked "deferred." Every blocker has an explicit escalation dispositio
   NMX-T/RDMA owner.
 - **ABSENT-BLOCKER — OS-KERNEL (row 765):** CLI-only, no gNMI or NMX-T token match. Requires a
   new CLI collector or NVOS gNMI exposure; escalate to NVOS owner.
+- **ABSENT-BLOCKER — CPU_CORE_NUMBER (row 870):** CLI-only (`nv show system cpu`); the catalog
+  lists no gNMI/NMX-T source. A prior pass spuriously token-matched the gNMI link knob
+  `core-to-phy-link-width-enabled` (a link-width config flag, not a CPU core count); no lane emits
+  it. Requires a new CLI collector or NVOS gNMI exposure; escalate to NVOS owner.
+- **ABSENT-BLOCKER — CABLE-SNR-MEDIA-LANE-N / CABLE-SNR-HOST-LANE-N (rows 2294, 2295):** catalog
+  lists *no source* for either row. NMX-T exposes `rx_power_lane_0/1` (rows 977/978) but **no SNR
+  family**; a prior pass spuriously token-matched `rx_power_lane_5`/`cable-proto-cap-ext`. No lane
+  emits these. Source-owner follow-up is open (see live-validation runbook step 5) — keep open
+  until an NVLink per-lane SNR source is identified or the rows are declared N/A.

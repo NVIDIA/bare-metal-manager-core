@@ -232,6 +232,10 @@ interfaces_enabled = true
 # (current/max/crit in celsius + sensor state). Emits only the fields each
 # sensor actually reports.
 platform_environment_temperature_enabled = true
+# Aggregate fan LED state from the `/nvue_v1/platform/environment` parent
+# summary (the `FAN_STATUS` entry). Switch-level: "green"/"ok" => 1.0, any
+# other state => 0.0.
+platform_environment_status_enabled = true
 
 # NVUE gNMI streaming collector. Disabled by default in code; explicitly
 # enabled here for the GB200 NVLink switch-host scenario. Subscribes to
