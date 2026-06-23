@@ -107,7 +107,7 @@ var NetworkSecurityGroupRuleAPIPropagationStatusFromProtobufPropagationStatus = 
 
 var (
 	// Time when the NetworkSecurityGroup propagation object_id attribute will be deprecated
-	networkSecurityGroupPropagationObjectIDDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+	networkSecurityGroupPropagationObjectIDDeprecationTime = time.Date(2026, time.September, 10, 0, 0, 0, 0, time.UTC)
 
 	// Deprecations for the NetworkSecurityGroup model
 	networkSecurityGroupPropagationDetailsDeprecations = []DeprecatedEntity{

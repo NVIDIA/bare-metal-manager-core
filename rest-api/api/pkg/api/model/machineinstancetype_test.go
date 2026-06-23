@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,7 @@ func TestNewAPIMachineInstanceType(t *testing.T) {
 			},
 			want: func() *APIMachineInstanceType {
 				expected := &APIMachineInstanceType{
-					ID:             dbmit.ID.String(),
+					ID:             cutil.GetPtr(dbmit.ID.String()),
 					MachineID:      dbmit.MachineID,
 					InstanceTypeID: dbmit.InstanceTypeID.String(),
 					Created:        dbmit.Created,

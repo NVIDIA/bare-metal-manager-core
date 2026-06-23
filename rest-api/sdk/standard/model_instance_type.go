@@ -47,7 +47,7 @@ type InstanceType struct {
 	Status *InstanceTypeStatus `json:"status,omitempty"`
 	// Chronological status history for the Instance Type
 	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
-	// Deprecation notices for fields returned by this resource
+	// Deprecations active for this resource. Returned only if there are active deprecations.
 	Deprecations []Deprecation `json:"deprecations,omitempty"`
 	// Date/time when the InstanceType was created
 	Created *time.Time `json:"created,omitempty"`

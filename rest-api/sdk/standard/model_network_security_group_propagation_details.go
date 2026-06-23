@@ -34,7 +34,7 @@ type NetworkSecurityGroupPropagationDetails struct {
 	UnpropagatedInstanceIds []string `json:"unpropagatedInstanceIds,omitempty"`
 	// IDs of the instances involved in determining the propagation status
 	RelatedInstanceIds []string `json:"relatedInstanceIds,omitempty"`
-	// Deprecation notices for fields returned by this propagation detail
+	// Deprecations active for this resource. Returned only if there are active deprecations.
 	Deprecations []Deprecation `json:"deprecations,omitempty"`
 }
 
