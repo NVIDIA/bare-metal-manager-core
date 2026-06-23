@@ -2588,3 +2588,111 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 		assert.Equal(t, id.String(), got.Id.Value)
 	})
 }
+
+func TestAPIInstanceDeleteRequest_ToInstanceDeleteAttributionConfig(t *testing.T) {
+	userID := uuid.New()
+	tenantID := uuid.New()
+	org := "test-tenant-org"
+	dbUser := &cdbm.User{ID: userID}
+	instance := &cdbm.Instance{
+		Tenant: &cdbm.Tenant{ID: tenantID, Org: org},
+	}
+	wantInitiated := InstanceDeleteInitiatedBy{
+		Org: org, UserID: userID.String(), TenantID: tenantID.String(), TenantOrg: org,
+	}
+
+	tests := []struct {
+		name           string
+		req            APIInstanceDeleteRequest
+		wantReported   *InstanceDeleteAttributionTenantReported
+		wantRawKeys    []string
+		wantAbsentKeys []string
+	}{
+		{
+			name:           "without machine health issue",
+			req:            APIInstanceDeleteRequest{},
+			wantReported:   nil,
+			wantRawKeys:    []string{"initiated_by"},
+			wantAbsentKeys: []string{"tenant_reported"},
+		},
+		{
+			name: "with machine health issue",
+			req: APIInstanceDeleteRequest{
+				MachineHealthIssue: &APIMachineHealthIssue{
+					Category: MachineIssueCategoryHardware,
+					Summary:  cutil.GetPtr("NIC failure"),
+					Details:  cutil.GetPtr("link down on port 0"),
+				},
+			},
+			wantReported: &InstanceDeleteAttributionTenantReported{
+				Category: "HARDWARE",
+				Summary:  "NIC failure",
+				Details:  cutil.GetPtr("link down on port 0"),
+			},
+			wantRawKeys: []string{"initiated_by", "tenant_reported"},
+		},
+		{
+			name: "omits nil details",
+			req: APIInstanceDeleteRequest{
+				MachineHealthIssue: &APIMachineHealthIssue{
+					Category: MachineIssueCategoryOther,
+					Summary:  cutil.GetPtr("summary only"),
+				},
+			},
+			wantReported: &InstanceDeleteAttributionTenantReported{
+				Category: "OTHER",
+				Summary:  "summary only",
+			},
+			wantRawKeys: []string{"initiated_by", "tenant_reported"},
+		},
+		{
+			name: "omits empty string details",
+			req: APIInstanceDeleteRequest{
+				MachineHealthIssue: &APIMachineHealthIssue{
+					Category: MachineIssueCategoryNetwork,
+					Summary:  cutil.GetPtr("network issue"),
+					Details:  cutil.GetPtr(""),
+				},
+			},
+			wantReported: &InstanceDeleteAttributionTenantReported{
+				Category: "NETWORK",
+				Summary:  "network issue",
+			},
+			wantRawKeys: []string{"initiated_by", "tenant_reported"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := tt.req.ToInstanceDeleteAttributionConfig(dbUser, instance)
+			require.NoError(t, err)
+
+			var config InstanceDeleteAttributionConfig
+			require.NoError(t, json.Unmarshal([]byte(raw), &config))
+			assert.Equal(t, wantInitiated, config.InitiatedBy)
+
+			if tt.wantReported == nil {
+				assert.Nil(t, config.TenantReported)
+			} else {
+				require.NotNil(t, config.TenantReported)
+				assert.Equal(t, tt.wantReported.Category, config.TenantReported.Category)
+				assert.Equal(t, tt.wantReported.Summary, config.TenantReported.Summary)
+				if tt.wantReported.Details == nil {
+					assert.Nil(t, config.TenantReported.Details)
+				} else {
+					require.NotNil(t, config.TenantReported.Details)
+					assert.Equal(t, *tt.wantReported.Details, *config.TenantReported.Details)
+				}
+			}
+
+			var parsed map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal([]byte(raw), &parsed))
+			for _, key := range tt.wantRawKeys {
+				assert.Contains(t, parsed, key)
+			}
+			for _, key := range tt.wantAbsentKeys {
+				assert.NotContains(t, parsed, key)
+			}
+		})
+	}
+}

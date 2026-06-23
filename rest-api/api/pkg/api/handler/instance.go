@@ -4904,6 +4904,16 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		// Prepare the delete/release request workflow object
 		releaseInstanceRequest := apiRequest.ToProto(instance)
 
+		// If an issue is reported, set Issue.details to the delete attribution config.
+		if releaseInstanceRequest.Issue != nil {
+			instanceDeletionAttributionConfig, derr := apiRequest.ToInstanceDeleteAttributionConfig(dbUser, instance)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error building delete attribution config")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Instance", nil)
+			}
+			releaseInstanceRequest.Issue.Details = instanceDeletionAttributionConfig
+		}
+
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-delete-" + instance.ID.String(),
 			TaskQueue:                queue.SiteTaskQueue,
