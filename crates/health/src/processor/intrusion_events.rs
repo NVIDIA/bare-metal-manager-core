@@ -33,6 +33,7 @@ enum IntrusionEventState {
     Clear,
 }
 
+#[derive(Default)]
 pub struct BmcIntrusionEventProcessor;
 
 impl BmcIntrusionEventProcessor {
@@ -73,15 +74,6 @@ impl BmcIntrusionEventProcessor {
             return None;
         }
 
-        if text.contains("clear")
-            || text.contains("cleared")
-            || text.contains("deassert")
-            || text.contains("normal")
-            || text.contains("reset")
-        {
-            return Some(IntrusionEventState::Clear);
-        }
-
         if text.contains("physical chassis intrusion alert")
             || text.contains("trigger")
             || text.contains("triggered")
@@ -91,6 +83,15 @@ impl BmcIntrusionEventProcessor {
             || text.contains("warning")
         {
             return Some(IntrusionEventState::Alert);
+        }
+
+        if text.contains("clear")
+            || text.contains("cleared")
+            || text.contains("deassert")
+            || text.contains("normal")
+            || text.contains("reset")
+        {
+            return Some(IntrusionEventState::Clear);
         }
 
         None
@@ -154,10 +155,28 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_test_support::value_scenarios;
     use mac_address::MacAddress;
 
     use super::*;
     use crate::endpoint::BmcAddr;
+
+    #[derive(Clone, Copy)]
+    struct IntrusionLogCase {
+        body: &'static str,
+        severity: &'static str,
+        message_args: Option<&'static str>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct IntrusionReportSummary {
+        alert_count: usize,
+        success_count: usize,
+        probe_id: Probe,
+        target: Option<String>,
+        message: Option<String>,
+        classifications: Vec<Classification>,
+    }
 
     fn context() -> EventContext {
         EventContext {
@@ -198,65 +217,121 @@ mod tests {
         Arc::clone(report)
     }
 
-    #[test]
-    fn emits_alert_for_physical_chassis_intrusion_log_body() {
-        let report = emitted_report(log("Physical Chassis Intrusion Alert", "Critical", None));
+    fn summarize_report(case: IntrusionLogCase) -> IntrusionReportSummary {
+        let report = emitted_report(log(case.body, case.severity, case.message_args));
 
         assert_eq!(report.source, ReportSource::BmcEvents);
         assert_eq!(report.target, Some(HealthReportTarget::Machine));
-        assert!(report.successes.is_empty());
-        assert_eq!(report.alerts.len(), 1);
 
-        let alert = &report.alerts[0];
-        assert_eq!(alert.probe_id, Probe::IntrusionSensorTriggered);
-        assert_eq!(alert.target.as_deref(), Some(HOST_BMC_TARGET));
-        assert_eq!(alert.message, INTRUSION_ALERT_MESSAGE);
-        assert!(
-            alert
-                .classifications
-                .contains(&Classification::SensorCritical)
-        );
-        assert!(
-            alert
-                .classifications
-                .contains(&Classification::PreventAllocations)
-        );
+        if let Some(alert) = report.alerts.first() {
+            return IntrusionReportSummary {
+                alert_count: report.alerts.len(),
+                success_count: report.successes.len(),
+                probe_id: alert.probe_id,
+                target: alert.target.clone(),
+                message: Some(alert.message.clone()),
+                classifications: alert.classifications.clone(),
+            };
+        }
+
+        let success = report.successes.first().expect("success report");
+        IntrusionReportSummary {
+            alert_count: report.alerts.len(),
+            success_count: report.successes.len(),
+            probe_id: success.probe_id,
+            target: success.target.clone(),
+            message: None,
+            classifications: Vec::new(),
+        }
     }
 
     #[test]
-    fn emits_alert_for_intrusion_message_args() {
-        let report = emitted_report(log(
-            "",
-            "Warning",
-            Some(r#"["Physical Chassis Intrusion Alert"]"#),
-        ));
+    fn intrusion_report_cases() {
+        value_scenarios!(
+            run = summarize_report;
+            "physical chassis intrusion log body" {
+                IntrusionLogCase {
+                    body: "Physical Chassis Intrusion Alert",
+                    severity: "Critical",
+                    message_args: None,
+                } => IntrusionReportSummary {
+                    alert_count: 1,
+                    success_count: 0,
+                    probe_id: Probe::IntrusionSensorTriggered,
+                    target: Some(HOST_BMC_TARGET.to_string()),
+                    message: Some(INTRUSION_ALERT_MESSAGE.to_string()),
+                    classifications: vec![
+                        Classification::SensorCritical,
+                        Classification::PreventAllocations,
+                    ],
+                },
+            }
 
-        assert_eq!(report.alerts.len(), 1);
-        assert_eq!(report.alerts[0].probe_id, Probe::IntrusionSensorTriggered);
-    }
+            "intrusion message args" {
+                IntrusionLogCase {
+                    body: "",
+                    severity: "Warning",
+                    message_args: Some(r#"["Physical Chassis Intrusion Alert"]"#),
+                } => IntrusionReportSummary {
+                    alert_count: 1,
+                    success_count: 0,
+                    probe_id: Probe::IntrusionSensorTriggered,
+                    target: Some(HOST_BMC_TARGET.to_string()),
+                    message: Some(INTRUSION_ALERT_MESSAGE.to_string()),
+                    classifications: vec![
+                        Classification::SensorCritical,
+                        Classification::PreventAllocations,
+                    ],
+                },
+            }
 
-    #[test]
-    fn emits_success_for_cleared_intrusion_event() {
-        let report = emitted_report(log("Physical Chassis Intrusion cleared", "OK", None));
+            "normal to critical intrusion event" {
+                IntrusionLogCase {
+                    body: "Physical Chassis Intrusion changed from Normal to Critical",
+                    severity: "Critical",
+                    message_args: None,
+                } => IntrusionReportSummary {
+                    alert_count: 1,
+                    success_count: 0,
+                    probe_id: Probe::IntrusionSensorTriggered,
+                    target: Some(HOST_BMC_TARGET.to_string()),
+                    message: Some(INTRUSION_ALERT_MESSAGE.to_string()),
+                    classifications: vec![
+                        Classification::SensorCritical,
+                        Classification::PreventAllocations,
+                    ],
+                },
+            }
 
-        assert!(report.alerts.is_empty());
-        assert_eq!(report.successes.len(), 1);
-        assert_eq!(
-            report.successes[0].probe_id,
-            Probe::IntrusionSensorTriggered
-        );
-        assert_eq!(report.successes[0].target.as_deref(), Some(HOST_BMC_TARGET));
-    }
+            "cleared intrusion event" {
+                IntrusionLogCase {
+                    body: "Physical Chassis Intrusion cleared",
+                    severity: "OK",
+                    message_args: None,
+                } => IntrusionReportSummary {
+                    alert_count: 0,
+                    success_count: 1,
+                    probe_id: Probe::IntrusionSensorTriggered,
+                    target: Some(HOST_BMC_TARGET.to_string()),
+                    message: None,
+                    classifications: vec![],
+                },
+            }
 
-    #[test]
-    fn emits_success_for_reset_intrusion_event() {
-        let report = emitted_report(log("Reset Intrusion", "OK", None));
-
-        assert!(report.alerts.is_empty());
-        assert_eq!(report.successes.len(), 1);
-        assert_eq!(
-            report.successes[0].probe_id,
-            Probe::IntrusionSensorTriggered
+            "reset intrusion event" {
+                IntrusionLogCase {
+                    body: "Reset Intrusion",
+                    severity: "OK",
+                    message_args: None,
+                } => IntrusionReportSummary {
+                    alert_count: 0,
+                    success_count: 1,
+                    probe_id: Probe::IntrusionSensorTriggered,
+                    target: Some(HOST_BMC_TARGET.to_string()),
+                    message: None,
+                    classifications: vec![],
+                },
+            }
         );
     }
 
