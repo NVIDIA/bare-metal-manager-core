@@ -1016,7 +1016,7 @@ mod tests {
                 routing_profile: None,
             }],
             #[allow(deprecated)]
-            auto: false,
+            auto: true,
             auto_config: None,
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
