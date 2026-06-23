@@ -218,14 +218,15 @@ pub(super) async fn build_compute_tray_endpoint(
     credential_manager: &dyn CredentialManager,
 ) -> Result<ComputeTrayEndpoint, String> {
     let bmc_mac = machine
+        .status
         .bmc_info
         .mac
         .ok_or_else(|| format!("machine {machine_id} has no BMC MAC address recorded"))?;
 
-    let bmc_ip = machine
-        .bmc_info
-        .ip
-        .ok_or_else(|| format!("no BMC IP found for machine {machine_id} (bmc_mac {bmc_mac})"))?;
+    let bmc_ip =
+        machine.status.bmc_info.ip.ok_or_else(|| {
+            format!("no BMC IP found for machine {machine_id} (bmc_mac {bmc_mac})")
+        })?;
 
     let credentials = lookup_bmc_credentials(credential_manager, bmc_mac).await?;
 

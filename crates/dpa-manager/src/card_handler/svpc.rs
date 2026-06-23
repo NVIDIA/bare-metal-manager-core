@@ -116,6 +116,7 @@ impl SvpcInterfaceHandler {
         // TODO: This has to be changed when we support multiple VFs per NIC
         let observed = Self::at_most_one(
             machine
+                .status
                 .spx_status_observation
                 .iter()
                 .flat_map(|o| &o.spx_attachments)
@@ -206,6 +207,7 @@ impl SvpcInterfaceHandler {
         let this_mac = dpa_interface.mac_address;
 
         let this_nic_observed_attachments = machine
+            .status
             .spx_status_observation
             .clone()
             .map(|observed| {

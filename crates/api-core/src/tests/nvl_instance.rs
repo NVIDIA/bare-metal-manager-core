@@ -185,7 +185,13 @@ async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -355,7 +361,13 @@ async fn test_detach_gpus_from_partition_by_clearing_nvlink_config(pool: sqlx::P
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -563,7 +575,13 @@ async fn test_with_multiple_nv_link_logical_partitions(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -653,7 +671,14 @@ async fn test_nvl_partition_monitor_adds_successful_partitions_when_some_creates
     )
     .await;
 
-    let discovery_info = mh.host().rpc_machine().await.discovery_info.unwrap();
+    let discovery_info = mh
+        .host()
+        .rpc_machine()
+        .await
+        .status
+        .unwrap()
+        .discovery_info
+        .unwrap();
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
 
     let nvl_config = rpc::forge::InstanceNvLinkConfig {
@@ -781,8 +806,20 @@ async fn test_create_instances_with_nvl_configs_same_logical_partition_different
 
     assert_eq!(&machine1.state, "Ready");
     assert_eq!(&machine2.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
-    let discovery_info2 = machine2.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
+    let discovery_info2 = machine2
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info1.gpus.len(), 4);
     assert_eq!(discovery_info2.gpus.len(), 4);
     let gpus1: Vec<Gpu> = discovery_info1.gpus.to_vec();
@@ -980,7 +1017,13 @@ async fn test_update_instance_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1182,7 +1225,13 @@ async fn test_instance_update_logical_partition(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1317,7 +1366,13 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1426,7 +1481,13 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1573,7 +1634,13 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
     .await;
     let machine1 = mh1.host().rpc_machine().await;
     assert_eq!(&machine1.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info1.gpus.len(), 4);
 
@@ -1650,7 +1717,13 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
     .await;
     let machine2 = mh2.host().rpc_machine().await;
     assert_eq!(&machine2.state, "Ready");
-    let discovery_info2 = machine2.discovery_info.as_ref().unwrap();
+    let discovery_info2 = machine2
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info2.gpus.len(), 4);
 
     let gpus2: Vec<Gpu> = discovery_info2.gpus.to_vec();
@@ -1755,7 +1828,13 @@ async fn test_logical_partition_delete_with_instance_config(pool: sqlx::PgPool) 
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1963,7 +2042,13 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     .await;
     let machine1 = mh1.host().rpc_machine().await;
     assert_eq!(&machine1.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info1.gpus.len(), 4);
 
@@ -2076,7 +2161,10 @@ async fn assert_machine_nvlink_observation_present(
 ) {
     let machine = mh.host().rpc_machine().await;
     let observation = machine
-        .nvlink_status_observation
+        .status
+        .as_ref()
+        .unwrap()
+        .nvlink
         .as_ref()
         .expect("expected nvlink_status_observation to be set");
     assert_eq!(observation.gpu_status.len(), expected_gpu_count);
@@ -2096,9 +2184,9 @@ async fn assert_machine_nvlink_observation_present(
 async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
     assert!(
-        machine.nvlink_status_observation.is_none(),
+        machine.status.as_ref().unwrap().nvlink.is_none(),
         "expected null nvlink_status_observation via RPC, got {:?}",
-        machine.nvlink_status_observation
+        machine.status.as_ref().unwrap().nvlink
     );
 
     let mut txn = pool
@@ -2107,9 +2195,9 @@ async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sql
         .expect("begin txn for nvlink observation check");
     let db_machine = mh.host().db_machine(&mut txn).await;
     assert!(
-        db_machine.nvlink_status_observation.is_none(),
+        db_machine.status.nvlink_status_observation.is_none(),
         "expected null nvlink_status_observation in DB, got {:?}",
-        db_machine.nvlink_status_observation
+        db_machine.status.nvlink_status_observation
     );
     txn.commit().await.expect("commit nvlink observation check");
 }
@@ -2164,7 +2252,13 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -2547,7 +2641,13 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
     assert_eq!(machine.rack_id.as_ref(), Some(&rack_id));
     assert_eq!(&machine.state, "Ready");
 
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info.gpus.len(), 4);
 
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
@@ -2875,8 +2975,20 @@ async fn test_create_instance_multiple_domains_use_nmxc_simulator(pool: sqlx::Pg
     assert_eq!(&machine4.state, "Ready");
     assert_eq!(&machine5.state, "Ready");
 
-    let discovery_info4 = machine4.discovery_info.as_ref().unwrap();
-    let discovery_info5 = machine5.discovery_info.as_ref().unwrap();
+    let discovery_info4 = machine4
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
+    let discovery_info5 = machine5
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info4.gpus.len(), 4);
     assert_eq!(discovery_info5.gpus.len(), 4);
 
@@ -2989,7 +3101,13 @@ async fn test_instance_delete_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgP
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -3093,7 +3211,13 @@ async fn test_managed_host_creation_with_tray_default_partition_use_nmxc_simulat
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -3168,7 +3292,13 @@ async fn test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator(
     let machine = mh.host().rpc_machine().await;
     assert_eq!(&machine.state, "Ready");
 
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info.gpus.len(), 4);
 
     let nvl_config = rpc::forge::InstanceNvLinkConfig {

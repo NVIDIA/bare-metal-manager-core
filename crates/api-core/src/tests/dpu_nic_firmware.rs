@@ -97,7 +97,7 @@ async fn test_start_updates_with_multidpu(
 
     let mh = create_managed_host_multi_dpu(&env, 2).await;
     let host = mh.host().rpc_machine().await;
-    let dpu_ids = host.associated_dpu_machine_ids;
+    let dpu_ids = host.status.unwrap().associated_dpu_machine_ids;
     let dpu_machine_id = dpu_ids[0];
     let dpu_machine_id2 = dpu_ids[1];
     let mut txn = env.pool.begin().await?;

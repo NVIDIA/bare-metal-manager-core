@@ -298,7 +298,12 @@ async fn test_discovery_records_scout_version(
         .machines
         .remove(0);
     assert_eq!(
-        rpc_machine.last_scout_observed_version.as_deref(),
+        rpc_machine
+            .status
+            .as_ref()
+            .unwrap()
+            .last_scout_observed_version
+            .as_deref(),
         Some("v0.11.0-pr-11-g14586866e")
     );
 
@@ -329,7 +334,7 @@ async fn test_discovery_ignores_version_from_dpu_agent(
         .await?
         .expect("machine must exist");
 
-    assert!(machine.last_scout_observed_version.is_none());
+    assert!(machine.status.last_scout_observed_version.is_none());
 
     Ok(())
 }
@@ -356,7 +361,7 @@ async fn test_discovery_updates_scout_version_on_rediscovery(
         .await?
         .expect("machine must exist");
     assert_eq!(
-        machine.last_scout_observed_version.as_deref(),
+        machine.status.last_scout_observed_version.as_deref(),
         Some("v0.11.0-pr-11-g14586866e")
     );
     let rediscovered_machine_id = host_discover_machine_with_reporter(
@@ -372,7 +377,7 @@ async fn test_discovery_updates_scout_version_on_rediscovery(
         .await?
         .expect("machine must exist");
     assert_eq!(
-        machine.last_scout_observed_version.as_deref(),
+        machine.status.last_scout_observed_version.as_deref(),
         Some("v0.12.0-pr-42-gabcdef012")
     );
 

@@ -35,9 +35,9 @@ use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
-    Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineMaintenanceRequest, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineConfig,
+    MachineInterfaceSnapshot, MachineLastRebootRequested, MachineMaintenanceRequest, MachineStatus,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -154,9 +154,19 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             })
             .collect();
 
+        let health_reports = value.health_reports.unwrap_or_default();
+        let (maintenance_reference, maintenance_start_time) = health_reports
+            .maintenance_override()
+            .map(|o| {
+                (
+                    Some(o.maintenance_reference.clone()),
+                    o.maintenance_start_time,
+                )
+            })
+            .unwrap_or_default();
+
         Ok(Self {
             id: value.id,
-            rack_id: value.rack_id,
             state: Versioned {
                 value: value.controller_state,
                 version: value.controller_state_version.parse().map_err(|e| {
@@ -176,54 +186,57 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 })?,
             },
             network_status_observation: value.network_status_observation,
-            infiniband_status_observation: value.infiniband_status_observation,
-            nvlink_status_observation: value.nvlink_status_observation,
-            spx_status_observation: value.spx_status_observation,
             history,
-            interfaces: value.interfaces,
-            hardware_info,
-            bmc_info: value.bmc_info,
-            last_reboot_time: value.last_reboot_time,
-            last_cleanup_time: value.last_cleanup_time,
-            last_discovery_time: value.last_discovery_time,
-            last_scout_contact_time: value.last_scout_contact_time,
-            last_scout_observed_version: value.last_scout_observed_version,
-            failure_details: value.failure_details,
+            metadata,
+            version,
+            rack_id: value.rack_id,
+            config: MachineConfig {
+                firmware_autoupdate: value.firmware_autoupdate,
+                instance_type_id: value.instance_type_id,
+                dpf: value.dpf,
+                hw_sku: value.hw_sku,
+                maintenance_reference,
+                maintenance_start_time,
+            },
+            status: MachineStatus {
+                interfaces: value.interfaces,
+                hardware_info,
+                bmc_info: value.bmc_info,
+                last_reboot_time: value.last_reboot_time,
+                last_cleanup_time: value.last_cleanup_time,
+                last_discovery_time: value.last_discovery_time,
+                last_scout_contact_time: value.last_scout_contact_time,
+                last_scout_observed_version: value.last_scout_observed_version,
+                failure_details: value.failure_details,
+                inventory: value.agent_reported_inventory,
+                last_reboot_requested: value.last_reboot_requested,
+                hw_sku: value.hw_sku_status,
+                hw_sku_device_type: value.hw_sku_device_type,
+                update_complete: value.update_complete,
+                nvlink_info: value.nvlink_info,
+                infiniband_status_observation: value.infiniband_status_observation,
+                nvlink_status_observation: value.nvlink_status_observation,
+                spx_status_observation: value.spx_status_observation,
+                slot_number: value.slot_number,
+                tray_index: value.tray_index,
+                power_options: value.power_options,
+            },
+            health_reports,
             reprovision_requested: value.reprovisioning_requested,
             host_reprovision_requested: value.host_reprovisioning_requested,
-            machine_maintenance_requested: value.machine_maintenance_requested,
-            manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
             dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
-            health_reports: value.health_reports.unwrap_or_default(),
-            inventory: value.agent_reported_inventory,
-            last_reboot_requested: value.last_reboot_requested,
             controller_state_outcome: value.controller_state_outcome,
             bios_password_set_time: value.bios_password_set_time,
             last_machine_validation_time: value.last_machine_validation_time,
             discovery_machine_validation_id: value.discovery_machine_validation_id,
             cleanup_machine_validation_id: value.cleanup_machine_validation_id,
-            firmware_autoupdate: value.firmware_autoupdate,
             on_demand_machine_validation_id: value.on_demand_machine_validation_id,
             on_demand_machine_validation_request: value.on_demand_machine_validation_request,
             asn: value.asn,
-            metadata,
-            instance_type_id: value.instance_type_id,
-            version,
-            // Columns for these exist, but are unused in rust code
-            // deployed: value.deployed,
-            // created: value.created,
-            // updated: value.updated,
-            hw_sku: value.hw_sku,
-            hw_sku_status: value.hw_sku_status,
-            power_options: value.power_options,
-            hw_sku_device_type: value.hw_sku_device_type,
-            update_complete: value.update_complete,
-            nvlink_info: value.nvlink_info,
-            dpf: value.dpf,
             host_profile: value.host_profile,
             rack_fw_details: value.rack_fw_details,
-            slot_number: value.slot_number,
-            tray_index: value.tray_index,
+            machine_maintenance_requested: value.machine_maintenance_requested,
+            manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }
 }

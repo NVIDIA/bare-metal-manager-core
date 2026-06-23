@@ -497,6 +497,7 @@ fn format_health_alerts(alerts: &[HealthProbeAlert], width: usize) -> String {
         .join(&format!("\n{:<width$}: ", " "))
 }
 
+#[allow(deprecated)]
 pub async fn show(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     args: Args,

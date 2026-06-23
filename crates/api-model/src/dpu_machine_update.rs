@@ -122,10 +122,11 @@ impl DpuMachineUpdate {
                     .filter_map(|dpu| {
                         // TODO: implement the logic to find the outdated DPUs which are ingested
                         // using DPF.
-                        if managed_host.host_snapshot.dpf.used_for_ingestion {
+                        if managed_host.host_snapshot.config.dpf.used_for_ingestion {
                             return None;
                         }
                         let firmware_version = dpu
+                            .status
                             .hardware_info
                             .as_ref()
                             .and_then(|info| info.dpu_info.as_ref())

@@ -91,7 +91,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         TenantState::Ready
     );
     assert_eq!(
-        ib_partition.status.clone().unwrap().state,
+        ib_partition.status.as_ref().unwrap().state,
         ib_partition_status.state
     );
     assert_eq!(&hex_pkey, ib_partition_status.pkey.as_ref().unwrap());
@@ -103,10 +103,35 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info.infiniband_interfaces.len(), 6);
-    assert!(machine.ib_status.as_ref().is_some());
-    assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .as_ref()
+            .is_some()
+    );
+    assert_eq!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .as_ref()
+            .unwrap()
+            .ib_interfaces
+            .len(),
+        6
+    );
 
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
     let ib_config = rpc::forge::InstanceInfinibandConfig {
@@ -510,7 +535,13 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
         txn.commit().await.unwrap();
     }
 
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     // Use only CX7 interfaces in this test
     let device_name = "MT2910 Family [ConnectX-7]".to_string();
     let mut cx7_ifaces: Vec<_> = discovery_info
@@ -604,9 +635,10 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info.as_ref().is_some());
+    assert!(machine.status.hardware_info.as_ref().is_some());
     assert_eq!(
         machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -614,7 +646,13 @@ async fn test_ib_skip_update_infiniband_status(pool: sqlx::PgPool) {
             .len(),
         6
     );
-    assert!(machine.infiniband_status_observation.as_ref().is_none());
+    assert!(
+        machine
+            .status
+            .infiniband_status_observation
+            .as_ref()
+            .is_none()
+    );
 }
 
 #[crate::sqlx_test]
@@ -669,11 +707,36 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     let machine_guids = guids_by_device(&machine);
     assert_eq!(discovery_info.infiniband_interfaces.len(), 6);
-    assert!(machine.ib_status.as_ref().is_some());
-    assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .as_ref()
+            .is_some()
+    );
+    assert_eq!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .as_ref()
+            .unwrap()
+            .ib_interfaces
+            .len(),
+        6
+    );
 
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
     let ib_config = rpc::forge::InstanceInfinibandConfig {
@@ -1076,6 +1139,9 @@ pub async fn try_allocate_instance(
 
 fn guids_by_device(machine: &rpc::forge::Machine) -> HashMap<String, Vec<String>> {
     let mut ib_ifaces = machine
+        .status
+        .as_ref()
+        .unwrap()
         .discovery_info
         .as_ref()
         .unwrap()

@@ -119,7 +119,7 @@ pub(crate) async fn assign_to_machine(
     })?;
 
     if !sku_machine_pair.force {
-        if let Some(assigned_sku) = machine.hw_sku {
+        if let Some(assigned_sku) = machine.config.hw_sku {
             return Err(CarbideError::FailedPrecondition(format!(
                 "the specified machine already has a SKU assigned ({assigned_sku})"
             ))

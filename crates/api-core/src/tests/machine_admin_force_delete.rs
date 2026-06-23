@@ -110,7 +110,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
-        dpu_machine.interfaces[0].id.to_string()
+        dpu_machine.status.interfaces[0].id.to_string()
     );
 
     assert!(response.all_done, "DPU must be deleted");
@@ -298,10 +298,11 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
         .unwrap()
         .unwrap();
     let bmc_ip = machine
+        .status
         .bmc_info
         .ip
         .expect("managed host fixture has a BMC ip");
-    let interface_id = machine.interfaces[0].id;
+    let interface_id = machine.status.interfaces[0].id;
     let explored_host = ExploredManagedHost {
         host_bmc_ip: bmc_ip,
         dpus: Vec::new(),
@@ -376,12 +377,13 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
     txn.commit().await.unwrap();
 
     let host_address = host_machine
+        .status
         .bmc_info
         .ip
         .expect("managed host fixture has a BMC ip");
     let mut endpoint_addresses = dpu_machines
         .iter()
-        .filter_map(|machine| machine.bmc_info.ip)
+        .filter_map(|machine| machine.status.bmc_info.ip)
         .chain(std::iter::once(host_address))
         .collect::<Vec<_>>();
     endpoint_addresses.sort_unstable();
@@ -646,9 +648,10 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info.as_ref().is_some());
+    assert!(machine.status.hardware_info.as_ref().is_some());
     assert_eq!(
         machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -656,9 +659,16 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
             .len(),
         6
     );
-    assert!(machine.infiniband_status_observation.as_ref().is_some());
+    assert!(
+        machine
+            .status
+            .infiniband_status_observation
+            .as_ref()
+            .is_some()
+    );
     assert_eq!(
         machine
+            .status
             .infiniband_status_observation
             .as_ref()
             .unwrap()
@@ -747,7 +757,12 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = mh.host().rpc_machine().await;
-    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    let dpu_ids = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids
+        .clone();
     assert_eq!(
         dpu_ids.len(),
         2,
@@ -1048,7 +1063,7 @@ async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) 
     .await
     .unwrap()
     .unwrap();
-    let boot_mac = host_machine.interfaces[0].mac_address;
+    let boot_mac = host_machine.status.interfaces[0].mac_address;
     db::machine_interface::set_boot_interface_id(boot_mac, "NIC.Slot.5-1", txn.as_mut())
         .await
         .unwrap();

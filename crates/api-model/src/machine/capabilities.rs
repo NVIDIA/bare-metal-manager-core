@@ -22,8 +22,8 @@ use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
-use crate::hardware_info::{CpuInfo, InfinibandInterface, is_mnnvl_capable_gpu};
-use crate::machine::{HardwareInfo, MachineInterfaceSnapshot};
+use crate::hardware_info::{CpuInfo, HardwareInfo, InfinibandInterface, is_mnnvl_capable_gpu};
+use crate::machine::MachineInterfaceSnapshot;
 
 lazy_static::lazy_static! {
     static ref BLOCK_STORAGE_REGEX: regex::Regex = regex::Regex::new(r"(Virtual_CDROM\d+|Virtual_SD\d+|NO_MODEL|LOGICAL_VOLUME)").unwrap();
@@ -432,7 +432,7 @@ impl MachineCapabilitiesSet {
                 .entry(interface_name)
                 .and_modify(|network_interface_cap| network_interface_cap.count += 1)
                 .or_insert_with(|| MachineCapabilityNetwork {
-                    name: interface_name.clone(),
+                    name: interface_name.to_string(),
                     count: 1,
                     vendor: Some(pci_properties.vendor.clone()),
                     device_type: Some(device_type),

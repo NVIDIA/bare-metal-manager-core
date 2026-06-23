@@ -661,7 +661,7 @@ pub(crate) async fn remove_machine_association(
         .into());
     }
 
-    if let Some(ref instance_type_id) = machine.instance_type_id {
+    if let Some(ref instance_type_id) = machine.config.instance_type_id {
         // Query the DB for the instance type so that we can use a row-level lock for coordination.
         // We need this so that ComputeAllocation additions and updates that increase allocations can't exceed the number
         // of machines associated with a type.

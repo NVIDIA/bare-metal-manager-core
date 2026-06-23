@@ -712,6 +712,7 @@ async fn group_machine_ids_by_rack(
 /// Returns whether the machine is a rack-scale MNNVL server (GB200, GB300, etc.).
 fn is_rack_scale_server(machine: &Machine) -> bool {
     machine
+        .status
         .hardware_info
         .as_ref()
         .is_some_and(|hw| hw.is_mnnvl_capable())
@@ -1256,7 +1257,7 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(bmc_mac) = machine.bmc_info.mac else {
+        let Some(bmc_mac) = machine.status.bmc_info.mac else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC MAC not available".into(),
@@ -1264,7 +1265,7 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(bmc_ip) = machine.bmc_info.ip else {
+        let Some(bmc_ip) = machine.status.bmc_info.ip else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC IP not configured".into(),
@@ -1423,7 +1424,7 @@ fn derive_machine_firmware_update_status(
     }
 
     // No version match (or no version data): use machine update/state signals.
-    let state = if machine.update_complete {
+    let state = if machine.status.update_complete {
         rpc::FirmwareUpdateState::FwStateCompleted
     } else if state_str.contains("HostReprovision") && state_str.contains("FailedFirmwareUpgrade") {
         rpc::FirmwareUpdateState::FwStateFailed

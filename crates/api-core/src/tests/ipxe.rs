@@ -149,7 +149,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        machine.interfaces.first().unwrap().id,
+        machine.status.interfaces.first().unwrap().id,
         rpc::forge::MachineArchitecture::Arm,
         Some("Fake Bluefield".to_string()),
     )
@@ -500,12 +500,12 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
 
     // Interface is created. Let's fetch interface id.
     let machine = env.find_machine(dpu_id).await.remove(0);
-    assert_eq!(machine.interfaces.len(), 1);
+    assert_eq!(machine.status.as_ref().unwrap().interfaces.len(), 1);
 
     let cloud_init_cfg = env
         .api
         .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
-            ip: machine.interfaces[0].address[0].clone(),
+            ip: machine.status.as_ref().unwrap().interfaces[0].address[0].clone(),
         }))
         .await
         .expect("get_cloud_init_instructions returned an error")

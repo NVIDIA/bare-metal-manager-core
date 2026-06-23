@@ -185,7 +185,7 @@ async fn new_firmware_reported_wait_fails_after_reset_retry_limit(pool: PgPool) 
     };
     let reason = reason.as_deref().unwrap_or_default();
     assert!(
-        reason.contains("Firmware version did not converge after completed update"),
+        reason.contains("firmware version did not converge after completed update"),
         "unexpected reason: {reason}",
     );
     assert!(
@@ -291,7 +291,7 @@ async fn failed_scout_upgrade_without_error_uses_exit_code(pool: PgPool) {
     };
     assert_eq!(
         reason.as_deref(),
-        Some("Scout upgrade failed with exit code 7"),
+        Some("scout upgrade failed with exit code 7"),
     );
 }
 
@@ -320,7 +320,7 @@ async fn scout_upgrade_past_deadline_times_out(pool: PgPool) {
     assert!(
         reason
             .as_deref()
-            .is_some_and(|reason| reason.starts_with("Scout firmware upgrade timed out")),
+            .is_some_and(|reason| reason.starts_with("scout firmware upgrade timed out")),
         "unexpected reason: {reason:?}",
     );
 }

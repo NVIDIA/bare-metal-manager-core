@@ -1211,6 +1211,7 @@ pub fn allocate_ib_port_guid(
     let mut updated_ib_config = ib_config.clone();
 
     let ib_hw_info = machine
+        .status
         .hardware_info
         .as_ref()
         .ok_or(CarbideError::MissingArgument("no hardware info in machine"))?
@@ -1262,7 +1263,7 @@ pub fn allocate_ib_port_guid(
 
     // Do additional ib ports verification
     if !guids.is_empty() {
-        if let Some(ib_interfaces_status) = &machine.infiniband_status_observation {
+        if let Some(ib_interfaces_status) = &machine.status.infiniband_status_observation {
             for guid in guids.iter() {
                 for ib_status in ib_interfaces_status.ib_interfaces.iter() {
                     if *guid == ib_status.guid && ib_status.lid == 0xffff_u16 {
@@ -1779,6 +1780,7 @@ pub async fn batch_allocate_instances(
             // networking.
             let allowed_segment_ids: HashSet<_> = mh_snapshot
                 .host_snapshot
+                .status
                 .interfaces
                 .iter()
                 .filter(|iface| {

@@ -594,6 +594,7 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
 
         // Find which interface on the machine is in this prefix
         let host_interfaces_in_instance_segment = machine
+            .status
             .interfaces
             .iter()
             .filter(|i| {

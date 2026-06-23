@@ -2448,7 +2448,12 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         assert!(
             <Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
                 .iter()
-                .any(|x| { x.bmc_info.ip.is_some_and(|ip| ip.to_string() == bmc_ip) })
+                .any(|x| {
+                    x.status
+                        .bmc_info
+                        .ip
+                        .is_some_and(|ip| ip.to_string() == bmc_ip)
+                })
         );
     }
     Ok(())
@@ -2695,10 +2700,10 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
 
     for m in machines {
         if m.is_dpu() {
-            assert_eq!(m.hw_sku, None);
+            assert_eq!(m.config.hw_sku, None);
         } else {
-            assert_eq!(m.hw_sku, Some("Sku1".to_string()));
-            assert!(m.dpf.enabled);
+            assert_eq!(m.config.hw_sku, Some("Sku1".to_string()));
+            assert!(m.config.dpf.enabled);
         }
     }
 

@@ -50,11 +50,31 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Check that the expected alert is set on the Machine
     let mut host_machine = env.find_machine(rpc_host_id).await.remove(0);
     assert_eq!(
-        host_machine.maintenance_reference.clone().unwrap(),
+        host_machine
+            .config
+            .as_ref()
+            .unwrap()
+            .maintenance_reference
+            .clone()
+            .unwrap(),
         "https://jira.example.com/ABC-123"
     );
-    assert!(host_machine.maintenance_start_time.is_some());
-    let alerts = &mut host_machine.health.as_mut().unwrap().alerts;
+    assert!(
+        host_machine
+            .config
+            .as_ref()
+            .unwrap()
+            .maintenance_start_time
+            .is_some()
+    );
+    let alerts = &mut host_machine
+        .status
+        .as_mut()
+        .unwrap()
+        .health
+        .as_mut()
+        .unwrap()
+        .alerts;
     assert_eq!(alerts.len(), 1);
     let alert = &mut alerts[0];
     assert!(alert.in_alert_since.is_some());
@@ -139,9 +159,30 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Maintenance reference is cleared and there's no alarm anymore
     let host_machine = env.find_machine(rpc_host_id).await.remove(0);
-    assert!(host_machine.maintenance_reference.is_none());
-    assert!(host_machine.maintenance_start_time.is_none());
-    let alerts = &host_machine.health.as_ref().unwrap().alerts;
+    assert!(
+        host_machine
+            .config
+            .as_ref()
+            .unwrap()
+            .maintenance_reference
+            .is_none()
+    );
+    assert!(
+        host_machine
+            .config
+            .as_ref()
+            .unwrap()
+            .maintenance_start_time
+            .is_none()
+    );
+    let alerts = &host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .unwrap()
+        .alerts;
     assert!(alerts.is_empty());
 
     // There are now no machines in maintenance mode

@@ -803,7 +803,7 @@ async fn record_machine_infiniband_status_observation(
 ) -> Result<MachineIbStatusEvaluation, IbError> {
     let mut result = MachineIbStatusEvaluation::default();
 
-    if mh_snapshot.host_snapshot.hardware_info.is_none() {
+    if mh_snapshot.host_snapshot.status.hardware_info.is_none() {
         // Skip status update while hardware info is not available
         *metrics
             .num_machines_by_port_states
@@ -819,6 +819,7 @@ async fn record_machine_infiniband_status_observation(
     let machine_id = &mh_snapshot.host_snapshot.id;
     let ib_hw_info = &mh_snapshot
         .host_snapshot
+        .status
         .hardware_info
         .as_ref()
         .unwrap()
@@ -858,7 +859,7 @@ async fn record_machine_infiniband_status_observation(
     // SKU defines which ports are intentionally disconnected/inactive by hardware design
     let expected_inactive_devices = get_expected_inactive_devices_from_cache(
         sku_inactive_cache,
-        mh_snapshot.host_snapshot.hw_sku.as_deref(),
+        mh_snapshot.host_snapshot.config.hw_sku.as_deref(),
     );
 
     // Use GUID as secondary key for stable ordering when slots are identical
@@ -900,6 +901,7 @@ async fn record_machine_infiniband_status_observation(
 
     let mut prev = mh_snapshot
         .host_snapshot
+        .status
         .infiniband_status_observation
         .clone()
         .unwrap_or_default();
@@ -1183,7 +1185,10 @@ async fn record_machine_infiniband_status_observation(
             .map_err(|e| DatabaseError::new("acquire connection", e))?;
         db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur).await?;
         metrics.num_machine_ib_status_updates += 1;
-        mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);
+        mh_snapshot
+            .host_snapshot
+            .status
+            .infiniband_status_observation = Some(cur);
     }
 
     Ok(result)
@@ -1291,7 +1296,7 @@ async fn preload_sku_inactive_devices(
 ) -> Result<SkuInactiveDevicesCache, IbError> {
     let sku_ids: Vec<&str> = snapshots
         .values()
-        .filter_map(|snap| snap.host_snapshot.hw_sku.as_deref())
+        .filter_map(|snap| snap.host_snapshot.config.hw_sku.as_deref())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();

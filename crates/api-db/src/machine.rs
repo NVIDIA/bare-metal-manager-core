@@ -2954,7 +2954,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, Some(live_bmc_ip));
+        assert_eq!(machine.status.bmc_info.ip, Some(live_bmc_ip));
 
         // Release the lease: drop the live address but keep the interface and the topology
         // row (with its stale bmc_info.ip) intact.
@@ -2965,7 +2965,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, None);
+        assert_eq!(machine.status.bmc_info.ip, None);
 
         // Now drop the BMC interface row entirely; the topology row (with its stale
         // bmc_info.ip) stays. Even with no live BMC interface at all, the snapshot must
@@ -2977,7 +2977,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, None);
+        assert_eq!(machine.status.bmc_info.ip, None);
 
         txn.rollback().await?;
         Ok(())
@@ -3000,7 +3000,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_some());
+        assert_eq!(host.config.firmware_autoupdate, Some(true));
 
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
@@ -3009,7 +3009,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_none());
+        assert!(host.config.firmware_autoupdate.is_none());
         Ok(())
     }
 }

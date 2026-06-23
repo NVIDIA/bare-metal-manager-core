@@ -459,7 +459,7 @@ exit ||
         if target.arch == rpc::MachineArchitecture::Arm {
             console = "ttyAMA0";
             qcow_imager_url = "chain ${base-url}/internal/aarch64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        } else if let Some(hardware_info) = machine.hardware_info.as_ref()
+        } else if let Some(hardware_info) = machine.status.hardware_info.as_ref()
             && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
             && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
         {

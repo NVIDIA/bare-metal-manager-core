@@ -923,13 +923,17 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     assert_eq!(dpu_bmc_interface_mac, dpu_bmc_mac);
 
     assert_eq!(
-        host_machine.bmc_info.machine_interface_id,
+        host_machine.status.bmc_info.machine_interface_id,
         Some(host_bmc_interface_id)
     );
-    assert_eq!(host_machine.bmc_info.mac, Some(host_bmc_interface_mac));
-    assert_eq!(host_machine.bmc_info.ip, Some(host_bmc_interface_ip));
+    assert_eq!(
+        host_machine.status.bmc_info.mac,
+        Some(host_bmc_interface_mac)
+    );
+    assert_eq!(host_machine.status.bmc_info.ip, Some(host_bmc_interface_ip));
     assert!(
         host_machine
+            .status
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != InterfaceType::Bmc
@@ -937,13 +941,14 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
 
     assert_eq!(
-        dpu_machine.bmc_info.machine_interface_id,
+        dpu_machine.status.bmc_info.machine_interface_id,
         Some(dpu_bmc_interface_id)
     );
-    assert_eq!(dpu_machine.bmc_info.mac, Some(dpu_bmc_interface_mac));
-    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_interface_ip));
+    assert_eq!(dpu_machine.status.bmc_info.mac, Some(dpu_bmc_interface_mac));
+    assert_eq!(dpu_machine.status.bmc_info.ip, Some(dpu_bmc_interface_ip));
     assert!(
         dpu_machine
+            .status
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != InterfaceType::Bmc
@@ -978,6 +983,9 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
     assert!(
         host_rpc_machine
+            .status
+            .as_ref()
+            .unwrap()
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != Some(rpc_bmc_type)
@@ -1002,6 +1010,9 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
     assert!(
         dpu_rpc_machine
+            .status
+            .as_ref()
+            .unwrap()
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != Some(rpc_bmc_type)

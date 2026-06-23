@@ -104,7 +104,7 @@ async fn current_host_state_and_cleanup_needed(
 
     (
         machine.current_state().clone(),
-        machine.last_cleanup_time.is_none(),
+        machine.status.last_cleanup_time.is_none(),
     )
 }
 
@@ -914,7 +914,7 @@ impl<'a> MockExploredHost<'a> {
                     20,
                     |machine| {
                         machine.current_state() == &expected_state
-                            || machine.hw_sku.is_none()
+                            || machine.config.hw_sku.is_none()
                                 && matches!(
                                     *machine.current_state(),
                                     ManagedHostState::BomValidating {
@@ -924,7 +924,7 @@ impl<'a> MockExploredHost<'a> {
                                             ),
                                     }
                                 )
-                            || machine.hw_sku.is_some()
+                            || machine.config.hw_sku.is_some()
                     },
                 )
                 .await;

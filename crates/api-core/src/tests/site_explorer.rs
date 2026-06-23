@@ -578,8 +578,8 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
     let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     txn.commit().await?;
 
-    let host_ip = host_machine.bmc_info.ip.as_ref().unwrap();
-    let dpu_ip = dpu_machine.bmc_info.ip.as_ref().unwrap();
+    let host_ip = host_machine.status.bmc_info.ip.as_ref().unwrap();
+    let dpu_ip = dpu_machine.status.bmc_info.ip.as_ref().unwrap();
 
     // Now try to delete the host endpoint - should fail because it's part of a machine
     let error = env

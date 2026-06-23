@@ -274,6 +274,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Machine", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineCapabilitiesSet",
             "#[derive(serde::Serialize)]",

@@ -796,7 +796,9 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
 
     let machine = env.find_machine(dpu_machine_id).await.remove(0);
-    let mac = machine.interfaces[0].mac_address.clone();
+    let mac = machine.status.as_ref().unwrap().interfaces[0]
+        .mac_address
+        .clone();
 
     let response = env
         .api
@@ -807,7 +809,7 @@ async fn test_dpu_machine_dhcp_for_existing_dpu(
 
     assert_eq!(
         response.address.as_str(),
-        machine.interfaces[0].address[0].as_str()
+        machine.status.as_ref().unwrap().interfaces[0].address[0].as_str()
     );
 
     Ok(())

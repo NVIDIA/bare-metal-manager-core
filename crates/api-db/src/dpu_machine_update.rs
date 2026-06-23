@@ -165,6 +165,7 @@ pub async fn get_updated_machines(
                     host_machine_id: machine_id,
                     dpu_machine_id: dpu.id,
                     firmware_version: dpu
+                        .status
                         .hardware_info
                         .as_ref()
                         .and_then(|info| info.dpu_info.as_ref())

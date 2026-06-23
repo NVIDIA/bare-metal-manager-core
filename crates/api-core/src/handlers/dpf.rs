@@ -49,7 +49,7 @@ pub(crate) async fn modify_dpf_state(
             id: machine_id.to_string(),
         })?;
 
-    if !request.dpf_enabled && machine_snapshot.host_snapshot.dpf.used_for_ingestion {
+    if !request.dpf_enabled && machine_snapshot.host_snapshot.config.dpf.used_for_ingestion {
         return Err(CarbideError::FailedPrecondition(format!(
             "cannot disable DPF for host {}: machine was ingested via DPF",
             machine_id

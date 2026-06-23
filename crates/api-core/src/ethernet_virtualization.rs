@@ -329,10 +329,15 @@ pub async fn admin_network(
     // If we loop through the machine interfaces for the host snapshot and look for
     // that combo, the segment_id of that interface should be the network segment we want,
     // but checking against known admin segments adds a little bit of defense.
-    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
-        interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
-            && admin_segment_ids.contains(&interface.segment_id)
-    });
+    let interface = snapshot
+        .host_snapshot
+        .status
+        .interfaces
+        .iter()
+        .find(|interface| {
+            interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
+                && admin_segment_ids.contains(&interface.segment_id)
+        });
 
     let host_machine_id = snapshot.host_snapshot.id;
     let Some(interface) = interface else {
@@ -348,6 +353,7 @@ pub async fn admin_network(
     // still disables the admin DHCP path on non-primary DPUs via is_primary_dpu.
     let active_interface = snapshot
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|interface| {

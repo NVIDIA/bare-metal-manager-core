@@ -431,6 +431,7 @@ impl MachineCreator {
             // the same MAC address as this one, so something's weird here. Log this host's mac
             // addresses and the ones from the colliding hosts to help in diagnosis.
             let existing_macs = existing_machine
+                .status
                 .hardware_info
                 .as_ref()
                 .map(|hw| hw.all_mac_addresses())

@@ -53,6 +53,7 @@ pub async fn get_ek_cert_by_machine_id(
 
     // obtain an ek cert
     let tpm_ek_cert = machine
+        .status
         .hardware_info
         .as_ref()
         .ok_or_else(|| CarbideError::internal("hardware info not found".to_string()))?

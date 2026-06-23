@@ -88,6 +88,7 @@ struct DpuMachineInfo<'a> {
 }
 
 /// Generate element containing all information needed to write a Machine Host.
+#[allow(deprecated)]
 fn get_host_machine_info<'a>(
     machines: &'a [&'a ::rpc::Machine],
 ) -> HashMap<&'a str, HostMachineInfo<'a>> {
@@ -127,6 +128,7 @@ fn get_host_machine_info<'a>(
 }
 
 /// Generate element containing all information needed to write a Machine Host.
+#[allow(deprecated)]
 fn get_dpu_machine_info<'a>(
     machines: &'a [&'a ::rpc::Machine],
 ) -> HashMap<&'a str, DpuMachineInfo<'a>> {
@@ -153,6 +155,7 @@ fn get_dpu_machine_info<'a>(
 }
 
 /// Generate element containing all information needed to write a BMC Host.
+#[allow(deprecated)]
 fn get_bmc_info<'a>(
     machines: &[&'a ::rpc::Machine],
     managed_hosts: &'a [ExploredManagedHost],
@@ -330,6 +333,7 @@ type CreateInventoryReturnType<'a> = (
 );
 
 /// Generate inventory item for instances.
+#[allow(deprecated)]
 fn create_inventory_for_instances<'a>(
     instances: &'a InstanceList,
     machines: &'a MachineList,

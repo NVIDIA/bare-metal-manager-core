@@ -434,7 +434,7 @@ impl TestEnv {
             } => ManagedHostState::Failed {
                 details: FailureDetails {
                     cause: details.cause,
-                    failed_at: machine.failure_details.failed_at,
+                    failed_at: machine.status.failure_details.failed_at,
                     source: details.source,
                 },
                 machine_id,
@@ -2614,16 +2614,17 @@ pub async fn update_time_params(
         time: if let Some(last_reboot_requested) = last_reboot_requested {
             last_reboot_requested
         } else {
-            machine.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(1)
+            machine.status.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(1)
         },
-        mode: machine.last_reboot_requested.as_ref().unwrap().mode,
+        mode: machine.status.last_reboot_requested.as_ref().unwrap().mode,
         restart_verified: None,
         verification_attempts: None,
     };
 
-    let last_reboot_time = machine.last_reboot_time.unwrap() - Duration::minutes(2i64);
+    let last_reboot_time = machine.status.last_reboot_time.unwrap() - Duration::minutes(2i64);
 
-    let ts = machine.last_reboot_requested.as_ref().unwrap().time - Duration::minutes(retry_count);
+    let ts = machine.status.last_reboot_requested.as_ref().unwrap().time
+        - Duration::minutes(retry_count);
     let last_discovery_time = ts - Duration::minutes(1);
 
     let version = format!(

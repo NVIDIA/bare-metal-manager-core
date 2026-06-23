@@ -1470,7 +1470,7 @@ async fn test_instance_cloud_init_metadata(
     let machine = mh.host().db_machine(&mut txn).await;
 
     let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
-        ip: machine.interfaces[0].addresses[0].to_string(),
+        ip: machine.status.interfaces[0].addresses[0].to_string(),
     });
 
     let response = env.api.get_cloud_init_instructions(request).await?;
