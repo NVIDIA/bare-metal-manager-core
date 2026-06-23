@@ -27,7 +27,9 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
-use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
+use db::{
+    DatabaseError, ObjectColumnFilter, WithTransaction, extension_service, network_security_group,
+};
 use futures_util::FutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
@@ -48,9 +50,11 @@ use model::machine::{
     ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
+use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use model::os::OperatingSystem;
 use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
 use serde_json::json;
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_id};
@@ -142,8 +146,14 @@ pub(crate) async fn allocate(
     request: Request<rpc::InstanceAllocationRequest>,
 ) -> Result<Response<rpc::Instance>, Status> {
     log_request_data(&request);
+    let mut request = request.into_inner();
 
-    let request = InstanceAllocationRequest::try_from(request.into_inner())?;
+    api.with_txn(|txn| {
+        hydrate_instance_allocation_request_from_deprecated_fields(txn, &mut request).boxed()
+    })
+    .await??;
+
+    let request = InstanceAllocationRequest::try_from(request)?;
 
     log_machine_id(&request.machine_id);
     log_tenant_organization_id(request.config.tenant.tenant_organization_id.as_str());
@@ -160,7 +170,7 @@ pub(crate) async fn batch_allocate(
 ) -> Result<Response<rpc::BatchInstanceAllocationResponse>, Status> {
     log_request_data(&request);
 
-    let batch_request = request.into_inner();
+    let mut batch_request = request.into_inner();
 
     if batch_request.instance_requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
@@ -173,6 +183,13 @@ pub(crate) async fn batch_allocate(
         count = batch_request.instance_requests.len(),
         "Received batch instance allocation request"
     );
+
+    for request in &mut batch_request.instance_requests {
+        api.with_txn(|txn| {
+            hydrate_instance_allocation_request_from_deprecated_fields(txn, request).boxed()
+        })
+        .await??;
+    }
 
     // Convert all requests
     let requests = batch_request
@@ -1877,4 +1894,77 @@ async fn unbind_all_instance_ib_ports(
         //TODO: release VF GUID resource when VF supported.
     }
     Ok(ufm_unregistrations)
+}
+
+async fn hydrate_instance_allocation_request_from_deprecated_fields(
+    txn: &mut PgConnection,
+    request: &mut rpc::InstanceAllocationRequest,
+) -> CarbideResult<()> {
+    let Some(netconf) = request.config.as_mut().and_then(|c| c.network.as_mut()) else {
+        // Conversion to model type will fail, return Ok
+        return Ok(());
+    };
+
+    #[allow(deprecated)]
+    if !netconf.auto
+        || netconf
+            .auto_config
+            .as_ref()
+            .is_some_and(|c| c.vpc_id.is_some())
+    {
+        // Only hydrate if the VPC ID isn't set
+        return Ok(());
+    }
+
+    let Some(machine_id) = request.machine_id else {
+        // Conversion to model type will fail, return Ok
+        return Ok(());
+    };
+
+    tracing::info!(
+        %machine_id,
+        "Deprecated instance allocation request with auto=true with no VPC ID. Assigning VPC from host network segment, if it is set."
+    );
+
+    let ns_id = match db::network_segment::find_ids_by_machine_id(
+        txn,
+        &machine_id,
+        Some(NetworkSegmentType::HostInband),
+    )
+    .await?
+    .as_slice()
+    {
+        &[ns_id] => ns_id,
+        [] => {
+            tracing::warn!(
+                "Assigned machine is not in a HostInband network, cannot auto-assign VPC ID"
+            );
+            return Ok(());
+        }
+        _ => {
+            tracing::warn!(
+                "Assigned machine is in multiple a HostInband networks, cannot auto-assign VPC ID"
+            );
+            return Ok(());
+        }
+    };
+
+    if let [ns] = db::network_segment::find_by(
+        txn,
+        ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await?
+    .as_slice()
+        && let Some(vpc_id) = ns.config.vpc_id
+    {
+        tracing::info!(%vpc_id, network_segment_id = %ns_id, "Assigning vpc_id from HostInband network segment");
+        netconf.auto_config = Some(rpc::InstanceNetworkAutoConfig {
+            vpc_id: Some(vpc_id),
+        });
+    } else {
+        tracing::warn!(network_segment_id = %ns_id, "Network segment does not have a VPC ID, cannot auto-assign VPC ID");
+    }
+
+    Ok(())
 }
