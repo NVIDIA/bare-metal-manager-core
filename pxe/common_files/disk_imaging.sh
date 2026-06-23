@@ -141,10 +141,14 @@ function get_distro_image() {
 
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
-	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
+	if [ -d /mnt/etc/cloud ]; then
+		mkdir -p /mnt/etc/cloud/cloud.cfg.d
 		echo "datasource_list: [ NoCloud, None ]" | tee /mnt/etc/cloud/cloud.cfg.d/98-forge-dslist.cfg
-		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/99-user-data.cfg 2>&1 | tee $log_output
 	fi
+	seed_dir=/mnt/var/lib/cloud/seed/nocloud-net
+	mkdir -p "$seed_dir"
+	curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output "$seed_dir/user-data" 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k "$cloud_init_url/meta-data" --output "$seed_dir/meta-data" 2>&1 | tee $log_output
 }
 
 function expand_root_fs() {
