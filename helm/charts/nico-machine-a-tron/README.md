@@ -1,163 +1,362 @@
 # Machine-A-Tron Helm Chart
 
-Helm chart for deploying Machine-A-Tron - a mock machine simulator for NICo development and testing.
+Helm chart for deploying Machine-A-Tron - a mock machine simulator for NICo testing.
 
 ## Overview
 
-Machine-A-Tron creates simulated bare-metal machines that behave like real hosts, allowing developers to:
+Machine-A-Tron creates simulated bare-metal machines that behave like real hosts, allowing you to:
 - Test NICo without physical hardware
 - Simulate multiple hosts, DPUs, switches and power shelves
-- Develop and debug the full machine lifecycle
+- Perform load testing at scale (up to 5000 machines)
+- Run simulations alongside real hardware
 
-## Prerequisites
+## Deployment Modes
 
-- Kubernetes 1.27+
-- Helm 3.12+
-- cert-manager for TLS certificate management
-- NICo API server deployed and accessible
+Machine-A-Tron supports **two mutually exclusive deployment modes**:
 
-## Installation
+| Mode | Use Case | Real HW Compatible | Network Setup |
+|------|----------|-------------------|---------------|
+| **Override Mode** | Development environments | No | Simple - single endpoint |
+| **MetalLB Mode** | Load testing with real HW | Yes | Complex - per-BMC IPs |
+
+### Choosing a Mode
+
+```mermaid
+flowchart TD
+    Q1{Need to run alongside<br/>real hardware?}
+    Q1 -->|No| M1[Override Mode]
+    Q1 -->|Yes| M2[MetalLB Mode]
+
+    M1 --> D1[Dev/test environments<br/>Simulated machines only]
+    M2 --> D2[Load testing<br/>Mixed real + simulated]
+```
+
+---
+
+## Mode 1: Override Mode (Development)
+
+**Use this for development environments where only simulated machines are needed.**
+
+In this mode, NICo's Site-Explorer is configured to redirect ALL Redfish calls to
+machine-a-tron via `override_target_host`. This is simple but **incompatible with
+real hardware** since all BMC traffic goes to the mock.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph NICo["NICo Cluster"]
+        SE[Site-Explorer]
+        API[NICo API]
+    end
+
+    subgraph MAT["Machine-A-Tron"]
+        BMC[BMC Mock<br/>Single endpoint]
+    end
+
+    SE -->|"ALL Redfish calls<br/>override_target_host"| BMC
+    BMC <-->|"DHCP, status"| API
+```
+
+### Setup
+
+**1. Deploy Machine-A-Tron:**
 
 ```bash
-# Install with default values
-helm install machine-a-tron ./helm/charts/nico-machine-a-tron
-
-# Install with custom values, eg. with 10 hosts, 2 DPUs each
-helm install machine-a-tron ./helm/charts/nico-machine-a-tron \
-  --set machines.config.hostCount=10 \
-  --set machines.config.dpuPerHostCount=2
-
-# Install with a values file
-helm install machine-a-tron ./helm/charts/nico-machine-a-tron -f my-values.yaml
+helm upgrade --install nico ./helm \
+  --namespace nico-system \
+  --set nico-machine-a-tron.enabled=true \
+  --set nico-machine-a-tron.machines.dell-hosts.hostCount=10 \
+  --set nico-machine-a-tron.machines.dell-hosts.dpuPerHostCount=2
 ```
 
-## Configuration
-
-### Key Configuration Options
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `machineATron.nicoApiUrl` | URL of the NICo API server | `https://nico-api.nico-system.svc.cluster.local:1079` |
-| `machineATron.bmcMockPort` | Port for BMC mock service | `1266` |
-| `machineATron.useSingleBmcMock` | Use header-based BMC routing (required for k8s) | `true` |
-| `machineATron.cleanupOnQuit` | Delete created machines from API on quit | `false` |
-| `terminationGracePeriodSeconds` | Graceful shutdown timeout | `60` |
-| `machines.<name>.hostCount` | Number of mock hosts to create | `10` |
-| `machines.<name>.dpuPerHostCount` | DPUs per host | `2` |
-| `machines.<name>.hwType` | Hardware type to simulate | `dell_poweredge_r750` |
-| `persistence.enabled` | Enable persistent storage for machine state | `false` |
-
-### Machine Configuration
-
-The `machines` section supports **multiple named groups** with different hardware types:
-
-```yaml
-machines:
-  # Dell hosts with 2 DPUs each
-  dell-hosts:
-    hwType: dell_poweredge_r750
-    hostCount: 10
-    dpuPerHostCount: 2
-    oobDhcpRelayAddress: "192.168.192.1"
-    adminDhcpRelayAddress: "192.168.176.1"
-
-  # NVIDIA DGX H100 hosts
-  dgx-hosts:
-    hwType: nvidia_dgx_h100
-    hostCount: 5
-    dpuPerHostCount: 1
-    oobDhcpRelayAddress: "192.168.192.1"
-    adminDhcpRelayAddress: "192.168.176.1"
-
-  # Power shelves (no DPUs)
-  power-shelves:
-    hwType: liteon_power_shelf
-    hostCount: 2
-    dpuPerHostCount: 0
-    oobDhcpRelayAddress: "192.168.192.1"
-    adminDhcpRelayAddress: "192.168.176.1"
-```
-
-#### DHCP Relay Addresses
-
-The `oobDhcpRelayAddress` and `adminDhcpRelayAddress` values tell NICo which network
-segment to allocate IPs from. These must match gateway addresses of networks configured
-in NICo's site config.
-
-**Note:** All machine groups typically share the same relay addresses since they connect
-to the same OOB and admin networks. The relay address is used only for network segment
-matching - NICo handles IP allocation from the configured prefix.
-
-#### NICo Network Configuration
-
-Machine-A-Tron requires corresponding networks to be configured in NICo's
-`nico-api-site-config.toml`. The relay addresses must match the gateway of these networks:
+**2. Configure NICo Site Config:**
 
 ```toml
-# OOB network for BMC management (matches oobDhcpRelayAddress)
+# nico-api-site-config.toml
+[site_explorer]
+enabled = true
+create_machines = true
+
+# Redirect ALL Redfish calls to machine-a-tron
+override_target_host = "nico-machine-a-tron-bmc-mock"
+override_target_port = 1266
+```
+
+**3. Configure NICo Networks:**
+
+The DHCP relay addresses in machine-a-tron must match NICo network configuration:
+
+```toml
+# OOB network for BMC management
 [networks.oob-bmc]
 type = "underlay"
-prefix = "192.168.192.0/24"      # Any prefix size works (/16, /23, /24, etc.)
-gateway = "192.168.192.1"        # This is the oobDhcpRelayAddress
-mtu = 1500
-reserve_first = 2
+prefix = "192.168.192.0/24"
+gateway = "192.168.192.1"  # matches oobDhcpRelayAddress
 
-# Admin network for host provisioning (matches adminDhcpRelayAddress)
+# Admin network for host provisioning
 [networks.admin]
 type = "admin"
 prefix = "192.168.176.0/24"
-gateway = "192.168.176.1"        # This is the adminDhcpRelayAddress
-mtu = 9000
-reserve_first = 5
+gateway = "192.168.176.1"  # matches adminDhcpRelayAddress
 ```
 
-NICo uses PostgreSQL's `<<=` operator to match relay addresses against configured
-network prefixes, so the network size is fully configurable based on your environment.
+### Pros and Cons (Override Mode)
 
-### Hardware Types
+**Pros:**
+- Simple setup - no MetalLB required
+- Works in any Kubernetes cluster
 
-Supported `hwType` values (from `HostHardwareType` enum in `crates/bmc-mock/src/lib.rs`):
+**Cons:**
+- Cannot use real hardware - all Redfish calls go to mock
+
+---
+
+## Mode 2: MetalLB Mode (Large-Scale Testing)
+
+**Use this for dev or load testing environments where simulated machines run alongside real hardware.**
+
+In this mode, each simulated BMC gets a dedicated external IP via MetalLB. NICo
+Site-Explorer connects directly to these IPs, allowing simulated and real machines
+to coexist on the same NICo instance.
+
+### Architecture (MetalLB Mode)
+
+```mermaid
+flowchart LR
+    subgraph NICo["NICo Cluster"]
+        SE[Site-Explorer]
+    end
+
+    subgraph Real["Real Hardware"]
+        R1[Real BMC<br/>10.50.0.10]
+        R2[Real BMC<br/>10.50.0.11]
+    end
+
+    subgraph MetalLB["MetalLB (Simulated BMCs)"]
+        LB1["10.100.0.2"]
+        LB2["10.100.0.3"]
+        LBN["... 13500 IPs"]
+    end
+
+    subgraph MAT["Machine-A-Tron Pod"]
+        NGINX["NGINX Proxy"]
+        BMC["BMC Mock Registry"]
+    end
+
+    SE -->|"Redfish"| R1
+    SE -->|"Redfish"| R2
+    SE -->|"Redfish"| LB1
+    SE -->|"Redfish"| LB2
+
+    LB1 --> NGINX
+    LB2 --> NGINX
+    LBN --> NGINX
+    NGINX -->|"Forwarded header"| BMC
+```
+
+### Prerequisites (MetalLB Mode)
+
+- MetalLB installed and configured
+- BGP mode required for scale 2000+ services
+- Dedicated IP range for simulated BMCs (separate from real hardware)
+
+### Setup (MetalLB Mode)
+
+**1. Deploy with MetalLB BMC Proxy enabled:**
+
+```bash
+helm upgrade --install nico ./helm \
+  --namespace nico-system \
+  --set nico-machine-a-tron.enabled=true \
+  --set nico-machine-a-tron.bmcProxy.enabled=true \
+  --set nico-machine-a-tron.bmcProxy.ipRange="10.100.0.0-10.100.7.254" \
+  --set nico-machine-a-tron.bmcProxy.bgp.enabled=true \
+  --set nico-machine-a-tron.machines.dell-hosts.hostCount=100 \
+  --set nico-machine-a-tron.machines.dell-hosts.dpuPerHostCount=2 \
+  --set nico-machine-a-tron.machines.dell-hosts.oobDhcpRelayAddress="10.100.0.1"
+```
+
+**2. NICo Site Config - NO override_target:**
+
+```toml
+# nico-api-site-config.toml
+[site_explorer]
+enabled = true
+create_machines = true
+
+# DO NOT set override_target_host - let NICo connect to actual BMC IPs
+# override_target_host = ...  # NOT SET!
+# override_target_port = ...  # NOT SET!
+```
+
+**3. Configure Separate Networks:**
+
+```toml
+# Real hardware OOB network
+[networks.real-oob]
+type = "underlay"
+prefix = "10.50.0.0/24"
+gateway = "10.50.0.1"
+
+# Simulated BMC network (MetalLB range)
+[networks.simulated-oob]
+type = "underlay"
+prefix = "10.100.0.0/21"
+gateway = "10.100.0.1"  # matches oobDhcpRelayAddress for simulated machines
+```
+
+### IP Allocation - How It Works
+
+NICo allocates IPs **sequentially** via gRPC API:
+- First machine gets `.2` (after gateway `.1`)
+- Second machine gets `.3`
+- And so on...
+
+This means MetalLB services with sequential IPs will match NICo allocations
+**as long as the subnet is dedicated to machine-a-tron**.
+
+### Scale Limits
+
+| Scale | Subnet | Max BMCs | BGP Required |
+|-------|--------|----------|--------------|
+| Small | /21 | 2048 | No (L2 OK for testing) |
+| Medium | /20 | 4096 | Recommended |
+| Large | /19 | 8192 | Yes |
+| Max | /18 | 16384 | Yes |
+
+The chart enforces a **hard limit of 16384 BMCs** (/18 subnet) to protect cluster stability.
+
+If you exceed the limit, the chart **fails**:
+```
+SCALE LIMIT EXCEEDED: 16500 BMCs requested, maximum is 16384 (/18 subnet).
+```
+
+### BGP Configuration (Required for Large Scale)
+
+For deployments with 2000+ services, BGP mode with route aggregation is **required**:
+
+```yaml
+bmcProxy:
+  enabled: true
+  ipRange: "10.100.0.2-10.100.15.254"  # /20 range
+
+  ipPool:
+    create: true
+    l2Advertisement: false  # Disable L2 for BGP
+
+  bgp:
+    enabled: true
+    aggregationLength: 20  # Announce single /20 instead of 4000+ /32s
+```
+
+**Why BGP?** Without `aggregationLength`, MetalLB advertises each service IP as an
+individual /32 route. With thousands of services, this overwhelms upstream router control planes.
+
+### Pros and Cons (MetalLB Mode)
+
+**Pros:**
+- Compatible with real hardware
+- Enables realistic load testing
+
+**Cons:**
+- Requires MetalLB with BGP for large scale
+- More complex network setup
+- Requires dedicated IP range
+
+---
+
+## Configuration Reference
+
+### Key Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `machineATron.nicoApiUrl` | NICo API server URL | `https://nico-api.nico-system.svc.cluster.local:1079` |
+| `machineATron.cleanupOnQuit` | Delete machines from API on shutdown | `false` |
+| `machines.<name>.hostCount` | Number of hosts to simulate | `10` |
+| `machines.<name>.dpuPerHostCount` | DPUs per host | `2` |
+| `machines.<name>.hwType` | Hardware type | `dell_poweredge_r750` |
+| `machines.<name>.oobDhcpRelayAddress` | BMC network gateway | `10.100.0.1` |
+| `machines.<name>.adminDhcpRelayAddress` | Admin network gateway | `10.101.0.1` |
+| `bmcProxy.enabled` | Enable MetalLB mode | `false` |
+| `bmcProxy.ipRange` | MetalLB IP pool range | `""` |
+| `bmcProxy.bgp.enabled` | Enable BGP advertisement | `false` |
+| `terminationGracePeriodSeconds` | Shutdown timeout | `60` |
+
+### Machine Groups
+
+Configure multiple machine groups with different hardware types:
+
+```yaml
+machines:
+  gb300-hosts:
+    hwType: supermicro_gb300_nvl
+    hostCount: 100
+    dpuPerHostCount: 2
+    oobDhcpRelayAddress: "10.100.0.1"
+    adminDhcpRelayAddress: "10.101.0.1"
+
+  switches:
+    hwType: nvidia_switch_nd5200_ld
+    hostCount: 10
+    dpuPerHostCount: 0
+    oobDhcpRelayAddress: "10.100.0.1"
+    adminDhcpRelayAddress: "10.101.0.1"
+
+  power-shelves:
+    hwType: liteon_power_shelf
+    hostCount: 5
+    dpuPerHostCount: 0
+    oobDhcpRelayAddress: "10.100.0.1"
+    adminDhcpRelayAddress: "10.101.0.1"
+```
+
+### Supported Hardware Types
+
+From `HostHardwareType` enum in `crates/bmc-mock/src/lib.rs`:
 
 - `dell_poweredge_r750` (default)
+- `supermicro_gb300_nvl`
+- `nvidia_dgx_gb300`
+- `nvidia_dgx_h100`
 - `wiwynn_gb200_nvl`
 - `lenovo_gb300_nvl`
-- `nvidia_dgx_gb300`
-- `supermicro_gb300_nvl`
 - `liteon_power_shelf`
 - `nvidia_switch_nd5200_ld`
-- `nvidia_dgx_h100`
 - `generic_ami`
 - `generic_supermicro`
 
-### NICo Site Configuration
+### Service Count Calculation
 
-For Machine-A-Tron to work correctly, NICo must be configured to route Redfish calls through the mock:
+The chart auto-calculates LoadBalancer services (MetalLB mode) from machine config:
 
-```toml
-[site_explorer]
-override_target_port = 1266
-override_target_host = "nico-machine-a-tron-bmc-mock"  # k8s service name
-enabled = true
-create_machines = true
+```
+totalBMCs = Σ(hostCount + hostCount × dpuPerHostCount) for all groups
 ```
 
-## Graceful Shutdown
+| Config | Calculation | Services |
+|--------|-------------|----------|
+| 10 hosts, 2 DPUs | 10 + 20 | 30 |
+| 100 hosts, 2 DPUs | 100 + 200 | 300 |
+| 4500 hosts, 2 DPUs | 4500 + 9000 | 13500 |
 
-The chart supports graceful shutdown when pods are deleted. This gives machine-a-tron
-time to clean up resources:
+---
+
+## Additional Features
+
+### Graceful Shutdown
 
 ```yaml
-# Shutdown timeout
-terminationGracePeriodSeconds: 60
+terminationGracePeriodSeconds: 60  # Seconds to wait before SIGKILL
 
 machineATron:
-  # Set to true to delete created machines from NICo API on shutdown
-  cleanupOnQuit: true
+  cleanupOnQuit: true  # Delete machines from NICo API
 ```
 
-## Persistence
+### Persistence
 
-Enable persistence to preserve machine state across pod restarts:
+Preserve machine state across restarts:
 
 ```yaml
 persistence:
@@ -166,22 +365,50 @@ persistence:
   size: 1Gi
 ```
 
-## External Access
+### Monitoring
 
-To expose the BMC mock externally (eg. for local development):
-
-```yaml
-externalService:
-  enabled: true
-  type: LoadBalancer
-```
-
-## Monitoring
-
-Enable Prometheus ServiceMonitor:
+Enable Prometheus metrics:
 
 ```yaml
 serviceMonitor:
   enabled: true
   interval: 30s
 ```
+
+---
+
+## Troubleshooting
+
+### Pod CrashLoopBackOff
+
+Check logs:
+```bash
+kubectl -n nico-system logs deployment/nico-machine-a-tron
+```
+
+Common causes:
+- NICo API unreachable - check `machineATron.nicoApiUrl`
+- Certificate issues - check cert-manager
+- Missing network config in NICo
+
+### MetalLB Services Not Getting IPs
+
+```bash
+# Check MetalLB speaker logs
+kubectl -n metallb-system logs -l app=metallb,component=speaker
+
+# Verify IPAddressPool exists
+kubectl -n metallb-system get ipaddresspools
+
+# Check BGPAdvertisement
+kubectl -n metallb-system get bgpadvertisements
+```
+
+### Scale Limit Error
+
+If you see:
+```
+SCALE LIMIT EXCEEDED: 16500 BMCs requested, maximum is 16384 (/18 subnet).
+```
+
+**Solution:** Reduce `hostCount` or `dpuPerHostCount` to stay within the /18 limit (16384 BMCs max).

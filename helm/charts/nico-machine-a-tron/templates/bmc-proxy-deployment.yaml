@@ -1,0 +1,82 @@
+{{- if .Values.bmcProxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}-bmc-proxy
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bmc-proxy
+spec:
+  replicas: {{ .Values.bmcProxy.nginx.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "nico-machine-a-tron.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: bmc-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "nico-machine-a-tron.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bmc-proxy
+      annotations:
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/bmc-proxy-configmap.yaml") . | sha256sum }}
+    spec:
+      ## Pod affinity: schedule nginx on the same node as machine-a-tron
+      ## to minimize network hops between proxy and backend
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "nico-machine-a-tron.selectorLabels" . | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nginx
+          image: {{ .Values.bmcProxy.nginx.image | default "nginx:alpine" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: tls-certs
+              mountPath: /etc/ssl/certs
+              readOnly: true
+            - name: tls-key
+              mountPath: /etc/ssl/private
+              readOnly: true
+          {{- with .Values.bmcProxy.nginx.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "nico-machine-a-tron.name" . }}-bmc-proxy-config
+        - name: tls-certs
+          secret:
+            secretName: {{ .Values.bmcProxy.tls.secretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
+            items:
+              - key: tls.crt
+                path: tls.crt
+        - name: tls-key
+          secret:
+            secretName: {{ .Values.bmcProxy.tls.secretName | default (printf "%s-certificate" (include "nico-machine-a-tron.name" .)) }}
+            items:
+              - key: tls.key
+                path: tls.key
+{{- end }}
