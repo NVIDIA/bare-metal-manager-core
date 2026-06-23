@@ -175,7 +175,7 @@ helm upgrade --install nico ./helm \
   --namespace nico-mat \
   --set nico-machine-a-tron.enabled=true \
   --set nico-machine-a-tron.nginxBmcProxy.enabled=true \
-  --set nico-machine-a-tron.nginxBmcProxy.ipRange="10.100.0.0-10.100.7.254" \
+  --set nico-machine-a-tron.nginxBmcProxy.ipRange="10.100.0.2-10.100.7.254" \
   --set nico-machine-a-tron.nginxBmcProxy.bgp.enabled=true \
   --set nico-machine-a-tron.machines.dell-hosts.hostCount=100 \
   --set nico-machine-a-tron.machines.dell-hosts.dpuPerHostCount=2 \

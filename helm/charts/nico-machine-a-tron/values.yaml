@@ -320,8 +320,9 @@ nginxBmcProxy:
   ## with thousands of individual /32 routes.
   bgp:
     enabled: false
-    ## Route aggregation length - announces single /18 instead of 16000+ /32s
-    aggregationLength: 18
+    ## Route aggregation length - announces summary route instead of /32s
+    ## /21 = 2048 IPs (default), /18 = 16384 IPs (max)
+    aggregationLength: 21
 
 configFiles:
   ## Override the entire mat.toml config (leave empty to use generated config)
