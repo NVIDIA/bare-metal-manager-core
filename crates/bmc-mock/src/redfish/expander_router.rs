@@ -257,7 +257,7 @@ mod tests {
     fn test_host_mock() -> Router {
         let callbacks = Arc::new(TestCallbacks {});
         crate::machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
+            &MachineInfo::Host(HostMachineInfo::new(
                 HostHardwareType::DellPowerEdgeR750,
                 vec![DpuMachineInfo::default()],
             )),

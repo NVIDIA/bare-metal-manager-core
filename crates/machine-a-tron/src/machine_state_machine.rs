@@ -933,7 +933,7 @@ impl MachineStateMachine {
         ip_address: Ipv4Addr,
     ) -> Result<(Option<Arc<BmcMockWrapperHandle>>, BmcState), MachineStateError> {
         let mut bmc_mock = BmcMockWrapper::new(
-            self.machine_info.clone(),
+            &self.machine_info,
             self.app_context.clone(),
             Arc::new(LiveStateCallbacks::new(
                 self.live_state.clone(),

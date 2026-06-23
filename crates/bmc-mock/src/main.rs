@@ -156,7 +156,7 @@ fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
     let callbacks = Arc::new(ChannelCallbacks::new(command_channel));
     bmc_mock::machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::WiwynnGB200Nvl,
             vec![DpuMachineInfo::default(), DpuMachineInfo::default()],
         )),

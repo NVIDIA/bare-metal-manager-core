@@ -36,7 +36,7 @@ use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
 /// machine-a-tron is mocking.
 pub struct BmcMockWrapper {
-    machine_info: MachineInfo,
+    ssh_prompt_behavior: PromptBehavior,
     app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
     bmc_mock_state: BmcState,
@@ -45,17 +45,20 @@ pub struct BmcMockWrapper {
 
 impl BmcMockWrapper {
     pub fn new(
-        machine_info: MachineInfo,
+        machine_info: &MachineInfo,
         app_context: Arc<MachineATronContext>,
         callbacks: Arc<dyn Callbacks>,
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
     ) -> Self {
         let (bmc_mock_router, bmc_mock_state) =
-            bmc_mock::machine_router(machine_info.clone(), callbacks, host_id.to_string(), true);
+            bmc_mock::machine_router(machine_info, callbacks, host_id.to_string(), true);
 
         BmcMockWrapper {
-            machine_info,
+            ssh_prompt_behavior: match machine_info {
+                MachineInfo::Host(_) => PromptBehavior::Dell,
+                MachineInfo::Dpu(_) => PromptBehavior::Dpu,
+            },
             app_context,
             bmc_mock_router,
             bmc_mock_state,
@@ -120,10 +123,7 @@ impl BmcMockWrapper {
                         user: "root".to_string(),
                         password: "password".to_string(),
                     }),
-                    match self.machine_info {
-                        MachineInfo::Host(_) => PromptBehavior::Dell,
-                        MachineInfo::Dpu(_) => PromptBehavior::Dpu,
-                    },
+                    self.ssh_prompt_behavior,
                 )
                 .await
                 .map_err(|error| {
