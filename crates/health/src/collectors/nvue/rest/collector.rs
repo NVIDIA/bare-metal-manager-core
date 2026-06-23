@@ -62,6 +62,13 @@ fn diagnostic_opcode_to_f64(code: &str) -> f64 {
     }
 }
 
+/// NVUE reports fan max-speed as a string (e.g. "33000"). Parse it to RPM as
+/// f64; return `None` when the field is absent or unparseable so callers emit
+/// nothing rather than fabricating a value.
+fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
+    max_speed.and_then(|s| s.trim().parse::<f64>().ok())
+}
+
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
     pub data_sink: Option<Arc<dyn DataSink>>,
@@ -246,6 +253,34 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             }
         }
 
+        match self.client.get_platform_environment_fan().await {
+            Ok(Some(fans)) => {
+                for (fan_name, fan) in &fans {
+                    // Only emit when max-speed parses; absent/garbage → nothing.
+                    if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
+                        self.emit_metric(
+                            "fan_max_speed",
+                            Some(fan_name),
+                            value,
+                            "rpm",
+                            vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
+                        );
+                        entity_count += 1;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment fan"
+                );
+            }
+        }
+
         if saw_auth_failure {
             tracing::warn!(
                 switch_id = %self.switch_id,
@@ -391,6 +426,146 @@ mod tests {
         assert_eq!(diagnostic_opcode_to_f64("57"), 1.0);
     }
 
+    #[test]
+    fn test_fan_max_speed_parsing() {
+        assert_eq!(fan_max_speed_to_f64(Some("33000")), Some(33000.0));
+        assert_eq!(fan_max_speed_to_f64(Some(" 33000 ")), Some(33000.0));
+        assert_eq!(fan_max_speed_to_f64(Some("6000")), Some(6000.0));
+        assert_eq!(fan_max_speed_to_f64(Some("not-a-number")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("")), None);
+        assert_eq!(fan_max_speed_to_f64(None), None);
+    }
+
+    /// Drives the same parse + emit logic `run_iteration` uses for the
+    /// platform/environment/fan endpoint against a captured sink, asserting the
+    /// emitted MAX-SPEED sample shape. Table-driven over representative payloads.
+    #[test]
+    fn test_fan_max_speed_emit() {
+        use crate::collectors::nvue::rest::client::FanEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        struct Case {
+            name: &'static str,
+            json: &'static str,
+            // (fan_name, expected_value) pairs that MUST be emitted.
+            expected: &'static [(&'static str, f64)],
+            // Fan names that MUST NOT produce a sample.
+            absent: &'static [&'static str],
+        }
+
+        let cases = [
+            Case {
+                name: "two healthy fans emit max-speed",
+                json: r#"{
+                    "FAN1/1": {"current-speed": "10096", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"},
+                    "FAN1/2": {"current-speed": "9800", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"}
+                }"#,
+                expected: &[("FAN1/1", 33000.0), ("FAN1/2", 33000.0)],
+                absent: &[],
+            },
+            Case {
+                name: "missing max-speed emits nothing",
+                json: r#"{
+                    "FAN1/1": {"current-speed": "10096", "min-speed": "6000", "state": "ok"}
+                }"#,
+                expected: &[],
+                absent: &["FAN1/1"],
+            },
+            Case {
+                name: "garbage max-speed emits nothing",
+                json: r#"{
+                    "FAN1/1": {"max-speed": "bogus", "state": "ok"}
+                }"#,
+                expected: &[],
+                absent: &["FAN1/1"],
+            },
+        ];
+
+        for case in cases {
+            let sink = Arc::new(CapturingSink {
+                samples: StdMutex::new(Vec::new()),
+            });
+            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+            collector.data_sink = Some(sink.clone());
+
+            let fans: FanEnvironmentResponse =
+                serde_json::from_str(case.json).expect("fan json parses");
+            // Mirror run_iteration's emit loop exactly.
+            for (fan_name, fan) in &fans {
+                if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
+                    collector.emit_metric(
+                        "fan_max_speed",
+                        Some(fan_name),
+                        value,
+                        "rpm",
+                        vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
+                    );
+                }
+            }
+
+            let samples = sink.samples.lock().unwrap();
+            assert_eq!(
+                samples.len(),
+                case.expected.len(),
+                "case '{}': unexpected emitted sample count",
+                case.name
+            );
+
+            for (fan_name, expected_value) in case.expected {
+                let sample = samples
+                    .iter()
+                    .find(|s| {
+                        s.labels
+                            .iter()
+                            .any(|(k, v)| k == "fan_name" && v == fan_name)
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("case '{}': no sample for fan {fan_name}", case.name)
+                    });
+
+                assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
+                assert_eq!(sample.metric_type, "fan_max_speed", "case '{}'", case.name);
+                assert_eq!(sample.unit, "rpm", "case '{}'", case.name);
+                assert_eq!(sample.value, *expected_value, "case '{}'", case.name);
+                assert_eq!(
+                    sample.key,
+                    format!("fan_max_speed:{fan_name}"),
+                    "case '{}'",
+                    case.name
+                );
+                assert_eq!(sample.labels.len(), 1, "case '{}'", case.name);
+                assert_eq!(sample.labels[0].0, "fan_name", "case '{}'", case.name);
+                assert_eq!(sample.labels[0].1, *fan_name, "case '{}'", case.name);
+            }
+
+            for fan_name in case.absent {
+                assert!(
+                    !samples.iter().any(|s| s
+                        .labels
+                        .iter()
+                        .any(|(k, v)| k == "fan_name" && v == fan_name)),
+                    "case '{}': fan {fan_name} should not emit a sample",
+                    case.name
+                );
+            }
+        }
+    }
+
     struct ScriptedProvider {
         calls: AtomicUsize,
         // Each call pops the front of this queue; an empty queue yields an
@@ -442,6 +617,7 @@ mod tests {
             cluster_apps_enabled: false,
             sdn_partitions_enabled: false,
             interfaces_enabled: false,
+            platform_environment_fan_enabled: false,
         }
     }
 
@@ -496,7 +672,7 @@ mod tests {
         assert!(collector.client.has_credentials());
         assert_eq!(
             result.fetch_failures, 0,
-            "all four paths disabled → no HTTP, no failures"
+            "all paths disabled → no HTTP, no failures"
         );
         // Subsequent iterations reuse the already-installed credentials.
         collector

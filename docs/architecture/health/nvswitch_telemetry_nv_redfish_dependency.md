@@ -1,12 +1,22 @@
 # NVSWITCH telemetry nv-redfish dependency notes
 
+> **Superseded (2026-06-18).** The standalone Redfish `TelemetryService` MetricReports
+> collector described below was **removed**: live GB200 BMC probes show
+> `/redfish/v1/TelemetryService` MetricReports are absent/404, `SwitchMetrics` are
+> empty, histograms are empty, and `Ports` are absent. The corrected direction uses
+> explicit, catalog-row allowlist mappings over the live BMC sensor/thermal surface
+> and the live host NVOS gNMI / NMX-T surfaces. This file is retained for the
+> nv-redfish dependency history only; the `telemetry-service` feature, the
+> `[collectors.telemetry_service]` config, and the collector itself are no longer
+> present in this branch.
+
 Generated during the GB200 NVSWITCH telemetry branch setup.
 
 ## Current infra-controller dependency state
 
 - `Cargo.toml` pins `nv-redfish = { version = "0.10.0" }`.
 - `Cargo.lock` resolves `nv-redfish`, `nv-redfish-bmc-http`, `nv-redfish-core`, `nv-redfish-schema`, and `nv-redfish-csdl-compiler` to `0.10.0` from crates.io.
-- This branch enables `telemetry-service` in `crates/health/Cargo.toml` for the new Redfish TelemetryService collector.
+- ~~This branch enables `telemetry-service` in `crates/health/Cargo.toml` for the new Redfish TelemetryService collector.~~ (Reverted: the `telemetry-service` feature and collector were removed; see the superseded banner above.)
 - The GB200 branch has a local `nv-redfish` worktree available for companion development only:
   - `${NV_REDFISH_WORKTREE}`
   - Branch: `nvswitch_telemetry_gaps`
@@ -23,7 +33,7 @@ Generated during the GB200 NVSWITCH telemetry branch setup.
 
 ## Dependency conclusion
 
-TelemetryService MetricReports can be wired in infra-controller by enabling `telemetry-service` and consuming the typed `TelemetryService` APIs already available in nv-redfish 0.10.x.
+Historical note: TelemetryService MetricReports *could* in principle be wired in infra-controller by enabling `telemetry-service` and consuming the typed `TelemetryService` APIs available in nv-redfish 0.10.x. This was attempted and then **reverted** — live GB200 BMC exposes no usable MetricReports, so no TelemetryService collector is wired in this branch.
 
 Redfish Fabric/Switch/Port support needs companion `nv-redfish` work if GB200 live hardware or the catalog requires those paths. The companion work should add standard DMTF schema XMLs and feature entries for Fabric, Switch, Port, SwitchMetrics, PortMetrics, Endpoint, and Zone families, plus ergonomic ServiceRoot/Fabric/Switch navigation wrappers and mock tests.
 
@@ -57,6 +67,6 @@ Do not commit local absolute path dependencies. Before final review, use one of 
 
 ## Branch implementation update
 
-The GB200 branch consumes the typed TelemetryService API already present in `nv-redfish` 0.10.0 (`ServiceRoot::telemetry_service()`, `TelemetryService::metric_report_links()`, and `MetricReportLink::fetch()`). No local `nv-redfish` path dependency is committed.
+~~The GB200 branch consumes the typed TelemetryService API already present in `nv-redfish` 0.10.0 (`ServiceRoot::telemetry_service()`, `TelemetryService::metric_report_links()`, and `MetricReportLink::fetch()`).~~ **Reverted.** The branch no longer consumes the TelemetryService API; the collector was removed after live GB200 probes returned no MetricReports. No local `nv-redfish` path dependency is committed.
 
-Direct Fabric/Switch/Port wrappers are still absent from `nv-redfish` 0.10.x and `origin/main` as inspected. The GB200 branch therefore uses Redfish TelemetryService MetricReports for BMC-side switch telemetry now, while keeping the local companion worktree available if live GB200 evidence proves that a required metric is only available from Fabric/Switch/Port resources and not from MetricReports, NMX-T, or gNMI.
+Direct Fabric/Switch/Port wrappers are still absent from `nv-redfish` 0.10.x and `origin/main` as inspected. BMC-side switch telemetry is now sourced from the live BMC sensor/thermal surface (not TelemetryService MetricReports), with the local companion worktree kept available if live GB200 evidence later proves a required metric is only available from Fabric/Switch/Port resources and not from the BMC sensor surface, NMX-T, or gNMI.

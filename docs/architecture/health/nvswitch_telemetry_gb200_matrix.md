@@ -1,62 +1,75 @@
 # NVSWITCH telemetry GB200 source matrix
 
-Generated from sanitized Telemetry Catalog extraction artifacts for rows where `Device (CompClass)` is NVSWITCH and one of the GB200 columns is `Yes`:
-
-- `Applicable for GB200 NVL HMC`
-- `Applicable for GB200 NVL BMC`
-- `Applicable for GB200 NVL NvswitchTray`
+Generated from Stage 0 live-probe results (`nvswitch-stage0-live-coverage-20260620.md`) via
+`catalog-coverage-final.csv`. Supersedes the pre-live-validation matrix generated from the raw
+catalog extraction.
 
 CSV matrix: `docs/architecture/health/nvswitch_telemetry_gb200_matrix.csv`
+
+Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_status`,
+`disposition`, `match_detail`.
 
 ## Counts
 
 - Total GB200-applicable NVSWITCH rows: 193
 
-### Implementation status
+### Disposition (post-live-probe)
 
-- already-covered-regression-required: 5
-- covered-by-generic-infra-requires-live-validation: 150
-- requires-live-source-equivalent: 36
-- requires-live-source-resolution: 2
+| Disposition    | Count | Meaning                                                               |
+|----------------|-------|-----------------------------------------------------------------------|
+| implemented    | 149   | PRESENT/RESOLVED-LIVE allowlist hit, or IMPLEMENTED (MAX-SPEED via NVUE REST) |
+| blocker        | 44    | ABSENT-BLOCKER (leaf not live), BLOCKER-THRESHOLD (config-only), or BLOCKER-STRING (string-valued) |
 
-### Branch coverage status
+### final_status breakdown
 
-- covered_generic_infra_unvalidated: 150
-- covered_host_gnmi: 4
-- covered_host_nmxt: 1
-- source_equivalent_required: 36
-- source_resolution_required: 2
+| final_status      | Count |
+|-------------------|-------|
+| PRESENT           | 132   |
+| RESOLVED-LIVE     | 16    |
+| IMPLEMENTED       | 1     |
+| ABSENT-BLOCKER    | 17    |
+| BLOCKER-THRESHOLD | 21    |
+| BLOCKER-STRING    | 6     |
 
-### Primary source
+## Blocker escalations
 
-- NMX-T: 57
-- NVOS CLI: 36
-- NVOS gNMI: 97
-- Redfish Fabric/Switch/Port: 1
-- SOURCE UNLISTED live source resolution: 2
+See `nvswitch_telemetry_gb200_live_validation.md` section "Blocker escalations (Stage 0)" for the
+full annotated list of 44 rows, grouped by root cause, with resolution path and re-probe
+conditions.
 
-## GB200 branch implementation coverage
+## Notes on implemented rows
 
-The `nvswitch_telemetry_gaps` branch implements common GB+VR-friendly collector infrastructure for the GB200 phase:
+- **PRESENT** rows have an explicit gNMI or NMX-T allowlist mapping confirmed live by the Stage 0
+  probe. No further work required before merge.
+- **RESOLVED-LIVE** rows have no direct catalog-listed source but a live token match was found in
+  gNMI or NMX-T output. Match tokens are recorded in `match_detail`. These are accepted as
+  covered; if live validation on a production rig disputes a mapping, re-escalate immediately.
+- **IMPLEMENTED — MAX-SPEED (row 894):** sourced from NVUE REST `/nvue_v1/platform/environment/fan`
+  `.max-speed` (not Redfish — confirmed live). The 4 `/platform-general` memory/disk rows
+  (`886/887/888/889`) are PRESENT via the new gNMI `platform-general` subscribe path.
 
-- Redfish BMC: enabled `nv-redfish` `telemetry-service`, added a switch-BMC-only TelemetryService collector, and emits every numeric/boolean/string `MetricReport` value as `redfish_telemetry_service` samples with report and source-property labels.
-- BMC proxy: widened TelemetryService ACLs to `MetricReportDefinitions/*` and `MetricReports/*` so live GB200 validation is not limited to `NvidiaNMMetrics_0`.
-- NMX-T HOST: preserves all numeric Prometheus samples instead of dropping unknown metric names; legacy `Effective_BER`, `Symbol_Errors`, and `Link_Down` metric names remain canonical.
-- NVUE gNMI HOST: subscribes to `components`, `interfaces`, and `platform-general`; known current metrics keep their existing names, and previously unmapped leaves are emitted as source-qualified `nvswitch_*` samples.
-- Config: `collectors.telemetry_service` is disabled by default, and `collectors.nvue.gnmi.paths.platform_general_enabled` is an explicit opt-in path gate; the example and live-validation configs enable the full GB200 switch collector set.
+## Notes on blocker rows
 
-The generic-preservation surfaces are behavior-locked by unit tests before live hardware validation:
+No row is marked "deferred." Every blocker has an explicit escalation disposition:
 
-- Redfish TelemetryService: `metric_report_values_emit_numeric_and_info_samples` covers numeric, string/info, and boolean/state MetricReport values.
-- NMX-T: `generic_metric_key_includes_sorted_extra_label_identity` and `generic_metric_key_distinguishes_same_port_samples_by_extra_labels` cover stable key identity for unknown Prometheus samples with extra labels.
-- NVUE gNMI: `unmapped_interface_leaf_emits_catalog_metric_sample` and `platform_general_string_leaf_emits_info_metric` cover previously unmapped interface leaves and platform-general string leaves.
-
-Rows that still have no catalog-listed source remain in scope: `CABLE-SNR-MEDIA-LANE-N` and `CABLE-SNR-HOST-LANE-N` are marked `requires-live-source-resolution` and must be checked during live validation. The generic Redfish MetricReport, NMX-T, and gNMI preservation paths will expose them if the device emits them; if not, open a source-owner follow-up immediately.
-
-## Execution rules
-
-- Every row must keep `primary_source`, `fallback_source`, `source_precedence`, and `duplicate_alias_policy` populated before implementation is marked complete.
-- Default duplicate policy is one canonical series per catalog row; source-qualified duplicates require source-path proof and consumer-safety rationale.
-- Generic-preserved metrics must keep bounded identity labels: report id/URI/definition and metric id/property/identity for Redfish MetricReports, raw source metric plus sorted source-label identity for NMX-T, and full gNMI path plus endpoint/entity labels for gNMI. Redfish internal keys must use escaped raw MetricId/MetricProperty identity, and NMX-T generic keys must escape raw port/source/node/label identity, to avoid aliasing. Raw string metric values must not be emitted as labels.
-- Rows marked `requires-live-source-resolution` or `requires-live-source-equivalent` remain in scope; they require live source proof or immediate escalation before GB200 signoff.
-- Live GB200 validation happens after the branch is built, tested, linted, pushed, and reviewed.
+- **BLOCKER-THRESHOLD (21 rows):** The catalog entry represents a threshold/limit/alarm-state
+  value, not a streamed telemetry counter. These are configuration parameters unavailable as live
+  gNMI leaves. Source owner must confirm whether a future gNMI path or Redfish sensor threshold
+  can expose them; until confirmed they cannot be implemented without a new data source.
+- **BLOCKER-STRING (6 rows):** string-valued catalog rows with no numeric encoding — `CONTACT`,
+  `LOCATION`, `NODE-DESCRIPTION` (platform), `ASIC-NAME`, `PHY-MANAGER-STATE`, `VL-CAPABILITIES`.
+  Present live but cannot be emitted as numeric metrics; need a string/label export path (tracked
+  as #11), or enum-coding for the FSM-style ones. Not silently dropped — escalated.
+- **ABSENT-BLOCKER — cable/transceiver alarm leaves (9 rows: 981-986, 2293, 2296-2299):** gNMI
+  leaves exist in the schema but returned no data on the test rig. Likely empty due to an uncabled
+  switch. Re-probe on a cabled switch before treating as a permanent blocker.
+- **ABSENT-BLOCKER — TIME-SINCE-LASTS-CLEAR (row 909):** gNMI leaf
+  `/interfaces/interface/phy-diag/state/time-since-last-clear-min` not live. Escalate to NVOS
+  gNMI owner for NVOS version confirmation.
+- **ABSENT-BLOCKER — PLR-CODES-LOSS (row 931):** NMX-T field `HiRetransmissionRate` not live.
+  Escalate to NMX-T owner.
+- **ABSENT-BLOCKER — NMX-T RDMA queue counters (rows 1706-1708):** RQ-NUM-WRFE, RQ-NUM-LLE,
+  SQ-NUM-WRFE — NMX-T fields `rq_num_wrfe`, `rq_num_lle`, `sq_num_wrfe` not live. Escalate to
+  NMX-T/RDMA owner.
+- **ABSENT-BLOCKER — OS-KERNEL (row 765):** CLI-only, no gNMI or NMX-T token match. Requires a
+  new CLI collector or NVOS gNMI exposure; escalate to NVOS owner.

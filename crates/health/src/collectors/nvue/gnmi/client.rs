@@ -63,11 +63,19 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
         });
     }
     if paths_config.platform_general_enabled {
+        // switch-level singleton: `/platform-general/state` carries the memory
+        // and disk utilization leaves (no interface/component name key).
         paths.push(Path {
-            elem: vec![PathElem {
-                name: "platform-general".into(),
-                key: Default::default(),
-            }],
+            elem: vec![
+                PathElem {
+                    name: "platform-general".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "state".into(),
+                    key: Default::default(),
+                },
+            ],
             ..Default::default()
         });
     }
@@ -448,9 +456,9 @@ mod tests {
     }
 
     #[test]
-    fn test_nvue_subscribe_paths_defaults_do_not_enable_platform_general() {
+    fn test_nvue_subscribe_paths_all_enabled() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths::default());
-        assert_eq!(paths.len(), 2);
+        assert_eq!(paths.len(), 3);
 
         assert_eq!(paths[0].elem.len(), 2);
         assert_eq!(paths[0].elem[0].name, "components");
@@ -459,18 +467,10 @@ mod tests {
         assert_eq!(paths[1].elem.len(), 2);
         assert_eq!(paths[1].elem[0].name, "interfaces");
         assert_eq!(paths[1].elem[1].name, "interface");
-    }
 
-    #[test]
-    fn test_nvue_subscribe_paths_all_enabled() {
-        let paths = nvue_subscribe_paths(&NvueGnmiPaths {
-            components_enabled: true,
-            interfaces_enabled: true,
-            platform_general_enabled: true,
-        });
-        assert_eq!(paths.len(), 3);
-        assert_eq!(paths[2].elem.len(), 1);
+        assert_eq!(paths[2].elem.len(), 2);
         assert_eq!(paths[2].elem[0].name, "platform-general");
+        assert_eq!(paths[2].elem[1].name, "state");
     }
 
     #[test]
@@ -484,6 +484,19 @@ mod tests {
         assert_eq!(paths[0].elem.len(), 2);
         assert_eq!(paths[0].elem[0].name, "interfaces");
         assert_eq!(paths[0].elem[1].name, "interface");
+    }
+
+    #[test]
+    fn test_nvue_subscribe_paths_platform_general_only() {
+        let paths = nvue_subscribe_paths(&NvueGnmiPaths {
+            components_enabled: false,
+            interfaces_enabled: false,
+            platform_general_enabled: true,
+        });
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].elem.len(), 2);
+        assert_eq!(paths[0].elem[0].name, "platform-general");
+        assert_eq!(paths[0].elem[1].name, "state");
     }
 
     #[test]
@@ -522,7 +535,7 @@ mod tests {
         let prefix = sub_list.prefix.expect("prefix must be set");
         assert_eq!(prefix.target, "nvos", "target must be nvos");
 
-        assert_eq!(sub_list.subscription.len(), 2);
+        assert_eq!(sub_list.subscription.len(), 3);
         for sub in &sub_list.subscription {
             assert_eq!(
                 sub.mode,

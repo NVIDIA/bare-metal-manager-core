@@ -33,6 +33,7 @@ const NVUE_SYSTEM_HEALTH: &str = "/nvue_v1/system/health";
 const NVUE_CLUSTER_APPS: &str = "/nvue_v1/cluster/apps";
 const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
+const NVUE_PLATFORM_ENVIRONMENT_FAN: &str = "/nvue_v1/platform/environment/fan";
 
 #[derive(Clone)]
 pub struct UsernamePassword {
@@ -122,6 +123,16 @@ impl RestClient {
             return Ok(None);
         }
         let url = self.join_path(NVUE_SDN_PARTITIONS)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment_fan(
+        &self,
+    ) -> Result<Option<FanEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_fan_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_FAN)?;
         self.do_get(url, &[]).await.map(Some)
     }
 
@@ -285,6 +296,17 @@ pub struct SdnPartition {
         deserialize_with = "deserialize_optional_u32_from_number_or_string"
     )]
     pub num_gpus: Option<u32>,
+}
+
+pub type FanEnvironmentResponse = HashMap<String, FanData>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FanData {
+    /// Fan maximum speed in RPM, reported by NVUE as a string (e.g. "33000").
+    /// Other per-fan fields (current-speed, min-speed, direction, state) are
+    /// intentionally not captured — only max-speed is in scope.
+    #[serde(rename = "max-speed")]
+    pub max_speed: Option<String>,
 }
 
 pub type InterfacesResponse = HashMap<String, InterfaceData>;
@@ -521,6 +543,47 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_platform_environment_fan() {
+        let json = r#"{
+            "FAN1/1": {
+                "current-speed": "10096",
+                "direction": "F2B",
+                "max-speed": "33000",
+                "min-speed": "6000",
+                "state": "ok"
+            },
+            "FAN1/2": {
+                "current-speed": "9800",
+                "direction": "F2B",
+                "max-speed": "33000",
+                "min-speed": "6000",
+                "state": "ok"
+            }
+        }"#;
+
+        let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 2);
+        assert_eq!(resp["FAN1/1"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/2"].max_speed.as_deref(), Some("33000"));
+    }
+
+    #[test]
+    fn test_parse_platform_environment_fan_missing_max_speed() {
+        let json = r#"{
+            "FAN1/1": {
+                "current-speed": "10096",
+                "direction": "F2B",
+                "min-speed": "6000",
+                "state": "ok"
+            }
+        }"#;
+
+        let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 1);
+        assert!(resp["FAN1/1"].max_speed.is_none());
+    }
+
+    #[test]
     fn test_parse_empty_responses() {
         let empty_map: ClusterAppsResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_map.is_empty());
@@ -530,5 +593,8 @@ mod tests {
 
         let empty_interfaces: InterfacesResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_interfaces.is_empty());
+
+        let empty_fans: FanEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_fans.is_empty());
     }
 }

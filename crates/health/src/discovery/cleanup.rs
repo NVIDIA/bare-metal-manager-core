@@ -57,8 +57,6 @@ pub(super) fn stop_removed_bmc_collectors(
         tracing::info!(
             removed_count = removed_keys.len(),
             remaining_sensors = ctx.collectors.len(CollectorKind::Sensor),
-            remaining_telemetry_service_collectors =
-                ctx.collectors.len(CollectorKind::TelemetryService),
             remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
             remaining_leak_detector_collectors = ctx.collectors.len(CollectorKind::LeakDetector),
