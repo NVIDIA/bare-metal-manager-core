@@ -249,6 +249,10 @@ func workflowOrchestrator() error {
 
 	ManagerAccess.API.MachineValidation.RegisterSubscriber()
 
+	// Generic Core gRPC proxy: one workflow/activity for all proxied operations,
+	// registered on the Core gRPC manager that owns the connection.
+	ManagerAccess.API.CoreGrpc.RegisterSubscriber()
+
 	ManagerAccess.API.InstanceType.RegisterSubscriber()
 	ManagerAccess.API.InstanceType.RegisterPublisher()
 

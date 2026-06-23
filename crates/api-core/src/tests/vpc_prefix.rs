@@ -693,6 +693,55 @@ async fn test_vpc_prefix_rpc_status_includes_lifecycle_and_counters(
     Ok(())
 }
 
+/// Verifies that large IPv6 VPC prefixes report saturated linknet counters.
+///
+/// A /48 contains 2^79 /127 linknets, which does not fit in the u64 RPC/status
+/// fields. The DB layer should cap these display counters at u64::MAX and
+/// persist that value through the public API instead of overflowing or
+/// attempting to enumerate the linknets.
+#[crate::sqlx_test]
+async fn test_ipv6_vpc_prefix_linknet_counters_cap_large_prefix(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Extend the test fabric with IPv6 so the VPC-prefix validator accepts the /48.
+    let mut site_prefixes = TEST_SITE_PREFIXES.clone();
+    site_prefixes.push("2001:db8::/32".parse().unwrap());
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(site_prefixes),
+            create_network_segments: Some(false),
+            ..Default::default()
+        },
+    )
+    .await;
+    let (_, vpc) = api_fixtures::vpc::create_flat_vpc(
+        &env,
+        "flat-large-v6".to_string(),
+        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+    )
+    .await;
+    let vpc_id = vpc.id.expect("flat VPC should include an id");
+
+    // Create a large IPv6 prefix whose /127 linknet count exceeds u64.
+    let created = create_vpc_prefix(&env, vpc_id, "2001:db8:1000::/48").await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    assert_status_with_lifecycle_and_linknet_counters(&created, "provisioning", u64::MAX, u64::MAX);
+
+    // Re-read through the public API to verify the capped counters persisted.
+    let persisted = find_vpc_prefix(&env, id)
+        .await
+        .expect("VPC prefix should be visible through the public get API");
+    assert_status_with_lifecycle_and_linknet_counters(
+        &persisted,
+        "provisioning",
+        u64::MAX,
+        u64::MAX,
+    );
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_overlapping_vpc_prefixes(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;

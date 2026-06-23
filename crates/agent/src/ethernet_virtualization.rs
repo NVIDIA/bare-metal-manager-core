@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -136,6 +136,21 @@ pub struct ServiceAddresses {
     pub pxe_ips: Vec<IpAddr>,
     pub ntpservers: Vec<IpAddr>,
     pub nameservers: Vec<IpAddr>,
+}
+
+/// Split a dual-stack nameserver list into its IPv4 and IPv6 members, so the
+/// gRPC and file-write DHCP-config paths derive both families the same way.
+fn split_nameservers_by_family(nameservers: &[IpAddr]) -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+    nameservers
+        .iter()
+        .copied()
+        .fold((Vec::new(), Vec::new()), |(mut v4, mut v6), addr| {
+            match addr {
+                IpAddr::V4(v4_addr) => v4.push(v4_addr),
+                IpAddr::V6(v6_addr) => v6.push(v6_addr),
+            }
+            (v4, v6)
+        })
 }
 
 fn build_dhcp_ntp_servers(
@@ -1066,14 +1081,7 @@ async fn update_dhcp_via_grpc(
     };
     let loopback_ip: Ipv4Addr = mh_nc.loopback_ip.parse()?;
 
-    let nameservers_v4 = service_addrs
-        .nameservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    let (nameservers_v4, nameservers_v6) = split_nameservers_by_family(&service_addrs.nameservers);
 
     let ntpservers_v4 = build_dhcp_ntp_servers(network_config, service_addrs);
 
@@ -1095,6 +1103,7 @@ async fn update_dhcp_via_grpc(
         pxe_ip_v4,
         ntpservers_v4,
         nameservers_v4,
+        nameservers_v6,
         loopback_ip,
     )?;
     let mut host_config = carbide_rpc_utils::dhcp::HostConfig::try_from(
@@ -1471,18 +1480,10 @@ fn write_dhcp_v4_server_config(
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;
 
-    // Filter to IPv4, since this is specifically for the DHCPv4 server
-    // config, and the input ServiceAddresses holds both families.
-    // Again, we'll eventually have a specific builder for a DHCPv6
-    // that does similar things with ServiceAddresses, but for IPv6.
-    let nameservers_v4 = service_addrs
-        .nameservers
-        .iter()
-        .filter_map(|x| match x {
-            IpAddr::V4(x) => Some(*x),
-            _ => None,
-        })
-        .collect::<Vec<Ipv4Addr>>();
+    // Split the dual-stack nameservers by family: the IPv4 set drives the
+    // DHCPv4 options written here, while the IPv6 set is held in the config for
+    // the eventual DHCPv6 / RA consumer (inert in this path for now).
+    let (nameservers_v4, nameservers_v6) = split_nameservers_by_family(&service_addrs.nameservers);
 
     let ntpservers_v4 = build_dhcp_ntp_servers(nc, service_addrs);
 
@@ -1517,8 +1518,13 @@ fn write_dhcp_v4_server_config(
         Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
     }
 
-    let next_contents =
-        dhcp::build_server_config(pxe_ip_v4, ntpservers_v4, nameservers_v4, loopback_ip)?;
+    let next_contents = dhcp::build_server_config(
+        pxe_ip_v4,
+        ntpservers_v4,
+        nameservers_v4,
+        nameservers_v6,
+        loopback_ip,
+    )?;
     match write(
         next_contents,
         &dhcp_server_path.config,
@@ -1923,7 +1929,7 @@ impl InterfaceTranslationMode {
 mod tests {
     use std::fs;
     use std::io::Write;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
@@ -3303,6 +3309,31 @@ mod tests {
         eprint!("Diff output:\n{}", r.report());
         assert!(r.is_identical());
         Ok(())
+    }
+
+    #[test]
+    fn split_nameservers_by_family_partitions_by_family() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |input: Vec<IpAddr>| -> (Vec<Ipv4Addr>, Vec<Ipv6Addr>) {
+                split_nameservers_by_family(&input)
+            };
+            "splits nameservers by family" {
+                vec![
+                    IpAddr::from([10, 0, 0, 1]),
+                    "2001:db8::1".parse::<IpAddr>().unwrap(),
+                    IpAddr::from([10, 0, 0, 2]),
+                ] => (
+                    vec![Ipv4Addr::new(10, 0, 0, 1), Ipv4Addr::new(10, 0, 0, 2)],
+                    vec!["2001:db8::1".parse::<Ipv6Addr>().unwrap()],
+                ),
+                vec![IpAddr::from([10, 0, 0, 1])] => (vec![Ipv4Addr::new(10, 0, 0, 1)], vec![]),
+                vec!["2001:db8::1".parse::<IpAddr>().unwrap()]
+                    => (vec![], vec!["2001:db8::1".parse::<Ipv6Addr>().unwrap()]),
+                vec![] => (vec![], vec![]),
+            }
+        );
     }
 
     fn validate_dhcp_config(received: DhcpConfig, expected: DhcpConfig) {

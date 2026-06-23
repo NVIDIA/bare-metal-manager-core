@@ -34,5 +34,8 @@ tonic = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

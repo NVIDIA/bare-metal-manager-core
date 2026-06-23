@@ -782,7 +782,10 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			sshKeyGroupIDMap[skgs[i].ID] = &skgs[i]
 		}
 
-		skgsas, _, err = skgsaDAO.GetAll(ctx, nil, sshKeyGroupIDs, &site.ID, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		skgsas, _, err = skgsaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupSiteAssociationFilterInput{
+			SSHKeyGroupIDs: sshKeyGroupIDs,
+			SiteID:         &site.ID,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving SSH Key Group Site Associations from DB by SSH Key Group IDs & Site ID")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Site Associations from DB", nil)
@@ -1363,7 +1366,12 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		// create the ssh key group instance association in the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(cih.dbSession)
 		for _, skg := range skgs {
-			_, err := skgiaDAO.CreateFromParams(ctx, tx, skg.ID, site.ID, instance.ID, dbUser.ID)
+			_, err := skgiaDAO.Create(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
+				SSHKeyGroupID: skg.ID,
+				SiteID:        site.ID,
+				InstanceID:    instance.ID,
+				CreatedBy:     dbUser.ID,
+			})
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to create the SSH Key Group Instance Association record in DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to associate one or more SSH Key Group with Instance, DB error", nil)
@@ -1807,7 +1815,10 @@ func (uih UpdateInstanceHandler) handleReboot(c echo.Context, logger *zerolog.Lo
 
 		// Get the ssh key group instance associations record from the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(uih.dbSession)
-		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{instance.Site.ID}, []uuid.UUID{instance.ID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+			SiteIDs:     []uuid.UUID{instance.Site.ID},
+			InstanceIDs: []uuid.UUID{instance.ID},
+		}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving ssh key group instance association Details from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -2984,7 +2995,10 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 		// Get the existing ssh key group instance associations records from the db
 		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(uih.dbSession)
-		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{site.ID}, []uuid.UUID{instanceID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+		skgias, _, derr := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+			SiteIDs:     []uuid.UUID{site.ID},
+			InstanceIDs: []uuid.UUID{instanceID},
+		}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving ssh key group instance association Details from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -3069,9 +3083,14 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to determine if SSH Key Group: %s is associated with the Site where Instance is being updated, DB error", skgID), nil)
 				}
 
-				_, err = skgiaDAO.CreateFromParams(ctx, tx, skgID, site.ID, instance.ID, dbUser.ID)
+				_, err = skgiaDAO.Create(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
+					SSHKeyGroupID: skgID,
+					SiteID:        site.ID,
+					InstanceID:    instance.ID,
+					CreatedBy:     dbUser.ID,
+				})
 				if err != nil {
-					logger.Error().Err(serr).Msg("failed to create the SSH Key Group Instance Association record in DB")
+					logger.Error().Err(err).Msg("failed to create the SSH Key Group Instance Association record in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to associate one or more SSH Key Group with Instance, DB error", nil)
 				}
 
@@ -3089,7 +3108,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 				// If not found, we need to disassociate the SSH Key Group from the Instance.
 				skgia := existingSkgiasBySkg[skgID]
-				err := skgiaDAO.DeleteByID(ctx, tx, skgia.ID)
+				err := skgiaDAO.Delete(ctx, tx, skgia.ID)
 				if err != nil {
 					logger.Error().Err(serr).Str("SSHKeyGroupInstanceAssociation", skgia.ID.String()).Msg("error removing SSH Key Group Instance Association from DB by SSH Key Group Instance Association ID")
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to update Instance: %s is associated with the Site where Instance is being updated, DB error", skgia.ID), nil)
@@ -4031,7 +4050,10 @@ func (gih GetInstanceHandler) Handle(c echo.Context) error {
 	// Get the ssh key group instance associations record from the db
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(gih.dbSession)
 	var dbskgs []cdbm.SSHKeyGroup
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{site.ID}, []uuid.UUID{instanceID}, []string{cdbm.SSHKeyGroupRelationName}, nil, nil, nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		SiteIDs:     []uuid.UUID{site.ID},
+		InstanceIDs: []uuid.UUID{instanceID},
+	}, cdbp.PageInput{}, []string{cdbm.SSHKeyGroupRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving ssh key group instance association Details from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)
@@ -4584,7 +4606,10 @@ func (gaih GetAllInstanceHandler) Handle(c echo.Context) error {
 	}
 
 	// Get SSH Key Group Instance Associations for all Instances
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, siteIDs, insIDs, []string{cdbm.SSHKeyGroupRelationName}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		SiteIDs:     siteIDs,
+		InstanceIDs: insIDs,
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SSHKeyGroupRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving ssh key group instance association Details from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Group Instance Association for Instance", nil)

@@ -1123,7 +1123,7 @@ pub(crate) async fn update_instance_config(
         Some(config) => config.try_into().map_err(CarbideError::from)?,
     };
 
-    println!("SPX updaete_instance_config config: {:?}", config.spxconfig);
+    tracing::info!("SPX update_instance_config config: {:?}", config.spxconfig);
 
     // Network validation is done only if network update is requested.
     config
@@ -1730,7 +1730,7 @@ pub async fn update_instance_spx_config(
         .spxconfig
         .is_spx_config_update_requested(spxcfg)
     {
-        println!("SPX update_instance_spx_config is_spx_config_update_requested is false");
+        tracing::info!("SPX update_instance_spx_config is_spx_config_update_requested is false");
         return Ok(());
     }
 
@@ -1740,12 +1740,12 @@ pub async fn update_instance_spx_config(
             instance_state: InstanceState::Ready,
         }
     ) {
-        println!("SPX update_instance_spx_config not Assigned");
+        tracing::info!("SPX update_instance_spx_config not Assigned");
         return Err(ConfigValidationError::InvalidState.into());
     }
 
     if instance.deleted.is_some() {
-        println!("SPX update_instance_spx_config instance deleted");
+        tracing::info!("SPX update_instance_spx_config instance deleted");
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
@@ -1763,7 +1763,7 @@ pub async fn update_instance_spx_config(
     db::instance::update_spx_config(txn, instance.id, instance.spx_config_version, spxcfg, true)
         .await?;
 
-    println!("SPX update_instance_spx_config updating config in db done");
+    tracing::info!("SPX update_instance_spx_config updating config in db done");
 
     Ok(())
 }

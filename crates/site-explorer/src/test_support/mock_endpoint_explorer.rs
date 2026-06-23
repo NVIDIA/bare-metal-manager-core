@@ -37,6 +37,10 @@ pub struct MockEndpointExplorer {
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
     pub power_states: Arc<Mutex<HashMap<IpAddr, PowerState>>>,
     pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
+    /// Power-control actions that `redfish_power_control` should reject (the
+    /// call is still recorded). Lets tests exercise the PowerCycle ->
+    /// ACPowercycle fallback for a vendor that refuses `PowerCycle`.
+    pub power_control_failures: Arc<Mutex<Vec<SystemPowerControl>>>,
     /// Records every call to `set_nic_mode` (BMC address + requested target
     /// mode) so tests can assert the auto-correct path fired with the
     /// right arguments.
@@ -48,6 +52,12 @@ pub struct MockEndpointExplorer {
 impl MockEndpointExplorer {
     pub fn explore_endpoint_call_count(&self) -> usize {
         self.explore_endpoint_calls.lock().unwrap().len()
+    }
+
+    /// Make `redfish_power_control` reject the given action, so tests can
+    /// simulate a vendor that refuses `PowerCycle`.
+    pub fn fail_power_control(&self, action: SystemPowerControl) {
+        self.power_control_failures.lock().unwrap().push(action);
     }
 
     pub fn insert_endpoints(&self, endpoints: Vec<(IpAddr, EndpointExplorationReport)>) {
@@ -154,6 +164,16 @@ impl EndpointExplorer for MockEndpointExplorer {
             .lock()
             .unwrap()
             .push((address, action));
+        if self
+            .power_control_failures
+            .lock()
+            .unwrap()
+            .contains(&action)
+        {
+            return Err(EndpointExplorationError::Unreachable {
+                details: Some(format!("mock: {action:?} refused")),
+            });
+        }
         Ok(())
     }
 

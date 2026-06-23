@@ -197,9 +197,13 @@ configFiles:
   casbinPolicy: ""      # If empty, uses the default from files/
 
 ## Site-specific config (nico-api-site-config-files ConfigMap)
+## nicoApiSiteConfig is REQUIRED: nico-api exits at startup if the four
+## resource pool definitions (lo-ip, vlan-id, vni, vpc-vni) are absent.
+## See PREREQUISITES.md § "Site Configuration" and
+## deploy/files/nico-api/nico-api-site-config.toml for a full example.
 siteConfig:
   enabled: true
-  nicoApiSiteConfig: ""  # Override per environment
+  nicoApiSiteConfig: ""  # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
 
 ## NICo Web UI hostname (always created as ConfigMap)
 hostname: "nico.local"

@@ -165,4 +165,4 @@ fabrics, see
 
 For the Day 0 IP, DHCP, DNS, and admin-network configuration that every
 isolation guarantee on this page rests on, see
-[Day 0 IP and Network Configuration](../getting-started/installation-options/day0-ip-network-config.md).
+[IP and Network Configuration](../provisioning/ip-and-network-configuration.md).

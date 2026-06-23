@@ -32,11 +32,107 @@ SHELL := /bin/bash
 
 .PHONY: help
 help: ## Show this help and exit (default goal)
-	@echo "Rest (Go services in rest-api/):"
-	@grep -E '^rest-[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-22s %s\n", $$1, $$2}'
-	@echo "  rest-api/<target>      Pass any target through to rest-api/Makefile"
+	@echo "Getting started (fresh build host):"
+	@grep -E '^bootstrap:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
 	@echo ""
-	@echo "  cat rest-api/Makefile  See all rest-api/ targets directly"
+	@echo "Container images (build from a clean clone):"
+	@grep -E '^images[a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Rest (Go services in rest-api/):"
+	@grep -E '^rest-[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
+	@echo "  rest-api/<target>          Pass any target through to rest-api/Makefile"
+	@echo ""
+	@echo "  cat rest-api/Makefile      See all rest-api/ targets directly"
+
+# =============================================================================
+# Getting started (build host setup)
+# =============================================================================
+
+.PHONY: bootstrap
+
+bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, docker, cargo tooling (run once)
+	./scripts/setup-build-host.sh
+
+# =============================================================================
+# Container images (single onboarding build)
+# =============================================================================
+# Build NICo container images from a clean clone. Run from the repo root on an
+# Ubuntu build host (see docs/manuals/building_nico_containers.md for the host
+# prerequisites: docker, mkosi, rust, cargo-make, ...). Every base image is
+# public (rust / debian / golang + nvcr.io/nvidia/distroless), so no internal
+# registry access is required.
+#
+#   make images        Build the deployable service stack: NICo Core + REST images
+#   make images-all    Build everything: the stack plus machine-validation and
+#                       boot-artifact images (needs the full mkosi build host)
+#   make images-core   NICo Core image (nico) only
+#   make images-rest   REST service images only
+#
+# Images are tagged $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY
+# and IMAGE_TAG to build under your own registry/tag (defaults match rest-api/).
+
+IMAGE_REGISTRY ?= localhost:5000
+IMAGE_TAG ?= latest
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+CI_COMMIT_SHORT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+
+# Intermediate base containers the Core and machine-validation images build FROM.
+CORE_BUILD_CONTAINER ?= nico-buildcontainer-x86_64
+CORE_RUNTIME_CONTAINER ?= nico-runtime-container-x86_64
+
+# Target platform for the deployable images. The NICo Dockerfiles are x86_64, so
+# this defaults to linux/amd64; on an arm64 host (e.g. Apple Silicon) the build
+# runs under emulation. Override PLATFORM=linux/arm64 to build native arm64.
+PLATFORM ?= linux/amd64
+
+.PHONY: images images-all images-base images-core images-rest \
+        images-machine-validation images-boot-artifacts images-bfb
+
+images: images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
+	@echo ""
+	@echo "Deployable images built under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
+	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
+	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
+
+images-all: images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
+
+images-base: ## Build the x86 build + runtime base containers (prerequisite for core / machine validation)
+	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER) .
+	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.runtime-container-x86_64 -t $(CORE_RUNTIME_CONTAINER) .
+
+images-core: images-base ## Build the NICo Core image (nico)
+	docker build --platform $(PLATFORM) \
+		--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER) \
+		--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
+		--file dev/docker/Dockerfile.release-container-sa-x86_64 \
+		-t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) .
+
+images-rest: ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm)
+	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG)
+
+images-machine-validation: images-base ## Build the machine-validation runner + config images
+	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
+		-t machine-validation-runner:$(IMAGE_TAG) \
+		--file dev/docker/Dockerfile.machine-validation-runner .
+	mkdir -p crates/machine-validation/images
+	docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:$(IMAGE_TAG)
+	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
+		-t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) \
+		--file dev/docker/Dockerfile.machine-validation-config .
+
+images-boot-artifacts: ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
+	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
+	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
+		-t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
+		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
+
+images-bfb: ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
+	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
+	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
+		-t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
+		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
 
 # =============================================================================
 # Rest (delegate to rest-api/Makefile)

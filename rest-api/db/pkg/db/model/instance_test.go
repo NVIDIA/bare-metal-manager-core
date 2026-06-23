@@ -762,7 +762,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 		wantErr            error
 		wantEmpty          bool
 		wantCount          int
-		wantStatusMap      InstanceStatusCounts
+		wantStatusMap      InstanceCountByStatus
 		reqTenant          *uuid.UUID
 		reqSite            *uuid.UUID
 		verifyChildSpanner bool
@@ -778,7 +778,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			wantErr:   nil,
 			wantEmpty: false,
 			wantCount: 5,
-			wantStatusMap: InstanceStatusCounts{
+			wantStatusMap: InstanceCountByStatus{
 				Total:        5,
 				Pending:      2,
 				Provisioning: 1,
@@ -811,7 +811,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			wantErr:   nil,
 			wantEmpty: false,
 			wantCount: 5,
-			wantStatusMap: InstanceStatusCounts{
+			wantStatusMap: InstanceCountByStatus{
 				Total:        5,
 				Pending:      2,
 				Provisioning: 1,
@@ -883,7 +883,48 @@ func TestAggregatedInstanceStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AggregatedInstanceStatus(tt.status, tt.powerStatus)
+			inst := &Instance{Status: tt.status, PowerStatus: tt.powerStatus}
+			got := inst.GetAggregatedStatus(tt.status, tt.powerStatus)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestInstanceCountByStatus_FromQueryResults(t *testing.T) {
+	tests := []struct {
+		name string
+		rows []instanceStatusCountQueryResult
+		want InstanceCountByStatus
+	}{
+		{
+			name: "maps known statuses and accumulates total",
+			rows: []instanceStatusCountQueryResult{
+				{Status: InstanceStatusPending, TotalCount: 2},
+				{Status: InstanceStatusReady, TotalCount: 5},
+				{Status: InstancePowerStatusRebooting, TotalCount: 1},
+			},
+			want: InstanceCountByStatus{
+				Total:     8,
+				Pending:   2,
+				Ready:     5,
+				Rebooting: 1,
+			},
+		},
+		{
+			name: "unknown status rolls into unknown bucket",
+			rows: []instanceStatusCountQueryResult{
+				{Status: "unexpected", TotalCount: 3},
+			},
+			want: InstanceCountByStatus{
+				Total:   3,
+				Unknown: 3,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got InstanceCountByStatus
+			got.FromQueryResults(tt.rows)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -1628,6 +1628,7 @@ pub async fn create_test_env_with_overrides(
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
         redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
+        power_control_failures: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
@@ -2736,6 +2737,7 @@ pub async fn update_machine_validation_run(
             validation_id,
             duration_to_complete,
             total,
+            selected_tests: Vec::new(),
         }))
         .await
         .unwrap()

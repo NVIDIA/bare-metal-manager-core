@@ -567,6 +567,12 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         .map(|vpc| {
             let id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
             let prefixes = prefixes_by_vpc.remove(&id).unwrap_or_default();
+            #[allow(deprecated)]
+            let tenant = vpc
+                .config
+                .as_ref()
+                .map(|config| config.tenant_organization_id.clone())
+                .unwrap_or_else(|| vpc.tenant_organization_id.clone());
             OverlayVpcDisplay {
                 id,
                 name: vpc
@@ -580,7 +586,7 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                     .and_then(|status| status.vni)
                     .map(|vni| vni.to_string())
                     .unwrap_or_default(),
-                tenant: vpc.tenant_organization_id,
+                tenant,
                 prefixes,
             }
         })

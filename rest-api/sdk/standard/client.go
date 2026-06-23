@@ -55,6 +55,8 @@ type APIClient struct {
 
 	AuditAPI *AuditAPIService
 
+	BMCCredentialAPI *BMCCredentialAPIService
+
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
 
 	ExpectedMachineAPI *ExpectedMachineAPIService
@@ -138,6 +140,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	// API Services
 	c.AllocationAPI = (*AllocationAPIService)(&c.common)
 	c.AuditAPI = (*AuditAPIService)(&c.common)
+	c.BMCCredentialAPI = (*BMCCredentialAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
 	c.ExpectedPowerShelfAPI = (*ExpectedPowerShelfAPIService)(&c.common)

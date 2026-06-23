@@ -75,8 +75,9 @@ pub async fn create(
             // Make sure the VPCs are allowed to peer based on their
             // virtualization types. Their capabilities will determine
             // if they are allowed or not.
-            vpc1.network_virtualization_type
-                .ensure_can_peer_with(vpc2.network_virtualization_type)
+            vpc1.config
+                .network_virtualization_type
+                .ensure_can_peer_with(vpc2.config.network_virtualization_type)
                 .map_err(CarbideError::from)?;
         }
         Some(VpcPeeringPolicy::Mixed) => {

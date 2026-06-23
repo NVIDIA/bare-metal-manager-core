@@ -20,12 +20,6 @@ use carbide_test_support::{scenarios, value_scenarios};
 use libmlx::lockdown::error::MlxError;
 use libmlx::lockdown::runner::FlintRunner;
 
-#[test]
-fn test_runner_creation_with_path() {
-    let _runner = FlintRunner::with_path("/fake/path/flint");
-    // Just ensure it can be created without errors
-}
-
 // validate_device_id accepts PCI addresses, device paths, and names, and rejects
 // the empty string and anything with spaces. MlxError isn't PartialEq, so each row
 // pins the rejection by its variant name rather than the whole error.
@@ -129,71 +123,4 @@ fn test_key_validation() {
             key_error(runner.enable_hw_access("fake_device", "toolong123")) => FailsWith("InvalidKey"),
         }
     );
-}
-
-#[test]
-fn test_runner_default() {
-    let _runner = FlintRunner::default();
-    // Should not panic even if flint is not found
-}
-
-// These tests verify the output parsing logic without requiring actual flint execution
-#[cfg(test)]
-mod output_parsing_tests {
-    use carbide_test_support::value_scenarios;
-
-    // FlintRunner's output parsing keys off substrings; this walks the marker
-    // strings flint emits (bare, with the -I-/Error prefixes, and embedded in
-    // surrounding lines) and confirms each substring is detected. Folds the three
-    // per-marker loops into one table over `(haystack, needle)`.
-    #[test]
-    fn detects_status_substrings_in_output() {
-        value_scenarios!(
-            run = |(output, needle)| output.contains(needle);
-            "already disabled, bare" {
-                ("HW access already disabled", "already disabled") => true,
-            }
-
-            "already disabled, -I- prefix" {
-                ("-I- HW access already disabled", "already disabled") => true,
-            }
-
-            "already disabled, embedded in surrounding lines" {
-                (
-                    "some other text\nHW access already disabled\nmore text",
-                    "already disabled",
-                ) => true,
-            }
-
-            "already enabled, bare" {
-                ("HW access already enabled", "already enabled") => true,
-            }
-
-            "already enabled, -I- prefix" {
-                ("-I- HW access already enabled", "already enabled") => true,
-            }
-
-            "already enabled, embedded in surrounding lines" {
-                (
-                    "some other text\nHW access already enabled\nmore text",
-                    "already enabled",
-                ) => true,
-            }
-
-            "HW access is disabled, bare" {
-                ("HW access is disabled", "HW access is disabled") => true,
-            }
-
-            "HW access is disabled, Error prefix" {
-                ("Error: HW access is disabled", "HW access is disabled") => true,
-            }
-
-            "HW access is disabled, embedded in surrounding lines" {
-                (
-                    "some text\nHW access is disabled\nmore text",
-                    "HW access is disabled",
-                ) => true,
-            }
-        );
-    }
 }

@@ -357,14 +357,14 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete SSH Key Group Site Associations
-	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &siteID, nil, nil, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
+	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupSiteAssociationFilterInput{SiteID: &siteID}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Site Associations from DB")
 		return err
 	}
 
 	for _, skgsa := range skgsas {
-		serr := skgsaDAO.DeleteByID(ctx, nil, skgsa.ID)
+		serr := skgsaDAO.Delete(ctx, nil, skgsa.ID)
 		if serr != nil && serr != cdb.ErrDoesNotExist {
 			logger.Error().Err(serr).Str("SSH Key Group Site Association ID", skgsa.ID.String()).Msg("error deleting SSH Key Group Site Association record in DB")
 			return serr
@@ -372,14 +372,16 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete SSH Key Group Instance Associations
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{siteID}, nil, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		SiteIDs: []uuid.UUID{siteID},
+	}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance Associations from DB")
 		return err
 	}
 
 	for _, skgia := range skgias {
-		serr := skgiaDAO.DeleteByID(ctx, nil, skgia.ID)
+		serr := skgiaDAO.Delete(ctx, nil, skgia.ID)
 		if serr != nil && serr != cdb.ErrDoesNotExist {
 			logger.Error().Err(serr).Str("SSH Key Group Instance Association ID", skgia.ID.String()).Msg("error deleting SSH Key Group Instance Association record in DB")
 			return serr

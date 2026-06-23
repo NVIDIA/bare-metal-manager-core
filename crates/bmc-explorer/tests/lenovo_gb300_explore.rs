@@ -20,7 +20,7 @@ use bmc_explorer::hw::HwType;
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_explorer::test_support::detect_hw_type;
 use bmc_mock::test_support;
-use model::site_explorer::EndpointType;
+use model::site_explorer::{EndpointType, InternalLockdownStatus};
 use tokio::test;
 
 /// A Lenovo GB300 (AMI BMC) must classify as the GB300 platform regardless of the
@@ -49,4 +49,9 @@ async fn explore_lenovo_gb300() {
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::LenovoAMI));
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
+
+    let lockdown = report
+        .lockdown_status
+        .expect("GB300 lockdown status must be populated");
+    assert_eq!(lockdown.status, InternalLockdownStatus::Partial);
 }

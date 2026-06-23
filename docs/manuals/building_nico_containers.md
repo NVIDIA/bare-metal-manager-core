@@ -4,12 +4,25 @@ This section provides instructions for building the containers for NVIDIA Infra 
 
 ## Installing Prerequisite Software
 
-Before you begin, ensure you have the following prerequisites:
+You need an Ubuntu 24.04 host or VM with 150GB+ of free disk space (macOS is not supported).
 
-* An Ubuntu 24.04 Host or VM with 150GB+ of disk space (MacOS is not supported)
+Clone the repo and run the build-host bootstrap. It installs everything needed to build
+the containers and boot artifacts -- system packages, rustup, the mkosi/ipxe git
+submodules, Docker, and the cargo build tooling -- in one idempotent step:
 
-Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions
-assume an `apt`-based distribution such as Ubuntu 24.04.
+```sh
+git clone git@github.com:NVIDIA/infra-controller.git
+cd infra-controller
+make bootstrap          # or: ./scripts/setup-build-host.sh
+```
+
+Reboot (or log out and back in) afterwards so the `docker` group membership and the
+userns sysctl change take effect.
+
+### Manual setup (what `make bootstrap` does)
+
+`make bootstrap` runs `scripts/setup-build-host.sh`, which is equivalent to the following
+steps on an `apt`-based distribution such as Ubuntu 24.04:
 
 1. `apt-get install build-essential cpio direnv mkosi uidmap curl file fakeroot git docker.io docker-buildx sccache protobuf-compiler libopenipmi-dev libudev-dev libboost-dev libgrpc-dev libprotobuf-dev libssl-dev libtss2-dev kea-dev systemd-boot systemd-ukify jq zip`
 2. [Add the correct hook for your shell](https://direnv.net/docs/hook.html)
@@ -18,19 +31,40 @@ assume an `apt`-based distribution such as Ubuntu 24.04.
 5. Clone NICo - `git clone git@github.com:NVIDIA/infra-controller.git infra-controller`
 6. `cd infra-controller`
 7. `direnv allow`
-8. `cd $REPO_ROOT/pxe`
-9. `git clone https://github.com/systemd/mkosi.git`
-10. `cd mkosi && git checkout 26673f6`
-11. `cd $REPO_ROOT/pxe/ipxe`
-12. `git clone https://github.com/ipxe/ipxe.git upstream`
-13. `cd upstream && git checkout d7e58c5`
-14. `sudo systemctl enable docker.socket`
-15. `cd $REPO_ROOT`
-16. `cargo install cargo-make cargo-cache`
-17. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
-18. `sudo usermod -aG docker <username>`
-19. `reboot`
+8. `git submodule update --init --recursive`
+9. `sudo systemctl enable docker.socket`
+10. `cargo install cargo-make cargo-cache`
+11. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
+12. `sudo usermod -aG docker $(id -un)`
+13. `reboot`
 
+
+## Build all images with one command
+
+Once the prerequisites above are installed, build the NICo container images from the
+top of the repo with a single `make` command:
+
+```sh
+make images          # deployable stack: NICo Core (nico) + the REST service images
+make images-all      # the above plus the machine-validation and x86 boot-artifact images
+```
+
+Images are tagged `localhost:5000/<name>:latest` by default. Override the registry and
+tag to build under your own registry:
+
+```sh
+make images IMAGE_REGISTRY=my-registry.example.com/nico IMAGE_TAG=v1.0.0
+```
+
+The deployable images are built for `linux/amd64` (the NICo Dockerfiles are x86_64).
+On an arm64 host such as Apple Silicon they build under emulation, which is slow — a
+native `linux/amd64` build host is recommended. Pass `PLATFORM=linux/arm64` to build
+native arm64 images instead.
+
+Run `make help` from the repo root to list the individual image targets (`images-core`,
+`images-rest`, `images-machine-validation`, `images-boot-artifacts`, `images-bfb`). The
+sections below document the per-image build commands that these targets wrap, for when you
+need to build or debug a single image.
 
 ## Building X86_64 Containers
 
