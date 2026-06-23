@@ -1017,7 +1017,9 @@ mod tests {
             }],
             #[allow(deprecated)]
             auto: true,
-            auto_config: None,
+            auto_config: Some(forge::InstanceNetworkAutoConfig {
+                vpc_id: Some(VpcId::new()),
+            }),
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
         let err = result.expect_err("auto + non-empty interfaces should be rejected");
