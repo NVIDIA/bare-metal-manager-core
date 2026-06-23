@@ -167,6 +167,14 @@ pub fn deserialize_input_mac_to_address(input_value: &str) -> Result<MacAddress,
     let mac_address: MacAddress = mac_string.parse()?;
     Ok(mac_address)
 }
+
+/// Whether `mac` has the locally-administered bit set (bit 0x02 of the first
+/// octet). NVIDIA BMC/NIC MACs are globally unique, so a locally-administered
+/// value indicates transient pre-sync data rather than the burned-in address.
+pub fn is_locally_administered_mac(mac: MacAddress) -> bool {
+    mac.bytes()[0] & 0x02 != 0
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;

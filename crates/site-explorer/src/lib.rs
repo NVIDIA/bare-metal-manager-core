@@ -26,7 +26,7 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
-use carbide_network::sanitized_mac;
+use carbide_network::{is_locally_administered_mac, sanitized_mac};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
@@ -3261,13 +3261,6 @@ fn derive_base_mac_from_bmc_eth0(report: &EndpointExplorationReport) -> Option<M
         "derived DPU base MAC from BMC eth0 via offset fallback",
     );
     Some(mac)
-}
-
-/// Whether `mac` has the locally-administered bit set (bit 0x02 of the first
-/// octet). NVIDIA BMC/NIC MACs are globally unique, so a locally-administered
-/// value indicates transient pre-sync data rather than the burned-in address.
-pub(crate) fn is_locally_administered_mac(mac: MacAddress) -> bool {
-    mac.bytes()[0] & 0x02 != 0
 }
 
 /// MAC address as a 48-bit big-endian integer (top two bytes of the u64 are zero).

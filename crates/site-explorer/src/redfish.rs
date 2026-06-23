@@ -752,16 +752,14 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     if let Some(eth0) = ethernet_interfaces.iter().find(|e| {
         e.id.as_deref()
             .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
-    }) {
-        if let Some(mac) = eth0.mac_address {
-            if crate::is_locally_administered_mac(mac) {
-                tracing::warn!(
-                    manager_id = %manager.id,
-                    eth0_mac = %mac,
-                    "manager eth0 MAC is locally-administered (transient pre-sync data?)",
-                );
-            }
-        }
+    }) && let Some(mac) = eth0.mac_address
+        && crate::is_locally_administered_mac(mac)
+    {
+        tracing::warn!(
+            manager_id = %manager.id,
+            eth0_mac = %mac,
+            "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+        );
     }
 
     Ok(Manager {

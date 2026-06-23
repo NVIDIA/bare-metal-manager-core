@@ -17,7 +17,7 @@
 
 use std::str::FromStr;
 
-use carbide_network::deserialize_input_mac_to_address;
+use carbide_network::{deserialize_input_mac_to_address, is_locally_administered_mac};
 use model::site_explorer::{
     EthernetInterface as ModelEthernetInterface, Manager as ModelManager, UefiDevicePath,
 };
@@ -210,11 +210,4 @@ impl<B: Bmc> ExploredManager<B> {
             ethernet_interfaces,
         })
     }
-}
-
-/// Whether `mac` has the locally-administered bit set (bit 0x02 of the first
-/// octet). NVIDIA BMC/NIC MACs are globally unique, so a locally-administered
-/// value indicates transient pre-sync data rather than the burned-in address.
-fn is_locally_administered_mac(mac: mac_address::MacAddress) -> bool {
-    mac.bytes()[0] & 0x02 != 0
 }
