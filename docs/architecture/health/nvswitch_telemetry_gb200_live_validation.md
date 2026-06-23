@@ -149,7 +149,7 @@ Unit coverage that locks this behavior:
 ## Blocker escalations (Stage 0)
 
 Stage 0 live probe (2026-06-20) classified all 193 GB200-applicable NVSWITCH catalog rows.
-44 rows are escalated below (21 config-threshold, 17 absent-from-live-probe, 6 string-valued). No
+40 rows are escalated below (21 config-threshold, 13 absent-from-live-probe, 6 string-valued). No
 row is deferred — each has an explicit disposition and a named resolution path.
 
 ### Group A — Config-threshold rows (21 rows, BLOCKER-THRESHOLD)
@@ -186,35 +186,34 @@ can expose these. Until confirmed, they are out-of-scope for this branch.
 | 1255 | PMIC-TEMP-STATE         |
 | 1259 | SWB-ASIC-PCB-TEMP-STATE |
 
-### Group B — Cable/transceiver alarm leaves (9 rows, ABSENT-BLOCKER)
+### Group B — Cable/transceiver leaves (7 rows, ABSENT-BLOCKER)
 
-**CAVEAT: likely empty due to uncabled test rig.** These gNMI leaves exist in the NVOS schema
-and are in the explicit allowlist, but returned no data during Stage 0 probing. The probe
-switch had no cables attached, which is the most probable cause — transceiver alarm flags only
-populate when a transceiver is inserted.
+**Root cause (NOT an uncabled rig).** The N5400_LD NVLink switch enumerates **no gNMI transceiver
+components** — the live component tree has only `ASIC`/`CPU`/`FAN`/`SWITCH` types and no
+`/components/component/transceiver/*` subtree, even though 64+ ports are active NDR/XDR backplane
+links (re-probed live 2026-06-23). The catalog mapped these rows to an openconfig transceiver-diag
+path this platform does not expose; NVLink backplane cables are not modeled as openconfig
+transceivers.
 
-**Resolution:** Re-probe on a cabled production switch before treating these as permanent
-blockers. If leaves remain absent on a cabled switch, escalate to NVOS gNMI owner with the
-exact NVOS version and transceiver module type.
+**Re-sourced to NMX-T (now implemented):** 4 fault-flag rows have live NMX-T families (value 0 = no
+fault on the active links) and were moved into `NMXT_METRIC_MAP` — 983 CABLE-TX-CDR-LOL
+(`tx_cdr_lol`), 984 CABLE-RX-CDR-LOL (`rx_cdr_lol`), 985 CABLE-TX-LOS (`tx_los`), 986 CABLE-RX-LOS
+(`rx_los`). They are no longer blockers.
 
-| Row  | Metric                          | gNMI leaf (not live)                                                                               |
-|------|---------------------------------|----------------------------------------------------------------------------------------------------|
-| 981  | CABLE-TEMP-ALARM                | `/components/component/transceiver/physical-channels/transceiver-diag/state/temp-high-alarm-flag` |
-| 982  | CABLE-VOLTAGE-ALARM             | `/components/component/transceiver/physical-channels/transceiver-diag/state/vcc-high-alarm-flag`  |
-| 983  | CABLE-TX-CDR-LOL                | `/components/component/transceiver/physical-channels/channel/channel-diag/tx-cdr-lol`             |
-| 984  | CABLE-RX-CDR-LOL                | `/components/component/transceiver/physical-channels/channel/channel-diag/rx-cdr-lol`             |
-| 985  | CABLE-TX-LOS                    | `/components/component/transceiver/physical-channels/channel/channel-diag/tx-los`                 |
-| 986  | CABLE-RX-LOS                    | `/components/component/transceiver/physical-channels/channel/channel-diag/rx-los`                 |
-| 2293 | CABLE-OPER-STATUS               | `/components/component/transceiver/transceiver-diag/state/module-oper-status`                     |
-| 2296 | NVSWITCH-CABLE-RX-POWER-LANE-LOW-N  | `/components/component/transceiver/thresholds/threshold/state/input-power-lower`              |
-| 2297 | NVSWITCH-CABLE-TX-POWER-LANE-LOW-N  | `/components/component/transceiver/thresholds/threshold/state/output-power-lower`             |
-| 2298 | NVSWITCH-CABLE-RX-POWER-LANE-HIGH-N | `/components/component/transceiver/thresholds/threshold/state/input-power-upper`              |
-| 2299 | NVSWITCH-CABLE-TX-POWER-LANE-HIGH-N | `/components/component/transceiver/thresholds/threshold/state/output-power-upper`             |
+**Resolution (remaining 7):** no NMX-T or gNMI source exists for the alarm/threshold/oper-status
+rows below. Escalate to the NVOS gNMI / NMX-T owner: is there any source (gNMI/NMX-T/Redfish/CLI)
+for NVLink cable optical alarms, module oper-status, and per-lane power thresholds on N5400_LD, or
+are these rows N/A for NVLink backplane switches?
 
-Note: rows 2296–2299 are four rows, bringing Group B to 11 entries — the "9 cable/transceiver
-alarm leaves" figure from the plan refers to the 9 alarm/status leaves (981–986, 2293); the
-4 power threshold rows (2296–2299) overlap in root cause and are included here as they share
-the same uncabled-rig caveat and re-probe condition.
+| Row  | Metric                              | Catalog source (absent live)                                  |
+|------|-------------------------------------|----------------------------------------------------------------|
+| 981  | CABLE-TEMP-ALARM                    | gNMI transceiver `temp-high-alarm-flag` (no transceiver component) |
+| 982  | CABLE-VOLTAGE-ALARM                 | gNMI transceiver `vcc-high-alarm-flag` (no transceiver component)  |
+| 2293 | CABLE-OPER-STATUS                   | gNMI transceiver `module-oper-status` (no transceiver component)   |
+| 2296 | NVSWITCH-CABLE-RX-POWER-LANE-LOW-N  | gNMI transceiver thresholds `input-power-lower` (absent)           |
+| 2297 | NVSWITCH-CABLE-TX-POWER-LANE-LOW-N  | gNMI transceiver thresholds `output-power-lower` (absent)          |
+| 2298 | NVSWITCH-CABLE-RX-POWER-LANE-HIGH-N | gNMI transceiver thresholds `input-power-upper` (absent)           |
+| 2299 | NVSWITCH-CABLE-TX-POWER-LANE-HIGH-N | gNMI transceiver thresholds `output-power-upper` (absent)          |
 
 ### Group C — NMX-T RDMA queue counters (3 rows, ABSENT-BLOCKER)
 

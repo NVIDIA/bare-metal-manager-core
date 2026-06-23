@@ -139,10 +139,10 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 980,CABLE-TEMP,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 981,CABLE-TEMP-ALARM,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/transceiver-diag/state/temp-high-alarm-flag
 982,CABLE-VOLTAGE-ALARM,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/transceiver-diag/state/vcc-high-alarm-flag
-983,CABLE-TX-CDR-LOL,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/channel/channel-diag/tx-cdr-lol
-984,CABLE-RX-CDR-LOL,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/channel/channel-diag/rx-cdr-lol
-985,CABLE-TX-LOS,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/channel/channel-diag/tx-los
-986,CABLE-RX-LOS,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/channel/channel-diag/rx-los
+983,CABLE-TX-CDR-LOL,NMX-T explicit allowlist,PRESENT,implemented,nmxt cable fault flag (re-sourced; gNMI transceiver path absent on NVLink)
+984,CABLE-RX-CDR-LOL,NMX-T explicit allowlist,PRESENT,implemented,nmxt cable fault flag (re-sourced; gNMI transceiver path absent on NVLink)
+985,CABLE-TX-LOS,NMX-T explicit allowlist,PRESENT,implemented,nmxt cable fault flag (re-sourced; gNMI transceiver path absent on NVLink)
+986,CABLE-RX-LOS,NMX-T explicit allowlist,PRESENT,implemented,nmxt cable fault flag (re-sourced; gNMI transceiver path absent on NVLink)
 987,LINK-PARTNER-DESCRIPTION,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 988,LINK-PARTNER-NODE-GUID,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 989,LINK-PARTNER-LID,NMX-T explicit allowlist,PRESENT,implemented,nmxt family

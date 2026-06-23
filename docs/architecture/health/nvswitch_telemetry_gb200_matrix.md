@@ -17,24 +17,24 @@ Columns: `catalog_row`, `metric_param_name`, `corrected_primary_source`, `final_
 
 | Disposition    | Count | Meaning                                                               |
 |----------------|-------|-----------------------------------------------------------------------|
-| implemented    | 149   | PRESENT/RESOLVED-LIVE allowlist hit, or IMPLEMENTED (MAX-SPEED via NVUE REST) |
-| blocker        | 44    | ABSENT-BLOCKER (leaf not live), BLOCKER-THRESHOLD (config-only), or BLOCKER-STRING (string-valued) |
+| implemented    | 153   | PRESENT/RESOLVED-LIVE allowlist hit, or IMPLEMENTED (MAX-SPEED via NVUE REST) |
+| blocker        | 40    | ABSENT-BLOCKER (leaf not live), BLOCKER-THRESHOLD (config-only), or BLOCKER-STRING (string-valued) |
 
 ### final_status breakdown
 
 | final_status      | Count |
 |-------------------|-------|
-| PRESENT           | 132   |
+| PRESENT           | 136   |
 | RESOLVED-LIVE     | 16    |
 | IMPLEMENTED       | 1     |
-| ABSENT-BLOCKER    | 17    |
+| ABSENT-BLOCKER    | 13    |
 | BLOCKER-THRESHOLD | 21    |
 | BLOCKER-STRING    | 6     |
 
 ## Blocker escalations
 
 See `nvswitch_telemetry_gb200_live_validation.md` section "Blocker escalations (Stage 0)" for the
-full annotated list of 44 rows, grouped by root cause, with resolution path and re-probe
+full annotated list of 40 rows, grouped by root cause, with resolution path and re-probe
 conditions.
 
 ## Notes on implemented rows
@@ -60,9 +60,13 @@ No row is marked "deferred." Every blocker has an explicit escalation dispositio
   `LOCATION`, `NODE-DESCRIPTION` (platform), `ASIC-NAME`, `PHY-MANAGER-STATE`, `VL-CAPABILITIES`.
   Present live but cannot be emitted as numeric metrics; need a string/label export path (tracked
   as #11), or enum-coding for the FSM-style ones. Not silently dropped — escalated.
-- **ABSENT-BLOCKER — cable/transceiver alarm leaves (9 rows: 981-986, 2293, 2296-2299):** gNMI
-  leaves exist in the schema but returned no data on the test rig. Likely empty due to an uncabled
-  switch. Re-probe on a cabled switch before treating as a permanent blocker.
+- **ABSENT-BLOCKER — cable/transceiver leaves (7 rows: 981, 982, 2293, 2296-2299):** the catalog's
+  gNMI transceiver-diag path is absent live — the N5400_LD NVLink switch enumerates **no gNMI
+  transceiver components** (confirmed live; 64+ active backplane links, so *not* an uncabled rig).
+  The 4 fault-flag rows (983-986: CABLE-TX/RX-CDR-LOL, CABLE-TX/RX-LOS) were **re-sourced to NMX-T**
+  (live flag families) and are now implemented. The remaining 7 (temp/vcc alarm flags, module
+  oper-status, RX/TX power-lane LOW/HIGH thresholds) have no NMX-T or gNMI source; escalate to the
+  NVOS gNMI / NMX-T owner re: NVLink cable optical telemetry.
 - **ABSENT-BLOCKER — TIME-SINCE-LASTS-CLEAR (row 909):** gNMI leaf
   `/interfaces/interface/phy-diag/state/time-since-last-clear-min` not live. Escalate to NVOS
   gNMI owner for NVOS version confirmation.

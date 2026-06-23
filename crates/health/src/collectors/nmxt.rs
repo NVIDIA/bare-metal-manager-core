@@ -88,6 +88,13 @@ const NMXT_METRIC_MAP: &[(&str, &str, &str)] = &[
     // Raw error lanes
     ("Raw_Errors_Lane_2", "raw_err_lane_2", "count"), // row 1704 RAW-ERR-LANE-2
     ("Raw_Errors_Lane_3", "raw_err_lane_3", "count"), // row 1705 RAW-ERR-LANE-3
+    // Cable/transceiver fault flags (0/1). Re-sourced from NMX-T: NVLink ports on
+    // the N5400_LD are not modeled as gNMI transceiver components, so the catalog's
+    // gNMI transceiver-diag path is absent live; NMX-T exposes these per active link.
+    ("tx_cdr_lol", "cable_tx_cdr_lol", "state"), // row 983 CABLE-TX-CDR-LOL
+    ("rx_cdr_lol", "cable_rx_cdr_lol", "state"), // row 984 CABLE-RX-CDR-LOL
+    ("tx_los", "cable_tx_los", "state"),         // row 985 CABLE-TX-LOS
+    ("rx_los", "cable_rx_los", "state"),         // row 986 CABLE-RX-LOS
 ];
 
 /// Explicit allowlist: live NMX-T Prometheus **label** key -> canonical label name.
@@ -499,6 +506,10 @@ Link_Down{Port_Number="1"} 5
             ("contain_n_drain_rcv_discards", "contain_drain_rcv_discard", "count"),
             ("Raw_Errors_Lane_2", "raw_err_lane_2", "count"),
             ("Raw_Errors_Lane_3", "raw_err_lane_3", "count"),
+            ("tx_cdr_lol", "cable_tx_cdr_lol", "state"),
+            ("rx_cdr_lol", "cable_rx_cdr_lol", "state"),
+            ("tx_los", "cable_tx_los", "state"),
+            ("rx_los", "cable_rx_los", "state"),
         ];
 
         for (source, metric_type, unit) in expected {
