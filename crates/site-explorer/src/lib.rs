@@ -3237,7 +3237,7 @@ fn derive_base_mac_from_bmc_eth0(report: &EndpointExplorationReport) -> Option<M
         .flat_map(|m| m.ethernet_interfaces.iter())
         .find(|e| {
             e.id.as_deref()
-                .is_some_and(|id| id.to_lowercase().contains("eth0"))
+                .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
         })
         .and_then(|e| e.mac_address)?;
 

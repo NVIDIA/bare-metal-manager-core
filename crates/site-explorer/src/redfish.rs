@@ -751,7 +751,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     // after a BMC reboot) that would poison anything keyed on the BMC MAC.
     if let Some(eth0) = ethernet_interfaces.iter().find(|e| {
         e.id.as_deref()
-            .is_some_and(|id| id.to_lowercase().contains("eth0"))
+            .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
     }) {
         if let Some(mac) = eth0.mac_address {
             if crate::is_locally_administered_mac(mac) {
