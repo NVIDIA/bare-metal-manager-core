@@ -367,6 +367,13 @@ pub(crate) async fn save(
         }
     };
 
+    // A network's reverse-DNS zone is derived from its prefix and created with
+    // it, so PTR lookups for the network's addresses resolve without anyone
+    // hand-authoring the zone.
+    for network_prefix in &network_segment.prefixes {
+        db::dns::ensure_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
+    }
+
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
         let network_segments = db::network_segment::find_by(

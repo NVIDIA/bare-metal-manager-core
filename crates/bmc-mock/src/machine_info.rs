@@ -37,27 +37,24 @@ pub enum MachineInfo {
     Dpu(DpuMachineInfo),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct HostMachineInfo {
     pub hw_type: HostHardwareType,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
     pub non_dpu_mac_address: Option<MacAddress>,
-    #[serde(default)]
     pub nvos_mac_addresses: Vec<MacAddress>,
-    #[serde(default)]
     pub switch_serial_number: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DpuMachineInfo {
     pub hw_type: HostHardwareType,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
     pub serial: String,
-    #[serde(flatten)]
     pub settings: DpuSettings,
 }
 

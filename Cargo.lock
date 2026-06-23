@@ -1171,6 +1171,7 @@ dependencies = [
  "carbide-ib-partition-controller",
  "carbide-ipmi",
  "carbide-ipxe-renderer",
+ "carbide-kms-provider",
  "carbide-libmlx",
  "carbide-machine-controller",
  "carbide-macros",
@@ -1282,7 +1283,9 @@ dependencies = [
  "tss-esapi",
  "url",
  "uuid",
+ "vaultrs",
  "x509-parser",
+ "zeroize",
 ]
 
 [[package]]
@@ -1340,8 +1343,12 @@ name = "carbide-api-integration-tests"
 version = "0.0.0"
 dependencies = [
  "askama_escape",
+ "base64",
  "bmc-mock",
+ "carbide-api-core",
+ "carbide-api-db",
  "carbide-api-test-helper",
+ "carbide-kms-provider",
  "carbide-machine-a-tron",
  "carbide-secrets",
  "carbide-utils",
@@ -2160,6 +2167,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "vaultrs",
  "zeroize",

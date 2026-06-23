@@ -295,7 +295,7 @@ impl SiteExplorerConfig {
     }
 
     pub const fn default_explore_mode() -> SiteExplorerExploreMode {
-        SiteExplorerExploreMode::LibRedfish
+        SiteExplorerExploreMode::NvRedfish
     }
 }
 

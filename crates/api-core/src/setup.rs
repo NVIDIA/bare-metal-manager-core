@@ -259,7 +259,9 @@ pub fn create_ipmi_tool(
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
-async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Result<PgPool> {
+pub(crate) async fn create_and_connect_postgres_pool(
+    config: &CarbideConfig,
+) -> eyre::Result<PgPool> {
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -294,6 +296,8 @@ pub async fn start_api(
     shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
+    db_pool: PgPool,
+    secrets_context: Option<crate::secrets::SecretsContext>,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
@@ -303,8 +307,6 @@ pub async fn start_api(
         &carbide_config,
         dynamic_settings.bmc_proxy.clone(),
     );
-
-    let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     let work_lock_manager_handle = work_lock_manager::start(
         join_set,
@@ -605,6 +607,7 @@ pub async fn start_api(
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
         bms_client: std::sync::OnceLock::new(),
+        secrets_context,
     });
 
     if carbide_config.listen_only {

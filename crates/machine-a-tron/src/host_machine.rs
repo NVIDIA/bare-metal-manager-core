@@ -228,8 +228,6 @@ impl HostMachine {
         let host_info = self.host_info.clone();
         let dpus = self.dpus.clone();
         let machine_config_section = self.machine_config_section.clone();
-        let bmc_dhcp_id = self.state_machine.bmc_dhcp_id;
-        let machine_dhcp_id = self.state_machine.machine_dhcp_id;
 
         if !paused {
             self.resume_dpus();
@@ -256,8 +254,6 @@ impl HostMachine {
             host_info,
             dpus,
             machine_config_section,
-            bmc_dhcp_id,
-            machine_dhcp_id,
 
             join_handle: Mutex::new(Some(join_handle)),
         }))
@@ -503,8 +499,6 @@ struct HostMachineActor {
     host_info: HostMachineInfo,
     dpus: Vec<DpuMachineHandle>,
     machine_config_section: String,
-    bmc_dhcp_id: Uuid,
-    machine_dhcp_id: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -594,8 +588,6 @@ impl HostMachineHandle {
             observed_machine_id: live_state.observed_machine_id,
             installed_os: live_state.installed_os,
             tpm_ek_certificate: live_state.tpm_ek_certificate.clone(),
-            machine_dhcp_id: self.0.machine_dhcp_id,
-            bmc_dhcp_id: self.0.bmc_dhcp_id,
         }
     }
 

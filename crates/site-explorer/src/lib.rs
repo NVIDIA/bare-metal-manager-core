@@ -34,7 +34,7 @@ use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
-use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
+use db::{self, DatabaseError, Transaction, machine, power_shelf as db_power_shelf};
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -284,6 +284,7 @@ pub struct SiteExplorer {
 
 impl SiteExplorer {
     const ITERATION_WORK_KEY: &'static str = "SiteExplorer::run_single_iteration";
+    const SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE: usize = 500;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -484,6 +485,7 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         expected_endpoint_index: &ExploredEndpointIndex,
     ) -> SiteExplorerResult<()> {
+        let audit_load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
 
         // Grab them all because we care about everything,
@@ -492,6 +494,29 @@ impl SiteExplorer {
         let explored_managed_hosts = db::explored_managed_host::find_all(txn.as_pgconn()).await?;
 
         txn.rollback().await?;
+        metrics.record_phase_latency("audit_load", audit_load_start.elapsed());
+
+        let bmc_endpoint_addresses = explored_endpoints
+            .iter()
+            .filter(|ep| ep.report.endpoint_type == EndpointType::Bmc)
+            .map(|ep| ep.address)
+            .collect_vec();
+        let audit_state_load_start = Instant::now();
+        let mut txn = self.txn_begin().await?;
+        let machine_audit_states = db::machine::find_site_explorer_machine_audit_states_by_bmc_ips(
+            &mut txn,
+            &bmc_endpoint_addresses,
+        )
+        .await?;
+        txn.rollback().await?;
+        metrics.record_phase_latency("audit_state_load", audit_state_load_start.elapsed());
+        let machine_audit_states: HashMap<IpAddr, db::machine::SiteExplorerMachineAuditState> =
+            machine_audit_states
+                .into_iter()
+                .map(|state| (state.bmc_ip, state))
+                .collect();
+        let mut pending_health_report_updates = Vec::new();
+        let audit_compute_start = Instant::now();
 
         // Go through all the explored endpoints and collect metrics and submit
         // health reports
@@ -502,27 +527,10 @@ impl SiteExplorer {
             }
 
             // We need to find the last health report for the endpoint in order to update it with latest health data
-            let mut txn = self.txn_begin().await?;
-            let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
-            let machine = match machine_id.as_ref() {
-                Some(id) => db::machine::find(
-                    &mut txn,
-                    ObjectFilter::One(*id),
-                    MachineSearchConfig {
-                        include_dpus: true,
-                        include_predicted_host: true,
-                        ..Default::default()
-                    },
-                )
-                .await?
-                .into_iter()
-                .next(),
-                None => None,
-            };
-
-            let previous_health_report = machine
-                .as_ref()
-                .and_then(|machine| machine.site_explorer_health_report());
+            let machine_audit_state = machine_audit_states.get(&ep.address);
+            let machine_id = machine_audit_state.map(|state| state.machine_id);
+            let previous_health_report =
+                machine_audit_state.and_then(|state| state.site_explorer_health_report.as_ref());
             let mut new_health_report: health_report::HealthReport =
                 health_report::HealthReport::empty(
                     health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
@@ -650,13 +658,29 @@ impl SiteExplorer {
             }
 
             new_health_report.update_in_alert_since(previous_health_report);
-            if let Some(id) = machine_id.as_ref() {
-                db::machine::update_site_explorer_health_report(&mut txn, id, &new_health_report)
+            if let Some(id) = machine_id
+                && site_explorer_health_report_needs_update(
+                    previous_health_report,
+                    &new_health_report,
+                )
+            {
+                pending_health_report_updates.push((id, new_health_report));
+            }
+        }
+        metrics.record_phase_latency("audit_compute", audit_compute_start.elapsed());
+
+        let audit_write_start = Instant::now();
+        for health_report_updates in
+            pending_health_report_updates.chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
+        {
+            let mut txn = self.txn_begin().await?;
+            for (id, health_report) in health_report_updates {
+                db::machine::update_site_explorer_health_report(txn.as_pgconn(), id, health_report)
                     .await?;
             }
-
             txn.commit().await?;
         }
+        metrics.record_phase_latency("audit_write", audit_write_start.elapsed());
 
         // Count the total number of explored managed hosts
         for explored_managed_host in explored_managed_hosts {
@@ -676,7 +700,13 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<SiteIdentifiedHosts> {
         self.check_preconditions(metrics).await?;
+
+        let update_explored_endpoints_start = Instant::now();
         let expected_endpoint_index = self.update_explored_endpoints(metrics).await?;
+        metrics.record_phase_latency(
+            "update_explored_endpoints",
+            update_explored_endpoints_start.elapsed(),
+        );
 
         // Create a list of DPUs and hosts that site explorer should try to ingest. Site explorer uses the following criteria to determine whether
         // to ingest a given endpoint (creating a managed host containing the endpoint and adding it to the state machine):
@@ -685,7 +715,12 @@ impl SiteExplorer {
         // If site explorer is unable to retrieve this mac address, there is no point in creating a managed host: we will not be able to configure the host appropriately.
         // 2b) If the endpoint is for a host: make sure that the host is on and that infinite boot is enabled. Otherwise, we will not be able to provision the DPU appropriately
         // once we create a managed host and add it to the state machine.
+        let identify_machines_to_ingest_start = Instant::now();
         let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest(metrics).await?;
+        metrics.record_phase_latency(
+            "identify_machines_to_ingest",
+            identify_machines_to_ingest_start.elapsed(),
+        );
 
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
@@ -693,6 +728,7 @@ impl SiteExplorer {
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticeable effect is that ManagedHost population might be delayed a bit.
+        let identify_managed_hosts_start = Instant::now();
         let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
@@ -701,45 +737,70 @@ impl SiteExplorer {
                 explored_hosts,
             )
             .await?;
+        metrics.record_phase_latency(
+            "identify_managed_hosts",
+            identify_managed_hosts_start.elapsed(),
+        );
 
         if self.config.create_machines.load(Ordering::Relaxed) {
-            let start_create_machines = std::time::Instant::now();
+            let start_create_machines = Instant::now();
             let create_machines_res = self
                 .machine_creator
                 .create_machines(metrics, &mut identified_hosts, &expected_endpoint_index)
                 .await;
-            metrics.create_machines_latency = Some(start_create_machines.elapsed());
+            let create_machines_latency = start_create_machines.elapsed();
+            metrics.create_machines_latency = Some(create_machines_latency);
+            metrics.record_phase_latency("create_machines", create_machines_latency);
             create_machines_res?;
         }
 
         // Identify and create power shelves
+        let identify_power_shelves_to_ingest_start = Instant::now();
         let explored_power_shelves = self.identify_power_shelves_to_ingest().await?;
+        metrics.record_phase_latency(
+            "identify_power_shelves_to_ingest",
+            identify_power_shelves_to_ingest_start.elapsed(),
+        );
 
         if self.config.create_power_shelves.load(Ordering::Relaxed) {
-            let start_create_power_shelves = std::time::Instant::now();
+            let start_create_power_shelves = Instant::now();
             let create_power_shelves_res = self
                 .create_power_shelves(metrics, explored_power_shelves, &expected_endpoint_index)
                 .await;
-            metrics.create_power_shelves_latency = Some(start_create_power_shelves.elapsed());
+            let create_power_shelves_latency = start_create_power_shelves.elapsed();
+            metrics.create_power_shelves_latency = Some(create_power_shelves_latency);
+            metrics.record_phase_latency("create_power_shelves", create_power_shelves_latency);
             create_power_shelves_res?;
         }
 
         // Identify and create switches
+        let identify_switches_to_ingest_start = Instant::now();
         let explored_switches = self.identify_switches_to_ingest().await?;
+        metrics.record_phase_latency(
+            "identify_switches_to_ingest",
+            identify_switches_to_ingest_start.elapsed(),
+        );
 
         if self.config.create_switches.load(Ordering::Relaxed) {
-            let start_create_switches = std::time::Instant::now();
+            let start_create_switches = Instant::now();
             let create_switches_res = self
                 .switch_creator
                 .create_switches(metrics, &explored_switches, &expected_endpoint_index)
                 .await;
-            metrics.create_switches_latency = Some(start_create_switches.elapsed());
+            let create_switches_latency = start_create_switches.elapsed();
+            metrics.create_switches_latency = Some(create_switches_latency);
+            metrics.record_phase_latency("create_switches", create_switches_latency);
             create_switches_res?;
         }
 
         // Audit after everything has been explored, identified, and created.
+        let audit_exploration_results_start = Instant::now();
         self.audit_exploration_results(metrics, &expected_endpoint_index)
             .await?;
+        metrics.record_phase_latency(
+            "audit_exploration_results",
+            audit_exploration_results_start.elapsed(),
+        );
 
         // Retained boot interface records that aged out of the configured
         // window are already ignored at read time; sweep them once per pass
@@ -3277,6 +3338,30 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
     )
 }
 
+fn site_explorer_health_report_needs_update(
+    previous_health_report: Option<&health_report::HealthReport>,
+    new_health_report: &health_report::HealthReport,
+) -> bool {
+    match previous_health_report {
+        None => !new_health_report.alerts.is_empty(),
+        Some(_) if new_health_report.alerts.is_empty() => true,
+        Some(previous_health_report) => {
+            !health_reports_equal_ignoring_observed_at(previous_health_report, new_health_report)
+        }
+    }
+}
+
+fn health_reports_equal_ignoring_observed_at(
+    left: &health_report::HealthReport,
+    right: &health_report::HealthReport,
+) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.observed_at = None;
+    right.observed_at = None;
+    left == right
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
@@ -3511,5 +3596,68 @@ mod tests {
         assert!(should_alert_power_state(PowerState::Off));
         assert!(should_alert_power_state(PowerState::Paused));
         assert!(should_alert_power_state(PowerState::Unknown));
+    }
+
+    #[test]
+    fn test_site_explorer_health_report_needs_update() {
+        fn empty_report() -> health_report::HealthReport {
+            health_report::HealthReport::empty(
+                health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
+            )
+        }
+
+        fn report_with_alert(
+            message: &str,
+            in_alert_since: Option<chrono::DateTime<chrono::Utc>>,
+        ) -> health_report::HealthReport {
+            let mut report = empty_report();
+            report.alerts.push(health_report::HealthProbeAlert {
+                id: "BmcExplorationFailure".parse().unwrap(),
+                target: Some("192.0.2.10".to_string()),
+                in_alert_since,
+                message: message.to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            });
+            report
+        }
+
+        let empty = empty_report();
+        assert!(!site_explorer_health_report_needs_update(None, &empty));
+
+        let alert_started_at = chrono::Utc::now();
+        let new_alert = report_with_alert("Endpoint exploration failed", Some(alert_started_at));
+        assert!(site_explorer_health_report_needs_update(None, &new_alert));
+
+        let mut previous_alert = new_alert.clone();
+        previous_alert.observed_at = Some(alert_started_at);
+        let mut same_alert = new_alert;
+        same_alert.observed_at = None;
+        assert!(!site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &same_alert,
+        ));
+
+        let mut timestamp_changed = same_alert;
+        timestamp_changed.alerts[0].in_alert_since =
+            Some(alert_started_at + chrono::Duration::seconds(1));
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &timestamp_changed,
+        ));
+
+        let changed_alert =
+            report_with_alert("Endpoint exploration still failed", Some(alert_started_at));
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &changed_alert,
+        ));
+
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &empty,
+        ));
     }
 }

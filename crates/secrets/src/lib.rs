@@ -20,9 +20,13 @@ use std::sync::Arc;
 use opentelemetry::metrics::Meter;
 
 pub use crate::chained_reader::ChainedCredentialReader;
-/// Exposed for `CertificateProvider` usage only. Credential operations should go
+/// Direct vault access for the narrow cases that need it: `CertificateProvider`
+/// (PKI), and the Transit KMS provider, which builds its own raw vault client
+/// via `create_raw_vault_client_settings`. Credential operations should go
 /// through `create_credential_manager` instead of using the vault client directly.
-pub use crate::forge_vault::{ForgeVaultClient, VaultConfig, create_vault_client};
+pub use crate::forge_vault::{
+    ForgeVaultClient, VaultConfig, create_raw_vault_client_settings, create_vault_client,
+};
 pub use crate::local_credentials::{
     CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, MachineIdentityConfig,
     UsernamePassword,

@@ -25,17 +25,21 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::{EncryptedDek, KmsBackend, KmsError, crypto};
 
-/// KeySource describes where to load a symmetric
-/// encryption key from.
+/// Where to load a base64-encoded 256-bit key from.
+///
+/// `Env` and `File` keep key material out of the carbide config file, which is
+/// Debug-logged at startup and served on the web debug page. `Value` inlines
+/// the key in config instead -- handy for tests and local dev, but it lands in
+/// those debug surfaces, so use `Env` or `File` for real keys.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum KeySource {
-    /// Env loads the base64-encoded key from an environment
-    /// variable.
+    /// Load the key from an environment variable.
     Env { env: String },
-    /// File loads the base64-encoded key from a file path.
+    /// Load the key from a file path.
     File { file: PathBuf },
-    /// Value contains the base64-encoded key directly.
+    /// Use the base64-encoded key inlined directly in config. Convenient for
+    /// tests and local dev; avoid for real keys, since config is Debug-logged.
     Value { value: String },
 }
 
@@ -55,8 +59,7 @@ impl Drop for IntegratedKmsProvider {
     }
 }
 
-/// decode_key decodes a base64-encoded 256-bit key.
-/// The intermediate buffer is zeroized.
+/// Decode a base64-encoded 256-bit key. The intermediate buffer is zeroized.
 fn decode_key(encoded: &str) -> Result<[u8; 32], KmsError> {
     let mut bytes = BASE64
         .decode(encoded.trim())
@@ -70,22 +73,49 @@ fn decode_key(encoded: &str) -> Result<[u8; 32], KmsError> {
     result
 }
 
-/// resolve_key_source loads a key from the given source.
+/// Load a key from the given source. The base64 string read from the
+/// environment or file is zeroized along with the decoded buffer.
 fn resolve_key_source(source: &KeySource) -> Result<[u8; 32], KmsError> {
     match source {
         KeySource::Env { env } => {
-            let val = std::env::var(env)
-                .map_err(|_| KmsError::Other(format!("environment variable {env:?} not set")))?;
+            let val =
+                Zeroizing::new(std::env::var(env).map_err(|_| {
+                    KmsError::Other(format!("environment variable {env:?} not set"))
+                })?);
             decode_key(&val)
         }
         KeySource::File { file } => {
-            let val = std::fs::read_to_string(file)
-                .map_err(|e| KmsError::Other(format!("failed to read key file {file:?}: {e}")))?;
+            warn_if_key_file_is_open(file);
+            let val =
+                Zeroizing::new(std::fs::read_to_string(file).map_err(|e| {
+                    KmsError::Other(format!("failed to read key file {file:?}: {e}"))
+                })?);
             decode_key(&val)
         }
         KeySource::Value { value } => decode_key(value),
     }
 }
+
+/// Warn when a key file is readable by group or other. The provider still
+/// loads the key -- deployments mount these files in ways we cannot always
+/// predict -- but the warning gives operators a clear signal to fix the mode.
+#[cfg(unix)]
+fn warn_if_key_file_is_open(file: &std::path::Path) {
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(meta) = std::fs::metadata(file) {
+        let mode = meta.mode() & 0o077;
+        if mode != 0 {
+            tracing::warn!(
+                file = %file.display(),
+                mode = format!("{:o}", meta.mode() & 0o777),
+                "KEK file is readable by group/other; consider mode 0600"
+            );
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn warn_if_key_file_is_open(_file: &std::path::Path) {}
 
 impl IntegratedKmsProvider {
     /// IntegratedKmsProvider::from_config builds a
@@ -119,7 +149,7 @@ impl KmsBackend for IntegratedKmsProvider {
             .keys
             .get(kek_id)
             .ok_or_else(|| KmsError::KeyNotFound(kek_id.to_string()))?;
-        let (ciphertext, nonce) = crypto::encrypt(kek, dek)?;
+        let (ciphertext, nonce) = crypto::encrypt(kek, dek, b"")?;
         Ok(EncryptedDek { ciphertext, nonce })
     }
 
@@ -132,7 +162,7 @@ impl KmsBackend for IntegratedKmsProvider {
             .keys
             .get(kek_id)
             .ok_or_else(|| KmsError::KeyNotFound(kek_id.to_string()))?;
-        let mut plaintext = crypto::decrypt(kek, &encrypted.nonce, &encrypted.ciphertext)?;
+        let mut plaintext = crypto::decrypt(kek, &encrypted.nonce, &encrypted.ciphertext, b"")?;
         let len = plaintext.len();
         let dek: [u8; 32] = plaintext
             .as_slice()
@@ -144,6 +174,10 @@ impl KmsBackend for IntegratedKmsProvider {
 
     fn can_decrypt_kek(&self, kek_id: &str) -> bool {
         self.keys.contains_key(kek_id)
+    }
+
+    fn kek_ids(&self) -> Vec<String> {
+        self.keys.keys().cloned().collect()
     }
 }
 
@@ -260,7 +294,7 @@ mod tests {
             "malformed key material is rejected" {
                 // Not valid base64.
                 KeySource::Value { value: "not-valid-base64!!!".to_string() } => Fails,
-                // Valid base64, but only 16 bytes — not a 256-bit key.
+                // Valid base64, but only 16 bytes -- not a 256-bit key.
                 KeySource::Value { value: BASE64.encode([0u8; 16]) } => Fails,
             }
         );
