@@ -393,10 +393,14 @@ pub async fn allocate(
         iface.vpc_id = Some(vpc_id);
 
         let query =
-            "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix, vpc_id)
-                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr, $5::uuid)";
+            "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix, vpc_id, hostname)
+                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr, $5::uuid, $6)";
 
         for address in addresses {
+            // The forward-DNS name is the address in the host-naming strategy's
+            // IP-derived form, stored once here so the dns_records_instance view
+            // serves it without re-deriving in SQL.
+            let hostname = crate::host_naming::address_to_hostname(&address.ip())?;
             sqlx::query(query)
                 .bind(instance_id)
                 // eg. 10.3.2.1/30
@@ -405,6 +409,7 @@ pub async fn allocate(
                 .bind(segment.id)
                 .bind(IpNetwork::new(address.network(), address.prefix())?)
                 .bind(vpc_id)
+                .bind(hostname)
                 .fetch_all(inner_txn.as_pgconn())
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?;
