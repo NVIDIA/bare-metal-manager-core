@@ -6,6 +6,7 @@ package site
 import (
 	"time"
 
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -17,7 +18,7 @@ import (
 // UpdateSiteConfigInventory applies the Site Config inventory reported by the
 // Site Agent. Today that inventory carries the Site fabric prefixes, from which
 // the workflow creates the matching Site-level IP Blocks.
-func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, siteFabricPrefixes []string) error {
+func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, buildInfo *cwssaws.BuildInfo) error {
 	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "UpdateSiteConfigInventory", "SiteID", siteIDStr)
 	logger.Info("starting workflow")
 
@@ -39,6 +40,7 @@ func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, siteFabri
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var manageSite siteActivity.ManageSite
+	siteFabricPrefixes := buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes()
 
 	err = workflow.ExecuteActivity(ctx, manageSite.UpdateIPBlocksInDBFromFabricPrefixes, siteID, siteFabricPrefixes).Get(ctx, nil)
 	if err != nil {

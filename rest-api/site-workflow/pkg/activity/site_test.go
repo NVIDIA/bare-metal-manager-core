@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -34,7 +35,7 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 		mock.AnythingOfType("internal.StartWorkflowOptions"),
 		updateSiteConfigInventoryWorkflowName,
 		siteID.String(),
-		siteFabricPrefixes,
+		mock.Anything,
 	).Return(wrun, nil)
 
 	manageSiteConfigInventory := NewManageSiteConfigInventory(ManageInventoryConfig{
@@ -57,6 +58,10 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "update-site-config-inventory-"+siteID.String(), workflowOptions.ID)
 	assert.Equal(t, "test-queue", workflowOptions.TaskQueue)
+
+	buildInfo, ok := tc.Calls[0].Arguments[4].(*cwssaws.BuildInfo)
+	require.True(t, ok)
+	assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 }
 
 func TestManageSiteConfigInventory_DiscoverSiteConfigInventory_NoCoreClient(t *testing.T) {

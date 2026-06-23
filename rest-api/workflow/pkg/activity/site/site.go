@@ -871,7 +871,7 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 	for _, cidr := range siteFabricPrefixes {
 		prefix, perr := netip.ParsePrefix(cidr)
 		if perr != nil {
-			logger.Error().Err(perr).Str("prefix", cidr).Msg("failed to parse Site fabric prefix")
+			logger.Error().Err(perr).Str("Prefix", cidr).Msg("failed to parse Site fabric prefix")
 			return fmt.Errorf("parse Site fabric prefix %q: %w", cidr, perr)
 		}
 		prefix = prefix.Masked()
@@ -906,12 +906,11 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 				ctx,
 				tx,
 				cdbm.IPBlockFilterInput{
-					SiteIDs:                   []uuid.UUID{dbSite.ID},
-					InfrastructureProviderIDs: []uuid.UUID{dbSite.InfrastructureProviderID},
-					Prefixes:                  []string{prefixAddr},
-					PrefixLengths:             []int{prefixLength},
-					RoutingTypes:              []string{cdbm.IPBlockRoutingTypeDatacenterOnly},
-					ExcludeDerived:            true,
+					SiteIDs:        []uuid.UUID{dbSite.ID},
+					Prefixes:       []string{prefixAddr},
+					PrefixLengths:  []int{prefixLength},
+					RoutingTypes:   []string{cdbm.IPBlockRoutingTypeDatacenterOnly},
+					ExcludeDerived: true,
 				},
 				cdbp.PageInput{Limit: cloudutils.GetPtr(1)},
 				nil,
@@ -921,8 +920,8 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 			}
 			if existing > 0 {
 				logger.Info().
-					Str("prefix", prefixAddr).
-					Int("prefix_length", prefixLength).
+					Str("Prefix", prefixAddr).
+					Int("PrefixLength", prefixLength).
 					Msg("Site fabric IP Block already exists")
 				continue
 			}
@@ -946,8 +945,8 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 			); derr != nil {
 				logger.Error().
 					Err(derr).
-					Str("prefix", prefixAddr).
-					Int("prefix_length", prefixLength).
+					Str("Prefix", prefixAddr).
+					Int("PrefixLength", prefixLength).
 					Msg("error creating Site fabric IPAM prefix")
 				return derr
 			}
@@ -982,8 +981,8 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 
 			logger.Info().
 				Str("IPBlockID", createdIPBlock.ID.String()).
-				Str("prefix", prefixAddr).
-				Int("prefix_length", prefixLength).
+				Str("Prefix", prefixAddr).
+				Int("PrefixLength", prefixLength).
 				Msg("created Site fabric IP Block")
 		}
 

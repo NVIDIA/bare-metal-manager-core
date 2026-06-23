@@ -45,7 +45,6 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 		return err
 	}
 
-	siteFabricPrefixes := buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes()
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:        fmt.Sprintf("update-site-config-inventory-%s", msi.config.SiteID.String()),
 		TaskQueue: msi.config.TemporalPublishQueue,
@@ -56,7 +55,7 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 		workflowOptions,
 		updateSiteConfigInventoryWorkflowName,
 		msi.config.SiteID.String(),
-		siteFabricPrefixes,
+		buildInfo,
 	); err != nil {
 		logger.Error().Err(err).Msg("Failed to publish Site Config inventory to Cloud")
 		return err

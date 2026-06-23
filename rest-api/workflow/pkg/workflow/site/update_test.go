@@ -13,6 +13,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
 )
 
@@ -35,11 +36,16 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16", "2001:db8::/64"}
+	buildInfo := &cwssaws.BuildInfo{
+		RuntimeConfig: &cwssaws.RuntimeConfig{
+			SiteFabricPrefixes: prefixes,
+		},
+	}
 
 	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
 	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(nil)
 
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), prefixes)
+	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }
@@ -49,11 +55,16 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16"}
+	buildInfo := &cwssaws.BuildInfo{
+		RuntimeConfig: &cwssaws.RuntimeConfig{
+			SiteFabricPrefixes: prefixes,
+		},
+	}
 
 	s.env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
 	s.env.OnActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes, mock.Anything, siteID, prefixes).Return(errors.New("failed to update Site IP Blocks"))
 
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), prefixes)
+	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, siteID.String(), buildInfo)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -64,7 +75,7 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 }
 
 func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_InvalidSiteID() {
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, "not-a-site-id", []string{"10.0.0.0/16"})
+	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, "not-a-site-id", &cwssaws.BuildInfo{})
 	s.True(s.env.IsWorkflowCompleted())
 	s.Error(s.env.GetWorkflowError())
 }
