@@ -148,10 +148,10 @@ pub(crate) async fn allocate(
     log_request_data(&request);
     let mut request = request.into_inner();
 
-    api.with_txn(|txn| {
-        hydrate_instance_allocation_request_from_deprecated_fields(txn, &mut request).boxed()
-    })
-    .await??;
+    if request.needs_hydration_from_deprecated_fields() {
+        api.with_txn(|txn| request.hydrate_from_deprecated_fields(txn).boxed())
+            .await??;
+    }
 
     let request = InstanceAllocationRequest::try_from(request)?;
 
@@ -184,11 +184,9 @@ pub(crate) async fn batch_allocate(
         "Received batch instance allocation request"
     );
 
-    for request in &mut batch_request.instance_requests {
-        api.with_txn(|txn| {
-            hydrate_instance_allocation_request_from_deprecated_fields(txn, request).boxed()
-        })
-        .await??;
+    if batch_request.needs_hydration_from_deprecated_fields() {
+        api.with_txn(|txn| batch_request.hydrate_from_deprecated_fields(txn).boxed())
+            .await??;
     }
 
     // Convert all requests
@@ -1263,7 +1261,7 @@ pub(crate) async fn update_instance_config(
             return Err(CarbideError::InvalidArgument(
                 "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
             )
-            .into());
+                .into());
         }
 
         // Row level locks on all required extension services
@@ -1896,75 +1894,115 @@ async fn unbind_all_instance_ib_ports(
     Ok(ufm_unregistrations)
 }
 
-async fn hydrate_instance_allocation_request_from_deprecated_fields(
-    txn: &mut PgConnection,
-    request: &mut rpc::InstanceAllocationRequest,
-) -> CarbideResult<()> {
-    let Some(netconf) = request.config.as_mut().and_then(|c| c.network.as_mut()) else {
-        // Conversion to model type will fail, return Ok
-        return Ok(());
-    };
+#[async_trait::async_trait]
+trait HydrateFromDeprecatedFields {
+    fn needs_hydration_from_deprecated_fields(&self) -> bool;
 
-    #[allow(deprecated)]
-    if !netconf.auto
-        || netconf
+    async fn hydrate_from_deprecated_fields(&mut self, txn: &mut PgConnection)
+    -> CarbideResult<()>;
+}
+
+#[async_trait::async_trait]
+impl HydrateFromDeprecatedFields for rpc::InstanceAllocationRequest {
+    fn needs_hydration_from_deprecated_fields(&self) -> bool {
+        let Some(netconf) = self.config.as_ref().and_then(|c| c.network.as_ref()) else {
+            // Conversion to model type will fail, return Ok
+            return false;
+        };
+
+        #[allow(deprecated)]
+        let auto = netconf.auto;
+
+        // Only hydrate if the VPC ID isn't set
+        auto && netconf
             .auto_config
             .as_ref()
-            .is_some_and(|c| c.vpc_id.is_some())
-    {
-        // Only hydrate if the VPC ID isn't set
-        return Ok(());
+            .is_none_or(|c| c.vpc_id.is_none())
     }
 
-    let Some(machine_id) = request.machine_id else {
-        // Conversion to model type will fail, return Ok
-        return Ok(());
-    };
-
-    tracing::info!(
-        %machine_id,
-        "Deprecated instance allocation request with auto=true with no VPC ID. Assigning VPC from host network segment, if it is set."
-    );
-
-    let ns_id = match db::network_segment::find_ids_by_machine_id(
-        txn,
-        &machine_id,
-        Some(NetworkSegmentType::HostInband),
-    )
-    .await?
-    .as_slice()
-    {
-        &[ns_id] => ns_id,
-        [] => {
-            tracing::warn!(
-                "Assigned machine is not in a HostInband network, cannot auto-assign VPC ID"
-            );
+    async fn hydrate_from_deprecated_fields(
+        &mut self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<()> {
+        let Some(netconf) = self.config.as_mut().and_then(|c| c.network.as_mut()) else {
+            // Conversion to model type will fail, return Ok
             return Ok(());
-        }
-        _ => {
-            tracing::warn!(
-                "Assigned machine is in multiple a HostInband networks, cannot auto-assign VPC ID"
-            );
-            return Ok(());
-        }
-    };
+        };
 
-    if let [ns] = db::network_segment::find_by(
-        txn,
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
-        NetworkSegmentSearchConfig::default(),
-    )
-    .await?
-    .as_slice()
-        && let Some(vpc_id) = ns.config.vpc_id
-    {
+        let Some(machine_id) = self.machine_id else {
+            // Conversion to model type will fail, return Ok
+            return Ok(());
+        };
+
+        tracing::info!(
+            %machine_id,
+            "Deprecated instance allocation request with auto=true with no VPC ID. Assigning VPC from host network segment, if it is set."
+        );
+
+        let ns_id = match db::network_segment::find_ids_by_machine_id(
+            txn,
+            &machine_id,
+            Some(NetworkSegmentType::HostInband),
+        )
+        .await?
+        .as_slice()
+        {
+            &[ns_id] => ns_id,
+            [] => {
+                tracing::warn!(
+                    "Assigned machine is not in a HostInband network, cannot auto-assign VPC ID"
+                );
+                return Ok(());
+            }
+            _ => {
+                tracing::warn!(
+                    "Assigned machine is in multiple a HostInband networks, cannot auto-assign VPC ID"
+                );
+                return Ok(());
+            }
+        };
+
+        let maybe_vpc_id = match db::network_segment::find_by(
+            txn,
+            ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await?
+        .as_slice()
+        {
+            [ns] => ns.config.vpc_id,
+            _ => None,
+        };
+
+        let Some(vpc_id) = maybe_vpc_id else {
+            tracing::warn!(network_segment_id = %ns_id, "Network segment does not have a VPC ID, cannot auto-assign VPC ID");
+            return Ok(());
+        };
+
         tracing::info!(%vpc_id, network_segment_id = %ns_id, "Assigning vpc_id from HostInband network segment");
         netconf.auto_config = Some(rpc::InstanceNetworkAutoConfig {
             vpc_id: Some(vpc_id),
         });
-    } else {
-        tracing::warn!(network_segment_id = %ns_id, "Network segment does not have a VPC ID, cannot auto-assign VPC ID");
+
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl HydrateFromDeprecatedFields for rpc::BatchInstanceAllocationRequest {
+    fn needs_hydration_from_deprecated_fields(&self) -> bool {
+        self.instance_requests
+            .iter()
+            .any(|req| req.needs_hydration_from_deprecated_fields())
     }
 
-    Ok(())
+    async fn hydrate_from_deprecated_fields(
+        &mut self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<()> {
+        for req in self.instance_requests.iter_mut() {
+            req.hydrate_from_deprecated_fields(txn).await?;
+        }
+        Ok(())
+    }
 }
