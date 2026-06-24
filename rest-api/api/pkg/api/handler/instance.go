@@ -61,14 +61,20 @@ type CreateInstanceHandler struct {
 // per-interface configs built earlier in the handler. When auto is
 // true the explicit interface list is intentionally omitted: NICo
 // resolves interfaces from the host's HostInband segments, so
-// sending an explicit list alongside auto=true is contradictory
-// (rejected by Core, and on update could otherwise carry forward
-// the instance's previously-persisted interfaces).
-func buildInstanceNetworkConfig(auto bool, interfaceConfigs []*cwssaws.InstanceInterfaceConfig) *cwssaws.InstanceNetworkConfig {
+// sending an explicit list alongside auto=true or auto_config=...
+// is contradictory (rejected by Core, and on update could otherwise
+// carry forward the instance's previously-persisted interfaces).
+func buildInstanceNetworkConfig(auto bool, interfaceConfigs []*cwssaws.InstanceInterfaceConfig, controllerVpcID *uuid.UUID) *cwssaws.InstanceNetworkConfig {
 	nc := &cwssaws.InstanceNetworkConfig{Auto: auto}
-	if !auto {
+	if auto {
+		nc.AutoConfig = &cwssaws.InstanceNetworkAutoConfig{}
+		if controllerVpcID != nil {
+			nc.AutoConfig.VpcId = &cwssaws.VpcId{Value: controllerVpcID.String()}
+		}
+	} else {
 		nc.Interfaces = interfaceConfigs
 	}
+
 	return nc
 }
 
@@ -1629,7 +1635,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 					TenantKeysetIds:      instanceSshKeyGroupIds,
 				},
 				Os:      osConfig,
-				Network: buildInstanceNetworkConfig(instance.AutoNetwork, interfaceConfigs),
+				Network: buildInstanceNetworkConfig(instance.AutoNetwork, interfaceConfigs, vpc.ControllerVpcID),
 				Infiniband: &cwssaws.InstanceInfinibandConfig{
 					IbInterfaces: ibInterfaceConfigs,
 				},
@@ -3672,7 +3678,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					TenantKeysetIds:      instanceSshKeyGroupIds,
 				},
 				Os:      osConfig,
-				Network: buildInstanceNetworkConfig(ui.AutoNetwork, interfaceConfigs),
+				Network: buildInstanceNetworkConfig(ui.AutoNetwork, interfaceConfigs, vpc.ControllerVpcID),
 				Infiniband: &cwssaws.InstanceInfinibandConfig{
 					IbInterfaces: ibInterfaceConfigs,
 				},

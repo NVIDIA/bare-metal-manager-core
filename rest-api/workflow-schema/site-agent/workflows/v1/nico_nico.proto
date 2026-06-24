@@ -2739,22 +2739,32 @@ message InstanceNetworkConfig {
   // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
 
-  // When true, NICO (or potentially some pluggable SDN backend) will
+  // Deprecated. Set auto_config.vpc_id to the requested VPC ID instead.
+  bool auto = 2 [deprecated = true];
+
+  // When set, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
   // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
   // MUST be empty on the request.
   //
-  // Callers reading the instance back also see `auto = true` with an empty
+  // Callers reading the instance back also see `auto_config` set, with an empty
   // `interfaces` list (what they sent is preserved verbatim). The
   // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
   // in `Instance.status.network.interfaces` instead.
   //
-  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // On update, setting `auto_config` re-resolves interfaces from the host's
   // current HostInband segments. If nothing has changed, this is a no-op.
   // If the host's segments have been added/removed by the operator, the
   // update reflects that change.
-  bool auto = 2;
+  optional InstanceNetworkAutoConfig auto_config = 3;
+}
+
+message InstanceNetworkAutoConfig {
+  // For Flat zero-DPU deployments, multiple VPCs may share the same
+  // HostInband network segment, so VPC ownership is carried by the
+  // instance address rather than by the segment.
+  optional common.VpcId vpc_id = 1;
 }
 
 // Desired infiniband configuration for an instance
