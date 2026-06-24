@@ -475,7 +475,9 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     mh.instance_builer(&env).network(network).build().await;

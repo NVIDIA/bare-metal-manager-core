@@ -52,6 +52,18 @@ impl From<TestManagedHost> for (MachineId, MachineId) {
 type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl TestManagedHost {
+    pub fn from_rpc_machine(m: &rpc::Machine, api: Arc<Api>) -> Self {
+        TestManagedHost {
+            id: m.id.unwrap(),
+            dpu_ids: m
+                .interfaces
+                .iter()
+                .filter_map(|i| i.attached_dpu_machine_id)
+                .collect(),
+            api,
+        }
+    }
+
     pub fn dpu(&self) -> TestMachine {
         TestMachine::new(self.dpu_ids[0], self.api.clone())
     }

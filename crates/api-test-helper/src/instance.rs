@@ -37,7 +37,7 @@ pub async fn create(
     );
 
     let mut tenant = serde_json::json!({
-        "tenant_organization_id": "MyOrg",
+        "tenant_organization_id": "tenant_organization",
         "tenantKeysetIds": keyset_ids,
     });
 

@@ -140,7 +140,7 @@ use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
 pub use crate::test_support::network_segment;
 use crate::test_support::network_segment::{
-    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_TENANT_ORG_ID, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
@@ -843,7 +843,7 @@ impl TestEnv {
         NetworkSegmentId,
     ) {
         self.create_vpc_and_peer_vpc_with_tenant_segments_for_tenants(
-            "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
+            FIXTURE_TENANT_ORG_ID,
             vtype1,
             "e65a9d69-39d2-4872-a53e-e5cb87c84e75",
             vtype2,
@@ -932,7 +932,7 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -947,7 +947,7 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -962,7 +962,7 @@ impl TestEnv {
         let vpc = self
             .api
             .create_vpc(
-                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                     .metadata(Metadata {
                         name: "test vpc 1".to_string(),
                         ..Default::default()

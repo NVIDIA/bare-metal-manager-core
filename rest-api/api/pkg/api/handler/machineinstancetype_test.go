@@ -490,7 +490,7 @@ func TestGetAllMachineInstanceTypeHandler_Handle(t *testing.T) {
 			assert.Equal(t, tt.wantTotalCount, pr.Total)
 
 			if tt.wantFirstEntry != nil {
-				assert.Equal(t, tt.wantFirstEntry.ID.String(), rst[0].ID)
+				assert.Equal(t, tt.wantFirstEntry.MachineID, rst[0].MachineID)
 			}
 
 			if tt.verifyChildSpanner {

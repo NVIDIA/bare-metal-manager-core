@@ -47,6 +47,7 @@ use db::instance_address::UsedOverlayNetworkIpResolver;
 use db::ip_allocator::UsedIpResolver;
 use db::network_segment::IdColumn;
 use db::{self, ObjectColumnFilter};
+use futures_util::future::join_all;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -83,6 +84,7 @@ use crate::cfg::file::VmaasConfig;
 use crate::instance::{allocate_instance, allocate_network};
 use crate::network_segment::allocate::PrefixAllocator;
 use crate::test_support::fixture_config::FixtureDefault as _;
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     advance_created_instance_into_state, single_interface_network_config_with_vfs,
@@ -161,6 +163,20 @@ async fn test_allocate_and_release_instance_impl(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_ids = env.create_vpc_and_tenant_segments(dpu_count).await;
+
+    let vpc_ids: Vec<VpcId> = join_all(segment_ids.iter().map(|id| {
+        let pool = env.pool.clone();
+        async move {
+            db::vpc::find_by_segment(&pool, *id)
+                .await
+                .map(|vpc| vpc.expect("missing VPC for created segment").id)
+        }
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<_, _>>()
+    .unwrap();
+
     let mh = create_managed_host_multi_dpu(&env, dpu_count).await;
 
     let (used_dpu_ids, _unused_dpu_ids) = mh.dpu_ids.split_at(instance_interface_count);
@@ -243,7 +259,7 @@ async fn test_allocate_and_release_instance_impl(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_ids(&segment_ids, &device_locators,)
+        InstanceNetworkConfig::for_segment_ids(&segment_ids, &device_locators, &vpc_ids)
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
@@ -336,6 +352,11 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let env = create_test_env_with_overrides(pool, overrides).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
+    let vpc_id = db::vpc::find_by_segment(&env.pool, segment_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
     // add CA cert to pass attestation process
     let add_ca_request = tonic::Request::new(TpmCaCert {
         ca_cert: CA_CERT_SERIALIZED.to_vec(),
@@ -470,7 +491,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator],)
+        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator], &[vpc_id])
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
@@ -1009,7 +1030,9 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     // Create instance with hostname
@@ -1464,6 +1487,11 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
+    let vpc_id = db::vpc::find_by_segment(&env.pool, segment_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
     let mh = create_managed_host(&env).await;
 
     // TODO: The test is broken from here. This method already moves the instance
@@ -1549,6 +1577,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![pf_gw.clone()],
             device: None,
             device_instance: 0u32,
+            vpc_id: Some(vpc_id),
         }]
     );
 
@@ -1584,6 +1613,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![pf_gw.clone()],
             device: None,
             device_instance: 0u32,
+            vpc_id: Some(vpc_id),
         }]
     );
 
@@ -1625,6 +1655,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![],
             device: None,
             device_instance: 0u32,
+            vpc_id: Some(vpc_id),
         }]
     );
 
@@ -1677,6 +1708,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![pf_gw.clone()],
             device: None,
             device_instance: 0u32,
+            vpc_id: Some(vpc_id),
         }]
     );
 
@@ -1714,6 +1746,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![],
             device: None,
             device_instance: 0u32,
+            vpc_id: Some(vpc_id),
         }]
     );
 
@@ -1725,6 +1758,11 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
+    let vpc_id = db::vpc::find_by_segment(&env.pool, segment_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
     let host_config = env.managed_host_config();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
     let request = crate::instance::InstanceAllocationRequest {
@@ -1734,7 +1772,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         config: model::instance::config::InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
-            network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
+            network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &[], &[vpc_id]),
             infiniband: InstanceInfinibandConfig::default(),
             nvlink: InstanceNvLinkConfig::default(),
             spxconfig: InstanceSpxConfig::default(),
@@ -1808,7 +1846,9 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let tinstance = mh.instance_builer(&env).network(network).build().await;
@@ -2297,6 +2337,11 @@ async fn test_allocate_instance_with_old_network_segemnt(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
+    let vpc_id = db::vpc::find_by_segment(&env.pool, segment_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
     let mh = create_managed_host(&env).await;
 
     let txn = env
@@ -2362,7 +2407,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
 
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator],)
+        InstanceNetworkConfig::for_segment_ids(&[segment_id], &[device_locator], &[vpc_id])
     );
 }
 
@@ -2394,7 +2439,9 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let config = rpc::InstanceConfig {
@@ -2591,7 +2638,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id, Some(mh.dpu().id))
+        InstanceNetworkConfig::for_vpc_prefix_id(vpc_prefix_id, Some(vpc.id))
     );
 
     assert!(!fetched_instance.observations.network.is_empty());
@@ -2735,7 +2782,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -2980,7 +3027,9 @@ fn dual_physical_network_config_with_vpc_prefixes(
 
     rpc::InstanceNetworkConfig {
         interfaces,
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -3364,7 +3413,9 @@ async fn test_network_details_migration(
                                 ipv6_interface_config: None,
                                 routing_profile: None,
                             }],
+                            #[allow(deprecated)]
                             auto: false,
+                            auto_config: None,
                         })
                         .rpc(),
                 )
@@ -3452,7 +3503,9 @@ async fn test_network_details_migration(
                         device_instance: 0,
                         virtual_function_id: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -3537,7 +3590,9 @@ async fn test_network_details_migration(
                         device_instance: 0,
                         virtual_function_id: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -3691,7 +3746,9 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                             device_instance: 0,
                             virtual_function_id: None,
                         }],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -3767,7 +3824,9 @@ async fn test_allocate_and_update_network_config_instance(
             device_instance: 0,
             virtual_function_id: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     // Now update to change network config.
@@ -3903,7 +3962,9 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     // Now update to change network config.
@@ -4079,7 +4140,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -4176,7 +4239,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -4316,7 +4381,9 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     // Now update to change network config.
@@ -4452,7 +4519,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -4517,7 +4586,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -4671,7 +4742,9 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let config = rpc::InstanceConfig {
@@ -4752,7 +4825,7 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
     let first_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "fnn vpc 1".to_string(),
                     ..Default::default()
@@ -4768,7 +4841,7 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
     let second_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "fnn vpc 2".to_string(),
                     ..Default::default()
@@ -4870,10 +4943,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_and_removed_on_network_update(pool: 
 
     // Create FNN tenants matching the existing peer-VPC fixture organizations.
     for (organization_id, name) in [
-        (
-            "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
-            "fnn loopback tenant 1",
-        ),
+        (FIXTURE_TENANT_ORG_ID, "fnn loopback tenant 1"),
         (
             "e65a9d69-39d2-4872-a53e-e5cb87c84e75",
             "fnn loopback tenant 2",
@@ -5011,10 +5081,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx:
 
     // Create FNN tenants matching the existing peer-VPC fixture organizations.
     for (organization_id, name) in [
-        (
-            "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
-            "fnn vf loopback tenant 1",
-        ),
+        (FIXTURE_TENANT_ORG_ID, "fnn vf loopback tenant 1"),
         (
             "e65a9d69-39d2-4872-a53e-e5cb87c84e75",
             "fnn vf loopback tenant 2",
@@ -5191,7 +5258,7 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
     let first_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "dual-stack fnn vpc 1".to_string(),
                     ..Default::default()
@@ -5207,7 +5274,7 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
     let second_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "dual-stack fnn vpc 2".to_string(),
                     ..Default::default()
@@ -5263,7 +5330,9 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
                             }),
                             routing_profile: None,
                         }],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     },
                 ))
                 .tonic_request(),

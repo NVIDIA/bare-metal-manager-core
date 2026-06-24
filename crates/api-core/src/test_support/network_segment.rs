@@ -29,6 +29,8 @@ use lazy_static::lazy_static;
 
 use crate::api::Api;
 
+pub const FIXTURE_TENANT_ORG_ID: &str = "2829bbe3-c169-4cd9-8b2a-19a8b1618a93";
+
 lazy_static! {
     pub static ref FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY: IpNetwork =
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 1, 1)), 24).unwrap();
@@ -139,14 +141,6 @@ pub async fn create_host_inband_network_segment(
     .to_string();
     let gateway = FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip().to_string();
 
-    // HostInband segments must live in Flat VPCs. If the caller did not
-    // supply a VPC, create a Flat VPC here so the fixture mirrors the
-    // production binding rather than landing in the default ETV VPC.
-    let vpc_id = match vpc_id {
-        Some(id) => Some(id),
-        None => Some(create_default_flat_vpc(api, "FIXTURE_HOST_INBAND_FLAT").await),
-    };
-
     create_network_segment(
         api,
         "HOST_INBAND",
@@ -159,10 +153,11 @@ pub async fn create_host_inband_network_segment(
     .await
 }
 
-/// Creates a Flat VPC for the default test tenant and returns its id. Used as
-/// the implicit parent VPC for HostInband segment fixtures.
+/// Creates a Flat VPC for the default test tenant and returns its id. Pass the
+/// returned id to `create_host_inband_network_segment` when a test needs an
+/// explicitly VPC-bound HostInband segment.
 pub async fn create_default_flat_vpc(api: &Api, name: &str) -> VpcId {
-    let request = rpc::forge::VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+    let request = rpc::forge::VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
         .metadata(rpc::forge::Metadata {
             name: name.to_string(),
             ..Default::default()

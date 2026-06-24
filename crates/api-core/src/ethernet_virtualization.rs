@@ -149,7 +149,13 @@ pub(crate) async fn validate_instance_interface_routing_profiles(
                 "instance interface routing_profile requires a network segment".to_string(),
             )
         })?;
-        let vpc = db::vpc::find_by_segment(&mut *txn, segment_id).await?;
+        let vpc = db::vpc::find_by_segment(&mut *txn, segment_id)
+            .await?
+            .ok_or_else(|| {
+                CarbideError::InvalidArgument(
+                    "network segment is not a member of a VPC".to_string(),
+                )
+            })?;
 
         // Interface routing profiles are only valid on FNN VPC interfaces.
         if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {

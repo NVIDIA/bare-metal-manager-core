@@ -23,6 +23,7 @@ This section provides example REST API workflows for common NICo tasks. All exam
   </Accordion>
 </AccordionGroup>
 
+
 ## Managing Virtual Private Clouds
 
 <Note>
@@ -196,4 +197,3 @@ Before managing Subnets, ensure you have at least one IP Block allocated so that
     <Code src="snippets/output/parse_instance_ip_addresses.json" title="Example Response" />
   </Accordion>
 </AccordionGroup>
-

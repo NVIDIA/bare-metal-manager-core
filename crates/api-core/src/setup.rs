@@ -1532,6 +1532,7 @@ mod tests {
 
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+    use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     fn carbide_with_networks(
         networks: Option<HashMap<String, NetworkDefinition>>,
@@ -1987,7 +1988,7 @@ mod tests {
     fn initial_objects_vpcs_only_succeeds() {
         let cfg = carbide_with_vpcs(None);
         let def = vpc_definition(
-            Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93"),
+            Some(FIXTURE_TENANT_ORG_ID),
             VpcVirtualizationType::Flat,
             None,
         );
@@ -2018,7 +2019,7 @@ mod tests {
     fn disjoint_union_returns_all_vpcs() {
         let legacy_def = vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None);
         let initial_def = vpc_definition(
-            Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93"),
+            Some(FIXTURE_TENANT_ORG_ID),
             VpcVirtualizationType::Flat,
             None,
         );

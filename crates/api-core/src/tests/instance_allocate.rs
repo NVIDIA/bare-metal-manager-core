@@ -19,6 +19,7 @@ use std::ops::DerefMut;
 
 use ::rpc::forge::ManagedHostNetworkConfigRequest;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
+use carbide_uuid::vpc::VpcId;
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
@@ -29,6 +30,7 @@ use rpc::{Metadata, forge};
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
 use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::test_support::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
+use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -103,7 +105,7 @@ async fn create_test_env_for_instance_allocation(
     let vpc_1 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -117,7 +119,7 @@ async fn create_test_env_for_instance_allocation(
     let vpc_2 = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 2".to_string(),
                     ..Default::default()
@@ -128,9 +130,10 @@ async fn create_test_env_for_instance_allocation(
         .unwrap()
         .into_inner();
 
-    // HostInband segments now require Flat VPCs. Create two so that the
-    // "different VPCs" test variant can put each HostInband segment in a
-    // distinct Flat VPC.
+    // Create Flat VPCs for zero-DPU allocation. In the normal path the
+    // HostInband segments are unbound and the instance address carries the
+    // logical VPC. The "different VPCs" variant deliberately binds segments
+    // to conflicting VPCs so allocation is rejected.
     let flat_vpc_1_id =
         common::api_fixtures::network_segment::create_default_flat_vpc(&env.api, "test flat vpc 1")
             .await;
@@ -159,9 +162,15 @@ async fn create_test_env_for_instance_allocation(
     )
     .await;
 
-    create_host_inband_network_segment(&env.api, Some(flat_vpc_1_id)).await;
-    // Second HostInband segment lives in the same Flat VPC, or a different
-    // Flat VPC if the test wants to assert allocation rejection.
+    create_host_inband_network_segment(
+        &env.api,
+        options
+            .host_inband_segments_in_different_vpcs
+            .then_some(flat_vpc_1_id),
+    )
+    .await;
+    // Second HostInband segment is normally unbound too, or bound to a
+    // different Flat VPC if the test wants to assert allocation rejection.
     create_network_segment(
         &env.api,
         "HOST_INBAND_2",
@@ -174,11 +183,9 @@ async fn create_test_env_for_instance_allocation(
             .ip()
             .to_string(),
         forge::NetworkSegmentType::HostInband,
-        Some(if options.host_inband_segments_in_different_vpcs {
-            flat_vpc_2_id
-        } else {
-            flat_vpc_1_id
-        }),
+        options
+            .host_inband_segments_in_different_vpcs
+            .then_some(flat_vpc_2_id),
         true,
     )
     .await;
@@ -188,6 +195,17 @@ async fn create_test_env_for_instance_allocation(
     env.run_network_segment_controller_iteration().await;
 
     env
+}
+
+async fn vpc_id_by_name(env: &TestEnv, name: &str) -> VpcId {
+    let mut txn = env.db_txn().await;
+    let vpcs = db::vpc::find_by_name(txn.as_mut(), name).await.unwrap();
+    assert_eq!(vpcs.len(), 1, "expected exactly one VPC named {name}");
+    vpcs[0].id
+}
+
+async fn default_flat_vpc_id(env: &TestEnv) -> VpcId {
+    vpc_id_by_name(env, "test flat vpc 1").await
 }
 
 #[crate::sqlx_test]
@@ -316,7 +334,7 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -343,7 +361,9 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
                         ipv6_interface_config: None,
                         routing_profile: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
@@ -370,8 +390,8 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
 /// The `auto: true` path: a zero-DPU host with one HostInband segment, allocated
 /// with empty interfaces and `auto: true`. NICo resolves the segment from the
 /// host snapshot and stores the resolved interface internally. What the caller
-/// sees on the wire is stripped back to `{ auto: true, interfaces: [] }`, while
-/// `instance.status.network.interfaces` reflects the resolved details.
+/// sees on the wire is stripped back to `{ auto: true, vpc_id, interfaces: [] }`,
+/// while `instance.status.network.interfaces` reflects the resolved details.
 #[crate::sqlx_test]
 async fn test_zero_dpu_instance_allocation_auto(
     pool: sqlx::PgPool,
@@ -381,6 +401,7 @@ async fn test_zero_dpu_instance_allocation_auto(
 
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
 
     let host_inband_segment =
         db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
@@ -393,7 +414,7 @@ async fn test_zero_dpu_instance_allocation_auto(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -410,7 +431,11 @@ async fn test_zero_dpu_instance_allocation_auto(
                 }),
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
@@ -425,6 +450,7 @@ async fn test_zero_dpu_instance_allocation_auto(
     .await
     .expect("zero-DPU instance allocation with auto: true should succeed")
     .into_inner();
+    let instance_id = instance.id.expect("allocated instance should have an id");
 
     // Make sure getting the Machine over RPC has the correct instance network restrictions. While
     // not strictly testing instance allocation, it's very related, because cloud-api will be using
@@ -462,9 +488,12 @@ async fn test_zero_dpu_instance_allocation_auto(
     // interface lives in status, not config, which takes place as
     // part of `into_external_view()`.
     let network = instance.config.unwrap().network.unwrap();
-    assert!(
-        network.auto,
-        "auto must round-trip back to the caller as true"
+    #[allow(deprecated)]
+    let auto = network.auto;
+    assert!(auto, "auto must round-trip back to the caller as true");
+    assert_eq!(
+        network.auto_config.as_ref().unwrap().vpc_id,
+        Some(flat_vpc_id)
     );
     assert!(
         network.interfaces.is_empty(),
@@ -478,6 +507,112 @@ async fn test_zero_dpu_instance_allocation_auto(
         1,
         "status should reflect one resolved interface for the single HostInband segment"
     );
+    assert_eq!(status_interfaces[0].vpc_id, Some(flat_vpc_id));
+
+    let mut txn = env.db_txn().await;
+    let address = db::instance_address::find_by_instance_id_and_segment_id(
+        txn.as_mut(),
+        &instance_id,
+        &host_inband_segment.id,
+    )
+    .await?
+    .expect("zero-DPU allocation should persist an instance address");
+    assert_eq!(address.vpc_id, flat_vpc_id);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_zero_dpu_auto_update_rejects_host_inband_segment_bound_to_different_vpc(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let zero_dpu_host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
+
+    let host_inband_segment =
+        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
+            .await?;
+
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                network_security_group_id: None,
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
+                }),
+                infiniband: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+            }),
+            instance_id: None,
+            metadata: Some(Metadata {
+                name: "zero-dpu-auto-update".to_string(),
+                ..Default::default()
+            }),
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await
+    .expect("initial zero-DPU auto allocation should succeed")
+    .into_inner();
+
+    let conflicting_vpc_id = vpc_id_by_name(&env, "test flat vpc 2").await;
+    env.api
+        .attach_network_segment_to_vpc(tonic::Request::new(
+            forge::AttachNetworkSegmentToVpcRequest {
+                network_segment_id: Some(host_inband_segment.id),
+                vpc_id: Some(conflicting_vpc_id),
+                allow_replace: false,
+            },
+        ))
+        .await
+        .expect("operator should be able to bind the HostInband segment after allocation");
+
+    let result = env
+        .api
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: instance.id,
+            if_version_match: None,
+            config: instance.config,
+            metadata: instance.metadata,
+        }))
+        .await;
+
+    let err = result
+        .expect_err("auto-network update must reject HostInband segments bound to a different VPC");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        err.message()
+            .contains("shared Flat segments must be left unbound"),
+        "unexpected error message: {}",
+        err.message()
+    );
+
     Ok(())
 }
 
@@ -501,7 +636,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -532,6 +667,130 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
     let err = result
         .expect_err("zero-DPU allocation with no network config (no auto signal) must be rejected");
     assert_eq!(err.code(), tonic::Code::InvalidArgument, "got: {err}");
+    Ok(())
+}
+
+/// `auto: true` on a zero-DPU host also needs a logical Flat VPC ID. The
+/// HostInband segment may be unbound, so the instance address needs this
+/// request-level VPC to preserve tenant intent.
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_allocation_rejects_missing_vpc_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig::zero_dpu();
+
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig { vpc_id: None }),
+                }),
+                infiniband: None,
+                nvlink: None,
+                spxconfig: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await;
+
+    let err = result.expect_err("zero-DPU auto allocation without VPC ID must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument, "got: {err}");
+    assert!(
+        err.message().contains("vpc_id"),
+        "error should mention vpc_id, got: {}",
+        err.message()
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_zero_dpu_instance_allocation_rejects_non_flat_vpc_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig::zero_dpu();
+
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+    let etv_vpc_id = vpc_id_by_name(&env, "test vpc 1").await;
+
+    let result = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(etv_vpc_id),
+                    }),
+                }),
+                infiniband: None,
+                nvlink: None,
+                spxconfig: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await;
+
+    let err = result.expect_err("zero-DPU auto allocation into non-Flat VPC must be rejected");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition, "got: {err}");
+    assert!(
+        err.message().contains("Flat"),
+        "error should mention Flat VPC requirement, got: {}",
+        err.message()
+    );
     Ok(())
 }
 
@@ -581,6 +840,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
             )
         })
         .await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
 
     let instance = crate::handlers::instance::allocate(
         env.api.as_ref(),
@@ -589,7 +849,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -605,7 +865,11 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 }),
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -633,7 +897,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
     // HostInband segments resolved. The resolved-per-interface details
     // surface in status, not config.
     let rpc_network = instance.config.unwrap().network.unwrap();
-    assert!(rpc_network.auto, "auto must round-trip back as true");
+    #[allow(deprecated)]
+    let auto = rpc_network.auto;
+    assert!(auto, "auto must round-trip back as true");
+    assert_eq!(
+        rpc_network.auto_config.as_ref().unwrap().vpc_id,
+        Some(flat_vpc_id)
+    );
     assert!(
         rpc_network.interfaces.is_empty(),
         "external view of an auto config must have empty interfaces, got: {:?}",
@@ -645,6 +915,12 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
         status_interfaces.len(),
         2,
         "status should reflect both resolved HostInband interfaces"
+    );
+    assert!(
+        status_interfaces
+            .iter()
+            .all(|interface| interface.vpc_id == Some(flat_vpc_id)),
+        "all resolved HostInband status interfaces should expose the requested Flat VPC"
     );
 
     // Internal model: the persisted config has the fully-resolved interfaces.
@@ -662,13 +938,17 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
         .expect("zero-dpu host snapshot should have an assigned instance");
 
     assert!(
-        instance_snapshot.config.network.auto,
+        instance_snapshot.config.network.auto_config.is_some(),
         "internal model must preserve auto: true through resolution"
     );
     assert_eq!(
         instance_snapshot.config.network.interfaces.len(),
         2,
         "internal model must hold the fully-resolved interfaces, not just the wire-stripped view"
+    );
+    assert_eq!(
+        instance_snapshot.config.network.auto_config.unwrap().vpc_id,
+        flat_vpc_id
     );
 
     let interface_in_segment_1 = instance_snapshot
@@ -690,10 +970,12 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
         !interface_in_segment_1.ip_addrs.is_empty(),
         "Instance interface in segment 1 should have IP addresses assigned"
     );
+    assert_eq!(interface_in_segment_1.vpc_id, Some(flat_vpc_id));
     assert!(
         !interface_in_segment_2.ip_addrs.is_empty(),
         "Instance interface in segment 2 should have IP addresses assigned"
     );
+    assert_eq!(interface_in_segment_2.vpc_id, Some(flat_vpc_id));
 
     assert!(
         interface_in_segment_1
@@ -714,6 +996,18 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                     && prefix_id.eq(&host_inband_segment_2.prefixes[0].id)
             )
     );
+
+    let mut txn = env.db_txn().await;
+    for segment_id in [host_inband_segment_1.id, host_inband_segment_2.id] {
+        let address = db::instance_address::find_by_instance_id_and_segment_id(
+            txn.as_mut(),
+            &instance_snapshot.id,
+            &segment_id,
+        )
+        .await?
+        .expect("zero-DPU allocation should persist an instance address per HostInband segment");
+        assert_eq!(address.vpc_id, flat_vpc_id);
+    }
 
     Ok(())
 }
@@ -736,7 +1030,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -797,7 +1091,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -823,7 +1117,9 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                         ipv6_interface_config: None,
                         routing_profile: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 network_security_group_id: None,
                 dpu_extension_services: None,
@@ -948,8 +1244,11 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         "Machine that was just ingested should have instance network restrictions showing host_inband_2_segment {}",
         host_inband_2_segment.id,
     );
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
 
-    // Allocate an instance without specifying a network config
+    // Allocate an auto-networked instance into the first Flat VPC. The second
+    // HostInband segment is deliberately bound to a different Flat VPC, so
+    // the shared-segment allocation path must reject the conflict.
     let result = crate::handlers::instance::allocate(
         env.api.as_ref(),
         tonic::Request::new(forge::InstanceAllocationRequest {
@@ -958,7 +1257,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
             config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -972,7 +1271,14 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                         },
                     )),
                 }),
-                network: None,
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
+                }),
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
@@ -986,7 +1292,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
     .await;
 
     match result {
-        Err(e) if e.code() == tonic::Code::InvalidArgument => {}
+        Err(e) if e.code() == tonic::Code::FailedPrecondition => {}
         _ => panic!(
             "Creating an instance on a zero-dpu host that is a member of multiple VPC's should fail, got {result:?}"
         ),
@@ -1019,7 +1325,7 @@ async fn test_single_dpu_instance_allocation(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(), // from sql fixture
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1045,7 +1351,9 @@ async fn test_single_dpu_instance_allocation(
                         ipv6_interface_config: None,
                         routing_profile: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 infiniband: None,
                 nvlink: None,
@@ -1165,7 +1473,7 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1192,7 +1500,9 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
                         ipv6_interface_config: None,
                         routing_profile: None,
                     }],
+                    #[allow(deprecated)]
                     auto: false,
+                    auto_config: None,
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
@@ -1237,6 +1547,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
     let config = ManagedHostConfig::zero_dpu();
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
 
     crate::handlers::instance::allocate(
         env.api.as_ref(),
@@ -1245,7 +1556,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1264,7 +1575,11 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
                 // resolves the HostInband segment from the host snapshot.
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
@@ -1310,6 +1625,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
         1,
         "expected one synthesized interface mirroring the auto-filled HostInband config entry",
     );
+    assert_eq!(net_status.interfaces[0].vpc_id, Some(flat_vpc_id));
     let iface = &net_status.interfaces[0];
     assert!(
         !iface.addresses.is_empty(),
@@ -1340,9 +1656,12 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
         .as_ref()
         .and_then(|c| c.network.as_ref())
         .expect("instance.config.network should be set");
-    assert!(
-        cfg_network.auto,
-        "auto must round-trip back to the caller as true",
+    #[allow(deprecated)]
+    let auto = cfg_network.auto;
+    assert!(auto, "auto must round-trip back to the caller as true");
+    assert_eq!(
+        cfg_network.auto_config.as_ref().unwrap().vpc_id,
+        Some(flat_vpc_id)
     );
     assert!(
         cfg_network.interfaces.is_empty(),
@@ -1373,7 +1692,7 @@ async fn test_reject_zero_dpu_instance_with_extension_services(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1423,6 +1742,7 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let vpc_id = create_default_flat_vpc(&env.api, "flat-vpc").await;
     let config = ManagedHostConfig::zero_dpu();
 
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
@@ -1437,7 +1757,7 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1464,7 +1784,11 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
                         ipv6_interface_config: None,
                         routing_profile: None,
                     }],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
@@ -1496,6 +1820,7 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let vpc_id = create_default_flat_vpc(&env.api, "flat-vpc").await;
     // Default ManagedHostConfig has one DPU.
     let config = ManagedHostConfig::default().with_dpu_count(1);
 
@@ -1508,7 +1833,7 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
             instance_type_id: None,
             config: Some(forge::InstanceConfig {
                 tenant: Some(forge::TenantConfig {
-                    tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
@@ -1525,7 +1850,11 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
                 }),
                 network: Some(forge::InstanceNetworkConfig {
                     interfaces: vec![],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
