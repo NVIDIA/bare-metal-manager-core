@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 use carbide_api_core::test_support::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_TENANT_ORG_ID,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
 };
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
@@ -167,7 +168,7 @@ impl TestNetworkController {
         let vpc = self
             .api
             .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                tenant_organization_id: "2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string(),
+                tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 network_virtualization_type: Some(rpc::forge::VpcVirtualizationType::Flat.into()),
                 metadata: Some(rpc::forge::Metadata {
                     name: "HOST_INBAND_FLAT".to_string(),
@@ -218,7 +219,7 @@ impl TestNetworkController {
         let vpc = self
             .api
             .create_vpc(
-                rpc::forge::VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                rpc::forge::VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                     .metadata(rpc::forge::Metadata {
                         name: name.to_string(),
                         ..Default::default()

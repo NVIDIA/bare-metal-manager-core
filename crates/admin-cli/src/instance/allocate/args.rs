@@ -16,12 +16,12 @@
  */
 
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcPrefixId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use clap::{ArgGroup, Parser};
 use rpc::forge::{InstanceOperatingSystemConfig, InstanceSpxConfig};
 
 #[derive(Parser, Debug)]
-#[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
+#[clap(group(ArgGroup::new("selector").required(true).multiple(true).args(&["subnet", "vpc_prefix_id", "flat_vpc_id"])))]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -101,8 +101,11 @@ pub struct Args {
     #[clap(short, long, help = "The VPC prefix to assign to a PF")]
     pub vpc_prefix_id: Vec<VpcPrefixId>,
 
-    #[clap(long, help = "Allocate a zero-dpu host")]
-    pub zero_dpu: bool,
+    #[clap(
+        long,
+        help = "Create an instance in the given \"flat\" VPC, for machines without DPUs"
+    )]
+    pub flat_vpc_id: Option<VpcId>,
 
     #[clap(long, help = "The VPC prefix to assign to a VF")]
     pub vf_vpc_prefix_id: Vec<VpcPrefixId>,

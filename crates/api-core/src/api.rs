@@ -1092,6 +1092,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
+    async fn get_explored_mlx_devices(
+        &self,
+        request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
+        crate::handlers::site_explorer::get_explored_mlx_devices(self, request).await
+    }
+
     async fn update_machine_hardware_info(
         &self,
         request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,

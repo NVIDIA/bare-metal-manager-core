@@ -35,8 +35,8 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::metadata::Metadata;
 use model::site_explorer::{
-    ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredManagedHost, NicMode, PreingestionState, UefiDevicePath,
+    Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+    ExploredDpu, ExploredManagedHost, NetworkAdapter, NicMode, PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
@@ -2887,6 +2887,118 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
             "host should be power-cycled to apply the queued NIC-mode flip; power calls so far: {power_calls:?}"
         );
     }
+
+    Ok(())
+}
+
+/// Some host BMCs (e.g. the AMI/Lenovo GB300 `HG635N_V2`) report the BlueField
+/// as the chassis object itself -- model, part_number and serial_number live on
+/// the chassis, while its nested network adapter carries an empty serial -- and
+/// don't enumerate the DPU over PCIe at all. The host<->DPU serial match must
+/// therefore consider the chassis identity, not just `chassis.network_adapters[]`.
+///
+/// Here the operator declares NO `fallback_dpu_serial_numbers` and the default
+/// `DpuMode`, so the only thing that can pair the host with its DPU is the
+/// chassis-reported serial. The host must pair (and not fall through to the
+/// zero-DPU path).
+#[sqlx_test]
+async fn test_site_explorer_pairs_dpu_from_chassis_serial(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = Env::new(pool).await;
+
+    const CHASSIS_DPU_SERIAL: &str = "chassis-reported-dpu-serial";
+    // The DPU's BMC reports DPU mode; the host BMC carries no DPU PCIe device,
+    // only the BlueField chassis below, so the chassis serial is the only link.
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        serial: CHASSIS_DPU_SERIAL.to_string(),
+        ..DpuConfig::default()
+    };
+    // A host with no DPU configs: its report carries no BlueField PCIe device or
+    // network adapter, so the only BlueField is the chassis we push below. (A
+    // configured DPU would inject a phantom BlueField into the host's PCIe scan,
+    // making `expected_managed_total() != 0` and skipping the chassis fallback.)
+    let mock_host = ManagedHostConfig::zero_dpu();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-GB300-CHASSIS-SERIAL".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_report: EndpointExplorationReport = mock_host.into();
+    host_report.chassis.push(Chassis {
+        id: "Riser_Slot1_BlueField_3_SmartNIC_Main_Card".to_string(),
+        manufacturer: Some("Nvidia".to_string()),
+        model: Some("BlueField-3 SmartNIC Main Card".to_string()),
+        part_number: Some("900-9D3B6-00CN-PA0".to_string()),
+        serial_number: Some(CHASSIS_DPU_SERIAL.to_string()),
+        network_adapters: vec![NetworkAdapter {
+            id: "Riser_Slot1_BlueField_3_SmartNIC_Main_Card".to_string(),
+            serial_number: Some(String::new()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(host_report)),
+    ]);
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    // Second iteration: per-host matching pairs the DPU off the chassis serial.
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "GB300 host should pair via its chassis-reported BlueField serial"
+    );
+    assert_eq!(
+        explored_managed_hosts[0].dpus.len(),
+        1,
+        "the chassis-matched DPU should be attached to the host"
+    );
 
     Ok(())
 }

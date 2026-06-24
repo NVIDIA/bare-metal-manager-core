@@ -139,6 +139,29 @@ pub async fn ensure_reverse_zone(prefix: IpNetwork, txn: &mut PgConnection) -> D
     Ok(())
 }
 
+/// Remove the reverse-DNS zone derived from a network prefix -- the inverse of
+/// [`ensure_reverse_zone`]. A network's reverse zone exists only because the
+/// network does, so it is dropped wherever a network segment is deleted;
+/// non-aligned prefixes never had a zone and are skipped (see
+/// [`cidr_to_reverse_zone`]).
+///
+/// The zone is soft-deleted, matching the segment's own deletion. No refcount is
+/// needed: network prefixes are globally non-overlapping
+/// (`network_prefixes_prefix_excl`), so the zone has no other owner.
+/// `find_by_name` returns only live domains, so deleting an already-deleted
+/// segment removes nothing a second time.
+pub async fn remove_reverse_zone(prefix: IpNetwork, txn: &mut PgConnection) -> DatabaseResult<()> {
+    let Some(zone) = cidr_to_reverse_zone(prefix) else {
+        tracing::debug!(%prefix, "no reverse zone: prefix is not octet/nibble aligned");
+        return Ok(());
+    };
+    for domain in domain::find_by_name(&mut *txn, &zone).await? {
+        tracing::info!(zone = %zone, %prefix, "removing reverse-DNS zone for deleted network prefix");
+        domain::delete(domain, &mut *txn).await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -189,6 +212,51 @@ mod tests {
             .await
             .unwrap();
         assert!(super::cidr_to_reverse_zone(unaligned).is_none());
+    }
+
+    #[crate::sqlx_test]
+    async fn remove_reverse_zone_deletes_the_zone(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let prefix: ipnetwork::IpNetwork = "10.0.0.0/16".parse().unwrap();
+
+        // A network's zone is dropped when the network is deleted.
+        super::ensure_reverse_zone(prefix, txn.as_mut())
+            .await
+            .unwrap();
+        super::remove_reverse_zone(prefix, txn.as_mut())
+            .await
+            .unwrap();
+        let zones = super::domain::find_by_name(txn.as_mut(), "0.10.in-addr.arpa")
+            .await
+            .unwrap();
+        assert!(zones.is_empty(), "reverse zone removed with its network");
+
+        // Removing again finds no live zone, so deleting a segment twice is a no-op.
+        super::remove_reverse_zone(prefix, txn.as_mut())
+            .await
+            .unwrap();
+        let after_second = super::domain::find_by_name(txn.as_mut(), "0.10.in-addr.arpa")
+            .await
+            .unwrap();
+        assert!(after_second.is_empty(), "repeated removal stays a no-op");
+
+        // Removing a non-aligned prefix (which never had a zone) leaves other zones intact.
+        let control: ipnetwork::IpNetwork = "10.2.0.0/16".parse().unwrap();
+        super::ensure_reverse_zone(control, txn.as_mut())
+            .await
+            .unwrap();
+        let unaligned: ipnetwork::IpNetwork = "10.1.0.0/25".parse().unwrap();
+        super::remove_reverse_zone(unaligned, txn.as_mut())
+            .await
+            .unwrap();
+        let control_zones = super::domain::find_by_name(txn.as_mut(), "2.10.in-addr.arpa")
+            .await
+            .unwrap();
+        assert_eq!(
+            control_zones.len(),
+            1,
+            "removing an unaligned prefix touches no other zone"
+        );
     }
 
     #[test]

@@ -121,9 +121,7 @@ pub async fn find_ids(
         builder.push(
             "SELECT instances.id FROM instances
 INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
-INNER JOIN network_segments ON instance_addresses.segment_id = network_segments.id
-INNER JOIN vpcs ON network_segments.vpc_id = vpcs.id
-WHERE vpc_id = ",
+WHERE instance_addresses.vpc_id = ",
         );
         builder.push_bind(vpc_id);
         builder.push(")");

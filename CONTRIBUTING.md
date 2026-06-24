@@ -15,6 +15,7 @@ We welcome contributions of all sizes — from fixing a typo in the docs to addi
 ## Table of Contents
 
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
+- [Cryptographic Commit Signatures](#cryptographic-commit-signatures)
 - [Fork and Setup](#fork-and-setup)
 - [Contribution Process](#contribution-process)
 - [Engineering Guidelines](#engineering-guidelines)
@@ -63,18 +64,20 @@ By making a contribution to this project, I certify that:
     this project or the open source license(s) involved.
 ```
 
-### Signing Your Commits
+### Signing Off Your Commits
 
-To sign off on a commit, you must add a `Signed-off-by` line to your commit message. This is done by using the `-s` or `--signoff` flag when committing:
+To sign off on a commit for DCO compliance, you must add a `Signed-off-by` line to your commit message. This is done by using the `-s` or `--signoff` flag when committing:
 
 ```bash
-git commit -s -m "Your commit message"
+git commit -s -S -m "Your commit message"
 ```
 
-**Tip:** You can create a Git alias to always sign off:
+The `-s` flag adds the DCO sign-off trailer. The `-S` flag cryptographically signs the commit, which is also required for this repository. See [Cryptographic Commit Signatures](#cryptographic-commit-signatures) for details.
+
+**Tip:** You can create a Git alias to always sign off and cryptographically sign:
 
 ```bash
-git config --global alias.ci 'commit -s'
+git config --global alias.ci 'commit -s -S'
 # Now use: git ci -m "Your commit message"
 ```
 
@@ -93,21 +96,44 @@ git config --global user.email "your.email@example.com"
 
 ### Signing Off Multiple Commits
 
-If you have multiple commits that need to be signed off, you can use interactive rebase:
+If you have multiple commits that need to be signed off, you can use rebase:
 
 ```bash
-git rebase HEAD~<number_of_commits> --signoff
+git rebase --signoff --gpg-sign HEAD~<number_of_commits>
 ```
 
 Or to sign off all commits in a branch:
 
 ```bash
-git rebase --signoff origin/main
+git rebase --signoff --gpg-sign origin/main
 ```
+
+If your Git configuration already has `commit.gpgsign` enabled, Git signs rewritten commits automatically. Otherwise, use `--gpg-sign` when rebasing to ensure rewritten commits keep the cryptographic signature required by branch protection.
 
 ### DCO Enforcement
 
-All pull requests are automatically checked for DCO compliance via DCO bot. Pull requests with unsigned commits cannot be merged until all commits are properly signed off.
+All pull requests are automatically checked for DCO compliance via DCO bot. Pull requests with commits missing a DCO sign-off cannot be merged until all commits are properly signed off.
+
+## Cryptographic Commit Signatures
+
+The `main` branch requires cryptographically signed commits. This is separate from the DCO sign-off:
+
+- `-s` or `--signoff` adds the `Signed-off-by` DCO trailer to the commit message.
+- `-S` cryptographically signs the commit with your configured GPG or SSH signing key.
+
+Every commit in a pull request must include both. For new commits, use both flags:
+
+```bash
+git commit -s -S -m "Your commit message"
+```
+
+Before contributing, configure Git and GitHub to use a verified signing key. If your key is configured correctly, GitHub will mark commits as verified.
+
+To fix the most recent commit if it is missing either the DCO sign-off or cryptographic signature:
+
+```bash
+git commit --amend -s -S --no-edit
+```
 
 ## Fork and Setup
 
@@ -170,7 +196,7 @@ Use descriptive branch names like:
 
 1. **Fork the repository** and create your branch from `main`.
 2. **Make your changes** following our coding guidelines.
-3. **Sign off all your commits** using `git commit -s`.
+3. **Sign and sign off all your commits** using `git commit -s -S`.
 4. **Submit a pull request** with a clear description of your changes.
 
 ## Engineering Guidelines

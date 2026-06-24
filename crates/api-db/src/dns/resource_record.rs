@@ -199,3 +199,170 @@ pub async fn get_all_records(
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::instance::InstanceId;
+    use carbide_uuid::network::NetworkSegmentId;
+    use carbide_uuid::vpc::VpcId;
+    use model::dns::NewDomain;
+
+    use super::find_record;
+    use crate::dns::domain;
+
+    /// Seed a machine, an instance on it, a forward zone, and a network segment of
+    /// `segment_type` whose forward zone is that domain. Returns the instance and
+    /// segment so a caller can attach addresses and look them up.
+    async fn seed_instance_segment(
+        conn: &mut sqlx::PgConnection,
+        zone: &str,
+        segment_type: &str,
+    ) -> (InstanceId, NetworkSegmentId, VpcId) {
+        let zone_domain = domain::persist(NewDomain::new(zone.to_string()), conn)
+            .await
+            .unwrap();
+        let vpc_id: VpcId =
+            sqlx::query_scalar("INSERT INTO vpcs (name, version) VALUES ($1, $2) RETURNING id")
+                .bind("vpc-2408")
+                .bind("1")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind("test-machine-2408")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        let instance_id: InstanceId =
+            sqlx::query_scalar("INSERT INTO instances (machine_id) VALUES ($1) RETURNING id")
+                .bind("test-machine-2408")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version, network_segment_type, subdomain_id, vpc_id)
+             VALUES ($1, $2, $3::network_segment_type_t, $4, $5) RETURNING id",
+        )
+        .bind("seg-2408")
+        .bind("1")
+        .bind(segment_type)
+        .bind(zone_domain.id)
+        .bind(vpc_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        (instance_id, segment_id, vpc_id)
+    }
+
+    async fn add_address(
+        conn: &mut sqlx::PgConnection,
+        instance_id: InstanceId,
+        segment_id: NetworkSegmentId,
+        vpc_id: VpcId,
+        address: &str,
+        prefix: &str,
+    ) {
+        // The allocate path stores the IP-derived hostname; mirror that here so the
+        // view has a name to publish.
+        let hostname =
+            crate::host_naming::address_to_hostname(&address.parse::<std::net::IpAddr>().unwrap())
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix, vpc_id, hostname)
+             VALUES ($1::uuid, $2::inet, $3::uuid, $4::cidr, $5::uuid, $6)",
+        )
+        .bind(instance_id)
+        .bind(address)
+        .bind(segment_id)
+        .bind(prefix)
+        .bind(vpc_id)
+        .bind(hostname)
+        .execute(conn)
+        .await
+        .unwrap();
+    }
+
+    #[crate::sqlx_test]
+    async fn overlay_instance_addresses_are_served_forward(pool: sqlx::PgPool) {
+        struct Case {
+            address: &'static str,
+            prefix: &'static str,
+            q_name: &'static str,
+            q_type: &'static str,
+        }
+        // One row per address family: the served name is the address in dashed,
+        // IP-derived form under the segment's forward zone.
+        let cases = [
+            Case {
+                address: "10.1.2.3",
+                prefix: "10.1.2.0/24",
+                q_name: "10-1-2-3.tenant.example.com.",
+                q_type: "A",
+            },
+            Case {
+                address: "2001:db8:abcd::2",
+                prefix: "2001:db8:abcd::/64",
+                q_name: "2001-0db8-abcd-0000-0000-0000-0000-0002.tenant.example.com.",
+                q_type: "AAAA",
+            },
+        ];
+
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) =
+            seed_instance_segment(txn.as_mut(), "tenant.example.com", "tenant").await;
+        for case in &cases {
+            add_address(
+                txn.as_mut(),
+                instance_id,
+                segment_id,
+                vpc_id,
+                case.address,
+                case.prefix,
+            )
+            .await;
+        }
+
+        for case in &cases {
+            let records = find_record(txn.as_mut(), case.q_name).await.unwrap();
+            assert_eq!(
+                records.len(),
+                1,
+                "one {} record for {}",
+                case.q_type,
+                case.address
+            );
+            assert_eq!(records[0].q_type, case.q_type);
+            assert_eq!(
+                records[0].record.parse::<std::net::IpAddr>().unwrap(),
+                case.address.parse::<std::net::IpAddr>().unwrap()
+            );
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn host_inband_instance_addresses_are_not_served_here(pool: sqlx::PgPool) {
+        // A host_inband instance address *is* the host's own interface address,
+        // already published by the shortname view -- the instance arm must skip it
+        // so it is not served twice.
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) =
+            seed_instance_segment(txn.as_mut(), "host.example.com", "host_inband").await;
+        add_address(
+            txn.as_mut(),
+            instance_id,
+            segment_id,
+            vpc_id,
+            "10.9.9.9",
+            "10.9.9.0/24",
+        )
+        .await;
+
+        let records = find_record(txn.as_mut(), "10-9-9-9.host.example.com.")
+            .await
+            .unwrap();
+        assert!(
+            records.is_empty(),
+            "host_inband addresses are not published by the instance arm"
+        );
+    }
+}

@@ -243,10 +243,35 @@ pub enum CredentialType {
 pub enum BmcCredentialType {
     // Site Wide Root Credentials
     SiteWideRoot,
+    /// Versioned site-wide BMC root "rotate-TO" target written by a rotation
+    /// (`machines/bmc/site/root/v{N}`). The unversioned [`SiteWideRoot`]
+    /// (`machines/bmc/site/root`) stays as the "current site target" alias used
+    /// at ingestion / set-from-factory; this variant addresses a specific
+    /// rotation target version.
+    SiteWideRootVersioned {
+        version: u32,
+    },
     // BMC Specific Root Credentials
-    BmcRoot { bmc_mac_address: MacAddress },
+    BmcRoot {
+        bmc_mac_address: MacAddress,
+    },
     // BMC Specific Forge-Admin Credentials
-    BmcForgeAdmin { bmc_mac_address: MacAddress },
+    BmcForgeAdmin {
+        bmc_mac_address: MacAddress,
+    },
+}
+
+/// Versioned site-wide UEFI "rotate-TO" target a rotation writes and controllers
+/// read before copying into a device's per-device UEFI secret. Host and DPU UEFI
+/// each get their own target (under the shared `machines/uefi/` prefix); the MAC
+/// in the per-device path distinguishes the two, but the site targets are
+/// disambiguated by this `host`/`dpu` segment.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum UefiSiteTarget {
+    /// `machines/uefi/host/site/root/v{N}`
+    Host { version: u32 },
+    /// `machines/uefi/dpu/site/root/v{N}`
+    Dpu { version: u32 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -303,6 +328,11 @@ pub enum CredentialKey {
     NicLockdownIkm {
         credential_type: NicLockdownIkm,
     },
+    /// Versioned site-wide UEFI "rotate-TO" target (`machines/uefi/...`).
+    /// Admin/rotation-written only; not a loginable per-device credential.
+    UefiSiteTarget {
+        target: UefiSiteTarget,
+    },
     ExtensionService {
         service_id: String,
         version: String,
@@ -312,6 +342,11 @@ pub enum CredentialKey {
     },
     SwitchNvosAdmin {
         bmc_mac_address: MacAddress,
+    },
+    /// Versioned site-wide NVOS "rotate-TO" target (`switch_nvos/site/admin/v{N}`).
+    /// Admin/rotation-written only; not a loginable per-device credential.
+    SwitchNvosSiteAdmin {
+        version: u32,
     },
     MqttAuth {
         credential_type: MqttCredentialType,
@@ -358,6 +393,8 @@ pub enum CredentialPrefix {
     UfmAuth,
     DpuUefi,
     HostUefi,
+    /// Per-device and versioned site-wide UEFI secrets (`machines/uefi/`).
+    Uefi,
     BmcCredentials,
     NicLockdownIkm,
     ExtensionService,
@@ -381,6 +418,7 @@ impl CredentialPrefix {
             Self::UfmAuth => "ufm/",
             Self::DpuUefi => "machines/all_dpus/",
             Self::HostUefi => "machines/all_hosts/",
+            Self::Uefi => "machines/uefi/",
             Self::BmcCredentials => "machines/bmc/",
             Self::NicLockdownIkm => "machines/nic_lockdown_ikm/",
             Self::ExtensionService => "machines/extension-services/",
@@ -403,6 +441,7 @@ impl CredentialPrefix {
             Self::UfmAuth,
             Self::DpuUefi,
             Self::HostUefi,
+            Self::Uefi,
             Self::BmcCredentials,
             Self::NicLockdownIkm,
             Self::ExtensionService,
@@ -430,9 +469,11 @@ impl CredentialKey {
             Self::HostUefi { .. } => CredentialPrefix::HostUefi,
             Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
             Self::NicLockdownIkm { .. } => CredentialPrefix::NicLockdownIkm,
+            Self::UefiSiteTarget { .. } => CredentialPrefix::Uefi,
             Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
             Self::NmxM { .. } => CredentialPrefix::NmxM,
             Self::SwitchNvosAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
+            Self::SwitchNvosSiteAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
             Self::MqttAuth { .. } => CredentialPrefix::MqttAuth,
             Self::MachineIdentityEncryptionKey { .. } => {
                 CredentialPrefix::MachineIdentityEncryptionKey
@@ -497,6 +538,9 @@ impl CredentialKey {
             },
             CredentialKey::BmcCredentials { credential_type } => match credential_type {
                 BmcCredentialType::SiteWideRoot => Cow::from("machines/bmc/site/root"),
+                BmcCredentialType::SiteWideRootVersioned { version } => {
+                    Cow::from(format!("machines/bmc/site/root/v{version}"))
+                }
                 BmcCredentialType::BmcRoot { bmc_mac_address } => {
                     Cow::from(format!("machines/bmc/{bmc_mac_address}/root"))
                 }
@@ -509,6 +553,14 @@ impl CredentialKey {
                     Cow::from(format!("machines/nic_lockdown_ikm/site/root/v{version}"))
                 }
             },
+            CredentialKey::UefiSiteTarget { target } => match target {
+                UefiSiteTarget::Host { version } => {
+                    Cow::from(format!("machines/uefi/host/site/root/v{version}"))
+                }
+                UefiSiteTarget::Dpu { version } => {
+                    Cow::from(format!("machines/uefi/dpu/site/root/v{version}"))
+                }
+            },
             CredentialKey::ExtensionService {
                 service_id,
                 version,
@@ -518,6 +570,9 @@ impl CredentialKey {
             CredentialKey::NmxM { nmxm_id } => Cow::from(format!("nmxm/{nmxm_id}/auth")),
             CredentialKey::SwitchNvosAdmin { bmc_mac_address } => {
                 Cow::from(format!("switch_nvos/{bmc_mac_address}/admin"))
+            }
+            CredentialKey::SwitchNvosSiteAdmin { version } => {
+                Cow::from(format!("switch_nvos/site/admin/v{version}"))
             }
             CredentialKey::MqttAuth { credential_type } => match credential_type {
                 MqttCredentialType::Dpa => Cow::from("mqtt/dpa/auth"),
@@ -593,6 +648,40 @@ mod tests {
             key_v12.to_key_str(),
             "machines/nic_lockdown_ikm/site/root/v12"
         );
+    }
+
+    // Pins the exact versioned site-wide "rotate-TO" target paths per credential
+    // family. The rotation handler writes these and the controllers read them, so
+    // the `v{N}` layout (and the unversioned BMC alias staying put) must not drift.
+    #[test]
+    fn site_wide_rotation_target_paths_are_versioned() {
+        let bmc = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRootVersioned { version: 3 },
+        };
+        assert_eq!(bmc.to_key_str(), "machines/bmc/site/root/v3");
+        assert_eq!(bmc.prefix(), CredentialPrefix::BmcCredentials);
+
+        // The unversioned alias is unchanged and still distinct.
+        let bmc_alias = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        };
+        assert_eq!(bmc_alias.to_key_str(), "machines/bmc/site/root");
+
+        let host_uefi = CredentialKey::UefiSiteTarget {
+            target: UefiSiteTarget::Host { version: 0 },
+        };
+        assert_eq!(host_uefi.to_key_str(), "machines/uefi/host/site/root/v0");
+        assert_eq!(host_uefi.prefix(), CredentialPrefix::Uefi);
+
+        let dpu_uefi = CredentialKey::UefiSiteTarget {
+            target: UefiSiteTarget::Dpu { version: 7 },
+        };
+        assert_eq!(dpu_uefi.to_key_str(), "machines/uefi/dpu/site/root/v7");
+        assert_eq!(dpu_uefi.prefix(), CredentialPrefix::Uefi);
+
+        let nvos = CredentialKey::SwitchNvosSiteAdmin { version: 2 };
+        assert_eq!(nvos.to_key_str(), "switch_nvos/site/admin/v2");
+        assert_eq!(nvos.prefix(), CredentialPrefix::SwitchNvosAdmin);
     }
 
     #[tokio::test]
@@ -835,6 +924,46 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
+                    scenario: "bmc site wide root versioned",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::SiteWideRootVersioned {
+                                version: 0,
+                            },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "host uefi site target",
+                    input: Row {
+                        key: CredentialKey::UefiSiteTarget {
+                            target: UefiSiteTarget::Host { version: 0 },
+                        },
+                        expected_prefix: "machines/uefi/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu uefi site target",
+                    input: Row {
+                        key: CredentialKey::UefiSiteTarget {
+                            target: UefiSiteTarget::Dpu { version: 0 },
+                        },
+                        expected_prefix: "machines/uefi/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "switch nvos site admin",
+                    input: Row {
+                        key: CredentialKey::SwitchNvosSiteAdmin { version: 0 },
+                        expected_prefix: "switch_nvos/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
                     scenario: "extension service",
                     input: Row {
                         key: CredentialKey::ExtensionService {
@@ -952,8 +1081,17 @@ mod tests {
             CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRoot,
             },
+            CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::SiteWideRootVersioned { version: 0 },
+            },
             CredentialKey::NicLockdownIkm {
                 credential_type: NicLockdownIkm::SiteWide { version: 0 },
+            },
+            CredentialKey::UefiSiteTarget {
+                target: UefiSiteTarget::Host { version: 0 },
+            },
+            CredentialKey::UefiSiteTarget {
+                target: UefiSiteTarget::Dpu { version: 0 },
             },
             CredentialKey::ExtensionService {
                 service_id: "s".to_string(),
@@ -965,6 +1103,7 @@ mod tests {
             CredentialKey::SwitchNvosAdmin {
                 bmc_mac_address: mac,
             },
+            CredentialKey::SwitchNvosSiteAdmin { version: 0 },
             CredentialKey::MqttAuth {
                 credential_type: MqttCredentialType::Dpa,
             },
@@ -991,6 +1130,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
     }
 }

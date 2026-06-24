@@ -2499,6 +2499,7 @@ mod tests {
     use model::resource_pool;
 
     use super::*;
+    use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
@@ -3974,7 +3975,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         assert_eq!(
             vpcs.get("zero-dpu-vpc").unwrap(),
             &VpcDefinition {
-                organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+                organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
                 network_virtualization_type: VpcVirtualizationType::Flat,
                 routing_profile_type: None,
                 vni: None,

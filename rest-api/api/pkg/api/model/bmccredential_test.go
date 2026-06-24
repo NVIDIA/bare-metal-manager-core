@@ -24,11 +24,11 @@ func TestAPIBMCCredentialRequestValidate(t *testing.T) {
 		req     APIBMCCredentialRequest
 		wantErr bool
 	}{
-		{"site-wide-root ok", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindSiteWideRoot, Password: "pw"}, false},
-		{"bmc-root ok", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindBMCRoot, Password: "pw", MacAddress: mac}, false},
+		{"SiteWideRoot ok", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindSiteWideRoot, Password: "pw"}, false},
+		{"BMCRoot ok", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindBMCRoot, Password: "pw", MacAddress: mac}, false},
 		{"missing siteId", APIBMCCredentialRequest{Kind: BMCCredentialKindSiteWideRoot, Password: "pw"}, true},
 		{"invalid siteId", APIBMCCredentialRequest{SiteID: "bad-site-id", Kind: BMCCredentialKindSiteWideRoot, Password: "pw"}, true},
-		{"bmc-root missing mac", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindBMCRoot, Password: "pw"}, true},
+		{"BMCRoot missing mac", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindBMCRoot, Password: "pw"}, true},
 		{"missing password", APIBMCCredentialRequest{SiteID: siteID, Kind: BMCCredentialKindSiteWideRoot}, true},
 		{"invalid kind", APIBMCCredentialRequest{SiteID: siteID, Kind: "nope", Password: "pw"}, true},
 	}

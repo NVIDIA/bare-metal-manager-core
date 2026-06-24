@@ -25,6 +25,7 @@ use rpc::forge::{
 use sqlx::PgPool;
 use tonic::Request;
 
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config_with_vpc_prefix,
 };
@@ -1013,7 +1014,7 @@ async fn flat_vpc_accepts_ipv4_prefix(pool: PgPool) -> Result<(), Box<dyn std::e
     let (_, vpc) = api_fixtures::vpc::create_flat_vpc(
         &env,
         "flat".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(FIXTURE_TENANT_ORG_ID.to_string()),
     )
     .await;
 
@@ -1057,7 +1058,7 @@ async fn flat_vpc_accepts_ipv6_prefix(pool: PgPool) -> Result<(), Box<dyn std::e
     let (_, vpc) = api_fixtures::vpc::create_flat_vpc(
         &env,
         "flat".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(FIXTURE_TENANT_ORG_ID.to_string()),
     )
     .await;
 

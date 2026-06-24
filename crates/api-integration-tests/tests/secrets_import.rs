@@ -19,7 +19,6 @@
 //! These tests start a real Vault dev server and connect to a real Postgres instance.
 //! Requires: `vault` binary in PATH, `DATABASE_URL` env var set.
 
-use std::net::{SocketAddr, TcpListener};
 use std::str::FromStr;
 
 use carbide_secrets::credentials::{
@@ -29,12 +28,6 @@ use carbide_secrets::credentials::{
 use carbide_secrets::{VaultConfig, create_vault_client};
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
-
-/// allocate_port picks a free port by binding to port 0.
-fn allocate_port() -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind to free port");
-    listener.local_addr().expect("local addr")
-}
 
 /// make_test_key creates a deterministic 32-byte key from a seed byte.
 fn make_test_key(seed: u8) -> [u8; 32] {
@@ -241,10 +234,9 @@ async fn vault_to_postgres_import() -> eyre::Result<()> {
 /// round-trips, re-import as a noop, and check the completion marker.
 async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
     // --- Start Vault ---
-    let vault_addr = allocate_port();
-    let vault = api_test_helper::vault::start(vault_addr).await?;
+    let vault = api_test_helper::vault::start().await?;
     let vault_config = VaultConfig {
-        address: Some(format!("https://{vault_addr}")),
+        address: Some(format!("https://{}", vault.addr)),
         kv_mount_location: Some("secret".to_string()),
         pki_mount_location: Some("forgeca".to_string()),
         pki_role_name: Some("forge-cluster".to_string()),

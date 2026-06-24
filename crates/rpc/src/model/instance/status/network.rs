@@ -71,6 +71,7 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
                 .collect(),
             device: status.device,
             device_instance: status.device_instance as u32,
+            vpc_id: status.vpc_id,
         })
     }
 }

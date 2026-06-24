@@ -108,6 +108,8 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
+        - page: Boot Interfaces and DPU Modes
+          path: provisioning/boot-interfaces-and-dpu-modes.md
         - page: Machine Validation
           path: provisioning/machine-validation.md
         - page: SKU Validation
@@ -292,8 +294,11 @@ navigation:
     - page: Authentication and Authorization
       path: ../rest-api/openapi/auth.md
       icon: key
+    - page: Resource Overview
+      path: ../rest-api/openapi/resource-overview.md
+      icon: layer-group
     - page: Example REST API Workflows
-      path: ../rest-api/openapi/example_workflows.md
+      path: ../rest-api/openapi/example-workflows.md
       icon: gear
     - page: Deprecations
       path: ../rest-api/openapi/deprecations.md

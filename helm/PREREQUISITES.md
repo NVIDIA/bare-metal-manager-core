@@ -218,7 +218,43 @@ global:
 
 ---
 
-## 6. Network Requirements
+## 6. Site Configuration
+
+`nico-api` **exits at startup** if resource pools are not defined. You must set `nico-api.siteConfig.enabled: true` and provide a `nicoApiSiteConfig` TOML value that includes at minimum the four required pool definitions.
+
+```yaml
+nico-api:
+  siteConfig:
+    enabled: true
+    nicoApiSiteConfig: |
+      dhcp_servers = ["nico-dhcp.nico-system.svc.cluster.local:67"]
+      enable_route_servers = true
+      initial_domain_name = "site.example.com"
+      sitename = "site"
+
+      # All four pools are required.
+      [pools.lo-ip]
+      type = "ipv4"
+      ranges = [{ start = "10.0.0.0", end = "10.0.1.0" }]
+
+      [pools.vlan-id]
+      type = "integer"
+      ranges = [{ start = "100", end = "501" }]
+
+      [pools.vni]
+      type = "integer"
+      ranges = [{ start = "1024500", end = "1024800" }]
+
+      [pools.vpc-vni]
+      type = "integer"
+      ranges = [{ start = "0", end = "100" }]
+```
+
+Adjust pool ranges to match your site's address plan. A fully annotated example with all available options is at [`deploy/files/nico-api/nico-api-site-config.toml`](../deploy/files/nico-api/nico-api-site-config.toml).
+
+---
+
+## 7. Network Requirements
 
 Several NICo services require direct network connectivity to bare metal hosts. Ensure the following network conditions are met before installation:
 
@@ -242,7 +278,7 @@ Ensure that firewall rules and network policies allow traffic between NICo servi
 
 ---
 
-## 7. Loki (Optional — for SSH Console Log Shipping)
+## 8. Loki (Optional — for SSH Console Log Shipping)
 
 The `nico-ssh-console-rs` subchart includes an optional OpenTelemetry Collector Contrib sidecar that ships SSH console logs to Loki. This sidecar is **disabled by default** (`lokiLogCollector.enabled: false`).
 

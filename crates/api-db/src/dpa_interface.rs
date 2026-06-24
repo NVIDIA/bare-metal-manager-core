@@ -465,7 +465,7 @@ where
 
     let vpc = crate::vpc::find_by_segment(txn, network_segment_id).await?;
 
-    match vpc.status.vni {
+    match vpc.as_ref().and_then(|vpc| vpc.status.vni) {
         Some(vni) => {
             if vni == 0 {
                 tracing::warn!("Did not expect DPA VNI to be zero");

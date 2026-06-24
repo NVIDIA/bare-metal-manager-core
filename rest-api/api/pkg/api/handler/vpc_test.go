@@ -3465,7 +3465,7 @@ func TestDeleteVPCHandler_Handle(t *testing.T) {
 			if tt.args.respCode != http.StatusAccepted {
 				return
 			}
-			assert.Contains(t, rec.Body.String(), "Deletion request was accepted")
+			assertDeletionAcceptedResponse(t, rec.Body.Bytes())
 
 			// Verify VPC in deleting state
 			vpcDAO := cdbm.NewVpcDAO(dbSession)

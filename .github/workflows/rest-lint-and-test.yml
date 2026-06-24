@@ -113,6 +113,9 @@ jobs:
           base: 'origin/main:rest-api/openapi/spec.yaml'
           revision: ':rest-api/openapi/spec.yaml'
           fail-on: ERR
+          # Allowlist the intentional one-time rename of the BMC credential
+          # `kind` enum values to CapitalCase; see the referenced ignore file.
+          err-ignore: 'rest-api/openapi/oasdiff-breaking-changes-ignore.txt'
 
   check-generated-files:
     name: Check Generated Files

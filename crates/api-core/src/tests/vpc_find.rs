@@ -20,6 +20,7 @@ use ::rpc::forge as rpc;
 use carbide_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
@@ -144,8 +145,8 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     let vpc_id = VpcId::new();
 
     sqlx::query(r#"
-        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
-    "#).bind(vpc_id).execute(txn.deref_mut()).await?;
+        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', $2, 'V1-T1666644937952267');
+    "#).bind(vpc_id).bind(FIXTURE_TENANT_ORG_ID).execute(txn.deref_mut()).await?;
 
     let some_vpc = db::vpc::find_by_name(txn.as_mut(), "test vpc 1").await?;
 
@@ -291,6 +292,7 @@ async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
         .id;
     let vpc = db::vpc::find_by_segment(&env.pool, segment_id)
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(vpc.id.to_string(), vpc_id.to_string());
 }

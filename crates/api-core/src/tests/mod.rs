@@ -39,6 +39,7 @@ mod expected_rack;
 mod expected_switch;
 mod explored_endpoint_find;
 mod explored_managed_host_find;
+mod explored_mlx_devices;
 mod extension_service;
 mod find_by_ids_guards;
 mod finder;

@@ -255,8 +255,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
-                .await?;
+            let Some(vpc) = db::vpc::find_by_segment(&mut txn, network_segment_id)
+                .await? else {
+                return Err(CarbideError::FailedPrecondition(
+                    "network segment is not a member of a VPC".to_string(),
+                ).into())
+            };
 
             network_virtualization_type = vpc.config.network_virtualization_type;
 

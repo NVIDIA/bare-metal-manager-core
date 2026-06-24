@@ -44,6 +44,7 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use futures::{StreamExt, TryStreamExt, stream};
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
@@ -73,6 +74,9 @@ fn maybe_unimplemented(status: &tonic::Status) -> bool {
         tonic::Code::Unimplemented | tonic::Code::PermissionDenied
     )
 }
+
+// Benchmarks showed 4 had better overall performance while still overlapping page fetch latency.
+const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
 
 // Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
 // access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
@@ -112,10 +116,14 @@ impl ApiClient {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
-        for machine_ids in all_machine_ids.machine_ids.chunks(page_size) {
-            let machines = self.get_machines_by_ids(machine_ids).await?;
-            all_machines.machines.extend(machines.machines);
-        }
+        stream::iter(all_machine_ids.machine_ids.chunks(page_size))
+            .map(|machine_ids| self.get_machines_by_ids(machine_ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_for_each(|machines| {
+                all_machines.machines.extend(machines.machines);
+                futures::future::ok(())
+            })
+            .await?;
 
         Ok(all_machines)
     }
@@ -233,10 +241,14 @@ impl ApiClient {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
-        for ids in all_ids.instance_ids.chunks(page_size) {
-            let list = self.0.find_instances_by_ids(ids.to_vec()).await?;
-            all_list.instances.extend(list.instances);
-        }
+        stream::iter(all_ids.instance_ids.chunks(page_size))
+            .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_for_each(|list| {
+                all_list.instances.extend(list.instances);
+                futures::future::ok(())
+            })
+            .await?;
 
         Ok(all_list)
     }
@@ -585,10 +597,15 @@ impl ApiClient {
         let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
-        for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
-            let list = self.get_explored_endpoints_by_ids(ids).await?;
-            all_endpoints.endpoints.extend(list.endpoints);
-        }
+
+        stream::iter(endpoint_ids.endpoint_ids.chunks(page_size))
+            .map(|ids| self.get_explored_endpoints_by_ids(ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_for_each(|list| {
+                all_endpoints.endpoints.extend(list.endpoints);
+                futures::future::ok(())
+            })
+            .await?;
 
         // grab managed hosts
         let all_hosts = self.get_all_explored_managed_hosts(page_size).await?;
@@ -624,10 +641,16 @@ impl ApiClient {
         let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
-        for ids in host_ids.host_ids.chunks(page_size) {
-            let list = self.0.find_explored_managed_hosts_by_ids(ids).await?;
-            all_hosts.managed_hosts.extend(list.managed_hosts);
-        }
+
+        stream::iter(host_ids.host_ids.chunks(page_size))
+            .map(|ids| self.0.find_explored_managed_hosts_by_ids(ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_for_each(|list| {
+                all_hosts.managed_hosts.extend(list.managed_hosts);
+                futures::future::ok(())
+            })
+            .await?;
+
         Ok(all_hosts.managed_hosts)
     }
 
@@ -1261,7 +1284,58 @@ impl ApiClient {
         modified_by: Option<String>,
     ) -> CarbideCliResult<rpc::InstanceAllocationRequest> {
         let mut vf_function_id = 0;
-        let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
+        let (interface_configs, tenant_org, vpc_id) = if let Some(vpc_id) =
+            allocate_instance.flat_vpc_id
+        {
+            if !allocate_instance.subnet.is_empty()
+                || !allocate_instance.vpc_prefix_id.is_empty()
+                || !allocate_instance.vf_vpc_prefix_id.is_empty()
+                || !allocate_instance.vf_subnet.is_empty()
+                || !allocate_instance.ip_address.is_empty()
+                || !allocate_instance.vf_ip_address.is_empty()
+                || !allocate_instance.ipv6_vpc_prefix_id.is_empty()
+                || !allocate_instance.ipv6_vf_prefix_id.is_empty()
+                || !allocate_instance.ipv6_ip_address.is_empty()
+                || !allocate_instance.ipv6_vf_ip_address.is_empty()
+            {
+                return Err(CarbideCliError::GenericError(
+                    "--flat-vpc-id cannot be combined with explicit interface selectors"
+                        .to_string(),
+                ));
+            }
+
+            let vpc = self
+                .0
+                .find_vpcs_by_ids(VpcsByIdsRequest {
+                    vpc_ids: vec![vpc_id],
+                })
+                .await?
+                .vpcs
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    CarbideCliError::GenericError(format!("VPC {vpc_id} was not found"))
+                })?;
+
+            let VpcVirtualizationType::Flat = vpc.network_virtualization_type() else {
+                return Err(CarbideCliError::GenericError(format!(
+                    "VPC {} is not a flat VPC, is of type {}",
+                    vpc_id,
+                    vpc.network_virtualization_type().as_str_name()
+                )));
+            };
+
+            (
+                Vec::new(),
+                vpc.config
+                    .as_ref()
+                    .map(|c| c.tenant_organization_id.clone())
+                    .ok_or_else(|| {
+                        CarbideCliError::GenericError("VPC has no organization ID".to_string())
+                    })?,
+                Some(vpc_id),
+            )
+        } else if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
                 return Err(CarbideCliError::GenericError(
                     "Cannot use vf_vpc_prefix_id with subnet".to_string(),
@@ -1299,9 +1373,7 @@ impl ApiClient {
                     .pci_properties
                     .as_ref()
                     .map(|pci| &pci.vendor)
-                    .is_some_and(|v| {
-                        v.to_ascii_lowercase().contains("mellanox") || allocate_instance.zero_dpu
-                    })
+                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
             });
             let mut interface_config = Vec::default();
             let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
@@ -1362,7 +1434,9 @@ impl ApiClient {
                 allocate_instance
                     .tenant_org
                     .as_deref()
-                    .unwrap_or("devenv_test_org"),
+                    .unwrap_or("devenv_test_org")
+                    .to_string(),
+                None,
             )
         } else if !allocate_instance.vpc_prefix_id.is_empty() {
             let Some(discovery_info) = &machine.discovery_info else {
@@ -1470,11 +1544,12 @@ impl ApiClient {
 
             (
                 interface_configs,
-                allocate_instance.tenant_org.as_deref().ok_or_else(|| {
+                allocate_instance.tenant_org.clone().ok_or_else(|| {
                     CarbideCliError::GenericError(
                         "Tenant org is mandatory in case of vpc_prefix.".to_string(),
                     )
                 })?,
+                None,
             )
         } else {
             return Err(CarbideCliError::GenericError(
@@ -1482,11 +1557,12 @@ impl ApiClient {
             ));
         };
 
-        if interface_configs.len()
-            != (allocate_instance.subnet.len()
-                + allocate_instance.vf_subnet.len()
-                + allocate_instance.vpc_prefix_id.len()
-                + allocate_instance.vf_vpc_prefix_id.len())
+        if allocate_instance.flat_vpc_id.is_none()
+            && interface_configs.len()
+                != (allocate_instance.subnet.len()
+                    + allocate_instance.vf_subnet.len()
+                    + allocate_instance.vpc_prefix_id.len()
+                    + allocate_instance.vf_vpc_prefix_id.len())
         {
             return Err(CarbideCliError::GenericError(
                 "Could not create the correct number of interface configs to satisfy request."
@@ -1494,7 +1570,7 @@ impl ApiClient {
             ));
         }
         let tenant_config = rpc::TenantConfig {
-            tenant_organization_id: tenant_org.to_string(),
+            tenant_organization_id: tenant_org,
             tenant_keyset_ids: vec![],
             hostname: None,
         };
@@ -1503,12 +1579,12 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: if allocate_instance.zero_dpu {
-                    vec![]
-                } else {
-                    interface_configs
-                },
-                auto: allocate_instance.zero_dpu,
+                interfaces: interface_configs,
+                auto_config: vpc_id.map(|vpc_id| rpc::InstanceNetworkAutoConfig {
+                    vpc_id: Some(vpc_id),
+                }),
+                #[allow(deprecated)]
+                auto: allocate_instance.flat_vpc_id.is_some(),
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
@@ -2228,7 +2304,6 @@ impl ApiClient {
     ) -> CarbideCliResult<RemediationList> {
         let all_remediation_ids = self.0.find_remediation_ids().await?;
 
-        use futures::{StreamExt, TryStreamExt, stream};
         let remediations = stream::iter(all_remediation_ids.remediation_ids.chunks(page_size))
             .then(|remediation_ids| async move {
                 self.0

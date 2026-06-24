@@ -232,22 +232,33 @@ impl RedfishClient {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
-            // Vikings and Lenovo GB300s. GB300s are detected as AMI at this
-            // point (vendor isn't refined to LenovoGB300 until later), but both
-            // rotate via the same admin account, so handle them together.
+            // Vikings and Lenovo GB300s (both still detected as AMI here).
+            // Resolve the admin account by username, and fall back to the conventional
+            // id "2" only when reads are blocked by `PasswordChangeRequired` (Viking factory state).
+            // Any other error propagates.
+            //
+            // https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
             RedfishVendor::AMI | RedfishVendor::LenovoGB300 => {
-                /*
-                https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
-
-                You should set the password after the first boot. The following curl command changes the password for the admin user.
-                curl -k -u <bmc-user>:<password> --request PATCH 'https://<bmc-ip-address>/redfish/v1/AccountService/Accounts/2' --header 'If-Match: *'  --header 'Content-Type: application/json' --data-raw '{ "Password" : "<password>" }'
-                */
-                client
-                    .change_password_by_id("2", new_password.as_str())
+                match client
+                    .change_password(curr_user.as_str(), new_password.as_str())
                     .await
-                    .map_err(|err| redact_password(err, new_password.as_str()))
-                    .map_err(|err| redact_password(err, curr_password.as_str()))
-                    .map_err(map_redfish_error)?;
+                {
+                    Ok(()) => {}
+                    Err(libredfish::RedfishError::PasswordChangeRequired) => {
+                        client
+                            .change_password_by_id("2", new_password.as_str())
+                            .await
+                            .map_err(|err| redact_password(err, new_password.as_str()))
+                            .map_err(|err| redact_password(err, curr_password.as_str()))
+                            .map_err(map_redfish_error)?;
+                    }
+                    Err(err) => {
+                        return Err(map_redfish_error(redact_password(
+                            redact_password(err, new_password.as_str()),
+                            curr_password.as_str(),
+                        )));
+                    }
+                }
             }
             RedfishVendor::LenovoAMI
             | RedfishVendor::Supermicro
@@ -745,6 +756,22 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
             RedfishError::NotSupported(_) => Ok(vec![]),
             _ => Err(err),
         })?;
+
+    // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+    // globally unique, so this signals transient pre-sync data (seen briefly
+    // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+    if let Some(eth0) = ethernet_interfaces.iter().find(|e| {
+        e.id.as_deref()
+            .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
+    }) && let Some(mac) = eth0.mac_address
+        && crate::is_locally_administered_mac(mac)
+    {
+        tracing::warn!(
+            manager_id = %manager.id,
+            eth0_mac = %mac,
+            "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+        );
+    }
 
     Ok(Manager {
         ethernet_interfaces,

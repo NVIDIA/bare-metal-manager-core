@@ -26,8 +26,9 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::spx::SpxPartitionId;
-use carbide_uuid::vpc::VpcPrefixId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use config_version::ConfigVersion;
+use db::vpc::VpcRowLock;
 use db::{
     self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
     network_security_group,
@@ -84,6 +85,49 @@ fn build_requested_linknet_prefix(
     })
 }
 use crate::{CarbideError, CarbideResult};
+
+async fn validate_zero_dpu_auto_vpc(
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+    tenant_organization_id: &TenantOrganizationId,
+) -> Result<model::vpc::Vpc, CarbideError> {
+    let vpc = db::vpc::find_by_with_lock(
+        txn,
+        ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        VpcRowLock::Mutation,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .ok_or_else(|| CarbideError::FailedPrecondition(format!("VPC `{vpc_id}` does not exist")))?;
+
+    if vpc.config.tenant_organization_id != tenant_organization_id.to_string() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{}` is not owned by Tenant `{}`",
+            vpc.id, tenant_organization_id
+        )));
+    }
+
+    if vpc.config.network_virtualization_type != VpcVirtualizationType::Flat {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "zero-DPU auto allocation requires a Flat VPC; VPC {} uses {}",
+            vpc.id, vpc.config.network_virtualization_type
+        )));
+    }
+
+    let vpc_iface = vpc
+        .config
+        .network_virtualization_type
+        .fabric_interface_type();
+    if vpc_iface != FabricInterfaceType::Nic {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "zero-DPU auto allocation requires a VPC whose fabric_interface_type is `nic`; VPC {} ({}) has `{vpc_iface}`",
+            vpc.id, vpc.config.network_virtualization_type
+        )));
+    }
+
+    Ok(vpc)
+}
 
 /// Validates that an operating system definition referenced by ID exists, is active,
 /// and has status READY.  Returns `Ok(())` when the OS variant is not
@@ -898,12 +942,19 @@ pub async fn batch_allocate_instances(
         // which one(s) the host is on. Conversely, hosts with DPUs cannot use
         // `auto`, and are expected to enumerate their interfaces explicitly.
         if !mh_snapshot.has_managed_dpus() {
-            if !request.config.network.auto {
+            let Some(requested_auto_config) = request.config.network.auto_config else {
                 return Err(CarbideError::InvalidArgument(format!(
                     "zero-DPU host {} requires `InstanceNetworkConfig.auto = true`; cannot allocate an instance with explicitly-listed interfaces or with `auto = false`",
                     mh_snapshot.host_snapshot.id,
                 )));
-            }
+            };
+
+            validate_zero_dpu_auto_vpc(
+                &mut txn,
+                requested_auto_config.vpc_id,
+                &request.config.tenant.tenant_organization_id,
+            )
+            .await?;
 
             // ...and eeven though gRPC <-> model validation rejects
             // auto + non-empty interfaces, double-check here so a future
@@ -935,38 +986,33 @@ pub async fn batch_allocate_instances(
                 }
             }
 
-            // Each of the host's HostInband segments must be bound to a
-            // VPC whose fabric interface type matches a zero-DPU host's
-            // (i.e. `Nic`). HostInband segments are allowed to exist
-            // without a VPC at segment-create time (so operators can
-            // create them up front for DHCP routing during site-explorer
-            // ingestion); we require the binding here, when a tenant
-            // intent actually shows up to allocate an instance.
+            // HostInband segments may be unbound so multiple Flat VPCs can
+            // share the same physical segment. If a segment is still bound,
+            // it must not conflict with the VPC requested for this allocation.
             for segment_id in &allowed_segment_ids {
-                let vpc = db::vpc::find_by_segment(&mut txn, *segment_id)
-                    .await
-                    .map_err(|e| {
-                        if e.is_not_found() {
-                            CarbideError::FailedPrecondition(format!(
-                                "zero-DPU host {} has HostInband segment {} that is not bound to a Flat VPC; instance allocation requires the segment to be in a Flat VPC",
-                                mh_snapshot.host_snapshot.id, segment_id,
-                            ))
-                        } else {
-                            CarbideError::from(e)
-                        }
-                    })?;
-                let vpc_iface = vpc
-                    .config
-                    .network_virtualization_type
-                    .fabric_interface_type();
-                if vpc_iface != FabricInterfaceType::Nic {
-                    return Err(CarbideError::FailedPrecondition(format!(
-                        "zero-DPU host {} has HostInband segment {} bound to VPC {} ({}); zero-DPU hosts can only allocate into VPCs whose fabric_interface_type is `nic` (got `{vpc_iface}`)",
-                        mh_snapshot.host_snapshot.id,
-                        segment_id,
-                        vpc.id,
-                        vpc.config.network_virtualization_type,
-                    )));
+                if let Some(vpc) = db::vpc::find_by_segment(&mut txn, *segment_id).await? {
+                    if vpc.id != requested_auto_config.vpc_id {
+                        return Err(CarbideError::FailedPrecondition(format!(
+                            "zero-DPU host {} has HostInband segment {} bound to VPC {}, but allocation requested VPC {}; shared Flat segments must be left unbound",
+                            mh_snapshot.host_snapshot.id,
+                            segment_id,
+                            vpc.id,
+                            requested_auto_config.vpc_id,
+                        )));
+                    }
+                    let vpc_iface = vpc
+                        .config
+                        .network_virtualization_type
+                        .fabric_interface_type();
+                    if vpc_iface != FabricInterfaceType::Nic {
+                        return Err(CarbideError::FailedPrecondition(format!(
+                            "zero-DPU host {} has HostInband segment {} bound to VPC {} ({}); zero-DPU hosts can only allocate into VPCs whose fabric_interface_type is `nic` (got `{vpc_iface}`)",
+                            mh_snapshot.host_snapshot.id,
+                            segment_id,
+                            vpc.id,
+                            vpc.config.network_virtualization_type,
+                        )));
+                    }
                 }
             }
 
@@ -982,7 +1028,7 @@ pub async fn batch_allocate_instances(
         } else {
             // `auto` is only valid on zero-DPU hosts; DPU-managed hosts must
             // list their interfaces explicitly.
-            if request.config.network.auto {
+            if request.config.network.auto_config.is_some() {
                 return Err(CarbideError::InvalidArgument(format!(
                     "host {} has DPUs; `InstanceNetworkConfig.auto` is only valid on zero-DPU hosts",
                     mh_snapshot.host_snapshot.id,
@@ -998,21 +1044,31 @@ pub async fn batch_allocate_instances(
             // rather than getting stuck somewhere downstream.
             for iface in &request.config.network.interfaces {
                 if let Some(ns_id) = iface.network_segment_id {
-                    let vpc = db::vpc::find_by_segment(&mut txn, ns_id)
+                    match db::vpc::find_by_segment(&mut txn, ns_id)
                         .await
-                        .map_err(CarbideError::from)?;
-                    let vpc_iface = vpc
-                        .config
-                        .network_virtualization_type
-                        .fabric_interface_type();
-                    if vpc_iface != FabricInterfaceType::Dpu {
-                        return Err(CarbideError::FailedPrecondition(format!(
-                            "DPU-managed host {} cannot allocate an instance into VPC {} ({}, via segment {}); DPU hosts can only allocate into VPCs whose fabric_interface_type is `dpu` (got `{vpc_iface}`)",
-                            mh_snapshot.host_snapshot.id,
-                            vpc.id,
-                            vpc.config.network_virtualization_type,
-                            ns_id,
-                        )));
+                        .map_err(CarbideError::from)?
+                    {
+                        Some(vpc) => {
+                            let vpc_iface = vpc
+                                .config
+                                .network_virtualization_type
+                                .fabric_interface_type();
+                            if vpc_iface != FabricInterfaceType::Dpu {
+                                return Err(CarbideError::FailedPrecondition(format!(
+                                    "DPU-managed host {} cannot allocate an instance into VPC {} ({}, via segment {}); DPU hosts can only allocate into VPCs whose fabric_interface_type is `dpu` (got `{vpc_iface}`)",
+                                    mh_snapshot.host_snapshot.id,
+                                    vpc.id,
+                                    vpc.config.network_virtualization_type,
+                                    ns_id,
+                                )));
+                            }
+                        }
+                        None => {
+                            return Err(CarbideError::FailedPrecondition(format!(
+                                "DPU-managed host {} cannot allocate an instance into network segment {}; DPU allocations require the segment to be attached to a VPC",
+                                mh_snapshot.host_snapshot.id, ns_id,
+                            )));
+                        }
                     }
                 }
             }

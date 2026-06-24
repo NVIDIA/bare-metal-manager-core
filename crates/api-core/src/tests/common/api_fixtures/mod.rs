@@ -40,8 +40,10 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
+use carbide_nvlink_manager::{
+    NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
+};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -140,7 +142,7 @@ use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
 pub use crate::test_support::network_segment;
 use crate::test_support::network_segment::{
-    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_TENANT_ORG_ID, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
@@ -298,6 +300,7 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
+    pub switch_cert_monitor: Arc<Mutex<SwitchCertificateMonitor>>,
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
@@ -843,7 +846,7 @@ impl TestEnv {
         NetworkSegmentId,
     ) {
         self.create_vpc_and_peer_vpc_with_tenant_segments_for_tenants(
-            "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
+            FIXTURE_TENANT_ORG_ID,
             vtype1,
             "e65a9d69-39d2-4872-a53e-e5cb87c84e75",
             vtype2,
@@ -932,7 +935,7 @@ impl TestEnv {
 
     pub async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
         self.create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -947,7 +950,7 @@ impl TestEnv {
         segment_count: usize,
     ) -> Vec<NetworkSegmentId> {
         self.create_vpc_and_tenant_segments_with_vpc_details(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "test vpc 1".to_string(),
                     ..Default::default()
@@ -962,7 +965,7 @@ impl TestEnv {
         let vpc = self
             .api
             .create_vpc(
-                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                     .metadata(Metadata {
                         name: "test vpc 1".to_string(),
                         ..Default::default()
@@ -1006,6 +1009,19 @@ impl TestEnv {
             .boxed()
             .await
             .unwrap();
+    }
+
+    pub async fn run_switch_cert_monitor_iteration(
+        &self,
+    ) -> SwitchCertificateMonitorIterationResult {
+        let cancel_token = CancellationToken::new();
+        self.switch_cert_monitor
+            .lock()
+            .await
+            .run_single_iteration(&cancel_token)
+            .boxed()
+            .await
+            .unwrap()
     }
 
     pub fn db_reader(&self) -> PgPoolReader {
@@ -1396,6 +1412,13 @@ pub async fn create_test_env_with_overrides(
         api.work_lock_manager_handle.clone(),
     );
 
+    let switch_cert_monitor = SwitchCertificateMonitor::new(
+        db_pool.clone(),
+        test_meter.meter(),
+        config.nvlink_config.clone().unwrap(),
+        api.work_lock_manager_handle.clone(),
+    );
+
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = carbide_ipmi::test_support();
     let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
@@ -1767,6 +1790,7 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
+        switch_cert_monitor: Arc::new(Mutex::new(switch_cert_monitor)),
         test_credential_manager: credential_manager.clone(),
         rms_sim,
         test_component_manager,

@@ -28,6 +28,7 @@ use tonic::IntoRequest;
 use crate::CarbideError;
 use crate::handlers::client_resolution::resolve_machine_interface;
 use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
@@ -156,6 +157,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
     )
     .await;
     create_host_inband_network_segment(&env.api, None).await;
+    let vpc_id = create_default_flat_vpc(&env.api, "flat-vpc").await;
     env.run_network_segment_controller_iteration().await;
     env.run_network_segment_controller_iteration().await;
 
@@ -179,14 +181,22 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
             machine_id: Some(mh.host().id),
             instance_type_id: None,
             config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
+                tenant: Some(rpc::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    tenant_keyset_ids: vec![],
+                    hostname: None,
+                }),
                 os: Some(rpc::forge::InstanceOperatingSystemConfig {
                     user_data: Some(tenant_user_data.to_string()),
                     ..default_os_config()
                 }),
                 network: Some(rpc::forge::InstanceNetworkConfig {
                     interfaces: vec![],
+                    #[allow(deprecated)]
                     auto: true,
+                    auto_config: Some(rpc::forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(vpc_id),
+                    }),
                 }),
                 infiniband: None,
                 network_security_group_id: None,

@@ -577,6 +577,14 @@ pub struct SwitchEndpointRow {
     pub nvos_ip: Option<IpAddr>,
 }
 
+/// Ready switch endpoint selected for NMX-C rack-level operations.
+#[derive(Debug, sqlx::FromRow)]
+pub struct ReadyControlPlaneSwitchEndpointRow {
+    pub switch_id: SwitchId,
+    pub rack_id: RackId,
+    pub nvos_ip: IpAddr,
+}
+
 /// Resolve SwitchIds to full endpoint info (BMC + NVOS MAC/IP).
 ///
 /// Uses `DISTINCT ON (s.id)` to avoid duplicate rows when a MAC has multiple
@@ -623,6 +631,50 @@ pub async fn find_switch_endpoints_by_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_switch_endpoints_by_ids", err))
+}
+
+/// Resolve one ready Fabric Manager control-plane switch endpoint per rack.
+///
+/// When several switches in a rack match, the primary switch is preferred.
+pub async fn find_ready_control_plane_configured_switch_endpoints<DB>(
+    db: &mut DB,
+) -> DatabaseResult<Vec<ReadyControlPlaneSwitchEndpointRow>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let sql = r#"
+        SELECT DISTINCT ON (s.rack_id)
+            s.id              AS switch_id,
+            s.rack_id         AS rack_id,
+            nvos_mia.address  AS nvos_ip
+        FROM switches s
+        JOIN expected_switches es
+            ON es.bmc_mac_address = s.bmc_mac_address
+        JOIN machine_interfaces nvos_mi
+            ON es.nvos_mac_addresses IS NOT NULL
+           AND nvos_mi.mac_address = ANY(es.nvos_mac_addresses)
+        JOIN machine_interface_addresses nvos_mia
+            ON nvos_mia.interface_id = nvos_mi.id
+        WHERE s.rack_id IS NOT NULL
+          AND s.deleted IS NULL
+          AND s.controller_state->>'state' = $1
+          AND s.fabric_manager_status->>'fabric_manager_state' = $2
+          AND s.fabric_manager_status->>'addition_info' = $3
+        ORDER BY s.rack_id, s.is_primary DESC, s.id
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(SWITCH_CONTROLLER_STATE_READY)
+        .bind(FabricManagerState::Ok.as_str())
+        .bind(CONTROL_PLANE_STATE_CONFIGURED)
+        .fetch_all(&mut *db)
+        .await
+        .map_err(|err| {
+            DatabaseError::new(
+                "switch::find_ready_control_plane_configured_switch_endpoints",
+                err,
+            )
+        })
 }
 
 pub async fn update_metadata(

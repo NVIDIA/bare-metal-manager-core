@@ -309,6 +309,9 @@ service Forge {
   // paginated APIs to get site explorer explored managed hosts
   rpc FindExploredManagedHostIds(site_explorer.ExploredManagedHostSearchFilter) returns (site_explorer.ExploredManagedHostIdList);
   rpc FindExploredManagedHostsByIds(site_explorer.ExploredManagedHostsByIdsRequest) returns (site_explorer.ExploredManagedHostList);
+  // Mellanox/BlueField device firmware, projected from explored Redfish PCIe
+  // inventory -- surfaces NIC firmware for DPUs operating in NIC mode.
+  rpc GetExploredMlxDevices(site_explorer.GetExploredMlxDevicesRequest) returns (site_explorer.ExploredMlxDeviceList);
   rpc UpdateMachineHardwareInfo(UpdateMachineHardwareInfoRequest) returns (google.protobuf.Empty);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
@@ -2781,22 +2784,32 @@ message InstanceNetworkConfig {
   // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
 
-  // When true, NICO (or potentially some pluggable SDN backend) will
+  // Deprecated. Set auto_config.vpc_id to the requested VPC ID instead.
+  bool auto = 2 [deprecated = true];
+
+  // When set, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
   // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
   // MUST be empty on the request.
   //
-  // Callers reading the instance back also see `auto = true` with an empty
+  // Callers reading the instance back also see `auto_config` set, with an empty
   // `interfaces` list (what they sent is preserved verbatim). The
   // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
   // in `Instance.status.network.interfaces` instead.
   //
-  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // On update, setting `auto_config` re-resolves interfaces from the host's
   // current HostInband segments. If nothing has changed, this is a no-op.
   // If the host's segments have been added/removed by the operator, the
   // update reflects that change.
-  bool auto = 2;
+  optional InstanceNetworkAutoConfig auto_config = 3;
+}
+
+message InstanceNetworkAutoConfig {
+  // For Flat zero-DPU deployments, multiple VPCs may share the same
+  // HostInband network segment, so VPC ownership is carried by the
+  // instance address rather than by the segment.
+  optional common.VpcId vpc_id = 1;
 }
 
 // Desired infiniband configuration for an instance
@@ -3223,6 +3236,9 @@ message InstanceInterfaceStatus {
 
   optional string device = 6;
   uint32 device_instance = 7;
+
+  // The logical VPC this interface belongs to.
+  optional common.VpcId vpc_id = 8;
 }
 
 // The actual status of a single IB interface of an instance
@@ -5822,6 +5838,8 @@ message IpxeTemplateList {
 
 message ExpectedHostNic {
   string mac_address = 1;
+  // Legacy free-form segment hint (bf3, onboard, oob, ...). Kept for backward
+  // compatibility; declare network_segment_type instead, which wins.
   optional string nic_type = 2;
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
@@ -5836,6 +5854,12 @@ message ExpectedHostNic {
   // Some day this could be even possibly used to say "this dumb NIC
   // *is* the primary interface, even though I know I have a DPU."
   optional bool primary = 6;
+  // The network segment type this NIC's first DHCP lease should come from.
+  // A NIC's segment normally follows its DHCP relay; where segment prefixes
+  // nest or overlap and a relay matches several, this narrows the choice to
+  // the segment of this type. Supersedes nic_type; absent both, the relay's
+  // match stands.
+  optional NetworkSegmentType network_segment_type = 7;
 }
 
 // Per-host DPU operating mode. Lets site operators mix DPU-mode,

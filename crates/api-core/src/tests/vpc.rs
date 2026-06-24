@@ -27,6 +27,7 @@ use model::metadata::Metadata;
 use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
 use rpc::forge::forge_server::Forge;
 
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
@@ -800,8 +801,8 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     let vpc_id = VpcId::new();
 
     sqlx::query(r#"
-        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
-    "#).bind(vpc_id).execute(txn.deref_mut()).await?;
+        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', $2, 'V1-T1666644937952267');
+    "#).bind(vpc_id).bind(FIXTURE_TENANT_ORG_ID).execute(txn.deref_mut()).await?;
 
     let some_vpc = db::vpc::find_by(
         txn.as_mut(),
@@ -1155,7 +1156,7 @@ async fn test_increment_vpc_version_detects_concurrent_writes(
     let vpc_id: VpcId = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
                 .metadata(Metadata {
                     name: "vpc-bump".to_string(),
                     ..Default::default()
