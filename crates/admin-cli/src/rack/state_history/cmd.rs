@@ -80,7 +80,10 @@ pub async fn show_state_history(
     match config.format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&output)?),
         OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&output)?),
-        _ => build_history_table(&output).printstd(),
+        OutputFormat::Csv => {
+            build_history_table(&output).to_csv(std::io::stdout()).ok();
+        }
+        OutputFormat::AsciiTable => build_history_table(&output).printstd(),
     }
 
     Ok(())
