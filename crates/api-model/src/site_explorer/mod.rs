@@ -1720,6 +1720,30 @@ impl EndpointExplorationReport {
             })
             .collect()
     }
+
+    /// Whether this report's Redfish PCIe inventory holds any BlueField/Mellanox
+    /// device -- i.e. whether it would yield any [`ExploredMlxDevice`].
+    pub fn has_bluefield_devices(&self) -> bool {
+        self.systems
+            .iter()
+            .flat_map(|system| system.pcie_devices.iter())
+            .any(|device| device.is_bluefield())
+    }
+
+    /// The (trimmed, non-empty) serial numbers of the BlueField devices in this
+    /// report's PCIe inventory -- the keys used to match each device to its DPU
+    /// endpoint, the same serials [`collect_explored_mlx_devices`] joins on.
+    pub fn bluefield_device_serials(&self) -> Vec<String> {
+        self.systems
+            .iter()
+            .flat_map(|system| system.pcie_devices.iter())
+            .filter(|device| device.is_bluefield())
+            .filter_map(|device| device.serial_number.as_deref())
+            .map(str::trim)
+            .filter(|serial| !serial.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
 }
 
 /// Builds the [`ExploredMlxDevice`] view across a set of explored endpoints.

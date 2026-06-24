@@ -654,6 +654,33 @@ impl ApiClient {
         Ok(all_hosts.managed_hosts)
     }
 
+    pub async fn get_all_explored_mlx_devices(
+        &self,
+        page_size: usize,
+        host: Option<String>,
+    ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredMlxDevice>> {
+        // A specific host short-circuits the id listing; otherwise list every host
+        // BMC carrying BlueField devices and page through them.
+        let host_ids: Vec<String> = match host {
+            Some(host) => vec![host],
+            None => self.0.find_explored_mlx_device_host_ids().await?.host_ids,
+        };
+
+        let mut all = ::rpc::site_explorer::ExploredMlxDeviceList {
+            devices: Vec::with_capacity(host_ids.len()),
+        };
+        stream::iter(host_ids.chunks(page_size))
+            .map(|ids| self.0.find_explored_mlx_devices_by_ids(ids))
+            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+            .try_for_each(|list| {
+                all.devices.extend(list.devices);
+                futures::future::ok(())
+            })
+            .await?;
+
+        Ok(all.devices)
+    }
+
     pub async fn get_machines_by_ids(
         &self,
         machine_ids: &[MachineId],

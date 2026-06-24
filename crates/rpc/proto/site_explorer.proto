@@ -171,9 +171,20 @@ message ExploredMlxDeviceList {
   repeated ExploredMlxDevice devices = 1;
 }
 
-message GetExploredMlxDevicesRequest {
-  // Restrict to devices found under this host BMC IP; all hosts if unset.
-  optional string host_bmc_ip = 1;
+// Paginated like the other explored reads: list the host BMC IPs that carry
+// BlueField devices, then fetch the devices a page of hosts at a time.
+message ExploredMlxDeviceHostSearchFilter {
+    // empty now, but maybe in the future we add a way to filter
+}
+
+message ExploredMlxDeviceHostIdList {
+  // host bmc IP address is used as an ID
+  repeated string host_ids = 1;
+}
+
+message ExploredMlxDevicesByIdsRequest {
+  // host bmc IP address is used as an ID
+  repeated string host_ids = 1;
 }
 
 enum NicMode {
