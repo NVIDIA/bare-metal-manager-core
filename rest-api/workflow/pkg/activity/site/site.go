@@ -921,10 +921,6 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 				return derr
 			}
 			if existing > 0 {
-				logger.Info().
-					Str("Prefix", prefixAddr).
-					Int("PrefixLength", prefixLength).
-					Msg("Site fabric IP Block already exists")
 				continue
 			}
 
