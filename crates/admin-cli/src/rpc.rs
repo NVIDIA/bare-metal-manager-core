@@ -116,15 +116,14 @@ impl ApiClient {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
-        let machine_pages = stream::iter(all_machine_ids.machine_ids.chunks(page_size))
+        stream::iter(all_machine_ids.machine_ids.chunks(page_size))
             .map(|machine_ids| self.get_machines_by_ids(machine_ids))
             .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_collect::<Vec<_>>()
+            .try_for_each(|machines| {
+                all_machines.machines.extend(machines.machines);
+                futures::future::ok(())
+            })
             .await?;
-
-        for machines in machine_pages {
-            all_machines.machines.extend(machines.machines);
-        }
 
         Ok(all_machines)
     }
@@ -242,15 +241,14 @@ impl ApiClient {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
-        let instance_pages = stream::iter(all_ids.instance_ids.chunks(page_size))
+        stream::iter(all_ids.instance_ids.chunks(page_size))
             .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
             .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_collect::<Vec<_>>()
+            .try_for_each(|list| {
+                all_list.instances.extend(list.instances);
+                futures::future::ok(())
+            })
             .await?;
-
-        for list in instance_pages {
-            all_list.instances.extend(list.instances);
-        }
 
         Ok(all_list)
     }
@@ -600,15 +598,14 @@ impl ApiClient {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
 
-        let endpoint_pages = stream::iter(endpoint_ids.endpoint_ids.chunks(page_size))
+        stream::iter(endpoint_ids.endpoint_ids.chunks(page_size))
             .map(|ids| self.get_explored_endpoints_by_ids(ids))
             .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_collect::<Vec<_>>()
+            .try_for_each(|list| {
+                all_endpoints.endpoints.extend(list.endpoints);
+                futures::future::ok(())
+            })
             .await?;
-
-        for list in endpoint_pages {
-            all_endpoints.endpoints.extend(list.endpoints);
-        }
 
         // grab managed hosts
         let all_hosts = self.get_all_explored_managed_hosts(page_size).await?;
@@ -645,15 +642,14 @@ impl ApiClient {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
 
-        let host_pages = stream::iter(host_ids.host_ids.chunks(page_size))
+        stream::iter(host_ids.host_ids.chunks(page_size))
             .map(|ids| self.0.find_explored_managed_hosts_by_ids(ids))
             .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_collect::<Vec<_>>()
+            .try_for_each(|list| {
+                all_hosts.managed_hosts.extend(list.managed_hosts);
+                futures::future::ok(())
+            })
             .await?;
-
-        for list in host_pages {
-            all_hosts.managed_hosts.extend(list.managed_hosts);
-        }
 
         Ok(all_hosts.managed_hosts)
     }

@@ -471,7 +471,8 @@ pub fn domain_for_command(name: &str) -> Option<CliDomain> {
 mod tests {
     use std::collections::HashSet;
 
-    use clap::{CommandFactory, Parser, error::ErrorKind};
+    use clap::error::ErrorKind;
+    use clap::{CommandFactory, Parser};
 
     use super::{COMMAND_DOMAINS, CliOptions, domain_for_command};
 
@@ -522,6 +523,14 @@ mod tests {
     fn internal_page_size_rejects_zero() {
         let err = CliOptions::try_parse_from(["nico-admin-cli", "--internal-page-size", "0"])
             .expect_err("zero page size should be rejected");
+
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn internal_page_size_rejects_values_above_max() {
+        let err = CliOptions::try_parse_from(["nico-admin-cli", "--internal-page-size", "101"])
+            .expect_err("page sizes above max should be rejected");
 
         assert_eq!(err.kind(), ErrorKind::ValueValidation);
     }
