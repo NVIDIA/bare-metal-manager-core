@@ -446,6 +446,24 @@ impl ApiClient {
         Ok(self.0.find_network_segments_by_ids(request).await?)
     }
 
+    pub async fn get_rack_state_history(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_rack_state_histories(rpc::RackStateHistoriesRequest {
+                rack_ids: vec![rack_id.clone()],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&rack_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
     pub async fn get_segment_state_history(
         &self,
         segment_id: NetworkSegmentId,

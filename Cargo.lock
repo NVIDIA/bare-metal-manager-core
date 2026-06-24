@@ -7211,6 +7211,7 @@ name = "nico-admin-cli"
 version = "0.0.1"
 dependencies = [
  "bmc-vendor",
+ "carbide-api-model",
  "carbide-health-report",
  "carbide-libmlx",
  "carbide-libmlx-model",
