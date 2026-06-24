@@ -15,19 +15,24 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use axum_http_client::AxumRouterHttpClient;
+use mac_address::MacAddress;
 use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
 use url::Url;
 
+use crate::mac_address_pool::{
+    Config as MacAddressConfig, MacAddressPool, PoolConfig as MacAddressPoolConfig,
+    RangesConfig as MacAddressRangesConfig,
+};
 use crate::machine_info::DpuSettings;
 use crate::{
     BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
     MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
 };
-pub mod axum_http_client;
 
-use axum_http_client::AxumRouterHttpClient;
+pub mod axum_http_client;
 
 #[derive(Debug)]
 struct NoopCallbacks;
@@ -48,6 +53,17 @@ impl Callbacks for NoopCallbacks {
 }
 
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
+
+lazy_static::lazy_static! {
+    pub static ref TEST_HW_MAC_POOL_CONFIG: MacAddressPoolConfig =
+        MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).unwrap();
+
+    pub static ref TEST_MAC_POOL: Arc<Mutex<MacAddressPool>> =
+        Arc::new(Mutex::new(MacAddressPool::new(MacAddressConfig {
+            pool: Some(MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 32).unwrap()),
+            ranges: Some(MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8).unwrap()),
+        })));
+}
 
 #[derive(Clone)]
 pub struct TestBmcHandle {
@@ -71,15 +87,23 @@ async fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
     }
 }
 
+fn host_info(hw_type: HostHardwareType) -> MachineInfo {
+    let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(0);
+    let mut pool = TEST_MAC_POOL.lock().unwrap();
+    let ranges_config = pool.allocate_range_config().unwrap();
+    MachineInfo::Host(HostMachineInfo::new(
+        hw_type,
+        (0..ndpu)
+            .map(|_| DpuMachineInfo::new(hw_type, &mut pool, DpuSettings::default()))
+            .collect(),
+        &mut pool,
+        ranges_config,
+    ))
+}
+
 pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            vec![
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-            ],
-        )),
+        &host_info(HostHardwareType::WiwynnGB200Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -89,13 +113,7 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
 
 pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LenovoGB300Nvl,
-            vec![DpuMachineInfo::new(
-                HostHardwareType::LenovoGB300Nvl,
-                DpuSettings::default(),
-            )],
-        )),
+        &host_info(HostHardwareType::LenovoGB300Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -105,13 +123,7 @@ pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
 
 pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::NvidiaDgxGb300,
-            vec![DpuMachineInfo::new(
-                HostHardwareType::NvidiaDgxGb300,
-                DpuSettings::default(),
-            )],
-        )),
+        &host_info(HostHardwareType::NvidiaDgxGb300),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -121,13 +133,7 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
 
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::SupermicroGb300Nvl,
-            vec![DpuMachineInfo::new(
-                HostHardwareType::SupermicroGb300Nvl,
-                DpuSettings::default(),
-            )],
-        )),
+        &host_info(HostHardwareType::SupermicroGb300Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -137,10 +143,7 @@ pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
 
 pub async fn generic_supermicro_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::GenericSupermicro,
-            vec![],
-        )),
+        &host_info(HostHardwareType::GenericSupermicro),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -150,10 +153,7 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
 
 pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LiteOnPowerShelf,
-            vec![],
-        )),
+        &host_info(HostHardwareType::LiteOnPowerShelf),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -163,10 +163,7 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
 
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::NvidiaSwitchNd5200Ld,
-            vec![],
-        )),
+        &host_info(HostHardwareType::NvidiaSwitchNd5200Ld),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -176,10 +173,7 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
 
 pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            vec![],
-        )),
+        &host_info(HostHardwareType::DellPowerEdgeR750),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -188,11 +182,16 @@ pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
 }
 
 pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
-    test_bmc(machine_router(
-        &MachineInfo::Dpu(DpuMachineInfo::new(
+    let machine_info = {
+        let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
+        MachineInfo::Dpu(DpuMachineInfo::new(
             HostHardwareType::DellPowerEdgeR750,
+            &mut mac_pool,
             settings,
-        )),
+        ))
+    };
+    test_bmc(machine_router(
+        &machine_info,
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
         false,
@@ -202,7 +201,7 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
 
 pub async fn generic_ami_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(HostHardwareType::GenericAmi, vec![])),
+        &host_info(HostHardwareType::GenericAmi),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -219,15 +218,13 @@ mod test {
 
     use super::*;
     use crate::test_support::axum_http_client::Error;
+    use crate::test_support::host_info;
 
     #[tokio::test]
     async fn transport_supports_expand_query_through_mock_expander() {
         let client = AxumRouterHttpClient::new(
             machine_router(
-                &MachineInfo::Host(HostMachineInfo::new(
-                    HostHardwareType::DellPowerEdgeR750,
-                    vec![],
-                )),
+                &host_info(HostHardwareType::DellPowerEdgeR750),
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
                 false,
