@@ -1077,15 +1077,13 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 					"Tenant has reached the maximum number of Instances for Instance Type specified in request data", nil)
 			}
 
-			// Get the capability types for the instance type.
-			// If InfiniBand Interfaces are specified, require InfiniBand capability matching.
-			capabilityTypeMap := map[cdbm.MachineCapabilityType]bool{
-				cdbm.MachineCapabilityTypeInfiniBand: len(apiRequest.InfiniBandInterfaces) > 0,
-			}
-
 			// Select unallocated Machine for the requested instance type
-			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, capabilityTypeMap)
+			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, apiRequest.InfiniBandInterfaces)
 			if err != nil {
+				var ibSelErr *common.InfiniBandMachineSelectionError
+				if errors.As(err, &ibSelErr) {
+					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), model.NewInfiniBandSuggestionValidationError(ibSelErr.SuggestedInfiniBandInterfaces))
+				}
 				if err == common.ErrInstanceTypeMachineNotFound {
 					return cutil.NewAPIError(http.StatusBadRequest,
 						"No Machines are available for specified Instance Type", nil)
@@ -1107,7 +1105,13 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			var ibCapCount int
 			var ibCaps []cdbm.MachineCapability
 
-			if instanceTypeID != nil {
+			ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Machine")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Machine, DB error", nil)
+			}
+
+			if ibCapCount == 0 && instanceTypeID != nil {
 				ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{*instanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 				if err != nil {
 					logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Instance Type")
@@ -1115,20 +1119,11 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				}
 			}
 
-			// If Instance Type does not have InfiniBand Capability, get capabilities from Machine
-			if ibCapCount == 0 {
-				ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-				if err != nil {
-					logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Machine")
-					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Machine, DB error", nil)
-				}
-			}
-
 			if ibCapCount == 0 {
 				return cutil.NewAPIError(http.StatusBadRequest, "InfiniBand Interfaces cannot be specified if Instance Type or Machine doesn't have InfiniBand Capability", nil)
 			}
 
-			// Validate InfiniBand Interfaces if Instance Type has InfiniBand Capability
+			// Validate InfiniBand Interfaces against the selected Machine's InfiniBand Capabilities
 			err = apiRequest.ValidateInfiniBandInterfaces(ibCaps)
 			if err != nil {
 				logger.Error().Err(err).Msg("Failed to validate InfiniBand interfaces in request data")

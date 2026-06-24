@@ -1321,9 +1321,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 		return ist, mc
 	}
 
-	ibInactiveDevicesBaseReq := func() *model.APIInstanceCreateRequest {
+	ibInactiveDevicesBaseReq := func(name string) *model.APIInstanceCreateRequest {
 		return &model.APIInstanceCreateRequest{
-			Name:              "Test Instance IB inactive devices",
+			Name:              name,
 			TenantID:          tn1.ID.String(),
 			VpcID:             vpc1.ID.String(),
 			OperatingSystemID: cutil.GetPtr(os1.ID.String()),
@@ -2543,7 +2543,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: "InfiniBand Interfaces cannot be specified if Instance Type or Machine doesn't have InfiniBand Capability",
+				respMessage: "No Machines are available for specified Instance Type",
 			},
 			wantErr: false,
 		},
@@ -3466,7 +3466,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: "Device Instance: 4 for Device MT28908 Family [ConnectX-6] exceeds Instance Type's InfiniBand Capabilities count",
+				respMessage: "Requested InfiniBand device instances are not available on any Machine for this Instance Type",
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,
@@ -3612,34 +3612,57 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test Instance create API endpoint skips machine when InfiniBand InactiveDevices do not match Instance Type",
+			name: "test Instance create API endpoint selects machine when Instance Type and Machine InactiveDevices differ but request is satisfied",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
 				cfg:       cfg,
 			},
 			args: args{
-				reqData: ibInactiveDevicesBaseReq(),
+				reqData: ibInactiveDevicesBaseReq("Test Instance IB inactive devices mismatch"),
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
 					ist, _ := setupIbInactiveDevicesInstanceType(t, "test-allocation-ib-inactive-mismatch", []int{1, 3})
+					req.InstanceTypeID = cutil.GetPtr(ist.ID.String())
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusCreated,
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create API endpoint returns suggested device instances when requested InfiniBand device instance is inactive on Machine",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: func() *model.APIInstanceCreateRequest {
+					req := ibInactiveDevicesBaseReq("Test Instance IB inactive devices suggest")
+					req.InfiniBandInterfaces[0].DeviceInstance = 1
+					return req
+				}(),
+				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
+					ist, _ := setupIbInactiveDevicesInstanceType(t, "test-allocation-ib-inactive-suggest", []int{1, 3})
 					req.InstanceTypeID = cutil.GetPtr(ist.ID.String())
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: "No Machines are available for specified Instance Type",
+				respMessage: "Requested InfiniBand device instances are not available on any Machine for this Instance Type",
 			},
 			wantErr: false,
 		},
 		{
-			name: "test Instance create API endpoint selects machine when InfiniBand InactiveDevices match Instance Type",
+			name: "test Instance create API endpoint selects machine when InfiniBand InactiveDevices match on Machine",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
 				cfg:       cfg,
 			},
 			args: args{
-				reqData: ibInactiveDevicesBaseReq(),
+				reqData: ibInactiveDevicesBaseReq("Test Instance IB inactive devices match"),
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
 					ist, _ := setupIbInactiveDevicesInstanceType(t, "test-allocation-ib-inactive-match", []int{1, 2})
 					req.InstanceTypeID = cutil.GetPtr(ist.ID.String())

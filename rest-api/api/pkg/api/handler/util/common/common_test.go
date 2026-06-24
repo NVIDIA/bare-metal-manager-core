@@ -2221,7 +2221,7 @@ func TestMatchInstanceTypeCapabilitiesForMachines(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m, mid, err := MatchInstanceTypeCapabilitiesForMachines(ctx, tc.logger, nil, tc.dbSession, tc.instanceTypeID, tc.machineIDs, nil)
+			m, mid, err := MatchInstanceTypeCapabilitiesForMachines(ctx, tc.logger, tc.dbSession, tc.instanceTypeID, tc.machineIDs)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.Equal(t, tc.expectMatch, m)

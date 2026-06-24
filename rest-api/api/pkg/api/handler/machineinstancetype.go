@@ -164,7 +164,7 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 	// Verify if Capabilities of Machine matches with Instance Type's Capabilities.
 	// This is a pure validation read; keep it outside the tx so it does not pin
 	// a DB connection while the workflow runs.
-	isMatch, badMachineID, apiErr := common.MatchInstanceTypeCapabilitiesForMachines(ctx, logger, nil, cmith.dbSession, it.ID, apiRequest.MachineIDs, nil)
+	isMatch, badMachineID, apiErr := common.MatchInstanceTypeCapabilitiesForMachines(ctx, logger, cmith.dbSession, it.ID, apiRequest.MachineIDs)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
