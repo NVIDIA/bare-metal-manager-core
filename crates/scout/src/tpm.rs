@@ -62,6 +62,33 @@ pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
+/// Kernel device paths to probe for `tpm_path`. An explicit `/dev/` path (optionally written with a
+/// `device` TCTI prefix) resolves to just itself, anything else falls back to the standard nodes.
+fn tpm_device_candidates(tpm_path: &str) -> Vec<&str> {
+    let conf = tpm_path.strip_prefix("device:").unwrap_or(tpm_path);
+    if conf.starts_with("/dev/") {
+        vec![conf]
+    } else {
+        vec!["/dev/tpmrm0", "/dev/tpm0"]
+    }
+}
+
+/// True when a kernel TPM device exists for `tpm_path`. Socket TCTIs such as swtpm and mssim are not
+/// detected because the lab does not use them.
+pub(crate) fn tpm_present(tpm_path: &str) -> bool {
+    // try_exists tells a clean absent (Ok(false)) apart from an IO error. On error we assume the
+    // device is present rather than silently treating the host as having no TPM.
+    let dev_exists = |path: &str| {
+        Path::new(path).try_exists().unwrap_or_else(|e| {
+            tracing::warn!(path = %path, error = %e, "tpm_present: cannot stat TPM device; assuming present");
+            true
+        })
+    };
+    tpm_device_candidates(tpm_path)
+        .iter()
+        .any(|&p| dev_exists(p))
+}
+
 /// Clears the TPM storage hierarchies via TPM2_Clear (lockout authorization), after dictionary
 /// lockout setup.
 pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
@@ -163,5 +190,36 @@ mod tests {
                 "message={message:?}"
             );
         }
+    }
+
+    #[test]
+    fn tpm_device_candidates_cases() {
+        let cases: &[(&str, &[&str])] = &[
+            // explicit device file, with and without the device prefix
+            ("device:/dev/tpmrm0", &["/dev/tpmrm0"]),
+            ("device:/dev/tpm0", &["/dev/tpm0"]),
+            ("/dev/tpmrm0", &["/dev/tpmrm0"]),
+            // socket and default TCTIs fall back to the standard nodes
+            (
+                "mssim:host=localhost,port=2321",
+                &["/dev/tpmrm0", "/dev/tpm0"],
+            ),
+            ("swtpm:path=/tmp/swtpm-sock", &["/dev/tpmrm0", "/dev/tpm0"]),
+            ("device:", &["/dev/tpmrm0", "/dev/tpm0"]),
+            ("", &["/dev/tpmrm0", "/dev/tpm0"]),
+        ];
+        for (input, want) in cases {
+            assert_eq!(tpm_device_candidates(input), *want, "input={input:?}");
+        }
+    }
+
+    #[test]
+    fn tpm_present_probes_explicit_device_path() {
+        // /dev/null always exists on the Linux hosts scout runs on, so an explicit path pointing at
+        // it reports present, and a bogus /dev path reports absent.
+        assert!(tpm_present("device:/dev/null"));
+        assert!(tpm_present("/dev/null"));
+        assert!(!tpm_present("device:/dev/forge_scout_nonexistent_tpm"));
+        assert!(!tpm_present("/dev/forge_scout_nonexistent_tpm"));
     }
 }
