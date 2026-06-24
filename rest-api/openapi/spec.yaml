@@ -2372,7 +2372,7 @@ paths:
                       region: us-west-1
                       env: dev
                     status: Ready
-                    networkSecurityGroupId: 'c602eb90-3039-11f0-997a-b38d4fc8389e,'
+                    networkSecurityGroupId: 'c602eb90-3039-11f0-997a-b38d4fc8389e'
                     networkSecurityGroupPropagationDetails:
                       objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       detailedStatus: Partial

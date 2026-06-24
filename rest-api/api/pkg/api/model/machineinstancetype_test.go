@@ -39,11 +39,14 @@ func TestNewAPIMachineInstanceType(t *testing.T) {
 			},
 			want: func() *APIMachineInstanceType {
 				expected := &APIMachineInstanceType{
-					ID:             cutil.GetPtr(dbmit.ID.String()),
 					MachineID:      dbmit.MachineID,
 					InstanceTypeID: dbmit.InstanceTypeID.String(),
 					Created:        dbmit.Created,
 					Updated:        dbmit.Updated,
+				}
+
+				if time.Now().Before(machineInstanceTypeAssociationIDDeprecationTime) {
+					expected.ID = cutil.GetPtr(dbmit.ID.String())
 				}
 
 				for _, deprecation := range machineInstanceTypeDeprecations {

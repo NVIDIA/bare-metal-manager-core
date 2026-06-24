@@ -18,7 +18,7 @@ erDiagram
     Site ||--o{ IPBlock : contains
     Site ||--o{ Machine : contains
     Site ||--o{ InstanceType : offers
-    InstanceType }o--o{ Machine : groups
+    InstanceType ||--o{ Machine : groups
 
     Tenant ||--o{ VPC : owns
     Site ||--o{ VPC : hosts

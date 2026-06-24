@@ -114,10 +114,6 @@ Endpoints that have deprecations will be grouped here. Following deprecations ar
 
 - `id` attribute on Machine Instance Type association was deprecated in favor of `machineId` and will be removed on **September 10th, 2026 0:00 UTC**. Please use `machineId` instead.
 
-### Machine Instance Type
-
-- `id` attribute on Machine Instance Type association was deprecated in favor of `machineId` and will be removed on **July 9th, 2026 0:00 UTC**. Please use `machineId` instead.
-
 ### NVLink Logical Partition
 
 - `nvLinklogicalPartitionId` attribute on NVLink Interface was deprecated in favor of `nvLinkLogicalPartitionId` and will be removed on **September 10th, 2026 0:00 UTC**. Please use `nvLinkLogicalPartitionId` instead.
