@@ -21,6 +21,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/migrations"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
+	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
+	operationrunplanner "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/planner"
+	operationrunstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/store"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/inventorysync"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/leakdetection"
@@ -40,6 +43,7 @@ type Service struct {
 	inventoryManager       inventorymanager.Manager
 	taskStore              taskstore.Store
 	taskManager            taskmanager.Manager
+	operationRunManager    operationrunmanager.Manager
 	sched                  *scheduler.Scheduler
 	taskScheduleStore      taskschedule.Store
 	taskScheduleDispatcher *taskschedule.Dispatcher
@@ -70,6 +74,7 @@ func New(ctx context.Context, c Config) (*Service, error) {
 	invStore := inventorystore.NewPostgres(session)
 	tskStore := taskstore.NewPostgres(session)
 	schedStore := taskschedule.NewPostgresStore(session)
+	operationRunStore := operationrunstore.NewPostgresStore(session)
 
 	// 3. Create InventoryManager (Business Logic Layer)
 	invManager := inventorymanager.New(invStore)
@@ -88,13 +93,33 @@ func New(ctx context.Context, c Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create task manager: %w", err)
 	}
 
+	// 5. Create OperationRunManager (Business Logic Layer)
+	operationRunLookup := operationrunplanner.NewInventoryTargetLookup(
+		invManager,
+		operationRunStore,
+	)
+	operationRunPlanner := operationrunplanner.New(
+		operationRunLookup,
+		operationrunplanner.Config{
+			MaxCandidateScopeTargets: operationrunplanner.DefaultMaxCandidateScopeTargets,
+		},
+	)
+	operationRunManager, err := operationrunmanager.New(
+		operationRunStore,
+		operationRunPlanner,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create operation run manager: %w", err)
+	}
+
 	return &Service{
-		conf:              c,
-		session:           session,
-		inventoryManager:  invManager,
-		taskStore:         tskStore,
-		taskManager:       taskManager,
-		taskScheduleStore: schedStore,
+		conf:                c,
+		session:             session,
+		inventoryManager:    invManager,
+		taskStore:           tskStore,
+		taskManager:         taskManager,
+		operationRunManager: operationRunManager,
+		taskScheduleStore:   schedStore,
 	}, nil
 }
 
@@ -180,6 +205,7 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 		s.taskStore,
 		s.taskScheduleStore,
 		dispatcher,
+		s.operationRunManager,
 	)
 	if err != nil {
 		return err
