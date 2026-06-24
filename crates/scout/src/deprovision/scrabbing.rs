@@ -23,13 +23,12 @@ use carbide_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
-use smbioslib::SMBiosSystemInformation;
 use tracing::Instrument;
 
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
-use crate::{CarbideClientResult, IN_QEMU_VM};
+use crate::{CarbideClientResult, IN_QEMU_VM, platform};
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::Variable::from_str(
@@ -329,19 +328,21 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             let nsid = caps.get(1).map_or("", |m| m.as_str());
             tracing::debug!("namespace {}", nsid);
 
-            // format with "-s2" is secure erase
-            match cmdrun::run_prog(NVME_CLI_PROG, ["format", nvmename, "-s2", "-f", "-n", nsid])
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    if namespaces_supported {
-                        // format can fail if there is a wrong params for namespace. We delete it anyway.
-                        tracing::debug!("nvme format error: {}", e);
-                    } else {
-                        return Err(e);
-                    }
+            // secure erase with fallback: -s2 (crypto) -> -s1 (user-data) -> -s0 (none).
+            // Some drives reject crypto erase ("Invalid Command Opcode"); fall back, and if no
+            // mode is supported, log and continue (the OS install overwrites the disk).
+            let mut fmt_ok = false;
+            for ses in ["-s2", "-s1", "-s0"] {
+                if cmdrun::run_prog(NVME_CLI_PROG, ["format", nvmename, ses, "-f", "-n", nsid])
+                    .await
+                    .is_ok()
+                {
+                    fmt_ok = true;
+                    break;
                 }
+            }
+            if !fmt_ok {
+                tracing::warn!("nvme: no supported format mode on {} ns {}; continuing", nvmename, nsid);
             }
             if namespaces_supported {
                 // delete namespace
@@ -1093,22 +1094,9 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     Ok(cleanup_result)
 }
 
-fn is_host() -> bool {
-    match smbioslib::table_load_from_device() {
-        Ok(data) => data.any(|sys_info: SMBiosSystemInformation| {
-            !sys_info
-                .product_name()
-                .to_string()
-                .to_lowercase()
-                .contains("bluefield")
-        }),
-        Err(_err) => true,
-    }
-}
-
 pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClientResult<()> {
     tracing::info!("full deprovision starts.");
-    if !is_host() {
+    if !platform::is_host() {
         tracing::info!("full deprovision skipped, we are not running on a host.");
         // do not send API cleanup_machine_completed
         return Ok(());
@@ -1122,7 +1110,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
 }
 
 pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
-    if !is_host() {
+    if !platform::is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());
     }
