@@ -174,6 +174,14 @@ async fn test_integration() -> eyre::Result<()> {
             Ipv4Addr::new(10, 10, 11, 2),
         )
         .boxed(),
+        test_machine_a_tron_dpu_to_nic_mode_reregistration(
+            HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            // Relay IP in host-inband net
+            Ipv4Addr::new(10, 10, 11, 2),
+        )
+        .boxed(),
         test_machine_a_tron_dual_stack(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
@@ -731,6 +739,182 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+    .await
+}
+
+/// DPU-mode -> NIC-mode flip + zero-DPU re-ingestion (machine-a-tron harness,
+/// #2661 / #2632). A host boots as a managed-DPU machine, an operator declares
+/// NIC mode and force-deletes it with `--delete-interfaces`, and the host
+/// re-ingests with no managed DPUs -- exercising the simulated BlueField flip
+/// (`Mode.Set` staged, applied on power-cycle), the host converging off its DPU
+/// DHCP relay and dropping the DPU from its inventory, and site-explorer
+/// re-registering the host with zero managed DPUs.
+///
+/// Asserts the re-ingest milestone directly against the database -- the host's
+/// (stable, TPM-derived) machine row returns with its data-plane NIC and no
+/// managed DPU -- then drives the re-ingested NIC-mode host all the way to Ready.
+async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
+    hw_type: HostHardwareType,
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        hw_type,
+        1,
+        1,
+        // Start in DPU mode: the host comes up as a managed-DPU machine, and we
+        // flip it to NIC mode below.
+        false,
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_handle| {
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            async move {
+                // 1. Host reaches Ready as a managed-DPU machine.
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                    .await?;
+                let bmc_mac = machine_handle.host_info().bmc_mac_address.to_string();
+                let initial_machine_id = machine_handle
+                    .observed_machine_id()
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!(
+                    "Machine {initial_machine_id} (bmc_mac {bmc_mac}) is Ready in DPU mode; flipping to NIC mode"
+                );
+
+                // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
+                //    set `dpu_mode`, and round-trip the full message back through
+                //    UpdateExpectedMachine (the same get-mutate-update the admin CLI
+                //    `patch_expected_machine` uses, so we preserve every other field).
+                let get_req = serde_json::json!({ "bmc_mac_address": bmc_mac });
+                let expected_machine_json =
+                    api_test_helper::grpcurl::grpcurl(carbide_api_addrs, "GetExpectedMachine", Some(&get_req))
+                        .await?;
+                let mut expected_machine: serde_json::Value =
+                    serde_json::from_str(&expected_machine_json)?;
+                expected_machine["dpu_mode"] = serde_json::json!("NIC_MODE");
+                api_test_helper::grpcurl::grpcurl(
+                    carbide_api_addrs,
+                    "UpdateExpectedMachine",
+                    Some(&expected_machine),
+                )
+                .await?;
+                tracing::info!("ExpectedMachine for {bmc_mac} now declares NIC mode");
+
+                // 3. Force-delete the managed-DPU machine so site-explorer
+                //    re-ingests the host under the new declared mode. This is the
+                //    issue's `force-delete --delete-interfaces`: it removes the host
+                //    + DPU machine rows, their interfaces, and their explored-endpoint
+                //    records, so site-explorer rediscovers and re-ingests from scratch.
+                //
+                //    Query by the host's MachineId: `host_query` resolves a
+                //    data-plane MAC or a machine id, but not a BMC MAC
+                //    (`find_by_mac_address` excludes BMC interfaces), so the BMC MAC
+                //    used for the ExpectedMachine lookups above would not match here.
+                let force_delete_req = serde_json::json!({
+                    "host_query": initial_machine_id,
+                    "delete_interfaces": true,
+                });
+                api_test_helper::grpcurl::grpcurl(
+                    carbide_api_addrs,
+                    "AdminForceDeleteMachine",
+                    Some(&force_delete_req),
+                )
+                .await?;
+                tracing::info!("Force-deleted machine {initial_machine_id}; awaiting re-ingestion as NicMode");
+
+                // 4. Wait for the host to re-ingest as a zero-managed-DPU machine,
+                //    asserted directly against the database. The host's TPM-derived
+                //    MachineId is deterministic (a hash of its EK cert), so the
+                //    re-ingested host resurrects under the SAME id captured before
+                //    the flip -- the machine-a-tron handle's observed id is cleared
+                //    by the force-delete, so we key off the captured id. First
+                //    confirm the re-ingest milestone (the host row is back with its
+                //    NIC and no managed DPU); step 5 then drives it all the way to
+                //    Ready. Allow generous time for the rate-limited flip
+                //    power-cycle plus full rediscovery.
+                let host_id = initial_machine_id.to_string();
+                let pool = &test_env.db_pool;
+                let reingest_deadline = time::Instant::now() + Duration::from_secs(180);
+                loop {
+                    // The host row is back under its stable TPM-derived id.
+                    let host_exists: bool =
+                        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM machines WHERE id = $1)")
+                            .bind(&host_id)
+                            .fetch_one(pool)
+                            .await?;
+                    // It re-ingested with at least one data-plane (non-BMC) NIC.
+                    let nic_count: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM machine_interfaces \
+                         WHERE machine_id = $1 AND interface_type != 'Bmc'",
+                    )
+                    .bind(&host_id)
+                    .fetch_one(pool)
+                    .await?;
+                    // Zero managed DPUs: no data-plane interface still points at a
+                    // DPU (any non-null `attached_dpu_machine_id`), so the BlueField
+                    // flipped to NIC mode and is no longer managed. Count attachments
+                    // directly instead of joining `machines`, so a stale attachment
+                    // pointing at an already-deleted DPU row still counts.
+                    let managed_dpu_count: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM machine_interfaces \
+                         WHERE machine_id = $1 \
+                         AND interface_type != 'Bmc' \
+                         AND attached_dpu_machine_id IS NOT NULL",
+                    )
+                    .bind(&host_id)
+                    .fetch_one(pool)
+                    .await?;
+
+                    if host_exists && nic_count >= 1 && managed_dpu_count == 0 {
+                        tracing::info!(
+                            "Host re-ingested as zero-managed-DPU machine {host_id} \
+                             (nic_count={nic_count}); DPU->NIC flip applied"
+                        );
+                        break;
+                    }
+                    if time::Instant::now() >= reingest_deadline {
+                        panic!(
+                            "host {host_id} did not re-ingest as a zero-managed-DPU NicMode machine \
+                             within the timeout (host_exists={host_exists}, nic_count={nic_count}, \
+                             managed_dpu_count={managed_dpu_count})"
+                        );
+                    }
+                    sleep(Duration::from_secs(2)).await;
+                }
+
+                // 5. Drive the re-ingested NicMode host all the way to Ready --
+                //    the host BMC now serves an event log so the controller's
+                //    restart verification can confirm reboots, and the zero-DPU
+                //    lockdown short-circuit lets it skip the DPU-down wait.
+                tracing::info!("Waiting for re-ingested NicMode host {host_id} to reach Ready");
+                let ready_deadline = time::Instant::now() + Duration::from_secs(240);
+                loop {
+                    let resp = api_test_helper::grpcurl::grpcurl(
+                        carbide_api_addrs,
+                        "FindMachinesByIds",
+                        Some(&serde_json::json!({ "machine_ids": [{"id": host_id}] })),
+                    )
+                    .await?;
+                    let resp: serde_json::Value = serde_json::from_str(&resp)?;
+                    let state = resp["machines"][0]["state"].as_str().unwrap_or("");
+                    if state == "Ready" {
+                        tracing::info!("Re-ingested NicMode host {host_id} reached Ready ({state})");
+                        break;
+                    }
+                    if time::Instant::now() >= ready_deadline {
+                        panic!(
+                            "re-ingested NicMode host {host_id} did not reach Ready within the timeout (last state: {state})"
+                        );
+                    }
+                    sleep(Duration::from_secs(2)).await;
+                }
                 Ok::<(), eyre::Report>(())
             }
         },

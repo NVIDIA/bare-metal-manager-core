@@ -339,9 +339,29 @@ impl HostMachine {
             return Duration::MAX;
         }
 
+        self.maybe_converge_after_dpu_flip();
+
         let sleep_duration = self.state_machine.advance().await;
         tracing::trace!("state_machine.advance end");
         sleep_duration
+    }
+
+    /// When a managed DPU flips to NIC mode it becomes a plain NIC, so this host
+    /// must stop relaying its data-plane DHCP through the DPU and instead DHCP
+    /// directly (on the same former-DPU host MAC, so a retained boot interface
+    /// still matches). Detect the flip through the DPU handle and detach the
+    /// relay once; the host then re-ingests as a zero-managed-DPU NIC-mode
+    /// machine on its next power cycle.
+    fn maybe_converge_after_dpu_flip(&mut self) {
+        if self.state_machine.has_dpu_dhcp_relay()
+            && self.dpus.iter().any(|dpu| dpu.flipped_to_nic_mode())
+        {
+            tracing::info!(
+                "a managed DPU flipped to NIC mode; converging the host to zero managed DPUs (detaching its DPU DHCP relay and dropping the DPU from its reported inventory) so it re-ingests as a NIC-mode host"
+            );
+            self.state_machine.detach_dpu_dhcp_relay();
+            self.state_machine.drop_managed_dpus();
+        }
     }
 
     async fn handle_actor_message(&mut self, message: HostMachineMessage) -> HandleMessageResult {
