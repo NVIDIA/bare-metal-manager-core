@@ -168,8 +168,9 @@ fn get_supported_components<'a>(
     let supported_devices = BTreeMap::from([
         (PRODUCT_GB200, ["HGX_IRoT_GPU"]),
         // BlueField DPU: attest the Initial Root of Trust (Arm/NIC identity).
-        // BlueField_ERoT is the BMC's own RoT and is intentionally excluded.
-        (PRODUCT_BF3_DPU, ["BlueField_DPU_IRoT"]),
+        // Bluefield_ERoT is the BMC's own RoT and is intentionally excluded.
+        // Real Redfish id casing is "Bluefield_DPU_IRoT" (matched case-insensitively below).
+        (PRODUCT_BF3_DPU, ["Bluefield_DPU_IRoT"]),
     ]);
 
     let supported_versions = ["1.1.0"]; // This can be configurable value.
@@ -190,10 +191,13 @@ fn get_supported_components<'a>(
             continue;
         }
 
+        // Case-insensitive: BlueField Redfish ids use inconsistent casing
+        // ("Bluefield_DPU_IRoT"); harmless for the all-uppercase GPU stems.
+        let component_id_lower = component.id.to_ascii_lowercase();
         let is_supported = match supported_devices.get(product) {
             Some(device_id_stems) => device_id_stems
                 .iter()
-                .any(|device_id_stem| component.id.contains(device_id_stem)),
+                .any(|stem| component_id_lower.contains(&stem.to_ascii_lowercase())),
             None => false,
         };
 
@@ -245,13 +249,14 @@ mod tests {
     fn bluefield_dpu_irot_is_selected_and_erot_is_excluded() {
         // The DPU BMC exposes both BlueField_DPU_IRoT (Arm/NIC identity) and
         // BlueField_ERoT (BMC's own RoT). Only the IRoT is attested for identity.
+        // Real device casing: "Bluefield_DPU_IRoT" / "Bluefield_ERoT".
         let ci = integrities(vec![
-            spdm_component("BlueField_DPU_IRoT"),
-            spdm_component("BlueField_ERoT"),
+            spdm_component("Bluefield_DPU_IRoT"),
+            spdm_component("Bluefield_ERoT"),
         ]);
         let selected = get_supported_components(PRODUCT_BF3_DPU, &ci);
         let ids: Vec<&str> = selected.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(ids, vec!["BlueField_DPU_IRoT"]);
+        assert_eq!(ids, vec!["Bluefield_DPU_IRoT"]);
     }
 
     #[test]

@@ -198,11 +198,13 @@ pub mod spdm {
     impl FromStr for DeviceType {
         type Err = SpdmHandlerError;
         fn from_str(s: &str) -> Result<Self, Self::Err> {
+            // BlueField IRoT is matched case-insensitively: the vendor's Redfish
+            // id is "Bluefield_DPU_IRoT" while the brand is "BlueField".
             Ok(if s.contains("GPU") {
                 DeviceType::Gpu
             } else if s.contains("CX7") {
                 DeviceType::Cx7
-            } else if s.contains("BlueField_DPU_IRoT") {
+            } else if s.to_ascii_lowercase().contains("bluefield_dpu_irot") {
                 DeviceType::BlueFieldIRoT
             } else {
                 DeviceType::Unknown
@@ -506,7 +508,12 @@ mod test {
                 "CX7" => Yields("Cx7".to_string()),
             }
 
+            // Real device id casing is "Bluefield_DPU_IRoT"; match is case-insensitive.
             "bluefield dpu irot" {
+                "Bluefield_DPU_IRoT" => Yields("BlueFieldIRoT".to_string()),
+            }
+
+            "bluefield dpu irot alternate casing" {
                 "BlueField_DPU_IRoT" => Yields("BlueFieldIRoT".to_string()),
             }
 

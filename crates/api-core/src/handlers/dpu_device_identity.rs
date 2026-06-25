@@ -47,9 +47,11 @@ use crate::attestation::dpu_device::{
 };
 
 /// SPDM `ComponentIntegrity` id of the BlueField DPU Initial Root of Trust — the
-/// Arm/NIC device-identity target. (`BlueField_ERoT` is the BMC's own root of
-/// trust and is intentionally not used here.)
-const BLUEFIELD_DPU_IROT: &str = "BlueField_DPU_IRoT";
+/// Arm/NIC device-identity target. (`Bluefield_ERoT` is the BMC's own root of
+/// trust and is intentionally not used here.) Matched case-insensitively because
+/// the vendor's casing is inconsistent (brand "BlueField" vs Redfish id
+/// "Bluefield").
+const BLUEFIELD_DPU_IROT: &str = "Bluefield_DPU_IRoT";
 
 /// Resolves the `machine_id` to use for a DPU under the configured
 /// [`DpuDeviceAttestationMode`]. `legacy_id` is the serial-derived id. Returns
@@ -149,7 +151,7 @@ async fn fetch_and_verify_irot(
     let Some(cert_link) = integrities
         .members
         .into_iter()
-        .find(|m| m.id.contains(BLUEFIELD_DPU_IROT))
+        .find(|m| m.id.eq_ignore_ascii_case(BLUEFIELD_DPU_IROT))
         .and_then(|m| m.spdm)
         .map(|s| {
             s.identity_authentication
