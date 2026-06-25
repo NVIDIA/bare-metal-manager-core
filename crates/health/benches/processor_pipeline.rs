@@ -20,7 +20,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, ComponentType, EndpointMetadata, MachineData};
+use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
