@@ -110,6 +110,10 @@ pub enum DpuAttestError {
     MissingSerial,
     #[error("could not parse PEM certificate bundle: {0}")]
     Pem(String),
+    #[error(
+        "device identity is required (mode = required) but no verified device certificate was available"
+    )]
+    DeviceIdentityRequired,
 }
 
 /// Verifies a DPU device-identity **certificate chain** (no proof of
@@ -323,34 +327,57 @@ impl DpuIdentity {
     }
 }
 
-/// Chooses a DPU's [`MachineId`] under the backward-compatibility policy.
+/// Policy for how a DPU's device-identity certificate participates in
+/// `machine_id` assignment. Configured via `[dpu_device_attestation] mode`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DpuDeviceAttestationMode {
+    /// Off: DPUs always use the legacy serial-derived id (current behavior).
+    #[default]
+    Disabled,
+    /// Prefer the hardware-rooted id for a new DPU, but fall back to the legacy
+    /// id when the device certificate is unavailable or fails verification.
+    BestEffort,
+    /// A new DPU must present a verifiable device identity; discovery fails
+    /// (fail closed) when one is not available.
+    Required,
+}
+
+/// Chooses a DPU's [`MachineId`] under the backward-compatibility policy and the
+/// configured [`DpuDeviceAttestationMode`].
 ///
 /// - `legacy_id` is the serial-derived id computed exactly as today
 ///   (`machine_id::from_hardware_info`).
-/// - `verified_device` is `Some` only when device attestation was supplied and
-///   passed [`verify_dpu_device_attestation`]; the handler gates this on the
-///   feature flag, so this function need not know about it.
+/// - `verified_device` is `Some` only when a device certificate was available
+///   and passed verification (chain-to-root, and proof-of-possession on the
+///   in-band path).
 /// - `legacy_machine_known` is whether a machine already exists under
 ///   `legacy_id` (the caller looks this up in the DB).
 ///
-/// Existing DPUs (`legacy_machine_known == true`) always keep `legacy_id`, so an
-/// upgrade re-keys nothing. Only a previously-unseen DPU that proves a device
-/// identity adopts the device-rooted id. Because the device-rooted id is
-/// deterministic and a new DPU is never stored under its `legacy_id`, that DPU's
-/// *subsequent* discoveries resolve here too and keep the same device-rooted id.
+/// Existing DPUs (`legacy_machine_known == true`) always keep `legacy_id` in
+/// every mode, so an upgrade re-keys nothing. For a previously-unseen DPU:
+/// `Disabled` always uses the legacy id; `BestEffort` uses the device-rooted id
+/// when a verified cert is available and otherwise falls back to the legacy id;
+/// `Required` uses the device-rooted id or fails with
+/// [`DpuAttestError::DeviceIdentityRequired`]. The device-rooted id is
+/// deterministic, so a new DPU's subsequent discoveries resolve the same id.
 pub fn select_dpu_machine_id(
+    mode: DpuDeviceAttestationMode,
     legacy_id: MachineId,
     verified_device: Option<&VerifiedDpuDevice>,
     legacy_machine_known: bool,
-) -> DpuIdentity {
+) -> Result<DpuIdentity, DpuAttestError> {
     if legacy_machine_known {
         // Backward compatible: a DPU we have already enrolled keeps its original
-        // key regardless of whether it now also presents a device attestation.
-        return DpuIdentity::ExistingLegacy(legacy_id);
+        // key regardless of mode or of any device attestation it now presents.
+        return Ok(DpuIdentity::ExistingLegacy(legacy_id));
     }
-    match verified_device {
-        Some(device) => DpuIdentity::NewDeviceRooted(device.machine_id),
-        None => DpuIdentity::NewLegacy(legacy_id),
+    match (mode, verified_device) {
+        (DpuDeviceAttestationMode::Disabled, _) => Ok(DpuIdentity::NewLegacy(legacy_id)),
+        (_, Some(device)) => Ok(DpuIdentity::NewDeviceRooted(device.machine_id)),
+        // New DPU with no verified device identity:
+        (DpuDeviceAttestationMode::BestEffort, None) => Ok(DpuIdentity::NewLegacy(legacy_id)),
+        (DpuDeviceAttestationMode::Required, None) => Err(DpuAttestError::DeviceIdentityRequired),
     }
 }
 
@@ -620,31 +647,52 @@ mod tests {
         }
     }
 
+    use DpuDeviceAttestationMode::{BestEffort, Disabled, Required};
+
     #[test]
-    fn existing_dpu_keeps_legacy_id_even_with_attestation() {
+    fn existing_dpu_keeps_legacy_id_in_every_mode() {
         let device = verified("MT-existing");
-        // legacy_machine_known = true: this DPU is already enrolled.
-        let decision = select_dpu_machine_id(legacy_id(), Some(&device), true);
-        assert_eq!(decision, DpuIdentity::ExistingLegacy(legacy_id()));
-        assert_eq!(decision.machine_id(), legacy_id());
+        // legacy_machine_known = true: this DPU is already enrolled. It keeps its
+        // legacy id even in Required mode and even when it presents a cert.
+        for mode in [Disabled, BestEffort, Required] {
+            let decision = select_dpu_machine_id(mode, legacy_id(), Some(&device), true).unwrap();
+            assert_eq!(decision, DpuIdentity::ExistingLegacy(legacy_id()));
+        }
     }
 
     #[test]
     fn new_dpu_with_attestation_gets_device_rooted_id() {
         let device = verified("MT-brand-new");
-        let decision = select_dpu_machine_id(legacy_id(), Some(&device), false);
-        assert_eq!(decision, DpuIdentity::NewDeviceRooted(device.machine_id));
-        assert_eq!(
-            decision.machine_id().source(),
-            MachineIdSource::DpuDeviceCert
+        for mode in [BestEffort, Required] {
+            let decision = select_dpu_machine_id(mode, legacy_id(), Some(&device), false).unwrap();
+            assert_eq!(decision, DpuIdentity::NewDeviceRooted(device.machine_id));
+            assert_eq!(
+                decision.machine_id().source(),
+                MachineIdSource::DpuDeviceCert
+            );
+        }
+    }
+
+    #[test]
+    fn best_effort_falls_back_to_legacy_when_no_cert() {
+        let decision = select_dpu_machine_id(BestEffort, legacy_id(), None, false).unwrap();
+        assert_eq!(decision, DpuIdentity::NewLegacy(legacy_id()));
+    }
+
+    #[test]
+    fn required_fails_when_no_cert_for_new_dpu() {
+        let err = select_dpu_machine_id(Required, legacy_id(), None, false).unwrap_err();
+        assert!(
+            matches!(err, DpuAttestError::DeviceIdentityRequired),
+            "got {err:?}"
         );
     }
 
     #[test]
-    fn new_dpu_without_attestation_falls_back_to_legacy() {
-        let decision = select_dpu_machine_id(legacy_id(), None, false);
+    fn disabled_always_uses_legacy_even_with_cert() {
+        let device = verified("MT-disabled");
+        let decision = select_dpu_machine_id(Disabled, legacy_id(), Some(&device), false).unwrap();
         assert_eq!(decision, DpuIdentity::NewLegacy(legacy_id()));
-        assert_eq!(decision.machine_id(), legacy_id());
     }
 
     #[test]
@@ -653,8 +701,8 @@ mod tests {
         // legacy id, so on re-discovery legacy_machine_known stays false and it
         // resolves to the same device-rooted id again.
         let device = verified("MT-stable");
-        let first = select_dpu_machine_id(legacy_id(), Some(&device), false);
-        let second = select_dpu_machine_id(legacy_id(), Some(&device), false);
+        let first = select_dpu_machine_id(BestEffort, legacy_id(), Some(&device), false).unwrap();
+        let second = select_dpu_machine_id(BestEffort, legacy_id(), Some(&device), false).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.machine_id(), device.machine_id);
     }

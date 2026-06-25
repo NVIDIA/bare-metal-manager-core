@@ -264,6 +264,7 @@ pub fn get() -> CarbideConfig {
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
+        dpu_device_attestation: crate::cfg::file::DpuDeviceAttestationConfig::default(),
         spdm: SpdmConfig {
             enabled: false,
             nras_config: Some(nras::Config::default()),

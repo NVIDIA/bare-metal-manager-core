@@ -380,6 +380,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub spdm_state_controller: SpdmStateControllerConfig,
 
+    /// DPU device-identity attestation: whether a DPU's BlueField IRoT device
+    /// certificate is used to assign a hardware-rooted `machine_id`. Section
+    /// `[dpu_device_attestation]`.
+    #[serde(default)]
+    pub dpu_device_attestation: DpuDeviceAttestationConfig,
+
     /// Maps host model identifiers to firmware definitions,
     /// used by the firmware manager to determine BMC, UEFI,
     /// and NIC upgrade targets for each host type.
@@ -1464,6 +1470,19 @@ impl Default for MachineIdentityConfig {
             signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
         }
     }
+}
+
+/// DPU device-identity attestation configuration.
+/// Loaded from the `[dpu_device_attestation]` section in config.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpuDeviceAttestationConfig {
+    /// Policy for using a DPU's BlueField IRoT device certificate to assign its
+    /// `machine_id`. `disabled` (default) keeps the legacy serial-derived id;
+    /// `best_effort` uses the device-rooted id when the certificate is available
+    /// and verifiable, falling back to the legacy id otherwise; `required` fails
+    /// discovery for a new DPU when a verified device identity is unavailable.
+    #[serde(default)]
+    pub mode: crate::attestation::dpu_device::DpuDeviceAttestationMode,
 }
 
 impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
