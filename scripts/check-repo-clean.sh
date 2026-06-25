@@ -5,6 +5,11 @@
 set -euo pipefail
 
 context="${1:-Repository check}"
+
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+	git config --global --add safe.directory "$(pwd -P)"
+fi
+
 untracked="$(git ls-files --others --exclude-standard)"
 
 if git diff --quiet --exit-code && [[ -z "${untracked}" ]]; then

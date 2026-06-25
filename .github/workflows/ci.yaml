@@ -640,9 +640,7 @@ jobs:
             '
 
       - name: Final repository clean check
-        run: |
-          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
-          bash scripts/check-repo-clean.sh "release-container service tests"
+        run: bash scripts/check-repo-clean.sh "release-container service tests"
 
   # ============================================================================
   # BUILD STAGE - Forge CLI (Multi-arch)
