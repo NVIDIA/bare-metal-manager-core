@@ -1058,6 +1058,8 @@ jobs:
 
   check-rest-core-proto-sync:
     name: Check REST Core Proto Sync
+    permissions:
+      contents: read
     needs:
       - prepare
     if: ${{ needs.prepare.outputs.core_rpc_proto_files_changed == 'true' }}
@@ -1065,6 +1067,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v5
