@@ -87,12 +87,27 @@ pub(crate) async fn discover_machine(
     }
 
     // Generate a stable Machine ID based on the hardware information
-    let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
+    let mut stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
                 format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {interface_id:?}: {e}"),
             )
         })?;
     log_machine_id(&stable_machine_id);
+
+    // For a DPU, the BlueField IRoT device certificate (fetched out-of-band from
+    // the DPU BMC) can replace the serial-derived id with a hardware-rooted one,
+    // governed by the [dpu_device_attestation] mode. A no-op when disabled or for
+    // an already-enrolled DPU; fails closed in `required` mode. Runs before the
+    // discovery transaction is opened (its own reads/writes are self-contained).
+    if hardware_info.is_dpu() {
+        stable_machine_id = crate::handlers::dpu_device_identity::resolve_dpu_device_identity(
+            api,
+            &hardware_info,
+            stable_machine_id,
+        )
+        .await?;
+        log_machine_id(&stable_machine_id);
+    }
 
     // Build NVLink info from scout GPU platform info. domain_uuid is backfilled by the
     // NVLink partition monitor from NMX-C hello.

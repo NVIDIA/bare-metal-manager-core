@@ -15,62 +15,29 @@
  * limitations under the License.
  */
 
-//! DPU device attestation (spike / design exploration).
+//! DPU device-identity verification.
 //!
-//! BlueField DPUs ship with a factory-provisioned **device identity
-//! certificate** (a DICE-style IDevID) whose private key never leaves the
-//! device and whose certificate chains to an NVIDIA device CA. This module is a
-//! prototype of using that certificate as a *hardware root of trust* for DPU
-//! bootstrap — the DPU equivalent of the host TPM EK-certificate path in
-//! [`crate::attestation::tpm_ca_cert`].
+//! BlueField DPUs carry a factory-provisioned device-identity certificate (a
+//! DICE-style IDevID) chaining to an NVIDIA device CA. carbide uses it as a
+//! hardware root of trust for DPU identity — the DPU analog of the host TPM
+//! EK-certificate path in [`crate::attestation::tpm_ca_cert`]. Otherwise DPUs
+//! skip attestation: `DiscoverMachine` derives a DPU's identity from
+//! self-asserted DMI serials over an anonymous channel.
 //!
-//! Today (see issue NVIDIA/infra-controller#355 discussion) DPUs **skip
-//! attestation entirely**: `DiscoverMachine` derives a DPU's identity from
-//! self-asserted DMI serials over an anonymous channel. This module shows what
-//! it looks like to instead *prove* a DPU's identity:
-//!
-//! 1. The API issues a random `nonce` (challenge) during discovery.
-//! 2. The DPU returns its device certificate chain plus an ECDSA signature over
-//!    the nonce produced with the device private key.
-//! 3. [`verify_dpu_device_attestation`] verifies the chain to a trusted NVIDIA
-//!    device CA **and** the nonce signature (proof of possession), then derives
-//!    a hardware-rooted [`MachineId`] from the verified leaf certificate.
-//!
-//! The resulting `MachineId` uses [`MachineIdSource::DpuDeviceCert`], so it is
-//! distinguishable from the legacy self-asserted serial-derived IDs.
-//!
-//! Scope of this spike: the cryptographic core is real and unit-tested. The
-//! gRPC message plumbing and the `DiscoverMachine` call site are sketched in the
-//! crate review notes, not wired here, so the nonce-issuance/storage path (which
-//! mirrors the host AK-challenge flow in `db::attestation::secret_ak_pub`) stays
-//! out of this module.
+//! The IRoT device-certificate chain is fetched **out-of-band** from the DPU
+//! BMC over Redfish SPDM `ComponentIntegrity` (see
+//! [`crate::handlers::dpu_device_identity`]) and verified here against the
+//! configured NVIDIA device roots via [`verify_device_cert_chain`]. A verified
+//! chain yields a hardware-rooted [`MachineId`] (source
+//! [`MachineIdSource::DpuDeviceCert`]); [`select_dpu_machine_id`] then applies
+//! the backward-compatibility and [`DpuDeviceAttestationMode`] policy.
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use chrono::{DateTime, Utc};
-use p256::ecdsa::signature::Verifier;
-use p256::ecdsa::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use x509_parser::prelude::{FromDer, X509Certificate};
 
-/// Attestation material presented by a DPU during discovery. Field names mirror
-/// the proposed `DpuDeviceAttestation` protobuf message (see review notes).
-#[derive(Debug, Clone)]
-pub struct DpuDeviceAttestation {
-    /// DER-encoded certificate chain, leaf first: `[device_cert, intermediate…]`.
-    /// The chain need not include the trust anchor; the anchor is supplied
-    /// separately via [`verify_dpu_device_attestation`]'s `trusted_roots`.
-    pub device_cert_chain: Vec<Vec<u8>>,
-    /// The server-issued challenge the device signed. Echoing it back lets the
-    /// server confirm freshness (anti-replay) without per-device state beyond
-    /// the outstanding-nonce record.
-    pub nonce: Vec<u8>,
-    /// DER-encoded ECDSA (P-256) signature over `nonce`, produced with the
-    /// device certificate's private key.
-    pub nonce_signature: Vec<u8>,
-}
-
-/// A DPU whose device certificate verified to a trusted NVIDIA device CA and
-/// which proved possession of the device key.
+/// A DPU whose device certificate verified to a trusted NVIDIA device CA.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedDpuDevice {
     /// Hardware-rooted machine identity derived from the verified device cert.
@@ -100,12 +67,6 @@ pub enum DpuAttestError {
     },
     #[error("device certificate does not chain to any trusted NVIDIA device CA")]
     NoTrustedRoot,
-    #[error("device leaf public key is not a usable P-256 key: {0}")]
-    BadDeviceKey(String),
-    #[error("nonce signature is malformed: {0}")]
-    MalformedSignature(String),
-    #[error("nonce signature did not verify against the device key (proof of possession failed)")]
-    ProofOfPossession,
     #[error("device certificate subject has no common name to use as a serial")]
     MissingSerial,
     #[error("could not parse PEM certificate bundle: {0}")]
@@ -122,8 +83,6 @@ pub enum DpuAttestError {
     IssuerNameMismatch { index: usize },
     #[error("issuer certificate at chain index {index} is not a CA")]
     IssuerNotCa { index: usize },
-    #[error("attestation nonce does not match the server-issued challenge")]
-    NonceMismatch,
 }
 
 /// Verifies a DPU device-identity **certificate chain** (no proof of
@@ -243,52 +202,6 @@ pub fn pem_chain_to_der(pem: &str) -> Result<Vec<Vec<u8>>, DpuAttestError> {
         ));
     }
     Ok(ders)
-}
-
-/// Convenience wrapper over [`verify_device_cert_chain`] that accepts PEM inputs
-/// — the cert chain as stored by the SPDM path and the configured trust anchors.
-pub fn verify_device_cert_chain_pem(
-    device_cert_chain_pem: &str,
-    trusted_roots_pem: &str,
-    now: DateTime<Utc>,
-) -> Result<VerifiedDpuDevice, DpuAttestError> {
-    let chain = pem_chain_to_der(device_cert_chain_pem)?;
-    let roots = pem_chain_to_der(trusted_roots_pem)?;
-    verify_device_cert_chain(&chain, &roots, now)
-}
-
-/// Verifies a DPU device attestation **including proof of possession** — the
-/// in-band path where the DPU agent presents its device cert chain plus an
-/// ECDSA signature over a server-issued nonce. Builds on
-/// [`verify_device_cert_chain`] and adds the nonce-signature check.
-pub fn verify_dpu_device_attestation(
-    attestation: &DpuDeviceAttestation,
-    expected_nonce: &[u8],
-    trusted_roots: &[Vec<u8>],
-    now: DateTime<Utc>,
-) -> Result<VerifiedDpuDevice, DpuAttestError> {
-    let verified = verify_device_cert_chain(&attestation.device_cert_chain, trusted_roots, now)?;
-
-    // The echoed nonce must equal the server-issued challenge; otherwise a
-    // captured (nonce, signature) pair could be replayed against a fresh request.
-    if attestation.nonce.as_slice() != expected_nonce {
-        return Err(DpuAttestError::NonceMismatch);
-    }
-
-    // Proof of possession: the device must have signed the server's nonce with
-    // the private key matching the (already chain-verified) leaf certificate.
-    // Verify over `expected_nonce` so the signature is bound to the challenge.
-    let leaf = parse_full_cert(&attestation.device_cert_chain[0], 0)?;
-    let leaf_point = leaf.public_key().subject_public_key.data.as_ref();
-    let verifying_key = VerifyingKey::from_sec1_bytes(leaf_point)
-        .map_err(|e| DpuAttestError::BadDeviceKey(e.to_string()))?;
-    let signature = Signature::from_der(&attestation.nonce_signature)
-        .map_err(|e| DpuAttestError::MalformedSignature(e.to_string()))?;
-    verifying_key
-        .verify(expected_nonce, &signature)
-        .map_err(|_| DpuAttestError::ProofOfPossession)?;
-
-    Ok(verified)
 }
 
 /// Derives a stable, hardware-rooted DPU [`MachineId`] from the DER bytes of a
@@ -414,9 +327,6 @@ fn cert_valid_at(cert: &X509Certificate<'_>, now_ts: i64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use p256::ecdsa::SigningKey;
-    use p256::ecdsa::signature::Signer;
-    use p256::pkcs8::DecodePrivateKey;
     use rcgen::{
         BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, date_time_ymd,
     };
@@ -449,11 +359,10 @@ mod tests {
         }
     }
 
-    /// A device (leaf) certificate signed by `ca`, plus its P-256 signing key.
+    /// A device (leaf) certificate signed by `ca`, in DER and PEM form.
     struct TestDevice {
         cert_der: Vec<u8>,
         cert_pem: String,
-        signing_key: SigningKey,
     }
 
     fn make_device(ca: &TestCa, serial: &str, not_after_ymd: (i32, u8, u8)) -> TestDevice {
@@ -465,18 +374,10 @@ mod tests {
         params.not_after = date_time_ymd(y, m, d);
         let issuer = Issuer::from_params(&ca.params, &ca.key);
         let cert = params.signed_by(&key, &issuer).expect("sign device cert");
-        let signing_key =
-            SigningKey::from_pkcs8_pem(&key.serialize_pem()).expect("device signing key");
         TestDevice {
             cert_der: cert.der().to_vec(),
             cert_pem: cert.pem(),
-            signing_key,
         }
-    }
-
-    fn sign_nonce(device: &TestDevice, nonce: &[u8]) -> Vec<u8> {
-        let sig: Signature = device.signing_key.sign(nonce);
-        sig.to_der().as_bytes().to_vec()
     }
 
     fn now() -> DateTime<Utc> {
@@ -484,111 +385,11 @@ mod tests {
     }
 
     #[test]
-    fn valid_attestation_yields_hardware_rooted_dpu_identity() {
-        let ca = make_ca("NVIDIA BlueField Device CA");
-        let device = make_device(&ca, "MT2147XYZ001", (2030, 1, 1));
-        let nonce = b"server-issued-nonce-123".to_vec();
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![device.cert_der.clone()],
-            nonce_signature: sign_nonce(&device, &nonce),
-            nonce,
-        };
-
-        let verified = verify_dpu_device_attestation(
-            &attestation,
-            b"server-issued-nonce-123",
-            &[ca.cert_der.clone()],
-            now(),
-        )
-        .unwrap();
-
-        assert_eq!(verified.device_serial, "MT2147XYZ001");
-        assert_eq!(verified.machine_id.machine_type(), MachineType::Dpu);
-        assert_eq!(verified.machine_id.source(), MachineIdSource::DpuDeviceCert);
-        // Identity is deterministic in the device cert.
-        assert_eq!(
-            verified.machine_id,
-            machine_id_from_device_cert(&device.cert_der)
-        );
-    }
-
-    #[test]
-    fn untrusted_root_is_rejected() {
-        let real_ca = make_ca("NVIDIA BlueField Device CA");
-        let rogue_ca = make_ca("Totally Legit Device CA");
-        let device = make_device(&rogue_ca, "MT2147XYZ002", (2030, 1, 1));
-        let nonce = b"nonce".to_vec();
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![device.cert_der.clone()],
-            nonce_signature: sign_nonce(&device, &nonce),
-            nonce,
-        };
-
-        // Only the real CA is trusted; the device was signed by the rogue CA.
-        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[real_ca.cert_der], now())
-            .unwrap_err();
-        assert!(matches!(err, DpuAttestError::NoTrustedRoot), "got {err:?}");
-    }
-
-    #[test]
-    fn wrong_key_signature_fails_proof_of_possession() {
-        let ca = make_ca("NVIDIA BlueField Device CA");
-        let device = make_device(&ca, "MT2147XYZ003", (2030, 1, 1));
-        // Sign the nonce with an unrelated key, not the device key.
-        let attacker = make_device(&ca, "attacker", (2030, 1, 1));
-        let nonce = b"nonce".to_vec();
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![device.cert_der],
-            nonce_signature: sign_nonce(&attacker, &nonce),
-            nonce,
-        };
-
-        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[ca.cert_der], now())
-            .unwrap_err();
-        assert!(
-            matches!(err, DpuAttestError::ProofOfPossession),
-            "got {err:?}"
-        );
-    }
-
-    #[test]
-    fn echoed_nonce_not_matching_challenge_is_rejected() {
-        // The device echoes a nonce that differs from the server-issued
-        // challenge: rejected before the signature is even checked, so a
-        // captured (nonce, signature) pair cannot be replayed.
-        let ca = make_ca("NVIDIA BlueField Device CA");
-        let device = make_device(&ca, "MT2147XYZ004", (2030, 1, 1));
-        let nonce_signature = sign_nonce(&device, b"a-different-nonce");
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![device.cert_der],
-            nonce: b"a-different-nonce".to_vec(),
-            nonce_signature,
-        };
-
-        let err = verify_dpu_device_attestation(
-            &attestation,
-            b"the-server-challenge",
-            &[ca.cert_der],
-            now(),
-        )
-        .unwrap_err();
-        assert!(matches!(err, DpuAttestError::NonceMismatch), "got {err:?}");
-    }
-
-    #[test]
     fn expired_device_cert_is_rejected() {
         let ca = make_ca("NVIDIA BlueField Device CA");
         // not_after in the past relative to `now()`.
         let device = make_device(&ca, "MT2147XYZ005", (2025, 1, 1));
-        let nonce = b"nonce".to_vec();
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![device.cert_der.clone()],
-            nonce_signature: sign_nonce(&device, &nonce),
-            nonce,
-        };
-
-        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[ca.cert_der], now())
-            .unwrap_err();
+        let err = verify_device_cert_chain(&[device.cert_der], &[ca.cert_der], now()).unwrap_err();
         assert!(
             matches!(err, DpuAttestError::CertNotValid { index: 0, .. }),
             "got {err:?}"
@@ -597,12 +398,7 @@ mod tests {
 
     #[test]
     fn empty_chain_is_rejected() {
-        let attestation = DpuDeviceAttestation {
-            device_cert_chain: vec![],
-            nonce: b"nonce".to_vec(),
-            nonce_signature: vec![],
-        };
-        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[], now()).unwrap_err();
+        let err = verify_device_cert_chain(&[], &[], now()).unwrap_err();
         assert!(matches!(err, DpuAttestError::EmptyChain), "got {err:?}");
     }
 
@@ -650,7 +446,9 @@ mod tests {
         let ca = make_ca("NVIDIA BlueField Device CA");
         let device = make_device(&ca, "MT-irot-pem", (2030, 1, 1));
 
-        let verified = verify_device_cert_chain_pem(&device.cert_pem, &ca.cert_pem, now()).unwrap();
+        let chain = pem_chain_to_der(&device.cert_pem).unwrap();
+        let roots = pem_chain_to_der(&ca.cert_pem).unwrap();
+        let verified = verify_device_cert_chain(&chain, &roots, now()).unwrap();
         assert_eq!(verified.device_serial, "MT-irot-pem");
         // PEM and DER entry points agree on the derived identity.
         assert_eq!(

@@ -45,6 +45,27 @@ pub struct TpmCaCert {
     pub cert_subject: Vec<u8>,
 }
 
+/// Trusted NVIDIA BlueField device root CA used to validate a DPU's IRoT
+/// device-identity certificate chain. Mirrors [`TpmCaCert`] for the DPU path.
+#[derive(FromRow, Debug, sqlx::Encode)]
+pub struct DpuDeviceCaCert {
+    pub id: i32,
+    pub not_valid_before: DateTime<Utc>,
+    pub not_valid_after: DateTime<Utc>,
+    pub ca_cert_der: Vec<u8>,
+    pub cert_subject: Vec<u8>,
+}
+
+/// Record that a DPU's device-identity certificate was verified against a
+/// trusted root, bound to the machine_id it was assigned. One row per machine.
+#[derive(FromRow, Debug)]
+pub struct DpuDeviceCertStatus {
+    pub machine_id: MachineId,
+    pub device_cert_sha256: Vec<u8>,
+    pub device_serial: String,
+    pub verified_at: DateTime<Utc>,
+}
+
 /// Model for SPDM attestation via Redfish
 pub mod spdm {
     use std::fmt::Display;

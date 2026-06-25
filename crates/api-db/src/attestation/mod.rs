@@ -17,6 +17,8 @@
 
 pub mod secret_ak_pub;
 
+pub mod dpu_device_ca_certs;
+pub mod dpu_device_cert_status;
 pub mod ek_cert_verification_status;
 pub mod spdm;
 pub mod tpm_ca_certs;
