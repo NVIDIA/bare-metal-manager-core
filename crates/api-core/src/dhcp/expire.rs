@@ -33,6 +33,7 @@ pub async fn expire_dhcp_lease(
         mac_address,
     } = request.into_inner();
     let ip_address: IpAddr = ip_address.parse()?;
+
     let mac_address: Option<MacAddress> = mac_address
         .as_deref()
         .map(|m| m.parse::<MacAddress>().map_err(CarbideError::from))
@@ -44,6 +45,28 @@ pub async fn expire_dhcp_lease(
     // its hostname afterward. The JOIN in find_by_ip requires the address row
     // to still exist, so we must do this before the delete.
     let interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
+
+    if ip_address.is_ipv4() || ip_address.is_ipv6() {
+        // This is just a dummy check which will be `true` always.
+        // The problem with lease expiry handling is that
+        // 1. If a BMC IP is released, there is no way to update it in machine_topologies table,
+        //    which causes a mismatch between machine_interface and topology entry.
+        // 2. Since this might cauase BMC IP to change, DPF right now does not support BMC IP
+        //    change. Again a mismatch between DPF and NICo.
+        // 3. State machine can't process the host since there is no address attached to a interface.
+        // Blocking this handling for now and will revisit once DPF releases the fix.
+        tracing::info!("Expire lease handling for DHCP is blocked.");
+        txn.rollback().await?;
+        return Ok(Response::new(rpc::ExpireDhcpLeaseResponse {
+            ip_address: ip_address.to_string(),
+            status: if interface.is_none() {
+                rpc::ExpireDhcpLeaseStatus::NotFound
+            } else {
+                rpc::ExpireDhcpLeaseStatus::NotHandled
+            }
+            .into(),
+        }));
+    }
 
     // When the caller provides the MAC, scope the delete to the (ip, mac)
     // pair. Otherwise, just call the address-only variant, which would

@@ -48,7 +48,7 @@ async fn test_expire_releases_allocation(
     let ip = interface.addresses[0];
     txn.commit().await?;
 
-    // Expire the lease via the RPC endpoint
+    // Expire the lease via the RPC endpoint — currently blocked, returns NotHandled.
     let response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -59,19 +59,19 @@ async fn test_expire_releases_allocation(
 
     let resp = response.into_inner();
     assert_eq!(resp.ip_address, ip.to_string());
-    assert_eq!(resp.status(), ExpireDhcpLeaseStatus::Released);
+    assert_eq!(resp.status(), ExpireDhcpLeaseStatus::NotHandled);
 
-    // Verify the address was deleted but the interface preserved
+    // Address and interface must both still exist (expiry is blocked).
     let mut txn = env.pool.begin().await?;
-    let result =
-        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await;
-    assert!(result.is_err(), "address should have been deleted");
+    let addr =
+        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
+    assert_eq!(
+        addr.address, ip,
+        "address should still exist while expiry is blocked"
+    );
 
     let iface = db::machine_interface::find_one(&mut *txn, interface.id).await?;
-    assert_eq!(
-        iface.id, interface.id,
-        "interface should still exist (only the address is removed)"
-    );
+    assert_eq!(iface.id, interface.id, "interface should still exist");
 
     Ok(())
 }
@@ -157,9 +157,7 @@ async fn test_discover_reallocates_after_expiration(
         "should get an IP on first discover"
     );
 
-    // Now, expire the lease by actually sending an `expire_dhcp_lease()`
-    // API call. This deletes the address, BUT keeps the interface (which
-    // now doesn't have an address).
+    // Expire the lease — currently blocked, so the address is NOT deleted.
     let expire_response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -168,7 +166,7 @@ async fn test_discover_reallocates_after_expiration(
         }))
         .await?
         .into_inner();
-    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::Released);
+    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::NotHandled);
 
     // And finally, DHCP discover again! This should see the interface
     // exists, but doesn't have an IP, so it will [re]allocate an IP to
@@ -232,7 +230,7 @@ async fn test_expire_does_not_delete_static_allocation(
         .into_inner();
     assert_eq!(
         response.status(),
-        ExpireDhcpLeaseStatus::NotFound,
+        ExpireDhcpLeaseStatus::NotHandled,
         "static allocation should not be expired"
     );
 
@@ -284,7 +282,7 @@ async fn test_static_address_survives_expiration_and_rediscover(
         .into_inner();
     assert_eq!(
         expire_response.status(),
-        ExpireDhcpLeaseStatus::NotFound,
+        ExpireDhcpLeaseStatus::NotHandled,
         "static address should not be expired"
     );
 
@@ -339,7 +337,7 @@ async fn test_expire_with_matching_mac_releases(
         }))
         .await?
         .into_inner();
-    assert_eq!(response.status(), ExpireDhcpLeaseStatus::Released);
+    assert_eq!(response.status(), ExpireDhcpLeaseStatus::NotHandled);
 
     Ok(())
 }
@@ -376,7 +374,7 @@ async fn test_expire_resets_hostname_and_discover_restores_it(
     );
     drop(txn);
 
-    // Expire the lease.
+    // Expire the lease — currently blocked, hostname is not changed.
     let expire_response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -385,16 +383,14 @@ async fn test_expire_resets_hostname_and_discover_restores_it(
         }))
         .await?
         .into_inner();
-    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::Released);
+    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::NotHandled);
 
-    // After expiry the hostname must be the dormant no-IP placeholder.
+    // Hostname must be unchanged since expiry is blocked.
     let mut txn = env.pool.begin().await?;
     let iface_after_expiry = db::machine_interface::find_one(&mut *txn, interface_id).await?;
-    let expected_dormant = format!("noip-{}", mac_address.replace(':', "-"));
     assert_eq!(
-        iface_after_expiry.hostname.to_lowercase(),
-        expected_dormant.to_lowercase(),
-        "hostname should be reset to dormant placeholder after lease expiry"
+        iface_after_expiry.hostname, expected_hostname,
+        "hostname should be unchanged while expiry is blocked"
     );
     drop(txn);
 
@@ -456,7 +452,7 @@ async fn test_expire_with_mismatched_mac_is_no_op(
         .into_inner();
     assert_eq!(
         response.status(),
-        ExpireDhcpLeaseStatus::NotFound,
+        ExpireDhcpLeaseStatus::NotHandled,
         "late expire hook with previous MAC must not delete new record"
     );
 

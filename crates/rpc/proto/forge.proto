@@ -3928,6 +3928,7 @@ message ExpireDhcpLeaseRequest {
 enum ExpireDhcpLeaseStatus {
   EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
   EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+  EXPIRE_DHCP_LEASE_STATUS_NOT_HANDLED = 2;
 }
 
 message ExpireDhcpLeaseResponse {
