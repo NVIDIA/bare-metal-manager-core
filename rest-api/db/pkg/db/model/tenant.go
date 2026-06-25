@@ -129,8 +129,6 @@ type TenantDAO interface {
 	//
 	GetAll(ctx context.Context, tx *db.Tx, filter TenantFilterInput, page paginator.PageInput, includeRelations []string) ([]Tenant, int, error)
 	//
-	GetAllByOrg(ctx context.Context, tx *db.Tx, org string, includeRelations []string) ([]Tenant, error)
-	//
 	Create(ctx context.Context, tx *db.Tx, input TenantCreateInput) (*Tenant, error)
 	//
 	Update(ctx context.Context, tx *db.Tx, input TenantUpdateInput) (*Tenant, error)
@@ -226,32 +224,6 @@ func (tsd TenantSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter TenantFilt
 	}
 
 	return tns, pag.Total, nil
-}
-
-// GetAllByOrg returns all Tenants for an Org
-func (tsd TenantSQLDAO) GetAllByOrg(ctx context.Context, tx *db.Tx, org string, includeRelations []string) ([]Tenant, error) {
-	// Create a child span and set the attributes for current request
-	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.GetAllByOrg")
-	if tnDAOSpan != nil {
-		defer tnDAOSpan.End()
-
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "org", org)
-	}
-
-	tns := []Tenant{}
-
-	query := db.GetIDB(tx, tsd.dbSession).NewSelect().Model(&tns).Where("tn.org = ?", org)
-
-	for _, relation := range includeRelations {
-		query = query.Relation(relation)
-	}
-
-	err := query.Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return tns, nil
 }
 
 // Create creates a new Tenant from the given input

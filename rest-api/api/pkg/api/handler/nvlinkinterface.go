@@ -176,7 +176,7 @@ func (gaish GetAllNVLinkInterfaceHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gaish.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant", nil)

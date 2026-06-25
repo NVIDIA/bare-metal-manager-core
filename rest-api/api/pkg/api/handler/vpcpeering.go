@@ -528,19 +528,21 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Get status from query param
-	if statusStrings := qParams["status"]; len(statusStrings) != 0 {
-		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("status", statusStrings), logger)
-		for _, status := range statusStrings {
+	qStatuses := qParams["status"]
+	if len(qStatuses) > 0 {
+		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("status", qStatuses), logger)
+		for _, status := range qStatuses {
 			if !cdbm.VpcPeeringStatusMap[status] {
 				logger.Warn().Msg(fmt.Sprintf("invalid value in status query: %v", status))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Status value in query", nil)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid Status value %v in query", status), nil)
 			}
 			filterInput.Statuses = append(filterInput.Statuses, status)
 		}
 	}
 
 	// Get vpcId from query param
-	if vpcIDStrs := qParams["vpcId"]; len(vpcIDStrs) != 0 {
+	vpcIDStrs := qParams["vpcId"]
+	if len(vpcIDStrs) > 0 {
 		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("vpcId", vpcIDStrs), logger)
 		vpcIDs := make([]uuid.UUID, 0, len(vpcIDStrs))
 		for _, vpcIDStr := range vpcIDStrs {
@@ -577,7 +579,8 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Get peerTenantId from query param
-	if peerTenantIDStrs := qParams["peerTenantId"]; len(peerTenantIDStrs) != 0 {
+	peerTenantIDStrs := qParams["peerTenantId"]
+	if len(peerTenantIDStrs) > 0 {
 		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("peerTenantId", peerTenantIDStrs), logger)
 		peerTenantIDs := make([]uuid.UUID, 0, len(peerTenantIDStrs))
 		for _, peerTenantIDStr := range peerTenantIDStrs {

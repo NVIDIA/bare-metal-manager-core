@@ -207,7 +207,8 @@ func TestTenantSQLDAO_GetAllByOrg(t *testing.T) {
 			ipsd := TenantSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.GetAllByOrg(tt.args.ctx, nil, tt.args.org, nil)
+
+			got, _, err := ipsd.GetAll(ctx, nil, TenantFilterInput{Orgs: []string{org}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 			assert.NoError(t, err)
 
 			for i, tn := range tt.want {

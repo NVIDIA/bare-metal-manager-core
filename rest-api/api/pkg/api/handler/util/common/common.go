@@ -100,7 +100,7 @@ func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession 
 func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.Tenant, error) {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	ts, err := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+	ts, _, err := tnDAO.GetAll(ctx, tx, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
