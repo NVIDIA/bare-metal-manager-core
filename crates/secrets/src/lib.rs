@@ -25,7 +25,8 @@ pub use crate::chained_reader::ChainedCredentialReader;
 /// via `create_raw_vault_client_settings`. Credential operations should go
 /// through `create_credential_manager` instead of using the vault client directly.
 pub use crate::forge_vault::{
-    ForgeVaultClient, VaultConfig, create_raw_vault_client_settings, create_vault_client,
+    DedicatedVaultConfig, ForgeVaultClient, SpiffeIdentity, VaultConfig,
+    create_dedicated_vault_client, create_raw_vault_client_settings, create_vault_client,
 };
 pub use crate::local_credentials::{
     CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, MachineIdentityConfig,
@@ -49,11 +50,73 @@ use credentials::{
 use local_credentials::{EnvCredentials, FileCredentialsWatcher};
 pub use memory_credentials::MemoryCredentialStore;
 
+use crate::certificates::CertificateProvider;
+
 #[derive(Default, Debug, Clone)]
 pub struct CredentialConfig {
     pub vault: VaultConfig,
     pub env: EnvCredentialsConfig,
     pub file: FileCredentialsConfig,
+}
+
+/// Selects and configures the backend that vends machine/service certificates.
+///
+/// Certificate vending is independent of the credential store: this lets the
+/// API issue PKI certificates from a different Vault than the one backing
+/// credentials — or, in future, from a non-Vault CA — without disturbing
+/// credential storage.
+#[derive(Default, Debug, Clone)]
+pub struct CertificateConfig {
+    pub backend: CertBackend,
+}
+
+/// Backend used to issue certificates.
+///
+/// Today both variants are Vault-backed. The enum exists so additional backends
+/// (e.g. an in-process CA whose key lives in a Kubernetes Secret) can be added
+/// without touching the call sites that consume [`CertificateProvider`].
+// The shared `Vault` suffix is intentional: both current variants are Vault
+// backends, distinguished by whether the client is shared with the credential
+// store. The lint resolves once a non-Vault backend is added.
+#[allow(clippy::enum_variant_names)]
+#[derive(Default, Debug, Clone)]
+pub enum CertBackend {
+    /// Reuse the credential store's Vault client — one client, one token lease.
+    /// This is the default and matches historical behavior.
+    #[default]
+    SharedVault,
+    /// Issue certificates from a dedicated Vault, decoupled from the credential
+    /// store. [`DedicatedVaultConfig`] is fully explicit: its connection fields
+    /// never fall back to the process-global `VAULT_*` env vars, so a partial
+    /// config fails fast instead of silently re-pointing at the credential
+    /// Vault.
+    DedicatedVault(DedicatedVaultConfig),
+}
+
+/// Builds the certificate provider selected by `config`.
+///
+/// `shared_vault` is the already-constructed credential Vault client, reused
+/// for [`CertBackend::SharedVault`] so no second client or token lease is
+/// created in the common case. `spiffe` is the site's SPIFFE identity; a
+/// dedicated Vault issues certs under the same identity namespace as the rest
+/// of the deployment.
+pub fn create_certificate_provider(
+    config: &CertificateConfig,
+    shared_vault: &Arc<ForgeVaultClient>,
+    spiffe: SpiffeIdentity,
+    meter: Meter,
+) -> eyre::Result<Arc<dyn CertificateProvider>> {
+    match &config.backend {
+        CertBackend::SharedVault => {
+            let provider: Arc<dyn CertificateProvider> = shared_vault.clone();
+            Ok(provider)
+        }
+        CertBackend::DedicatedVault(dedicated) => {
+            let provider: Arc<dyn CertificateProvider> =
+                create_dedicated_vault_client(dedicated, spiffe, meter)?;
+            Ok(provider)
+        }
+    }
 }
 
 /// create_credential_manager builds the default credential chain: env -> file -> vault.

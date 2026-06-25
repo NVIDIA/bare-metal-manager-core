@@ -23,8 +23,8 @@ use carbide_kms_provider::{
 };
 use carbide_secrets::credentials::{CredentialManager, CredentialReader, CredentialWriter};
 use carbide_secrets::{
-    CredentialConfig, ForgeVaultClient, MemoryCredentialStore, VaultConfig,
-    create_credential_manager_from, create_vault_client,
+    CredentialConfig, ForgeVaultClient, MemoryCredentialStore, SpiffeIdentity, VaultConfig,
+    create_certificate_provider, create_credential_manager_from, create_vault_client,
 };
 use carbide_utils::HostPortPair;
 use eyre::WrapErr;
@@ -213,10 +213,25 @@ pub async fn run(
 
     let vault_config = vault_config_for_site(&credential_config.vault, &carbide_config);
 
-    // One vault client serves every vault role below. PKI certificates stay
-    // on vault no matter which credential backend is configured.
+    // One vault client serves every credential vault role below.
     let vault_client = create_vault_client(&vault_config, metrics.meter.clone())?;
-    let certificate_provider = vault_client.clone();
+
+    // Certificate vending is selected independently of the credential store.
+    // SharedVault (the default) reuses `vault_client` (no second client or token
+    // lease); a dedicated cert Vault decouples PKI issuance from credentials and
+    // is fully explicit, never inheriting the credential Vault's env config. The
+    // SPIFFE identity comes from the site-resolved credential Vault config so all
+    // backends mint under the same identity namespace.
+    let cert_config = carbide_config.certificates.to_certificate_config()?;
+    let certificate_provider = create_certificate_provider(
+        &cert_config,
+        &vault_client,
+        SpiffeIdentity {
+            trust_domain: vault_config.spiffe_trust_domain(),
+            machine_base_path: vault_config.spiffe_machine_base_path(),
+        },
+        metrics.meter.clone(),
+    )?;
 
     let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
 
