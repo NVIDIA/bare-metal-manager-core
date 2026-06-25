@@ -2638,6 +2638,33 @@ paths:
         - schema:
             type: string
             enum:
+              - Pending
+              - Configuring
+              - Requested
+              - Ready
+              - Deleting
+              - Error
+          in: query
+          name: status
+          required: false
+          description: Optional filter by peering status. Repeat the parameter to match multiple statuses.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: vpcId
+          required: false
+          description: Optional filter by VPC ID involved in the peering as either vpc1 or vpc2.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: peerTenantId
+          required: false
+          description: Optional filter by tenant ID of a VPC involved in the peering.
+        - schema:
+            type: string
+            enum:
               - Vpc1
               - Vpc2
               - Site
@@ -14657,11 +14684,21 @@ components:
           format: uuid
           readOnly: true
           description: ID of the first VPC in the peering
+        vpc1TenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant that owns vpc1
         vpc2Id:
           type: string
           format: uuid
           readOnly: true
           description: ID of the second VPC in the peering
+        vpc2TenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant that owns vpc2
         siteId:
           type: string
           format: uuid

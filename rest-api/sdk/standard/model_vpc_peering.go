@@ -27,8 +27,12 @@ type VpcPeering struct {
 	Id *string `json:"id,omitempty"`
 	// ID of the first VPC in the peering
 	Vpc1Id *string `json:"vpc1Id,omitempty"`
+	// ID of the tenant that owns vpc1
+	Vpc1TenantId *string `json:"vpc1TenantId,omitempty"`
 	// ID of the second VPC in the peering
 	Vpc2Id *string `json:"vpc2Id,omitempty"`
+	// ID of the tenant that owns vpc2
+	Vpc2TenantId *string `json:"vpc2TenantId,omitempty"`
 	// ID of the Site where the peering exists
 	SiteId *string `json:"siteId,omitempty"`
 	// Indicates if this is a multi-tenant peering (VPCs from different tenants)
@@ -122,6 +126,38 @@ func (o *VpcPeering) SetVpc1Id(v string) {
 	o.Vpc1Id = &v
 }
 
+// GetVpc1TenantId returns the Vpc1TenantId field value if set, zero value otherwise.
+func (o *VpcPeering) GetVpc1TenantId() string {
+	if o == nil || IsNil(o.Vpc1TenantId) {
+		var ret string
+		return ret
+	}
+	return *o.Vpc1TenantId
+}
+
+// GetVpc1TenantIdOk returns a tuple with the Vpc1TenantId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VpcPeering) GetVpc1TenantIdOk() (*string, bool) {
+	if o == nil || IsNil(o.Vpc1TenantId) {
+		return nil, false
+	}
+	return o.Vpc1TenantId, true
+}
+
+// HasVpc1TenantId returns a boolean if a field has been set.
+func (o *VpcPeering) HasVpc1TenantId() bool {
+	if o != nil && !IsNil(o.Vpc1TenantId) {
+		return true
+	}
+
+	return false
+}
+
+// SetVpc1TenantId gets a reference to the given string and assigns it to the Vpc1TenantId field.
+func (o *VpcPeering) SetVpc1TenantId(v string) {
+	o.Vpc1TenantId = &v
+}
+
 // GetVpc2Id returns the Vpc2Id field value if set, zero value otherwise.
 func (o *VpcPeering) GetVpc2Id() string {
 	if o == nil || IsNil(o.Vpc2Id) {
@@ -152,6 +188,38 @@ func (o *VpcPeering) HasVpc2Id() bool {
 // SetVpc2Id gets a reference to the given string and assigns it to the Vpc2Id field.
 func (o *VpcPeering) SetVpc2Id(v string) {
 	o.Vpc2Id = &v
+}
+
+// GetVpc2TenantId returns the Vpc2TenantId field value if set, zero value otherwise.
+func (o *VpcPeering) GetVpc2TenantId() string {
+	if o == nil || IsNil(o.Vpc2TenantId) {
+		var ret string
+		return ret
+	}
+	return *o.Vpc2TenantId
+}
+
+// GetVpc2TenantIdOk returns a tuple with the Vpc2TenantId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VpcPeering) GetVpc2TenantIdOk() (*string, bool) {
+	if o == nil || IsNil(o.Vpc2TenantId) {
+		return nil, false
+	}
+	return o.Vpc2TenantId, true
+}
+
+// HasVpc2TenantId returns a boolean if a field has been set.
+func (o *VpcPeering) HasVpc2TenantId() bool {
+	if o != nil && !IsNil(o.Vpc2TenantId) {
+		return true
+	}
+
+	return false
+}
+
+// SetVpc2TenantId gets a reference to the given string and assigns it to the Vpc2TenantId field.
+func (o *VpcPeering) SetVpc2TenantId(v string) {
+	o.Vpc2TenantId = &v
 }
 
 // GetSiteId returns the SiteId field value if set, zero value otherwise.
@@ -330,8 +398,14 @@ func (o VpcPeering) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Vpc1Id) {
 		toSerialize["vpc1Id"] = o.Vpc1Id
 	}
+	if !IsNil(o.Vpc1TenantId) {
+		toSerialize["vpc1TenantId"] = o.Vpc1TenantId
+	}
 	if !IsNil(o.Vpc2Id) {
 		toSerialize["vpc2Id"] = o.Vpc2Id
+	}
+	if !IsNil(o.Vpc2TenantId) {
+		toSerialize["vpc2TenantId"] = o.Vpc2TenantId
 	}
 	if !IsNil(o.SiteId) {
 		toSerialize["siteId"] = o.SiteId

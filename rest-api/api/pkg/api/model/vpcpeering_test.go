@@ -132,6 +132,8 @@ func TestAPIVpcPeeringCreateRequest_ToProto(t *testing.T) {
 
 func TestNewAPIVpcPeering(t *testing.T) {
 	now := time.Now()
+	vpc1TenantID := uuid.New()
+	vpc2TenantID := uuid.New()
 	dbVpcPeering := cdbm.VpcPeering{
 		ID:            uuid.New(),
 		Vpc1ID:        uuid.New(),
@@ -141,6 +143,18 @@ func TestNewAPIVpcPeering(t *testing.T) {
 		Status:        cdbm.VpcPeeringStatusReady,
 		Created:       now,
 		Updated:       now,
+		Vpc1: &cdbm.Vpc{
+			ID:       uuid.New(),
+			TenantID: vpc1TenantID,
+			Name:     "vpc-1",
+			Status:   cdbm.VpcStatusReady,
+		},
+		Vpc2: &cdbm.Vpc{
+			ID:       uuid.New(),
+			TenantID: vpc2TenantID,
+			Name:     "vpc-2",
+			Status:   cdbm.VpcStatusReady,
+		},
 	}
 
 	api := NewAPIVpcPeering(dbVpcPeering)
@@ -153,7 +167,10 @@ func TestNewAPIVpcPeering(t *testing.T) {
 	assert.Equal(t, dbVpcPeering.Status, api.Status)
 	assert.Equal(t, dbVpcPeering.Created, api.Created)
 	assert.Equal(t, dbVpcPeering.Updated, api.Updated)
-
+	require.NotNil(t, api.Vpc1TenantId)
+	assert.Equal(t, vpc1TenantID.String(), *api.Vpc1TenantId)
+	require.NotNil(t, api.Vpc2TenantId)
+	assert.Equal(t, vpc2TenantID.String(), *api.Vpc2TenantId)
 }
 
 func TestNewAPIVpcPeeringSummary(t *testing.T) {

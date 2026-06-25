@@ -462,7 +462,7 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 	vpc8 := common.TestBuildVPC(t, dbSession, "vpc-8", ip, tnProvider, st1, nil, nil, nil, cdbm.VpcStatusReady, ipu2)
 
 	// Tenant-created peerings
-	_ = common.TestBuildVpcPeering(t, dbSession, vpc1.ID, vpc2.ID, st1.ID, nil, &tn1.ID, false, tnu1.ID)
+	vp12 := common.TestBuildVpcPeering(t, dbSession, vpc1.ID, vpc2.ID, st1.ID, nil, &tn1.ID, false, tnu1.ID)
 	_ = common.TestBuildVpcPeering(t, dbSession, vpc1.ID, vpc3.ID, st1.ID, nil, &tn1.ID, false, tnu1.ID)
 	_ = common.TestBuildVpcPeering(t, dbSession, vpc7.ID, vpc8.ID, st1.ID, nil, &tnProvider.ID, false, ipu2.ID)
 
@@ -471,6 +471,10 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 	_ = common.TestBuildVpcPeering(t, dbSession, vpc2.ID, vpc4.ID, st1.ID, &ip.ID, nil, true, ipu.ID)
 	_ = common.TestBuildVpcPeering(t, dbSession, vpc3.ID, vpc4.ID, st1.ID, &ip.ID, nil, true, ipu.ID)
 	_ = common.TestBuildVpcPeering(t, dbSession, vpc5.ID, vpc6.ID, st2.ID, &ip2.ID, nil, true, ipu2.ID)
+
+	vpPeeringDAO := cdbm.NewVpcPeeringDAO(dbSession)
+	err := vpPeeringDAO.UpdateStatusByID(ctx, nil, vp12.ID, cdbm.VpcPeeringStatusReady)
+	require.NoError(t, err)
 
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 	mockTC := &tmocks.Client{}
@@ -484,6 +488,7 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 		expectedStatus     int
 		expectedCount      int
 		validatePagination bool
+		validateTenantIDs  bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -605,6 +610,82 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedCount:  1,
 		},
+		{
+			name:           "error when status query value is invalid",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"status": "NotAStatus"},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "tenant admin 1 filters by ready status",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"status": cdbm.VpcPeeringStatusReady},
+			user:           tnu1,
+			expectedStatus: http.StatusOK,
+			expectedCount:  1,
+		},
+		{
+			name:           "tenant admin 1 filters by pending status",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"status": cdbm.VpcPeeringStatusPending},
+			user:           tnu1,
+			expectedStatus: http.StatusOK,
+			expectedCount:  5,
+		},
+		{
+			name:           "error when vpcId is invalid",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"vpcId": "not-a-uuid"},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when vpcId does not exist",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"vpcId": uuid.New().String()},
+			user:           tnu1,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "tenant admin 1 filters by vpcId",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"vpcId": vpc1.ID.String()},
+			user:           tnu1,
+			expectedStatus: http.StatusOK,
+			expectedCount:  3,
+		},
+		{
+			name:           "error when peerTenantId is invalid",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"peerTenantId": "not-a-uuid"},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when peerTenantId does not exist",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"peerTenantId": uuid.New().String()},
+			user:           tnu1,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "tenant admin 1 filters by peerTenantId",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"peerTenantId": tn2.ID.String()},
+			user:           tnu1,
+			expectedStatus: http.StatusOK,
+			expectedCount:  4,
+		},
+		{
+			name:           "tenant admin 1 filters by vpcId and peerTenantId",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"vpcId": vpc1.ID.String(), "peerTenantId": tn2.ID.String()},
+			user:           tnu1,
+			expectedStatus: http.StatusOK,
+			expectedCount:  1,
+			validateTenantIDs: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -654,6 +735,16 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 					err := json.Unmarshal([]byte(paginationHeader), &pageResp)
 					require.NoError(t, err)
 					assert.Equal(t, tt.expectedCount, pageResp.Total)
+				}
+				if tt.validateTenantIDs {
+					require.NotEmpty(t, list)
+					for _, peering := range list {
+						require.NotNil(t, peering.Vpc1TenantId)
+						require.NotNil(t, peering.Vpc2TenantId)
+						tenantIDs := []string{*peering.Vpc1TenantId, *peering.Vpc2TenantId}
+						assert.Contains(t, tenantIDs, tn1.ID.String())
+						assert.Contains(t, tenantIDs, tn2.ID.String())
+					}
 				}
 			}
 		})

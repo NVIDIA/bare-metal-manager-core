@@ -33,9 +33,8 @@ type NetworkSecurityGroupCreateRequest struct {
 	// Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
 	StatefulEgress *bool `json:"statefulEgress,omitempty"`
 	// Rules that belong to the Network Security Group
-	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
-	// User-defined key-value labels for the Network Security Group
-	Labels map[string]string `json:"labels,omitempty"`
+	Rules  []NetworkSecurityGroupRule `json:"rules,omitempty"`
+	Labels map[string]string          `json:"labels,omitempty"`
 }
 
 type _NetworkSecurityGroupCreateRequest NetworkSecurityGroupCreateRequest

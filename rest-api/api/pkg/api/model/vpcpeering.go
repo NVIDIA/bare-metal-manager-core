@@ -79,10 +79,14 @@ type APIVpcPeering struct {
 	Vpc1ID string `json:"vpc1Id"`
 	// Vpc1 is the summary of the first VPC in the peering
 	Vpc1 *APIVpcSummary `json:"vpc1,omitempty"`
+	// Vpc1TenantId is the ID of the tenant that owns vpc1
+	Vpc1TenantId *string `json:"vpc1TenantId,omitempty"`
 	// Vpc2ID is the ID of the second VPC in the peering
 	Vpc2ID string `json:"vpc2Id"`
 	// Vpc2 is the summary of the second VPC in the peering
 	Vpc2 *APIVpcSummary `json:"vpc2,omitempty"`
+	// Vpc2TenantId is the ID of the tenant that owns vpc2
+	Vpc2TenantId *string `json:"vpc2TenantId,omitempty"`
 	// SiteID is the ID of the Site where the peering exists
 	SiteID string `json:"siteId"`
 	// Site is the summary of the site
@@ -113,9 +117,13 @@ func NewAPIVpcPeering(dbVpcPeering cdbm.VpcPeering) APIVpcPeering {
 	// Expand relations if available.
 	if dbVpcPeering.Vpc1 != nil {
 		apiVpcPeering.Vpc1 = NewAPIVpcSummary(dbVpcPeering.Vpc1)
+		tenantID := dbVpcPeering.Vpc1.TenantID.String()
+		apiVpcPeering.Vpc1TenantId = &tenantID
 	}
 	if dbVpcPeering.Vpc2 != nil {
 		apiVpcPeering.Vpc2 = NewAPIVpcSummary(dbVpcPeering.Vpc2)
+		tenantID := dbVpcPeering.Vpc2.TenantID.String()
+		apiVpcPeering.Vpc2TenantId = &tenantID
 	}
 	if dbVpcPeering.Site != nil {
 		apiVpcPeering.Site = NewAPISiteSummary(dbVpcPeering.Site)

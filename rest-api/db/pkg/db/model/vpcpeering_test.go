@@ -331,6 +331,7 @@ func TestVpcPeeringSQLDAO_GetAll(t *testing.T) {
 		isMultiTenant             *bool
 		infrastructureProviderIDs []uuid.UUID
 		tenantIDs                 []uuid.UUID
+		peerTenantIDs             []uuid.UUID
 		statuses                  []string
 
 		expectError bool
@@ -402,6 +403,21 @@ func TestVpcPeeringSQLDAO_GetAll(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
+			desc:               "GetAll with filters on PeerTenantIDs",
+			peerTenantIDs:      []uuid.UUID{tenant2.ID},
+			expectError:        false,
+			expectCount:        1,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:               "GetAll with filters on TenantIDs and PeerTenantIDs",
+			tenantIDs:          []uuid.UUID{tenant.ID},
+			peerTenantIDs:      []uuid.UUID{tenant2.ID},
+			expectError:        false,
+			expectCount:        1,
+			verifyChildSpanner: true,
+		},
+		{
 			desc:               "GetAll with filters on pending statuses",
 			ids:                nil,
 			vpcIDs:             nil,
@@ -462,6 +478,7 @@ func TestVpcPeeringSQLDAO_GetAll(t *testing.T) {
 					IsMultiTenant:             tc.isMultiTenant,
 					InfrastructureProviderIDs: tc.infrastructureProviderIDs,
 					TenantIDs:                 tc.tenantIDs,
+					PeerTenantIDs:             tc.peerTenantIDs,
 					Statuses:                  tc.statuses,
 				},
 				paginator.PageInput{Offset: tc.paramOffset, Limit: tc.paramLimit, OrderBy: tc.paramOrderBy}, tc.includeRelations)
