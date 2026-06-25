@@ -140,6 +140,13 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           load: true
+          # The Dockerfile builder is FROM --platform=$BUILDPLATFORM and cross-compiles via
+          # GOARCH=$TARGETARCH. On a NATIVE single-platform build BuildKit does not inject the
+          # automatic TARGETARCH, so it falls back to the Dockerfile default (amd64) and the
+          # arm64 leg cross-compiles to amd64 even on an arm64 runner. Set it explicitly.
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
@@ -166,7 +173,8 @@ jobs:
           sbom-artifact-name: sbom-${{ inputs.service_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Extract ${{ matrix.arch }} binary and verify architecture
-        if: inputs.push_enabled == true
+        # No push_enabled gate: the build step loads the image, so this guard also runs on PRs
+        # and catches an arch mismatch before merge — not only on main.
         run: |
           set -euo pipefail
           mkdir -p artifacts
