@@ -42,6 +42,10 @@ use crate::handler::MachineStateHandlerServices;
 
 const PRODUCT_GB200: &str = "GB200 NVL";
 const PRODUCT_GB300: &str = "GB300 NVL";
+/// ServiceRoot.Product reported by a BlueField-3 DPU BMC (matches the value
+/// `bmc-explorer` keys on). Its SPDM target `BlueField_DPU_IRoT` carries the
+/// DPU's device-identity certificate.
+const PRODUCT_BF3_DPU: &str = "BlueField-3 DPU";
 
 pub async fn trigger_attestation(
     db_pool: &PgPool,
@@ -161,7 +165,12 @@ fn get_supported_components<'a>(
     product: &str,
     integrities: &'a ComponentIntegrities,
 ) -> Vec<&'a ComponentIntegrity> {
-    let supported_devices = BTreeMap::from([(PRODUCT_GB200, ["HGX_IRoT_GPU"])]);
+    let supported_devices = BTreeMap::from([
+        (PRODUCT_GB200, ["HGX_IRoT_GPU"]),
+        // BlueField DPU: attest the Initial Root of Trust (Arm/NIC identity).
+        // BlueField_ERoT is the BMC's own RoT and is intentionally excluded.
+        (PRODUCT_BF3_DPU, ["BlueField_DPU_IRoT"]),
+    ]);
 
     let supported_versions = ["1.1.0"]; // This can be configurable value.
     let mut supported_components = vec![];
@@ -198,8 +207,63 @@ fn get_supported_components<'a>(
     supported_components
 }
 
+#[cfg(test)]
+mod tests {
+    use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
+
+    use super::*;
+
+    fn spdm_component(id: &str) -> ComponentIntegrity {
+        ComponentIntegrity {
+            component_integrity_enabled: true,
+            component_integrity_type: "SPDM".to_string(),
+            component_integrity_type_version: "1.1.0".to_string(),
+            id: id.to_string(),
+            name: id.to_string(),
+            target_component_uri: None,
+            spdm: None,
+            actions: None,
+            links: None,
+        }
+    }
+
+    fn integrities(members: Vec<ComponentIntegrity>) -> ComponentIntegrities {
+        let count = members.len() as i16;
+        ComponentIntegrities {
+            members,
+            name: "Component Integrity Collection".to_string(),
+            count,
+        }
+    }
+
+    #[test]
+    fn bluefield_dpu_product_is_supported() {
+        assert!(is_supported_product(PRODUCT_BF3_DPU));
+    }
+
+    #[test]
+    fn bluefield_dpu_irot_is_selected_and_erot_is_excluded() {
+        // The DPU BMC exposes both BlueField_DPU_IRoT (Arm/NIC identity) and
+        // BlueField_ERoT (BMC's own RoT). Only the IRoT is attested for identity.
+        let ci = integrities(vec![
+            spdm_component("BlueField_DPU_IRoT"),
+            spdm_component("BlueField_ERoT"),
+        ]);
+        let selected = get_supported_components(PRODUCT_BF3_DPU, &ci);
+        let ids: Vec<&str> = selected.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["BlueField_DPU_IRoT"]);
+    }
+
+    #[test]
+    fn gpu_filter_still_matches_for_gb200() {
+        let ci = integrities(vec![spdm_component("HGX_IRoT_GPU_0")]);
+        let selected = get_supported_components(PRODUCT_GB200, &ci);
+        assert_eq!(selected.len(), 1);
+    }
+}
+
 fn is_supported_product(product: &str) -> bool {
-    matches!(product, PRODUCT_GB200 | PRODUCT_GB300)
+    matches!(product, PRODUCT_GB200 | PRODUCT_GB300 | PRODUCT_BF3_DPU)
 }
 
 fn from_component_integrity(

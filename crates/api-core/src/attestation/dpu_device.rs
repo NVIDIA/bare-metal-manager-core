@@ -108,32 +108,38 @@ pub enum DpuAttestError {
     ProofOfPossession,
     #[error("device certificate subject has no common name to use as a serial")]
     MissingSerial,
+    #[error("could not parse PEM certificate bundle: {0}")]
+    Pem(String),
 }
 
-/// Verifies a DPU device attestation and, on success, returns the hardware-rooted
-/// identity to use for the DPU.
+/// Verifies a DPU device-identity **certificate chain** (no proof of
+/// possession) and, on success, returns the hardware-rooted identity for the
+/// DPU.
 ///
-/// `trusted_roots` are DER-encoded NVIDIA device root CA certificates (the
-/// configured trust anchors). `now` is the verification time (injected for
-/// determinism; callers pass [`Utc::now`]).
+/// This is the entry point for the out-of-band (BMC / SPDM) path: carbide
+/// fetches the `BlueField_DPU_IRoT` certificate chain from the DPU BMC over
+/// Redfish and verifies it server-side — the DPU analog of host TPM EK-cert
+/// verification, and co-located with it here in api-core.
 ///
-/// This performs a deliberately simple path build — it checks validity windows,
-/// each issuer→subject signature link, that the top of the presented chain is
-/// signed by a trusted root, and the nonce proof-of-possession. It does **not**
-/// yet enforce name constraints, EKU, or revocation; those are noted as TODOs
-/// for a production implementation.
-pub fn verify_dpu_device_attestation(
-    attestation: &DpuDeviceAttestation,
+/// `trusted_roots` are DER-encoded NVIDIA device root CA certificates. `now` is
+/// the verification time (injected for determinism; callers pass [`Utc::now`]).
+///
+/// Deliberately simple path build: validity windows, each issuer→subject link,
+/// and that the top of the presented chain is signed by a trusted root. It does
+/// **not** yet enforce name constraints, EKU, or revocation (TODOs for a
+/// production implementation). Proof of possession is layered on separately by
+/// [`verify_dpu_device_attestation`] for the in-band path.
+pub fn verify_device_cert_chain(
+    device_cert_chain: &[Vec<u8>],
     trusted_roots: &[Vec<u8>],
     now: DateTime<Utc>,
 ) -> Result<VerifiedDpuDevice, DpuAttestError> {
-    if attestation.device_cert_chain.is_empty() {
+    if device_cert_chain.is_empty() {
         return Err(DpuAttestError::EmptyChain);
     }
 
     // Parse the presented chain (leaf first) and the trust anchors.
-    let chain: Vec<X509Certificate<'_>> = attestation
-        .device_cert_chain
+    let chain: Vec<X509Certificate<'_>> = device_cert_chain
         .iter()
         .enumerate()
         .map(|(index, der)| {
@@ -194,9 +200,72 @@ pub fn verify_dpu_device_attestation(
             source: e,
         })?;
 
-    // 4. Proof of possession: the device must have signed the server's nonce
-    //    with the private key matching the leaf certificate.
+    // 4. Derive the identity from the verified leaf. The serial (CN) is for
+    //    display; the machine_id is rooted in the full leaf certificate bytes,
+    //    mirroring how the host path hashes the TPM EK certificate.
     let leaf = &chain[0];
+    let device_serial = leaf
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|cn| cn.as_str().ok())
+        .map(str::to_owned)
+        .ok_or(DpuAttestError::MissingSerial)?;
+
+    Ok(VerifiedDpuDevice {
+        machine_id: machine_id_from_device_cert(&device_cert_chain[0]),
+        device_serial,
+    })
+}
+
+/// Splits a PEM bundle (concatenated `-----BEGIN CERTIFICATE-----` blocks) into
+/// DER-encoded certificates, leaf first. Used to consume the PEM chain that the
+/// SPDM/Redfish path stores for a DPU (`CaCertificate::certificate_string`).
+pub fn pem_chain_to_der(pem: &str) -> Result<Vec<Vec<u8>>, DpuAttestError> {
+    let mut ders = Vec::new();
+    for block in x509_parser::pem::Pem::iter_from_buffer(pem.as_bytes()) {
+        let block = block.map_err(|e| DpuAttestError::Pem(e.to_string()))?;
+        ders.push(block.contents);
+    }
+    if ders.is_empty() {
+        return Err(DpuAttestError::Pem(
+            "no PEM certificate blocks found".to_string(),
+        ));
+    }
+    Ok(ders)
+}
+
+/// Convenience wrapper over [`verify_device_cert_chain`] that accepts PEM inputs
+/// — the cert chain as stored by the SPDM path and the configured trust anchors.
+pub fn verify_device_cert_chain_pem(
+    device_cert_chain_pem: &str,
+    trusted_roots_pem: &str,
+    now: DateTime<Utc>,
+) -> Result<VerifiedDpuDevice, DpuAttestError> {
+    let chain = pem_chain_to_der(device_cert_chain_pem)?;
+    let roots = pem_chain_to_der(trusted_roots_pem)?;
+    verify_device_cert_chain(&chain, &roots, now)
+}
+
+/// Verifies a DPU device attestation **including proof of possession** — the
+/// in-band path where the DPU agent presents its device cert chain plus an
+/// ECDSA signature over a server-issued nonce. Builds on
+/// [`verify_device_cert_chain`] and adds the nonce-signature check.
+pub fn verify_dpu_device_attestation(
+    attestation: &DpuDeviceAttestation,
+    trusted_roots: &[Vec<u8>],
+    now: DateTime<Utc>,
+) -> Result<VerifiedDpuDevice, DpuAttestError> {
+    let verified = verify_device_cert_chain(&attestation.device_cert_chain, trusted_roots, now)?;
+
+    // Proof of possession: the device must have signed the server's nonce with
+    // the private key matching the (already chain-verified) leaf certificate.
+    let leaf_der = &attestation.device_cert_chain[0];
+    let (_rest, leaf) =
+        X509Certificate::from_der(leaf_der).map_err(|e| DpuAttestError::ParseCert {
+            index: 0,
+            source: e.into(),
+        })?;
     let leaf_point = leaf.public_key().subject_public_key.data.as_ref();
     let verifying_key = VerifyingKey::from_sec1_bytes(leaf_point)
         .map_err(|e| DpuAttestError::BadDeviceKey(e.to_string()))?;
@@ -206,23 +275,7 @@ pub fn verify_dpu_device_attestation(
         .verify(&attestation.nonce, &signature)
         .map_err(|_| DpuAttestError::ProofOfPossession)?;
 
-    // 5. Derive the identity from the verified leaf. The serial (CN) is for
-    //    display; the machine_id is rooted in the full leaf certificate bytes,
-    //    mirroring how the host path hashes the TPM EK certificate.
-    let device_serial = leaf
-        .subject()
-        .iter_common_name()
-        .next()
-        .and_then(|cn| cn.as_str().ok())
-        .map(str::to_owned)
-        .ok_or(DpuAttestError::MissingSerial)?;
-
-    let machine_id = machine_id_from_device_cert(&attestation.device_cert_chain[0]);
-
-    Ok(VerifiedDpuDevice {
-        machine_id,
-        device_serial,
-    })
+    Ok(verified)
 }
 
 /// Derives a stable, hardware-rooted DPU [`MachineId`] from the DER bytes of a
@@ -319,9 +372,10 @@ mod tests {
 
     use super::*;
 
-    /// A generated CA: its self-signed cert (DER) and the key pair to sign with.
+    /// A generated CA: its self-signed cert (DER + PEM) and the key pair to sign with.
     struct TestCa {
         cert_der: Vec<u8>,
+        cert_pem: String,
         key: KeyPair,
         params: CertificateParams,
     }
@@ -338,6 +392,7 @@ mod tests {
         let cert = params.self_signed(&key).expect("self-signed ca");
         TestCa {
             cert_der: cert.der().to_vec(),
+            cert_pem: cert.pem(),
             key,
             params,
         }
@@ -346,6 +401,7 @@ mod tests {
     /// A device (leaf) certificate signed by `ca`, plus its P-256 signing key.
     struct TestDevice {
         cert_der: Vec<u8>,
+        cert_pem: String,
         signing_key: SigningKey,
     }
 
@@ -362,6 +418,7 @@ mod tests {
             SigningKey::from_pkcs8_pem(&key.serialize_pem()).expect("device signing key");
         TestDevice {
             cert_der: cert.der().to_vec(),
+            cert_pem: cert.pem(),
             signing_key,
         }
     }
@@ -491,6 +548,57 @@ mod tests {
         let a = machine_id_from_device_cert(&make_device(&ca, "serial-A", (2030, 1, 1)).cert_der);
         let b = machine_id_from_device_cert(&make_device(&ca, "serial-B", (2030, 1, 1)).cert_der);
         assert_ne!(a, b);
+    }
+
+    // --- chain-only (BMC / SPDM path) verification ---
+
+    #[test]
+    fn chain_only_verification_yields_identity_without_nonce() {
+        let ca = make_ca("NVIDIA BlueField Device CA");
+        let device = make_device(&ca, "MT-irot-001", (2030, 1, 1));
+
+        let verified =
+            verify_device_cert_chain(&[device.cert_der.clone()], &[ca.cert_der.clone()], now())
+                .unwrap();
+
+        assert_eq!(verified.device_serial, "MT-irot-001");
+        assert_eq!(verified.machine_id.source(), MachineIdSource::DpuDeviceCert);
+        // Same identity the in-band path would derive for this device.
+        assert_eq!(
+            verified.machine_id,
+            machine_id_from_device_cert(&device.cert_der)
+        );
+    }
+
+    #[test]
+    fn chain_only_rejects_untrusted_root() {
+        let real_ca = make_ca("NVIDIA BlueField Device CA");
+        let rogue_ca = make_ca("Rogue CA");
+        let device = make_device(&rogue_ca, "MT-irot-002", (2030, 1, 1));
+        let err =
+            verify_device_cert_chain(&[device.cert_der], &[real_ca.cert_der], now()).unwrap_err();
+        assert!(matches!(err, DpuAttestError::NoTrustedRoot), "got {err:?}");
+    }
+
+    #[test]
+    fn pem_path_verifies_chain_fetched_as_pem() {
+        // Mirrors the SPDM/Redfish path: the chain and roots arrive as PEM.
+        let ca = make_ca("NVIDIA BlueField Device CA");
+        let device = make_device(&ca, "MT-irot-pem", (2030, 1, 1));
+
+        let verified = verify_device_cert_chain_pem(&device.cert_pem, &ca.cert_pem, now()).unwrap();
+        assert_eq!(verified.device_serial, "MT-irot-pem");
+        // PEM and DER entry points agree on the derived identity.
+        assert_eq!(
+            verified.machine_id,
+            machine_id_from_device_cert(&device.cert_der)
+        );
+    }
+
+    #[test]
+    fn pem_parse_rejects_non_pem_input() {
+        let err = pem_chain_to_der("not a pem bundle").unwrap_err();
+        assert!(matches!(err, DpuAttestError::Pem(_)), "got {err:?}");
     }
 
     // --- backward-compatibility identity-selection policy ---

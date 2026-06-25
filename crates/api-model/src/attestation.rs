@@ -165,6 +165,12 @@ pub mod spdm {
     pub enum DeviceType {
         Gpu,
         Cx7,
+        /// BlueField DPU Initial Root of Trust (the Arm/NIC identity target,
+        /// e.g. `BlueField_DPU_IRoT`). Its device-identity certificate is fetched
+        /// from the DPU BMC and verified in api-core, so it does not go through
+        /// the NRAS measurement path. (`BlueField_ERoT` is the BMC's own root of
+        /// trust and is intentionally not classified here.)
+        BlueFieldIRoT,
         Unknown,
     }
 
@@ -175,6 +181,8 @@ pub mod spdm {
                 DeviceType::Gpu
             } else if s.contains("CX7") {
                 DeviceType::Cx7
+            } else if s.contains("BlueField_DPU_IRoT") {
+                DeviceType::BlueFieldIRoT
             } else {
                 DeviceType::Unknown
             })
@@ -475,6 +483,10 @@ mod test {
 
             "cx7 token bare" {
                 "CX7" => Yields("Cx7".to_string()),
+            }
+
+            "bluefield dpu irot" {
+                "BlueField_DPU_IRoT" => Yields("BlueFieldIRoT".to_string()),
             }
 
             "gpu wins when both present (checked first)" {

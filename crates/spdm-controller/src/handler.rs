@@ -161,10 +161,17 @@ impl StateHandler for SpdmAttestationStateHandler {
                     &ca_certificate.into_model(),
                 )
                 .await?;
-                Ok(StateHandlerOutcome::transition(
-                    SpdmAttestationState::TriggerEvidenceCollection { retry_count: 0 },
-                )
-                .with_txn(txn))
+
+                // BlueField DPU identity is verified in api-core (the IRoT
+                // certificate chain is checked against the NVIDIA device roots,
+                // co-located with host TPM EK verification) rather than through
+                // the NRAS measurement path. Once the chain is fetched and
+                // stored, the SPDM FSM's job is done, so hand off as Passed.
+                let next_state = match device_id.parse::<DeviceType>()? {
+                    DeviceType::BlueFieldIRoT => SpdmAttestationState::Passed,
+                    _ => SpdmAttestationState::TriggerEvidenceCollection { retry_count: 0 },
+                };
+                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
             }
             SpdmAttestationState::TriggerEvidenceCollection { retry_count } => {
                 // firmware version and certificate are collected. Let's trigger the
@@ -356,7 +363,11 @@ async fn perform_attestation(
     let response = match device_type {
         DeviceType::Gpu => client.attest_gpu(&device_attestation_info).await,
         DeviceType::Cx7 => client.attest_cx7(&device_attestation_info).await,
-        DeviceType::Unknown => {
+        // BlueField IRoT is verified in api-core and hands off at FetchCertificate
+        // (see the FSM), so it should never enter the NRAS path. Reaching here
+        // means the hand-off was bypassed; treat it as unimplemented rather than
+        // silently sending a DPU cert to the GPU verifier.
+        DeviceType::BlueFieldIRoT | DeviceType::Unknown => {
             return Err(SpdmHandlerError::VerifierNotImplemented {
                 module: "state_handler".to_string(),
                 machine_id: device.machine_id,
