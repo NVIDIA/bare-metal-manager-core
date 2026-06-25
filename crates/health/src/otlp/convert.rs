@@ -88,6 +88,15 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
     }
+    if let Some(machine_serial) = context.machine_serial() {
+        attrs.push(kv("machine.serial", machine_serial.to_string()));
+    }
+    if let Some(driver_version) = context.driver_version() {
+        attrs.push(kv("driver.version", driver_version.to_string()));
+    }
+    if let Some(component_type) = context.component_type() {
+        attrs.push(kv("component.type", component_type.as_str().to_string()));
+    }
     if let Some(switch_id) = context.switch_id() {
         attrs.push(kv("switch.id", switch_id.to_string()));
     }
@@ -305,7 +314,9 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole};
+    use crate::endpoint::{
+        BmcAddr, ComponentType, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
+    };
     use crate::sink::{
         Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
     };
@@ -379,10 +390,12 @@ mod tests {
                 machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
                     .parse()
                     .expect("valid machine id"),
-                machine_serial: None,
+                machine_serial: Some("MN-001".to_string()),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(domain_uuid),
+                driver_version: Some("570.82".to_string()),
+                component_type: ComponentType::ComputeNode,
             })),
             rack_id: Some(RackId::new("RACK_1")),
         };
@@ -390,12 +403,51 @@ mod tests {
         let attrs = resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_1"));
+        assert_eq!(attr_value(&attrs, "machine.serial"), Some("MN-001"));
+        assert_eq!(attr_value(&attrs, "driver.version"), Some("570.82"));
+        assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
         assert_eq!(attr_int_value(&attrs, "machine.slot_number"), Some(15));
         assert_eq!(attr_int_value(&attrs, "machine.tray_index"), Some(5));
         assert_eq!(
             attr_value(&attrs, "nvlink.domain.uuid"),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    /// Verifies that absent optional machine metadata does not emit empty resource attributes.
+    #[test]
+    fn resource_attributes_omit_absent_optional_machine_metadata() {
+        let context = EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+                driver_version: None,
+                component_type: ComponentType::ComputeNode,
+            })),
+            rack_id: None,
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(
+            attr_value(&attrs, "machine.id"),
+            Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+        );
+        assert_eq!(attr_value(&attrs, "machine.serial"), None);
+        assert_eq!(attr_value(&attrs, "driver.version"), None);
+        assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
     }
 
     #[test]

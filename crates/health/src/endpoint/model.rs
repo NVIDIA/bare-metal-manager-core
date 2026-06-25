@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -94,13 +94,61 @@ impl EndpointMetadata {
     }
 }
 
+/// Hardware component category attached to machine health telemetry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComponentType {
+    /// Forge-managed host compute node.
+    ComputeNode,
+
+    /// Data processing unit machine.
+    Dpu,
+}
+
+impl ComponentType {
+    /// Returns the stable telemetry spelling for this component category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ComputeNode => "compute_node",
+            Self::Dpu => "dpu",
+        }
+    }
+
+    /// Maps a NICo machine type to its health telemetry component category.
+    pub const fn from_machine_type(machine_type: MachineType) -> Self {
+        match machine_type {
+            MachineType::Dpu => Self::Dpu,
+            MachineType::Host | MachineType::PredictedHost => Self::ComputeNode,
+        }
+    }
+}
+
+/// Metadata that describes a machine endpoint for health telemetry.
 #[derive(Clone, Debug)]
 pub struct MachineData {
+    /// Stable NICo machine identifier.
     pub machine_id: MachineId,
+
+    /// Hardware chassis serial discovered from machine DMI data, when known.
     pub machine_serial: Option<String>,
+
+    /// Physical rack slot where the machine is installed, when known.
     pub slot_number: Option<i32>,
+
+    /// Compute tray index where the machine is installed, when known.
     pub tray_index: Option<i32>,
+
+    /// NVLink domain UUID for the machine, when it participates in an NVLink domain.
     pub nvlink_domain_uuid: Option<NvLinkDomainId>,
+
+    /// Machine-level GPU driver version.
+    ///
+    /// This is populated only when API discovery reports exactly one unique
+    /// non-empty GPU driver version for the machine. It stays absent when the
+    /// version is unknown or the discovered GPUs report conflicting versions.
+    pub driver_version: Option<String>,
+
+    /// Component category derived from the machine type.
+    pub component_type: ComponentType,
 }
 
 #[derive(Clone, Debug)]

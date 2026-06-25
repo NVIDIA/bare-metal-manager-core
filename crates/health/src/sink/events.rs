@@ -30,7 +30,9 @@ use health_report::{
 use nv_redfish::resource::Health as BmcHealth;
 use serde::Serialize;
 
-use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
+use crate::endpoint::{
+    BmcAddr, BmcEndpoint, ComponentType, EndpointMetadata, MachineData, SwitchEndpointRole,
+};
 use crate::metrics::MetricLabel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,32 +67,54 @@ impl EventContext {
         &self.endpoint_key
     }
 
+    /// Returns machine metadata when this context belongs to a machine endpoint.
+    fn machine_metadata(&self) -> Option<&MachineData> {
+        let Some(EndpointMetadata::Machine(machine)) = self.metadata.as_ref() else {
+            return None;
+        };
+
+        Some(machine)
+    }
+
+    /// Returns the stable NICo machine ID when the endpoint is a machine.
     pub fn machine_id(&self) -> Option<MachineId> {
-        match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => Some(machine.machine_id),
-            _ => None,
-        }
+        self.machine_metadata().map(|machine| machine.machine_id)
     }
 
+    /// Returns the machine chassis serial when the endpoint is a machine.
+    pub fn machine_serial(&self) -> Option<&str> {
+        self.machine_metadata()
+            .and_then(|machine| machine.machine_serial.as_deref())
+    }
+
+    /// Returns the uniform GPU driver version when it is known for the machine.
+    pub fn driver_version(&self) -> Option<&str> {
+        self.machine_metadata()
+            .and_then(|machine| machine.driver_version.as_deref())
+    }
+
+    /// Returns the machine component category when the endpoint is a machine.
+    pub fn component_type(&self) -> Option<ComponentType> {
+        self.machine_metadata()
+            .map(|machine| machine.component_type)
+    }
+
+    /// Returns the physical rack slot number when the endpoint is a machine.
     pub fn slot_number(&self) -> Option<i32> {
-        match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => machine.slot_number,
-            _ => None,
-        }
+        self.machine_metadata()
+            .and_then(|machine| machine.slot_number)
     }
 
+    /// Returns the compute tray index when the endpoint is a machine.
     pub fn tray_index(&self) -> Option<i32> {
-        match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => machine.tray_index,
-            _ => None,
-        }
+        self.machine_metadata()
+            .and_then(|machine| machine.tray_index)
     }
 
+    /// Returns the NVLink domain UUID when the machine participates in one.
     pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
-        match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
-            _ => None,
-        }
+        self.machine_metadata()
+            .and_then(|machine| machine.nvlink_domain_uuid)
     }
 
     pub fn switch_id(&self) -> Option<SwitchId> {
@@ -518,6 +542,9 @@ mod tests {
         slot_number: Option<i32>,
         tray_index: Option<i32>,
         nvlink_domain_uuid: Option<String>,
+        machine_serial: Option<String>,
+        driver_version: Option<String>,
+        component_type: Option<ComponentType>,
         switch_id: Option<String>,
         switch_serial: Option<String>,
         switch_endpoint_role: Option<SwitchEndpointRole>,
@@ -611,6 +638,8 @@ mod tests {
                 slot_number: Some(7),
                 tray_index: Some(3),
                 nvlink_domain_uuid: Some(nvlink_domain_id()),
+                driver_version: Some("570.82".to_string()),
+                component_type: ComponentType::ComputeNode,
             })),
             ContextKind::Switch => Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id()),
@@ -643,6 +672,9 @@ mod tests {
             slot_number: context.slot_number(),
             tray_index: context.tray_index(),
             nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
+            machine_serial: context.machine_serial().map(str::to_string),
+            driver_version: context.driver_version().map(str::to_string),
+            component_type: context.component_type(),
             switch_id: context.switch_id().map(|id| id.to_string()),
             switch_serial: context.switch_serial().map(str::to_string),
             switch_endpoint_role: context.switch_endpoint_role(),
@@ -1021,6 +1053,9 @@ mod tests {
                     slot_number: None,
                     tray_index: None,
                     nvlink_domain_uuid: None,
+                    machine_serial: None,
+                    driver_version: None,
+                    component_type: None,
                     switch_id: None,
                     switch_serial: None,
                     switch_endpoint_role: None,
@@ -1041,6 +1076,9 @@ mod tests {
                     slot_number: Some(7),
                     tray_index: Some(3),
                     nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
+                    machine_serial: Some("MN-001".to_string()),
+                    driver_version: Some("570.82".to_string()),
+                    component_type: Some(ComponentType::ComputeNode),
                     switch_id: None,
                     switch_serial: None,
                     switch_endpoint_role: None,
@@ -1061,6 +1099,9 @@ mod tests {
                     slot_number: None,
                     tray_index: None,
                     nvlink_domain_uuid: None,
+                    machine_serial: None,
+                    driver_version: None,
+                    component_type: None,
                     switch_id: Some(switch_id().to_string()),
                     switch_serial: Some("SW-001".to_string()),
                     switch_endpoint_role: Some(SwitchEndpointRole::Host),
@@ -1081,6 +1122,9 @@ mod tests {
                     slot_number: None,
                     tray_index: None,
                     nvlink_domain_uuid: None,
+                    machine_serial: None,
+                    driver_version: None,
+                    component_type: None,
                     switch_id: None,
                     switch_serial: None,
                     switch_endpoint_role: None,

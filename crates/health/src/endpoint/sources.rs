@@ -28,8 +28,8 @@ use crate::HealthError;
 use crate::bmc::{BmcClient, FixedCredentialProvider};
 use crate::config::{StaticBmcEndpoint, StaticSwitchEndpointRole};
 use crate::endpoint::{
-    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData, SwitchEndpointRole,
+    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, ComponentType, EndpointMetadata,
+    EndpointSource, MachineData, PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 
 pub struct StaticEndpointSource {
@@ -135,6 +135,8 @@ impl StaticEndpointSource {
                         slot_number: machine.slot_number,
                         tray_index: machine.tray_index,
                         nvlink_domain_uuid,
+                        driver_version: machine.driver_version.clone(),
+                        component_type: ComponentType::from_machine_type(machine_id.machine_type()),
                     })),
                     Err(error) => {
                         tracing::warn!(
@@ -392,6 +394,7 @@ mod tests {
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some("00000000-0000-0000-0000-000000000000".to_string()),
+                driver_version: Some("570.82".to_string()),
             }),
             power_shelf: None,
             switch: None,
@@ -416,6 +419,8 @@ mod tests {
                 assert_eq!(machine.slot_number, Some(15));
                 assert_eq!(machine.tray_index, Some(5));
                 assert_eq!(machine.nvlink_domain_uuid, Some(domain_uuid));
+                assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
+                assert_eq!(machine.component_type, ComponentType::ComputeNode);
             }
             other => panic!("expected Machine metadata, got {other:?}"),
         }

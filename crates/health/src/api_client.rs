@@ -34,8 +34,8 @@ use url::Url;
 use crate::HealthError;
 use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
 use crate::endpoint::{
-    BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData, SwitchEndpointRole,
+    BmcAddr, BmcCredentials, BmcEndpoint, ComponentType, EndpointMetadata, EndpointSource,
+    MachineData, PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 
 /// [`ApiEndpointSource`].
@@ -444,6 +444,8 @@ impl ApiEndpointSource {
                     .nvlink_info
                     .as_ref()
                     .and_then(|info| info.domain_uuid),
+                driver_version: unique_gpu_driver_version(machine.discovery_info.as_ref()),
+                component_type: machine_component_type(machine),
             })
         });
 
@@ -590,6 +592,43 @@ fn cache_or_create_bmc_client(
     Ok(client)
 }
 
+/// Returns the machine-level GPU driver version derived from discovery data.
+///
+/// The NICo API reports driver versions per GPU. Health emits one machine-level
+/// value only when there is exactly one unique non-empty version across the
+/// reported GPUs. Empty strings are treated as missing data; conflicting
+/// non-empty versions are treated as ambiguous and omitted.
+fn unique_gpu_driver_version(
+    discovery_info: Option<&rpc::machine_discovery::DiscoveryInfo>,
+) -> Option<String> {
+    let discovery_info = discovery_info?;
+    let versions = discovery_info
+        .gpus
+        .iter()
+        .map(|gpu| gpu.driver_version.trim())
+        .filter(|version| !version.is_empty())
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+
+    (versions.len() == 1)
+        .then(|| versions.into_iter().next())
+        .flatten()
+}
+
+/// Classifies a Forge machine as the component category emitted with health telemetry.
+fn machine_component_type(machine: &rpc::forge::Machine) -> ComponentType {
+    match rpc::forge::MachineType::try_from(machine.machine_type) {
+        Ok(rpc::forge::MachineType::Dpu) => ComponentType::Dpu,
+        Ok(rpc::forge::MachineType::Host) => ComponentType::ComputeNode,
+        Ok(rpc::forge::MachineType::PowerShelf | rpc::forge::MachineType::Unknown) | Err(_) => {
+            machine
+                .id
+                .map(|machine_id| ComponentType::from_machine_type(machine_id.machine_type()))
+                .unwrap_or(ComponentType::ComputeNode)
+        }
+    }
+}
+
 impl EndpointSource for ApiEndpointSource {
     fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>> {
         Box::pin(self.fetch_bmc_hosts())
@@ -672,6 +711,8 @@ impl From<rpc::forge::bmc_credentials::Type> for BmcCredentials {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use carbide_test_support::value_scenarios;
+    use carbide_uuid::machine::MachineId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use nv_redfish::bmc_http::reqwest::ClientParams as ReqwestClientParams;
 
@@ -710,6 +751,108 @@ mod tests {
             None,
             10,
         )?))
+    }
+
+    /// Builds discovery metadata with one GPU entry per supplied driver version.
+    fn discovery_with_driver_versions(
+        driver_versions: &[&str],
+    ) -> rpc::machine_discovery::DiscoveryInfo {
+        rpc::machine_discovery::DiscoveryInfo {
+            gpus: driver_versions
+                .iter()
+                .map(|driver_version| rpc::machine_discovery::Gpu {
+                    driver_version: (*driver_version).to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Returns a known DPU ID for fallback classification tests.
+    fn dpu_machine_id() -> MachineId {
+        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg"
+            .parse()
+            .expect("valid DPU machine id")
+    }
+
+    /// Classifies a minimal Forge machine with the supplied type and optional ID.
+    fn component_type_for_machine_type(
+        (machine_type, machine_id): (rpc::forge::MachineType, Option<MachineId>),
+    ) -> ComponentType {
+        let machine = rpc::forge::Machine {
+            machine_type: machine_type as i32,
+            id: machine_id,
+            ..Default::default()
+        };
+
+        machine_component_type(&machine)
+    }
+
+    /// Verifies that driver-version extraction emits only a unique non-empty value.
+    #[test]
+    fn unique_gpu_driver_version_uses_single_non_empty_version() {
+        value_scenarios!(
+            run = |discovery_info: Option<rpc::machine_discovery::DiscoveryInfo>| {
+                unique_gpu_driver_version(discovery_info.as_ref())
+            };
+            "missing discovery info" {
+                None => None,
+            }
+
+            "no gpus" {
+                Some(discovery_with_driver_versions(&[])) => None,
+            }
+
+            "empty gpu driver versions" {
+                Some(discovery_with_driver_versions(&["", "  "])) => None,
+            }
+
+            "one gpu driver version" {
+                Some(discovery_with_driver_versions(&["570.82"])) => Some("570.82".to_string()),
+            }
+
+            "same gpu driver version repeated" {
+                Some(discovery_with_driver_versions(&["570.82", " 570.82 "])) => {
+                    Some("570.82".to_string())
+                },
+            }
+
+            "mixed gpu driver versions" {
+                Some(discovery_with_driver_versions(&["570.82", "580.12"])) => None,
+            }
+        );
+    }
+
+    /// Verifies that Forge host and DPU machine types map to telemetry categories.
+    #[test]
+    fn machine_component_type_uses_api_machine_type() {
+        value_scenarios!(
+            run = component_type_for_machine_type;
+            "host" {
+                (rpc::forge::MachineType::Host, None) => ComponentType::ComputeNode,
+            }
+
+            "dpu" {
+                (rpc::forge::MachineType::Dpu, None) => ComponentType::Dpu,
+            }
+
+            "unknown with dpu machine id" {
+                (rpc::forge::MachineType::Unknown, Some(dpu_machine_id())) => ComponentType::Dpu,
+            }
+
+            "unknown without machine id" {
+                (rpc::forge::MachineType::Unknown, None) => ComponentType::ComputeNode,
+            }
+
+            "power shelf with dpu machine id" {
+                (rpc::forge::MachineType::PowerShelf, Some(dpu_machine_id())) => ComponentType::Dpu,
+            }
+
+            "power shelf without machine id" {
+                (rpc::forge::MachineType::PowerShelf, None) => ComponentType::ComputeNode,
+            }
+        );
     }
 
     #[test]

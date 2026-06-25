@@ -261,7 +261,7 @@ mod tests {
     use nv_redfish::resource::Health as BmcHealth;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, ComponentType, EndpointMetadata, MachineData};
     use crate::sink::HealthReportTarget;
 
     fn test_context() -> EventContext {
@@ -281,6 +281,8 @@ mod tests {
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
+                driver_version: None,
+                component_type: ComponentType::ComputeNode,
             })),
             rack_id: None,
         }
