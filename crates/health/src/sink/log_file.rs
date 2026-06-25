@@ -111,7 +111,7 @@ impl<'a> JsonLogRecord<'a> {
             machine_id: context.machine_id().map(|id| id.to_string()),
             machine_serial: context.machine_serial(),
             driver_version: context.driver_version(),
-            component_type: context.component_type().map(|component| component.as_str()),
+            component_type: context.component_type(),
             nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
             severity: &record.severity,
             body: &record.body,
@@ -245,7 +245,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, ComponentType, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::sink::DiagnosticLogRecord;
 
     /// Builds a base log context without endpoint metadata.
@@ -275,7 +275,6 @@ mod tests {
                 tray_index: None,
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
                 driver_version: Some("570.82".to_string()),
-                component_type: ComponentType::ComputeNode,
             })),
             ..test_context()
         }

@@ -244,9 +244,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{
-        BmcAddr, ComponentType, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
-    };
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole};
 
     fn test_switch_id(label: &str) -> SwitchId {
         let mut hash = [0u8; 32];
@@ -274,7 +272,6 @@ mod tests {
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
                 driver_version: None,
-                component_type: ComponentType::ComputeNode,
             })),
             rack_id: Some(RackId::new("RACK_1")),
         };

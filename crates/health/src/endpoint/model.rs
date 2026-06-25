@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -92,32 +92,13 @@ impl EndpointMetadata {
             EndpointMetadata::Switch(switch) => Some(switch.serial.as_str()),
         }
     }
-}
 
-/// Hardware component category attached to machine health telemetry.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ComponentType {
-    /// Forge-managed host compute node.
-    ComputeNode,
-
-    /// Data processing unit machine.
-    Dpu,
-}
-
-impl ComponentType {
-    /// Returns the stable telemetry spelling for this component category.
-    pub const fn as_str(self) -> &'static str {
+    /// Returns the PHR component category represented by this endpoint metadata.
+    pub const fn component_type(&self) -> &'static str {
         match self {
-            Self::ComputeNode => "compute_node",
-            Self::Dpu => "dpu",
-        }
-    }
-
-    /// Maps a NICo machine type to its health telemetry component category.
-    pub const fn from_machine_type(machine_type: MachineType) -> Self {
-        match machine_type {
-            MachineType::Dpu => Self::Dpu,
-            MachineType::Host | MachineType::PredictedHost => Self::ComputeNode,
+            Self::Machine(_) => "compute_node",
+            Self::PowerShelf(_) => "power_shelf",
+            Self::Switch(_) => "nvlink_switch",
         }
     }
 }
@@ -146,9 +127,6 @@ pub struct MachineData {
     /// non-empty GPU driver version for the machine. It stays absent when the
     /// version is unknown or the discovered GPUs report conflicting versions.
     pub driver_version: Option<String>,
-
-    /// Component category derived from the machine type.
-    pub component_type: ComponentType,
 }
 
 #[derive(Clone, Debug)]

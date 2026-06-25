@@ -97,7 +97,6 @@ fn event_context() -> EventContext {
             tray_index: None,
             nvlink_domain_uuid: None,
             driver_version: None,
-            component_type: ComponentType::ComputeNode,
         })),
         rack_id: None,
     }
@@ -276,7 +275,6 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                     tray_index: None,
                     nvlink_domain_uuid: None,
                     driver_version: None,
-                    component_type: ComponentType::ComputeNode,
                 })),
                 rack_id: Some(RackId::new(rack_id)),
             }

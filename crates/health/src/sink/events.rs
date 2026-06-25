@@ -30,9 +30,7 @@ use health_report::{
 use nv_redfish::resource::Health as BmcHealth;
 use serde::Serialize;
 
-use crate::endpoint::{
-    BmcAddr, BmcEndpoint, ComponentType, EndpointMetadata, MachineData, SwitchEndpointRole,
-};
+use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, MachineData, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,10 +91,9 @@ impl EventContext {
             .and_then(|machine| machine.driver_version.as_deref())
     }
 
-    /// Returns the machine component category when the endpoint is a machine.
-    pub fn component_type(&self) -> Option<ComponentType> {
-        self.machine_metadata()
-            .map(|machine| machine.component_type)
+    /// Returns the PHR component category for endpoints with typed metadata.
+    pub fn component_type(&self) -> Option<&'static str> {
+        self.metadata.as_ref().map(EndpointMetadata::component_type)
     }
 
     /// Returns the physical rack slot number when the endpoint is a machine.
@@ -544,7 +541,7 @@ mod tests {
         nvlink_domain_uuid: Option<String>,
         machine_serial: Option<String>,
         driver_version: Option<String>,
-        component_type: Option<ComponentType>,
+        component_type: Option<&'static str>,
         switch_id: Option<String>,
         switch_serial: Option<String>,
         switch_endpoint_role: Option<SwitchEndpointRole>,
@@ -639,7 +636,6 @@ mod tests {
                 tray_index: Some(3),
                 nvlink_domain_uuid: Some(nvlink_domain_id()),
                 driver_version: Some("570.82".to_string()),
-                component_type: ComponentType::ComputeNode,
             })),
             ContextKind::Switch => Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id()),
@@ -1078,7 +1074,7 @@ mod tests {
                     nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
                     machine_serial: Some("MN-001".to_string()),
                     driver_version: Some("570.82".to_string()),
-                    component_type: Some(ComponentType::ComputeNode),
+                    component_type: Some("compute_node"),
                     switch_id: None,
                     switch_serial: None,
                     switch_endpoint_role: None,
@@ -1101,7 +1097,7 @@ mod tests {
                     nvlink_domain_uuid: None,
                     machine_serial: None,
                     driver_version: None,
-                    component_type: None,
+                    component_type: Some("nvlink_switch"),
                     switch_id: Some(switch_id().to_string()),
                     switch_serial: Some("SW-001".to_string()),
                     switch_endpoint_role: Some(SwitchEndpointRole::Host),
@@ -1124,7 +1120,7 @@ mod tests {
                     nvlink_domain_uuid: None,
                     machine_serial: None,
                     driver_version: None,
-                    component_type: None,
+                    component_type: Some("power_shelf"),
                     switch_id: None,
                     switch_serial: None,
                     switch_endpoint_role: None,

@@ -68,7 +68,7 @@ mod tests {
         CollectorEvent, CompositeDataSink, DataSink, DiagnosticLogRecord, EventContext, LogRecord,
         MetricSample, PrometheusSink,
     };
-    use crate::endpoint::{BmcAddr, ComponentType, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
 
     struct CountingSink {
@@ -165,7 +165,6 @@ mod tests {
                 tray_index: None,
                 nvlink_domain_uuid: None,
                 driver_version: None,
-                component_type: ComponentType::ComputeNode,
             })),
             rack_id: None,
         };
@@ -239,7 +238,6 @@ mod tests {
                 tray_index: None,
                 nvlink_domain_uuid: None,
                 driver_version: None,
-                component_type: ComponentType::ComputeNode,
             })),
             rack_id: None,
         };
@@ -296,7 +294,6 @@ mod tests {
                 tray_index: None,
                 nvlink_domain_uuid: None,
                 driver_version: None,
-                component_type: ComponentType::ComputeNode,
             })),
             rack_id: None,
         };

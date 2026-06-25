@@ -564,8 +564,7 @@ mod tests {
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
-        BmcAddr, BmcCredentials, ComponentType, EndpointMetadata, MachineData, SwitchData,
-        SwitchEndpointRole,
+        BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
     };
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
@@ -640,7 +639,6 @@ mod tests {
             tray_index: None,
             nvlink_domain_uuid: None,
             driver_version: None,
-            component_type: ComponentType::ComputeNode,
         })
     }
 

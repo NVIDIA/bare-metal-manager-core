@@ -236,7 +236,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, ComponentType, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::sink::events::{Classification, HealthReportAlert, HealthReportSuccess, Probe};
 
     fn machine_id(value: &str) -> MachineId {
@@ -273,7 +273,6 @@ mod tests {
                 tray_index: None,
                 nvlink_domain_uuid: None,
                 driver_version: None,
-                component_type: ComponentType::ComputeNode,
             })),
             rack_id: None,
         }
