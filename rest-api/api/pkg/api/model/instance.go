@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -50,9 +49,6 @@ var (
 		MachineIssueCategoryPerformance: int32(cwssaws.IssueCategory_PERFORMANCE),
 		MachineIssueCategoryOther:       int32(cwssaws.IssueCategory_OTHER),
 	}
-
-	// DeleteAttributionIssueDetailsMaxLen is the maximum length of Issue.details forwarded to Site.
-	DeleteAttributionIssueDetailsMaxLen = 1024
 )
 
 // ValidateMultiEthernetDeviceInterfaces validates the Multi-Ethernet Device Interfaces for the Instance
@@ -1566,27 +1562,6 @@ func (iur APIInstanceUpdateRequest) ValidateForVpc(vpc *cdbm.Vpc, currentAutoNet
 	return nil
 }
 
-// InstanceDeleteInitiatedBy records who initiated an Instance delete in the cloud API layer.
-type InstanceDeleteInitiatedBy struct {
-	Org       string `json:"org"`
-	UserID    string `json:"user_id"`
-	TenantID  string `json:"tenant_id"`
-	TenantOrg string `json:"tenant_org"`
-}
-
-// InstanceDeleteAttributionTenantReported captures tenant-reported issue fields included in delete attribution.
-type InstanceDeleteAttributionTenantReported struct {
-	Category string  `json:"category"`
-	Summary  string  `json:"summary"`
-	Details  *string `json:"details,omitempty"`
-}
-
-// InstanceDeleteAttributionConfig is the canonical JSON payload persisted on delete and forwarded to Site when an issue is reported.
-type InstanceDeleteAttributionConfig struct {
-	InitiatedBy    InstanceDeleteInitiatedBy                `json:"initiated_by"`
-	TenantReported *InstanceDeleteAttributionTenantReported `json:"tenant_reported,omitempty"`
-}
-
 // APIInstanceDeleteRequest is the data structure to capture request to delete an Instance
 type APIInstanceDeleteRequest struct {
 	// MachineHealthIssue is the report of a machine health issue
@@ -1629,7 +1604,7 @@ func (idr *APIInstanceDeleteRequest) Validate() error {
 // cannot see. In particular, the `IsRepairTenant` capability gate
 // (TargetedInstanceCreation on the Tenant config) is an authorization
 // check that stays in the handler before this method runs.
-func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.InstanceReleaseRequest {
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *cwssaws.InstanceReleaseRequest {
 	req := instance.ToReleaseRequestProto()
 	if idr.MachineHealthIssue != nil {
 		req.Issue = &cwssaws.Issue{
@@ -1645,37 +1620,20 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.I
 	if idr.IsRepairTenant != nil {
 		req.IsRepairTenant = idr.IsRepairTenant
 	}
-	return req
-}
 
-// ToInstanceDeleteAttributionConfig builds the delete attribution config from the API request.
-func (idr *APIInstanceDeleteRequest) ToInstanceDeleteAttributionConfig(user *cdbm.User, instance *cdbm.Instance) (string, error) {
-	config := InstanceDeleteAttributionConfig{
-		InitiatedBy: InstanceDeleteInitiatedBy{
-			Org:       instance.Tenant.Org,
-			UserID:    user.ID.String(),
-			TenantID:  instance.Tenant.ID.String(),
-			TenantOrg: instance.Tenant.Org,
-		},
+	// Build the delete attribution proto
+	initiatedBy := &cwssaws.DeleteInitiatedBy{
+		Org:      instance.Tenant.Org,
+		UserId:   user.ID.String(),
+		TenantId: instance.Tenant.ID.String(),
 	}
-	if idr.MachineHealthIssue != nil {
-		mhi := idr.MachineHealthIssue
-		reported := InstanceDeleteAttributionTenantReported{
-			Category: strings.ToUpper(mhi.Category),
-		}
-		if mhi.Summary != nil {
-			reported.Summary = *mhi.Summary
-		}
-		if mhi.Details != nil && *mhi.Details != "" {
-			reported.Details = mhi.Details
-		}
-		config.TenantReported = &reported
+	if instance.Tenant.OrgDisplayName != nil {
+		initiatedBy.OrgDisplayName = *instance.Tenant.OrgDisplayName
 	}
-	data, err := json.Marshal(config)
-	if err != nil {
-		return "", err
+	req.DeleteAttribution = &cwssaws.DeleteAttribution{
+		InitiatedBy: initiatedBy,
 	}
-	return string(data), nil
+	return req
 }
 
 // SSHKeyGroupsSummaryDeprecated ensures we keep returning empty array until deprecation time even with omitempty

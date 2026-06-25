@@ -2532,16 +2532,40 @@ func TestAPIInstanceUpdateRequest_Validate_Auto(t *testing.T) {
 func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 	id := uuid.New()
 	ctrlID := uuid.New()
-	instance := &cdbm.Instance{ID: id, ControllerInstanceID: &ctrlID}
+	userID := uuid.New()
+	tenantID := uuid.New()
+	org := "test-tenant-org"
+	orgDisplayName := "Test Tenant Org"
+	dbUser := &cdbm.User{ID: userID}
+	instance := &cdbm.Instance{
+		ID:                   id,
+		ControllerInstanceID: &ctrlID,
+		Tenant: &cdbm.Tenant{
+			ID:             tenantID,
+			Org:            org,
+			OrgDisplayName: &orgDisplayName,
+		},
+	}
+
+	assertDeleteAttribution := func(t *testing.T, got *cwssaws.InstanceReleaseRequest) {
+		t.Helper()
+		require.NotNil(t, got.DeleteAttribution)
+		require.NotNil(t, got.DeleteAttribution.InitiatedBy)
+		assert.Equal(t, org, got.DeleteAttribution.InitiatedBy.Org)
+		assert.Equal(t, orgDisplayName, got.DeleteAttribution.InitiatedBy.OrgDisplayName)
+		assert.Equal(t, userID.String(), got.DeleteAttribution.InitiatedBy.UserId)
+		assert.Equal(t, tenantID.String(), got.DeleteAttribution.InitiatedBy.TenantId)
+	}
 
 	t.Run("empty request sources only the canonical ID", func(t *testing.T) {
 		req := APIInstanceDeleteRequest{}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, ctrlID.String(), got.Id.Value)
 		assert.Nil(t, got.Issue)
 		assert.Nil(t, got.IsRepairTenant)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("overlays MachineHealthIssue with summary and details", func(t *testing.T) {
@@ -2552,12 +2576,13 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 				Details:  cutil.GetPtr("port 0 returned link-down for 30 minutes"),
 			},
 		}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Issue)
 		assert.Equal(t, cwssaws.IssueCategory_HARDWARE, got.Issue.Category)
 		assert.Equal(t, "burnt out NIC", got.Issue.Summary)
 		assert.Equal(t, "port 0 returned link-down for 30 minutes", got.Issue.Details)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("MachineHealthIssue without optional pointers leaves Summary and Details empty", func(t *testing.T) {
@@ -2566,133 +2591,39 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 				Category: MachineIssueCategoryOther,
 			},
 		}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got.Issue)
 		assert.Equal(t, cwssaws.IssueCategory_OTHER, got.Issue.Category)
 		assert.Equal(t, "", got.Issue.Summary)
 		assert.Equal(t, "", got.Issue.Details)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("overlays IsRepairTenant when set", func(t *testing.T) {
 		req := APIInstanceDeleteRequest{IsRepairTenant: cutil.GetPtr(true)}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got.IsRepairTenant)
 		assert.True(t, *got.IsRepairTenant)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("uses Instance ID when ControllerInstanceID is nil", func(t *testing.T) {
-		bare := &cdbm.Instance{ID: id}
+		bare := &cdbm.Instance{
+			ID: id,
+			Tenant: &cdbm.Tenant{
+				ID:  tenantID,
+				Org: org,
+			},
+		}
 		req := APIInstanceDeleteRequest{}
-		got := req.ToProto(bare)
+		got := req.ToProto(bare, dbUser)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.DeleteAttribution)
+		require.NotNil(t, got.DeleteAttribution.InitiatedBy)
+		assert.Equal(t, org, got.DeleteAttribution.InitiatedBy.Org)
+		assert.Equal(t, "", got.DeleteAttribution.InitiatedBy.OrgDisplayName)
+		assert.Equal(t, userID.String(), got.DeleteAttribution.InitiatedBy.UserId)
+		assert.Equal(t, tenantID.String(), got.DeleteAttribution.InitiatedBy.TenantId)
 	})
-}
-
-func TestAPIInstanceDeleteRequest_ToInstanceDeleteAttributionConfig(t *testing.T) {
-	userID := uuid.New()
-	tenantID := uuid.New()
-	org := "test-tenant-org"
-	dbUser := &cdbm.User{ID: userID}
-	instance := &cdbm.Instance{
-		Tenant: &cdbm.Tenant{ID: tenantID, Org: org},
-	}
-	wantInitiated := InstanceDeleteInitiatedBy{
-		Org: org, UserID: userID.String(), TenantID: tenantID.String(), TenantOrg: org,
-	}
-
-	tests := []struct {
-		name           string
-		req            APIInstanceDeleteRequest
-		wantReported   *InstanceDeleteAttributionTenantReported
-		wantRawKeys    []string
-		wantAbsentKeys []string
-	}{
-		{
-			name:           "without machine health issue",
-			req:            APIInstanceDeleteRequest{},
-			wantReported:   nil,
-			wantRawKeys:    []string{"initiated_by"},
-			wantAbsentKeys: []string{"tenant_reported"},
-		},
-		{
-			name: "with machine health issue",
-			req: APIInstanceDeleteRequest{
-				MachineHealthIssue: &APIMachineHealthIssue{
-					Category: MachineIssueCategoryHardware,
-					Summary:  cutil.GetPtr("NIC failure"),
-					Details:  cutil.GetPtr("link down on port 0"),
-				},
-			},
-			wantReported: &InstanceDeleteAttributionTenantReported{
-				Category: "HARDWARE",
-				Summary:  "NIC failure",
-				Details:  cutil.GetPtr("link down on port 0"),
-			},
-			wantRawKeys: []string{"initiated_by", "tenant_reported"},
-		},
-		{
-			name: "omits nil details",
-			req: APIInstanceDeleteRequest{
-				MachineHealthIssue: &APIMachineHealthIssue{
-					Category: MachineIssueCategoryOther,
-					Summary:  cutil.GetPtr("summary only"),
-				},
-			},
-			wantReported: &InstanceDeleteAttributionTenantReported{
-				Category: "OTHER",
-				Summary:  "summary only",
-			},
-			wantRawKeys: []string{"initiated_by", "tenant_reported"},
-		},
-		{
-			name: "omits empty string details",
-			req: APIInstanceDeleteRequest{
-				MachineHealthIssue: &APIMachineHealthIssue{
-					Category: MachineIssueCategoryNetwork,
-					Summary:  cutil.GetPtr("network issue"),
-					Details:  cutil.GetPtr(""),
-				},
-			},
-			wantReported: &InstanceDeleteAttributionTenantReported{
-				Category: "NETWORK",
-				Summary:  "network issue",
-			},
-			wantRawKeys: []string{"initiated_by", "tenant_reported"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			raw, err := tt.req.ToInstanceDeleteAttributionConfig(dbUser, instance)
-			require.NoError(t, err)
-
-			var config InstanceDeleteAttributionConfig
-			require.NoError(t, json.Unmarshal([]byte(raw), &config))
-			assert.Equal(t, wantInitiated, config.InitiatedBy)
-
-			if tt.wantReported == nil {
-				assert.Nil(t, config.TenantReported)
-			} else {
-				require.NotNil(t, config.TenantReported)
-				assert.Equal(t, tt.wantReported.Category, config.TenantReported.Category)
-				assert.Equal(t, tt.wantReported.Summary, config.TenantReported.Summary)
-				if tt.wantReported.Details == nil {
-					assert.Nil(t, config.TenantReported.Details)
-				} else {
-					require.NotNil(t, config.TenantReported.Details)
-					assert.Equal(t, *tt.wantReported.Details, *config.TenantReported.Details)
-				}
-			}
-
-			var parsed map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal([]byte(raw), &parsed))
-			for _, key := range tt.wantRawKeys {
-				assert.Contains(t, parsed, key)
-			}
-			for _, key := range tt.wantAbsentKeys {
-				assert.NotContains(t, parsed, key)
-			}
-		})
-	}
 }

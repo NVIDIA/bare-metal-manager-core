@@ -9751,30 +9751,21 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			require.NotEmpty(t, statusDetails)
 			require.NotNil(t, statusDetails[0].Message)
 
-			if tt.args.reqData != nil && tt.args.reqData.MachineHealthIssue != nil {
-				if len(tsc.Calls) > 0 && len(tsc.Calls[len(tsc.Calls)-1].Arguments) > 3 {
-					releaseReq := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*cwssaws.InstanceReleaseRequest)
+			if len(tsc.Calls) > 0 && len(tsc.Calls[len(tsc.Calls)-1].Arguments) > 3 {
+				releaseReq := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*cwssaws.InstanceReleaseRequest)
+				require.NotNil(t, releaseReq.DeleteAttribution)
+				require.NotNil(t, releaseReq.DeleteAttribution.InitiatedBy)
+				assert.Equal(t, tt.args.reqOrg, releaseReq.DeleteAttribution.InitiatedBy.Org)
+				assert.Equal(t, tt.args.reqUser.ID.String(), releaseReq.DeleteAttribution.InitiatedBy.UserId)
+				assert.Equal(t, dinstance.TenantID.String(), releaseReq.DeleteAttribution.InitiatedBy.TenantId)
+
+				if tt.args.reqData != nil && tt.args.reqData.MachineHealthIssue != nil {
 					require.NotNil(t, releaseReq.Issue)
-					require.NotNil(t, releaseReq.Issue.Details)
-					var issueDetails model.InstanceDeleteAttributionConfig
-					require.NoError(t, json.Unmarshal([]byte(releaseReq.Issue.Details), &issueDetails))
-					assert.Equal(t, tt.args.reqOrg, issueDetails.InitiatedBy.Org)
-					assert.Equal(t, tt.args.reqUser.ID.String(), issueDetails.InitiatedBy.UserID)
-					assert.Equal(t, dinstance.TenantID.String(), issueDetails.InitiatedBy.TenantID)
-					assert.Equal(t, tt.args.reqOrg, issueDetails.InitiatedBy.TenantOrg)
-					require.NotNil(t, issueDetails.TenantReported)
-					assert.Equal(t, strings.ToUpper(tt.args.reqData.MachineHealthIssue.Category), issueDetails.TenantReported.Category)
-					if tt.args.reqData.MachineHealthIssue.Summary != nil {
-						assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Summary, issueDetails.TenantReported.Summary)
-					}
 					if tt.args.reqData.MachineHealthIssue.Details != nil {
-						assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Details, *issueDetails.TenantReported.Details)
+						assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Details, releaseReq.Issue.Details)
 					}
-					if issueDetails.TenantReported.Details == nil {
-						assert.Nil(t, issueDetails.TenantReported.Details)
-					} else {
-						require.NotNil(t, issueDetails.TenantReported.Details)
-						assert.Equal(t, *issueDetails.TenantReported.Details, *tt.args.reqData.MachineHealthIssue.Details)
+					if tt.args.reqData.MachineHealthIssue.Summary != nil {
+						assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Summary, releaseReq.Issue.Summary)
 					}
 				}
 			}
