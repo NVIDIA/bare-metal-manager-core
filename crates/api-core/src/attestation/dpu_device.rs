@@ -114,6 +114,16 @@ pub enum DpuAttestError {
         "device identity is required (mode = required) but no verified device certificate was available"
     )]
     DeviceIdentityRequired,
+    #[error("trailing bytes after certificate at chain index {index}")]
+    TrailingBytes { index: usize },
+    #[error(
+        "issuer name of certificate at chain index {index} does not match the next certificate's subject"
+    )]
+    IssuerNameMismatch { index: usize },
+    #[error("issuer certificate at chain index {index} is not a CA")]
+    IssuerNotCa { index: usize },
+    #[error("attestation nonce does not match the server-issued challenge")]
+    NonceMismatch,
 }
 
 /// Verifies a DPU device-identity **certificate chain** (no proof of
@@ -142,31 +152,18 @@ pub fn verify_device_cert_chain(
         return Err(DpuAttestError::EmptyChain);
     }
 
-    // Parse the presented chain (leaf first) and the trust anchors.
+    // Parse the presented chain (leaf first) and the trust anchors, requiring
+    // each parse to consume its entire input (see `parse_full_cert`).
     let chain: Vec<X509Certificate<'_>> = device_cert_chain
         .iter()
         .enumerate()
-        .map(|(index, der)| {
-            X509Certificate::from_der(der)
-                .map(|(_rest, cert)| cert)
-                .map_err(|e| DpuAttestError::ParseCert {
-                    index,
-                    source: e.into(),
-                })
-        })
+        .map(|(index, der)| parse_full_cert(der, index))
         .collect::<Result<_, _>>()?;
 
     let roots: Vec<X509Certificate<'_>> = trusted_roots
         .iter()
         .enumerate()
-        .map(|(index, der)| {
-            X509Certificate::from_der(der)
-                .map(|(_rest, cert)| cert)
-                .map_err(|e| DpuAttestError::ParseCert {
-                    index,
-                    source: e.into(),
-                })
-        })
+        .map(|(index, der)| parse_full_cert(der, index))
         .collect::<Result<_, _>>()?;
 
     let now_ts = now.timestamp();
@@ -178,31 +175,40 @@ pub fn verify_device_cert_chain(
         }
     }
 
-    // 2. Verify each issuer→subject link inside the presented chain.
+    // 2. Verify each issuer→subject link inside the presented chain. The issuer
+    //    must name-match the subject's issuer field, be a CA, and its key must
+    //    have signed the subject. The CA check is what stops an end-entity (e.g.
+    //    a genuine device leaf whose private key an attacker holds) from being
+    //    smuggled in as an intermediate to mint a forged identity.
     for index in 0..chain.len().saturating_sub(1) {
         let subject = &chain[index];
         let issuer = &chain[index + 1];
+        if subject.issuer().as_raw() != issuer.subject().as_raw() {
+            return Err(DpuAttestError::IssuerNameMismatch { index });
+        }
+        if !issuer.is_ca() {
+            return Err(DpuAttestError::IssuerNotCa { index: index + 1 });
+        }
         subject
             .verify_signature(Some(issuer.public_key()))
             .map_err(|e| DpuAttestError::ChainSignature { index, source: e })?;
     }
 
-    // 3. The top of the presented chain must be signed by a trusted root whose
-    //    subject matches the top cert's issuer.
+    // 3. The top of the presented chain must be signed by a trusted root: a CA
+    //    whose subject matches the top cert's issuer, valid at `now`, whose key
+    //    verifies the top's signature. Try every matching root (not just the
+    //    first) so multiple roots sharing a subject — e.g. during key rollover —
+    //    are all considered.
     let top = chain.last().expect("non-empty chain checked above");
-    let top_index = chain.len() - 1;
-    let root = roots
-        .iter()
-        .find(|root| root.subject().as_raw() == top.issuer().as_raw())
-        .ok_or(DpuAttestError::NoTrustedRoot)?;
-    if !cert_valid_at(root, now_ts) {
+    let signed_by_trusted_root = roots.iter().any(|root| {
+        root.subject().as_raw() == top.issuer().as_raw()
+            && root.is_ca()
+            && cert_valid_at(root, now_ts)
+            && top.verify_signature(Some(root.public_key())).is_ok()
+    });
+    if !signed_by_trusted_root {
         return Err(DpuAttestError::NoTrustedRoot);
     }
-    top.verify_signature(Some(root.public_key()))
-        .map_err(|e| DpuAttestError::ChainSignature {
-            index: top_index,
-            source: e,
-        })?;
 
     // 4. Derive the identity from the verified leaf. The serial (CN) is for
     //    display; the machine_id is rooted in the full leaf certificate bytes,
@@ -257,26 +263,29 @@ pub fn verify_device_cert_chain_pem(
 /// [`verify_device_cert_chain`] and adds the nonce-signature check.
 pub fn verify_dpu_device_attestation(
     attestation: &DpuDeviceAttestation,
+    expected_nonce: &[u8],
     trusted_roots: &[Vec<u8>],
     now: DateTime<Utc>,
 ) -> Result<VerifiedDpuDevice, DpuAttestError> {
     let verified = verify_device_cert_chain(&attestation.device_cert_chain, trusted_roots, now)?;
 
+    // The echoed nonce must equal the server-issued challenge; otherwise a
+    // captured (nonce, signature) pair could be replayed against a fresh request.
+    if attestation.nonce.as_slice() != expected_nonce {
+        return Err(DpuAttestError::NonceMismatch);
+    }
+
     // Proof of possession: the device must have signed the server's nonce with
     // the private key matching the (already chain-verified) leaf certificate.
-    let leaf_der = &attestation.device_cert_chain[0];
-    let (_rest, leaf) =
-        X509Certificate::from_der(leaf_der).map_err(|e| DpuAttestError::ParseCert {
-            index: 0,
-            source: e.into(),
-        })?;
+    // Verify over `expected_nonce` so the signature is bound to the challenge.
+    let leaf = parse_full_cert(&attestation.device_cert_chain[0], 0)?;
     let leaf_point = leaf.public_key().subject_public_key.data.as_ref();
     let verifying_key = VerifyingKey::from_sec1_bytes(leaf_point)
         .map_err(|e| DpuAttestError::BadDeviceKey(e.to_string()))?;
     let signature = Signature::from_der(&attestation.nonce_signature)
         .map_err(|e| DpuAttestError::MalformedSignature(e.to_string()))?;
     verifying_key
-        .verify(&attestation.nonce, &signature)
+        .verify(expected_nonce, &signature)
         .map_err(|_| DpuAttestError::ProofOfPossession)?;
 
     Ok(verified)
@@ -381,6 +390,21 @@ pub fn select_dpu_machine_id(
     }
 }
 
+/// Parses one DER certificate, requiring the parser to consume the **entire**
+/// input. Trailing bytes are rejected so attacker-appended data can't ride along
+/// — in particular it can't perturb the certificate bytes that
+/// [`machine_id_from_device_cert`] hashes into the identity.
+fn parse_full_cert(der: &[u8], index: usize) -> Result<X509Certificate<'_>, DpuAttestError> {
+    let (rest, cert) = X509Certificate::from_der(der).map_err(|e| DpuAttestError::ParseCert {
+        index,
+        source: e.into(),
+    })?;
+    if !rest.is_empty() {
+        return Err(DpuAttestError::TrailingBytes { index });
+    }
+    Ok(cert)
+}
+
 /// Whether `cert` is within its validity window at the given unix timestamp.
 fn cert_valid_at(cert: &X509Certificate<'_>, now_ts: i64) -> bool {
     let not_before = cert.validity().not_before.timestamp();
@@ -470,8 +494,13 @@ mod tests {
             nonce,
         };
 
-        let verified =
-            verify_dpu_device_attestation(&attestation, &[ca.cert_der.clone()], now()).unwrap();
+        let verified = verify_dpu_device_attestation(
+            &attestation,
+            b"server-issued-nonce-123",
+            &[ca.cert_der.clone()],
+            now(),
+        )
+        .unwrap();
 
         assert_eq!(verified.device_serial, "MT2147XYZ001");
         assert_eq!(verified.machine_id.machine_type(), MachineType::Dpu);
@@ -496,8 +525,8 @@ mod tests {
         };
 
         // Only the real CA is trusted; the device was signed by the rogue CA.
-        let err =
-            verify_dpu_device_attestation(&attestation, &[real_ca.cert_der], now()).unwrap_err();
+        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[real_ca.cert_der], now())
+            .unwrap_err();
         assert!(matches!(err, DpuAttestError::NoTrustedRoot), "got {err:?}");
     }
 
@@ -514,7 +543,8 @@ mod tests {
             nonce,
         };
 
-        let err = verify_dpu_device_attestation(&attestation, &[ca.cert_der], now()).unwrap_err();
+        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[ca.cert_der], now())
+            .unwrap_err();
         assert!(
             matches!(err, DpuAttestError::ProofOfPossession),
             "got {err:?}"
@@ -522,21 +552,27 @@ mod tests {
     }
 
     #[test]
-    fn tampered_nonce_fails_proof_of_possession() {
+    fn echoed_nonce_not_matching_challenge_is_rejected() {
+        // The device echoes a nonce that differs from the server-issued
+        // challenge: rejected before the signature is even checked, so a
+        // captured (nonce, signature) pair cannot be replayed.
         let ca = make_ca("NVIDIA BlueField Device CA");
         let device = make_device(&ca, "MT2147XYZ004", (2030, 1, 1));
-        let signature = sign_nonce(&device, b"the-real-nonce");
+        let nonce_signature = sign_nonce(&device, b"a-different-nonce");
         let attestation = DpuDeviceAttestation {
             device_cert_chain: vec![device.cert_der],
             nonce: b"a-different-nonce".to_vec(),
-            nonce_signature: signature,
+            nonce_signature,
         };
 
-        let err = verify_dpu_device_attestation(&attestation, &[ca.cert_der], now()).unwrap_err();
-        assert!(
-            matches!(err, DpuAttestError::ProofOfPossession),
-            "got {err:?}"
-        );
+        let err = verify_dpu_device_attestation(
+            &attestation,
+            b"the-server-challenge",
+            &[ca.cert_der],
+            now(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DpuAttestError::NonceMismatch), "got {err:?}");
     }
 
     #[test]
@@ -551,7 +587,8 @@ mod tests {
             nonce,
         };
 
-        let err = verify_dpu_device_attestation(&attestation, &[ca.cert_der], now()).unwrap_err();
+        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[ca.cert_der], now())
+            .unwrap_err();
         assert!(
             matches!(err, DpuAttestError::CertNotValid { index: 0, .. }),
             "got {err:?}"
@@ -565,7 +602,7 @@ mod tests {
             nonce: b"nonce".to_vec(),
             nonce_signature: vec![],
         };
-        let err = verify_dpu_device_attestation(&attestation, &[], now()).unwrap_err();
+        let err = verify_dpu_device_attestation(&attestation, b"nonce", &[], now()).unwrap_err();
         assert!(matches!(err, DpuAttestError::EmptyChain), "got {err:?}");
     }
 
@@ -626,6 +663,61 @@ mod tests {
     fn pem_parse_rejects_non_pem_input() {
         let err = pem_chain_to_der("not a pem bundle").unwrap_err();
         assert!(matches!(err, DpuAttestError::Pem(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn end_entity_cannot_act_as_intermediate() {
+        // Attacker holds a genuine device leaf (signed by the trusted root) and
+        // its key. They try to use it as an "intermediate" to sign a forged leaf
+        // carrying a victim's serial. The chain must be rejected because the
+        // device leaf is not a CA — otherwise one device could forge any identity.
+        let ca = make_ca("NVIDIA BlueField Device CA");
+
+        let attacker_key = KeyPair::generate().unwrap();
+        let mut attacker_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        attacker_params
+            .distinguished_name
+            .push(DnType::CommonName, "attacker-device");
+        attacker_params.not_before = date_time_ymd(2024, 1, 1);
+        attacker_params.not_after = date_time_ymd(2030, 1, 1);
+        // Default params are NOT a CA.
+        let attacker_cert = attacker_params
+            .signed_by(&attacker_key, &Issuer::from_params(&ca.params, &ca.key))
+            .unwrap();
+
+        let forged_key = KeyPair::generate().unwrap();
+        let mut forged_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        forged_params
+            .distinguished_name
+            .push(DnType::CommonName, "victim-serial");
+        forged_params.not_before = date_time_ymd(2024, 1, 1);
+        forged_params.not_after = date_time_ymd(2030, 1, 1);
+        let forged_cert = forged_params
+            .signed_by(
+                &forged_key,
+                &Issuer::from_params(&attacker_params, &attacker_key),
+            )
+            .unwrap();
+
+        let chain = vec![forged_cert.der().to_vec(), attacker_cert.der().to_vec()];
+        let err = verify_device_cert_chain(&chain, &[ca.cert_der], now()).unwrap_err();
+        assert!(
+            matches!(err, DpuAttestError::IssuerNotCa { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn trailing_bytes_after_cert_are_rejected() {
+        let ca = make_ca("NVIDIA BlueField Device CA");
+        let device = make_device(&ca, "MT-trailing", (2030, 1, 1));
+        let mut der = device.cert_der.clone();
+        der.push(0x00); // attacker-appended trailing byte
+        let err = verify_device_cert_chain(&[der], &[ca.cert_der], now()).unwrap_err();
+        assert!(
+            matches!(err, DpuAttestError::TrailingBytes { index: 0 }),
+            "got {err:?}"
+        );
     }
 
     // --- backward-compatibility identity-selection policy ---
