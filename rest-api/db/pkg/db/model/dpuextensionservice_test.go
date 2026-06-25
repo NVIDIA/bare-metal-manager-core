@@ -906,7 +906,7 @@ func TestDpuExtensionServiceSQLDAO_Delete(t *testing.T) {
 		{
 			desc:               "can delete existing object success",
 			desID:              dessExp[1].ID,
-			checkSoftDelete:    false,
+			checkSoftDelete:    true,
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
