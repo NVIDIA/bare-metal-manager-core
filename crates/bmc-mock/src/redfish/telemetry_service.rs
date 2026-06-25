@@ -188,6 +188,7 @@ mod tests {
             "test-host-id".to_string(),
             false,
         );
+        drop(mac_pool);
         let client = AxumRouterHttpClient::new(router);
 
         let reports = "/redfish/v1/TelemetryService/MetricReports";
