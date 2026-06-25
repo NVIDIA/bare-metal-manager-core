@@ -22,6 +22,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -1175,7 +1176,9 @@ func TestSSHKeyHandler_Delete(t *testing.T) {
 				assert.Equal(t, "", sk.PublicKey)
 				// verify sk associations
 				skaDAO := cdbm.NewSSHKeyAssociationDAO(dbSession)
-				_, tot, err := skaDAO.GetAll(ctx, nil, []uuid.UUID{sk1.ID}, nil, nil, nil, nil, nil)
+				_, tot, err := skaDAO.GetAll(ctx, nil, cdbm.SSHKeyAssociationFilterInput{
+					SSHKeyIDs: []uuid.UUID{sk1.ID},
+				}, cdbp.PageInput{}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 0, tot)
 

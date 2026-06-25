@@ -189,7 +189,8 @@ pub(crate) async fn update(
             &mut txn,
             std::slice::from_ref(&id),
             Some(
-                &vpc.tenant_organization_id
+                &vpc.config
+                    .tenant_organization_id
                     .parse()
                     .map_err(|e: InvalidTenantOrg| {
                         CarbideError::from(RpcDataConversionError::InvalidTenantOrg(e.to_string()))
@@ -203,7 +204,7 @@ pub(crate) async fn update(
         {
             return Err(CarbideError::FailedPrecondition(format!(
                 "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
-                id, vpc.tenant_organization_id
+                id, vpc.config.tenant_organization_id
             ))
             .into());
         }
@@ -299,13 +300,16 @@ pub(crate) async fn delete(
         }
     };
 
-    if let Some(vni) = vpc.status.as_ref().and_then(|s| s.vni) {
+    if let Some(vni) = vpc.status.vni {
         // We can just keep deriving int/ext from the routing profile
         // because a VPC is not allowed to change its profile after
         // creation. VPC types that don't carry a routing profile
         // (ETV, Flat) land in the internal pool on create -- mirror
         // that here so the VNI is released back to the same pool.
-        let internal = match (api.runtime_config.fnn.as_ref(), vpc.routing_profile_type) {
+        let internal = match (
+            api.runtime_config.fnn.as_ref(),
+            vpc.config.routing_profile_type,
+        ) {
             (None, _) | (Some(_), None) => true,
             (Some(f), Some(profile_type)) => {
                 let Some(profile) = f.routing_profiles.get(&profile_type) else {

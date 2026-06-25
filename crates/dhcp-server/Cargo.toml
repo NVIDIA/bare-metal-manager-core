@@ -60,6 +60,7 @@ futures = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+carbide-test-support = { path = "../test-support" }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

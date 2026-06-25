@@ -43,6 +43,7 @@ use model::switch::{
     SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -2035,13 +2036,77 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
 // Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
 const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
 
-const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/ytl-jhb01-ca.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_CERT: &str = "/etc/nmx-controller/ytl-jhb01-tls.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/ytl-jhb01-tls.key";
-const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "ytl-jhb01";
+const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/nmxc-simulator-test-ca.crt";
+const NMXC_SIMULATOR_TLS_CERT: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.crt";
+const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.key";
+const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "nmxc-simulator.test";
 
 fn nmxc_simulator_tests_enabled() -> bool {
     std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
+}
+
+const GB200_TRAY_4_CHASSIS_SERIAL: &str = "27XYX27000001";
+
+/// Removes the `nvlink_nmxc_endpoints` row for `chassis_serial` so NMX-C resolution fails in tests.
+async fn delete_nvlink_nmxc_endpoint(pool: &sqlx::PgPool, chassis_serial: &str) {
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("begin txn for nvlink_nmxc_endpoint delete");
+    assert!(
+        db::nvlink_nmxc_endpoints::delete(txn.as_mut(), chassis_serial)
+            .await
+            .expect("delete nvlink_nmxc_endpoint"),
+        "nvlink_nmxc_endpoint row missing for {chassis_serial}"
+    );
+    txn.commit()
+        .await
+        .expect("commit nvlink_nmxc_endpoint delete");
+}
+
+/// Asserts the machine has a populated NVLink status observation with partition assignments.
+async fn assert_machine_nvlink_observation_present(
+    mh: &TestManagedHost,
+    expected_gpu_count: usize,
+) {
+    let machine = mh.host().rpc_machine().await;
+    let observation = machine
+        .nvlink_status_observation
+        .as_ref()
+        .expect("expected nvlink_status_observation to be set");
+    assert_eq!(observation.gpu_status.len(), expected_gpu_count);
+    for gpu_obs in &observation.gpu_status {
+        assert!(
+            gpu_obs.logical_partition_id.is_some(),
+            "expected logical_partition_id on gpu observation"
+        );
+        assert!(
+            gpu_obs.partition_id.is_some(),
+            "expected partition_id on gpu observation"
+        );
+    }
+}
+
+/// Asserts `nvlink_status_observation` was cleared (null) via RPC and in the database.
+async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sqlx::PgPool) {
+    let machine = mh.host().rpc_machine().await;
+    assert!(
+        machine.nvlink_status_observation.is_none(),
+        "expected null nvlink_status_observation via RPC, got {:?}",
+        machine.nvlink_status_observation
+    );
+
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("begin txn for nvlink observation check");
+    let db_machine = mh.host().db_machine(&mut txn).await;
+    assert!(
+        db_machine.nvlink_status_observation.is_none(),
+        "expected null nvlink_status_observation in DB, got {:?}",
+        db_machine.nvlink_status_observation
+    );
+    txn.commit().await.expect("commit nvlink observation check");
 }
 
 async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
@@ -2053,8 +2118,7 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
         nvlink_config.enabled = true;
         if with_mtls {
             nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
-            nvlink_config.nmx_c_tls_client_cert_path =
-                Some(NMXC_SIMULATOR_TLS_CLIENT_CERT.to_string());
+            nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
             nvlink_config.nmx_c_tls_client_key_path =
                 Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
             nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
@@ -2497,12 +2561,12 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
 }
 
 // mTLS scenario. For this test, the simulator needs to be configured with mTLS.
-// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/ytl-jhb01-tls.crt -k /etc/nmx-controller/ytl-jhb01-tls.key -a /etc/nmx-controller/ytl-jhb01-ca.crt -e mtls"
+// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/nmxc-simulator-test-tls.crt -k /etc/nmx-controller/nmxc-simulator-test-tls.key -a /etc/nmx-controller/nmxc-simulator-test-ca.crt -e mtls"
 // This test uses the following harcoded mtls config:
-// ytl-jhb01-ca.crt is the CA certificate
-// ytl-jhb01-tls.crt is the client certificate
-// ytl-jhb01-tls.key is the client key
-// ytl-jhb01 is the authority
+// nmxc-simulator-test-ca.crt is the CA certificate
+// nmxc-simulator-test-tls.crt is the leaf certificate
+// nmxc-simulator-test-tls.key is the client key
+// nmxc-simulator.test is the authority
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx::PgPool) {
     if !nmxc_simulator_tests_enabled() {
@@ -2512,6 +2576,86 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
         return;
     }
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, true).await;
+}
+
+async fn assert_switch_cert_monitor_nmxc_simulator_probe(
+    pool: sqlx::PgPool,
+    desired_server_cert_path: &std::path::Path,
+    expected_fingerprint_mismatches: usize,
+) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+        nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
+        nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
+        nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
+        nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
+        nvlink_config.nmx_c_certificate_rotation.enabled = true;
+        nvlink_config.nmx_c_certificate_rotation.server_cert_path =
+            Some(desired_server_cert_path.to_string_lossy().into_owned());
+    }
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxc_simulator = Some(true);
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    let rack_id: RackId = "rack-cert-monitor".parse().expect("rack id");
+    let mut txn = pool.begin().await.expect("begin txn");
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .expect("create rack");
+    txn.commit().await.expect("commit rack");
+
+    create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
+
+    let result = env.run_switch_cert_monitor_iteration().await;
+    assert_eq!(result.observed_endpoints, 1);
+    assert_eq!(result.successful_probes, 1);
+    assert_eq!(
+        result.fingerprint_mismatches,
+        expected_fingerprint_mismatches
+    );
+    assert_eq!(result.desired_cert_errors, 0);
+    assert_eq!(result.probe_errors, 0);
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let CertifiedKey {
+        cert: desired_cert, ..
+    } = generate_simple_self_signed(vec!["desired-nmxc-cert.example.test".to_string()]).unwrap();
+    let desired_cert_file = tempfile::NamedTempFile::new().unwrap();
+    tokio::fs::write(desired_cert_file.path(), desired_cert.pem())
+        .await
+        .unwrap();
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(pool, desired_cert_file.path(), 1).await;
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(
+        pool,
+        std::path::Path::new(NMXC_SIMULATOR_TLS_CERT),
+        0,
+    )
+    .await;
 }
 
 // This test creates two instances in the same logical partition but on different domains.
@@ -2875,4 +3019,130 @@ async fn test_managed_host_creation_with_tray_default_partition_use_nmxc_simulat
         .partition_info_list;
     assert_eq!(nmxc_partitions.len(), 1);
     assert_eq!(nmxc_partitions[0].name, "tray_partition_1");
+}
+
+/// Verifies null `nvlink_status_observation` is written when the NMX-C endpoint cannot be resolved.
+/// Verifies the NVLink config is not synced when NMX-C is unreachable.
+#[crate::sqlx_test]
+async fn test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator(
+    pool: sqlx::PgPool,
+) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let mut test_overrides = TestEnvOverrides::with_config(config);
+    test_overrides.nmxc_simulator = Some(true);
+
+    let env =
+        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Ready");
+
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: discovery_info
+            .gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config, segment_id).await;
+
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(tonic::Request::new(
+            rpc::forge::NvLinkPartitionSearchFilter {
+                name: None,
+                tenant_organization_id: None,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    let mut nmxc_sim_client = env
+        .nmxc_sim
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
+        .await
+        .unwrap();
+    let nmxc_partitions = nmxc_sim_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+    assert_eq!(nmxc_partitions.len(), 1);
+
+    assert_machine_nvlink_observation_present(&mh, 4).await;
+
+    let instance = tinstance.rpc_instance().await;
+    let instance_status = instance.status();
+    let nvl_status = instance_status.inner().nvlink.as_ref().unwrap();
+    assert_eq!(nvl_status.configs_synced(), rpc::SyncState::Synced);
+
+    delete_nvlink_nmxc_endpoint(&pool, GB200_TRAY_4_CHASSIS_SERIAL).await;
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    assert_machine_nvlink_observation_null(&mh, &pool).await;
+
+    let instance_after_failure = tinstance.rpc_instance().await;
+    let instance_status_after_failure = instance_after_failure.status();
+    let nvlink_status_after_failure = instance_status_after_failure
+        .inner()
+        .nvlink
+        .as_ref()
+        .expect("expected nvlink status after monitor iteration");
+    assert_ne!(
+        nvlink_status_after_failure.configs_synced(),
+        rpc::SyncState::Synced,
+        "nvlink config must not remain Synced when NMX-C is unreachable"
+    );
 }

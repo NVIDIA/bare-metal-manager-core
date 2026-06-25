@@ -38,6 +38,7 @@ async fn create_static_assignments_segment(
             prefixes: vec![NewNetworkPrefix {
                 prefix: "169.254.254.254/32".parse().unwrap(),
                 gateway: None,
+                dhcpv6_link_address: None,
                 num_reserved: 1,
             }],
             vlan_id: None,

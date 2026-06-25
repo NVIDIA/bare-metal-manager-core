@@ -243,7 +243,8 @@ impl<B: Bmc> ExploredChassis<B> {
         let serial_number = self
             .assembly_sn
             .clone()
-            .or(hw_id.serial_number.map(|v| v.to_string()));
+            .or(hw_id.serial_number.map(|v| v.to_string()))
+            .map(|s| s.trim().to_string());
 
         let nvidia_oem = self
             .chassis

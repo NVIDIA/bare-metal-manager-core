@@ -40,7 +40,7 @@ spec:
           {{- end }}
           volumeMounts:
             - name: boot-artifacts
-              mountPath: /boot-artifacts/blobs/internal
+              mountPath: /forge-boot-artifacts/blobs/internal
             {{- with .volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -86,8 +86,7 @@ spec:
               readOnly: true
             {{- if .Values.bootArtifactContainers }}
             - name: boot-artifacts
-              mountPath: /boot-artifacts/blobs/internal
-              readOnly: true
+              mountPath: /forge-boot-artifacts/blobs/internal
             {{- end }}
       volumes:
         - name: spiffe

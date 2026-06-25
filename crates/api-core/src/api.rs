@@ -88,6 +88,7 @@ pub struct Api {
     pub(crate) metric_emitter: ApiMetricsEmitter,
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
     pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
+    pub(crate) secrets_context: Option<crate::secrets::SecretsContext>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -1091,6 +1092,20 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
+    async fn find_explored_mlx_device_host_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceHostIdList>, Status> {
+        crate::handlers::site_explorer::find_explored_mlx_device_host_ids(self, request).await
+    }
+
+    async fn find_explored_mlx_devices_by_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredMlxDevicesByIdsRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
+        crate::handlers::site_explorer::find_explored_mlx_devices_by_ids(self, request).await
+    }
+
     async fn update_machine_hardware_info(
         &self,
         request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,
@@ -1442,6 +1457,13 @@ impl Forge for Api {
         request: Request<rpc::CredentialDeletionRequest>,
     ) -> Result<Response<rpc::CredentialDeletionResult>, Status> {
         crate::handlers::credential::delete_credential(self, request).await
+    }
+
+    async fn re_wrap_secrets(
+        &self,
+        request: Request<rpc::ReWrapSecretsRequest>,
+    ) -> Result<Response<rpc::ReWrapSecretsResponse>, Status> {
+        crate::handlers::secrets::re_wrap_secrets(self, request).await
     }
 
     /// get_route_servers returns a list of all configured route server
@@ -2252,6 +2274,29 @@ impl Forge for Api {
         request: Request<rpc::MachineValidationRunListGetRequest>,
     ) -> Result<Response<rpc::MachineValidationRunList>, Status> {
         crate::handlers::machine_validation::get_machine_validation_runs(self, request).await
+    }
+
+    async fn find_machine_validation_run_item_ids(
+        &self,
+        request: Request<rpc::MachineValidationRunItemSearchFilter>,
+    ) -> Result<Response<rpc::MachineValidationRunItemIdList>, Status> {
+        crate::handlers::machine_validation::find_machine_validation_run_item_ids(self, request)
+            .await
+    }
+
+    async fn find_machine_validation_run_items_by_ids(
+        &self,
+        request: Request<rpc::MachineValidationRunItemsByIdsRequest>,
+    ) -> Result<Response<rpc::MachineValidationRunItemList>, Status> {
+        crate::handlers::machine_validation::find_machine_validation_run_items_by_ids(self, request)
+            .await
+    }
+
+    async fn get_machine_validation_attempt(
+        &self,
+        request: Request<rpc::MachineValidationAttemptGetRequest>,
+    ) -> Result<Response<rpc::MachineValidationAttempt>, Status> {
+        crate::handlers::machine_validation::get_machine_validation_attempt(self, request).await
     }
 
     async fn admin_power_control(

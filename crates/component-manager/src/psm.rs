@@ -426,58 +426,38 @@ impl PowerShelfManager for PsmPowerShelfBackend {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
-    fn psm_state_queued() {
-        assert_eq!(
-            map_psm_fw_state(psm::FirmwareUpdateState::Queued as i32),
-            FirmwareState::Queued,
+    fn psm_fw_state_maps_each_variant() {
+        value_scenarios!(run = |state: psm::FirmwareUpdateState| map_psm_fw_state(state as i32);
+            "states" {
+                psm::FirmwareUpdateState::Queued => FirmwareState::Queued,
+                psm::FirmwareUpdateState::Verifying => FirmwareState::Verifying,
+                psm::FirmwareUpdateState::Completed => FirmwareState::Completed,
+                psm::FirmwareUpdateState::Failed => FirmwareState::Failed,
+            }
         );
     }
 
     #[test]
-    fn psm_state_verifying() {
-        assert_eq!(
-            map_psm_fw_state(psm::FirmwareUpdateState::Verifying as i32),
-            FirmwareState::Verifying,
+    fn psm_fw_state_unknown_for_unrecognized_value() {
+        value_scenarios!(map_psm_fw_state:
+            "unrecognized" {
+                9999 => FirmwareState::Unknown,
+            }
         );
     }
 
     #[test]
-    fn psm_state_completed() {
-        assert_eq!(
-            map_psm_fw_state(psm::FirmwareUpdateState::Completed as i32),
-            FirmwareState::Completed,
-        );
-    }
-
-    #[test]
-    fn psm_state_failed() {
-        assert_eq!(
-            map_psm_fw_state(psm::FirmwareUpdateState::Failed as i32),
-            FirmwareState::Failed,
-        );
-    }
-
-    #[test]
-    fn psm_state_unknown_for_unrecognized_value() {
-        assert_eq!(map_psm_fw_state(9999), FirmwareState::Unknown);
-    }
-
-    #[test]
-    fn vendor_mapping_unknown() {
-        assert_eq!(
-            map_vendor(&PowerShelfVendor::Unknown),
-            psm::PmcVendor::PmcTypeUnknown as i32,
-        );
-    }
-
-    #[test]
-    fn vendor_mapping_liteon() {
-        assert_eq!(
-            map_vendor(&PowerShelfVendor::Liteon),
-            psm::PmcVendor::PmcTypeLiteon as i32,
+    fn vendor_maps_each_variant() {
+        value_scenarios!(run = |vendor: PowerShelfVendor| map_vendor(&vendor);
+            "vendors" {
+                PowerShelfVendor::Unknown => psm::PmcVendor::PmcTypeUnknown as i32,
+                PowerShelfVendor::Liteon => psm::PmcVendor::PmcTypeLiteon as i32,
+            }
         );
     }
 

@@ -456,30 +456,118 @@ impl Options {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
+
     use super::*;
 
-    #[test]
-    fn test_platform_type_parses_all_valid_values() {
-        assert!(matches!(
-            "dpu-os".parse::<AgentPlatformType>().unwrap(),
-            AgentPlatformType::DpuOs
-        ));
-        assert!(matches!(
-            "containerized".parse::<AgentPlatformType>().unwrap(),
-            AgentPlatformType::Containerized
-        ));
+    /// Names an `AgentPlatformType` so parse results compare as a stable tag --
+    /// the enum is a clap value type and isn't `PartialEq`.
+    fn platform_tag(t: &AgentPlatformType) -> &'static str {
+        match t {
+            AgentPlatformType::DpuOs => "dpu-os",
+            AgentPlatformType::Containerized => "containerized",
+        }
+    }
+
+    /// Names an `HbnConfigMode` for the same reason as [`platform_tag`].
+    fn hbn_mode_tag(m: &HbnConfigMode) -> &'static str {
+        match m {
+            HbnConfigMode::ContainerExec => "container-exec",
+            HbnConfigMode::NvueRest => "nvue-rest",
+        }
     }
 
     #[test]
-    fn test_platform_type_rejects_unknown_value() {
-        let err = "banana".parse::<AgentPlatformType>().unwrap_err();
+    fn test_platform_type_from_str() {
+        scenarios!(run = |s: &str| s
+            .parse::<AgentPlatformType>()
+            .map(|t| platform_tag(&t))
+            .map_err(|e| e.to_string());
+            "valid values map to their variant" {
+                "dpu-os" => Yields("dpu-os"),
+                "containerized" => Yields("containerized"),
+            }
+
+            "unknown values are rejected" {
+                // `init-container` is now a dedicated subcommand, not a platform-type
+                // value; callers must use the subcommand instead.
+                "banana" => Fails,
+                "init-container" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn test_platform_type_rejects_unknown_value_naming_the_input() {
+        // The rejection message echoes the offending value so operators can see
+        // what they mistyped.
+        for bad in ["banana", "init-container"] {
+            let err = bad.parse::<AgentPlatformType>().unwrap_err();
+            assert!(err.to_string().contains(bad), "error should name {bad}");
+        }
+    }
+
+    #[test]
+    fn test_hbn_config_mode_from_str() {
+        scenarios!(run = |s: &str| s
+            .parse::<HbnConfigMode>()
+            .map(|m| hbn_mode_tag(&m))
+            .map_err(|e| e.to_string());
+            "valid modes map to their variant" {
+                "container-exec" => Yields("container-exec"),
+                "nvue-rest" => Yields("nvue-rest"),
+            }
+
+            "unknown modes are rejected" {
+                "banana" => Fails,
+                "" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn test_hbn_config_mode_rejects_unknown_value_naming_the_input() {
+        let err = "banana".parse::<HbnConfigMode>().unwrap_err();
         assert!(err.to_string().contains("banana"));
     }
 
     #[test]
     fn test_is_dpu_os_only_true_for_dpu_os() {
-        assert!(AgentPlatformType::DpuOs.is_dpu_os());
-        assert!(!AgentPlatformType::Containerized.is_dpu_os());
+        check_values(
+            [
+                Check {
+                    scenario: "dpu-os is the DPU OS",
+                    input: AgentPlatformType::DpuOs,
+                    expect: true,
+                },
+                Check {
+                    scenario: "containerized is not the DPU OS",
+                    input: AgentPlatformType::Containerized,
+                    expect: false,
+                },
+            ],
+            |t| t.is_dpu_os(),
+        );
+    }
+
+    #[test]
+    fn test_is_container_exec_only_true_for_container_exec() {
+        check_values(
+            [
+                Check {
+                    scenario: "container-exec uses crictl exec",
+                    input: HbnConfigMode::ContainerExec,
+                    expect: true,
+                },
+                Check {
+                    scenario: "nvue-rest does not use crictl exec",
+                    input: HbnConfigMode::NvueRest,
+                    expect: false,
+                },
+            ],
+            |m| m.is_container_exec(),
+        );
     }
 
     #[test]
@@ -524,15 +612,14 @@ mod tests {
 
     #[test]
     fn test_hardware_subcommand_accepts_remaining_platform_types() {
-        for value in ["dpu-os", "containerized"] {
-            let opts = Options::try_parse_from([
-                "forge-dpu-agent",
-                "hardware",
-                "--agent-platform-type",
-                value,
-            ])
-            .unwrap_or_else(|e| panic!("hardware --agent-platform-type={value} should parse: {e}"));
-            assert!(matches!(opts.cmd, Some(AgentCommand::Hardware(_))));
-        }
+        value_scenarios!(run = |value: &str| {
+            Options::try_parse_from(["forge-dpu-agent", "hardware", "--agent-platform-type", value])
+                .is_ok_and(|opts| matches!(opts.cmd, Some(AgentCommand::Hardware(_))))
+        };
+            "remaining platform types parse as the hardware subcommand" {
+                "dpu-os" => true,
+                "containerized" => true,
+            }
+        );
     }
 }

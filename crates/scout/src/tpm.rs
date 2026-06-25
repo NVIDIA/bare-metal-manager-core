@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
+use std::path::Path;
 use std::process::Command;
 
 use tss_esapi::handles::AuthHandle;
 use tss_esapi::interface_types::session_handles::AuthSession;
 
 use crate::{CarbideClientError, attestation as attest};
+
+pub(crate) const TPM_RECOVERY_ATTEMPTED_PATH: &str = "/run/scout/tpm_recovery_reboot_attempted";
 
 // From https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
 pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
@@ -80,4 +85,83 @@ pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
     ctx.clear_sessions();
     tracing::info!("TPM lockout hierarchy clear completed");
     Ok(())
+}
+
+/// Returns true when attestation-key setup failed after a TPM context was opened successfully.
+///
+/// Recovery is only attempted for this stage: context creation failures (bad path, missing device)
+/// are not recoverable via TPM clear.
+pub(crate) fn should_attempt_tpm_recovery_for_attest_key_failure(
+    source: &dyn std::error::Error,
+) -> bool {
+    let message = source.to_string().to_ascii_lowercase();
+    !message.contains("not supported")
+}
+
+fn claim_tpm_recovery_attempt() -> Result<(), CarbideClientError> {
+    if let Some(parent) = Path::new(TPM_RECOVERY_ATTEMPTED_PATH).parent() {
+        fs::create_dir_all(parent).map_err(CarbideClientError::StdIo)?;
+    }
+
+    let mut marker = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(TPM_RECOVERY_ATTEMPTED_PATH)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            return Err(CarbideClientError::TpmError(
+                "TPM recovery was already attempted this boot cycle; refusing to loop".to_string(),
+            ));
+        }
+        Err(e) => return Err(CarbideClientError::StdIo(e)),
+    };
+    marker
+        .write_all(b"tpm recovery reboot requested\n")
+        .map_err(CarbideClientError::StdIo)
+}
+
+/// Clears the TPM and reboots the host once per boot cycle to recover from missing TPM material.
+pub(crate) fn recover_tpm_and_reboot(tpm_path: &str) -> Result<(), CarbideClientError> {
+    claim_tpm_recovery_attempt()?;
+
+    tracing::warn!("Attempting automated TPM clear and reboot to recover attestation state");
+    clear_tpm(tpm_path)?;
+
+    let output = Command::new("systemctl")
+        .arg("reboot")
+        .output()
+        .map_err(CarbideClientError::StdIo)?;
+    if !output.status.success() {
+        return Err(CarbideClientError::GenericError(format!(
+            "systemctl reboot failed with status {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attest_key_failure_recovery_classification_cases() {
+        let cases: &[(&str, bool)] = &[
+            ("handle already exists", true),
+            ("tpm corruption detected", true),
+            ("feature not supported on this device", false),
+        ];
+
+        for (message, want_recovery) in cases {
+            let err: Box<dyn std::error::Error> = Box::new(std::io::Error::other(*message));
+            assert_eq!(
+                should_attempt_tpm_recovery_for_attest_key_failure(&*err),
+                *want_recovery,
+                "message={message:?}"
+            );
+        }
+    }
 }

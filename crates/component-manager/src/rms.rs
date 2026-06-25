@@ -2040,6 +2040,7 @@ impl ComputeTrayManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
+    use carbide_test_support::value_scenarios;
     use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
@@ -2070,130 +2071,92 @@ mod tests {
     // ---- Mapping unit tests ----
 
     #[test]
-    fn power_action_on_maps_to_power_on() {
-        assert_eq!(
-            to_rms_power_operation(PowerAction::On),
-            rms::PowerOperation::On as i32,
+    fn power_action_maps_to_rms_operation() {
+        value_scenarios!(to_rms_power_operation:
+            "power on" {
+                PowerAction::On => rms::PowerOperation::On as i32,
+            }
+
+            "power off" {
+                PowerAction::GracefulShutdown => rms::PowerOperation::Off as i32,
+                PowerAction::ForceOff => rms::PowerOperation::Off as i32,
+            }
+
+            "reset" {
+                PowerAction::GracefulRestart => rms::PowerOperation::Reset as i32,
+                PowerAction::ForceRestart => rms::PowerOperation::Reset as i32,
+                PowerAction::AcPowercycle => rms::PowerOperation::Reset as i32,
+            }
         );
     }
 
     #[test]
-    fn power_action_shutdown_maps_to_power_off() {
-        assert_eq!(
-            to_rms_power_operation(PowerAction::GracefulShutdown),
-            rms::PowerOperation::Off as i32,
-        );
-    }
-
-    #[test]
-    fn power_action_force_off_maps_to_power_off() {
-        assert_eq!(
-            to_rms_power_operation(PowerAction::ForceOff),
-            rms::PowerOperation::Off as i32,
-        );
-    }
-
-    #[test]
-    fn power_action_restart_maps_to_power_reset() {
-        for action in [
-            PowerAction::GracefulRestart,
-            PowerAction::ForceRestart,
-            PowerAction::AcPowercycle,
-        ] {
-            assert_eq!(
-                to_rms_power_operation(action),
-                rms::PowerOperation::Reset as i32,
-                "expected PowerReset for {action:?}",
-            );
-        }
-    }
-
-    #[test]
-    fn firmware_job_state_queued() {
-        assert_eq!(
-            map_rms_firmware_job_state(rms::FirmwareJobState::Queued as i32),
-            FirmwareState::Queued,
-        );
-    }
-
-    #[test]
-    fn firmware_job_state_running() {
-        assert_eq!(
-            map_rms_firmware_job_state(rms::FirmwareJobState::Running as i32),
-            FirmwareState::InProgress,
-        );
-    }
-
-    #[test]
-    fn firmware_job_state_completed() {
-        assert_eq!(
-            map_rms_firmware_job_state(rms::FirmwareJobState::Completed as i32),
-            FirmwareState::Completed,
-        );
-    }
-
-    #[test]
-    fn firmware_job_state_failed() {
-        assert_eq!(
-            map_rms_firmware_job_state(rms::FirmwareJobState::Failed as i32),
-            FirmwareState::Failed,
+    fn firmware_job_state_maps_each_variant() {
+        value_scenarios!(run = |state: rms::FirmwareJobState| map_rms_firmware_job_state(state as i32);
+            "states" {
+                rms::FirmwareJobState::Queued => FirmwareState::Queued,
+                rms::FirmwareJobState::Running => FirmwareState::InProgress,
+                rms::FirmwareJobState::Completed => FirmwareState::Completed,
+                rms::FirmwareJobState::Failed => FirmwareState::Failed,
+            }
         );
     }
 
     #[test]
     fn firmware_job_state_unknown_for_unrecognized_value() {
-        assert_eq!(map_rms_firmware_job_state(9999), FirmwareState::Unknown);
+        value_scenarios!(map_rms_firmware_job_state:
+            "unrecognized" {
+                9999 => FirmwareState::Unknown,
+            }
+        );
     }
 
     #[test]
     fn switch_system_image_job_state_maps_cancelled_and_verifying() {
-        assert_eq!(
-            map_rms_switch_system_image_job_state("cancelled"),
-            FirmwareState::Cancelled,
-        );
-        assert_eq!(
-            map_rms_switch_system_image_job_state("verifying"),
-            FirmwareState::Verifying,
+        value_scenarios!(map_rms_switch_system_image_job_state:
+            "cancelled" {
+                "cancelled" => FirmwareState::Cancelled,
+            }
+
+            "verifying" {
+                "verifying" => FirmwareState::Verifying,
+            }
         );
     }
 
     #[test]
     fn aggregate_firmware_job_states_prioritizes_active_over_unknown() {
-        assert_eq!(
-            aggregate_firmware_job_states(&[
-                FirmwareState::Completed,
-                FirmwareState::Unknown,
-                FirmwareState::InProgress,
-            ]),
-            FirmwareState::InProgress,
-        );
-        assert_eq!(
-            aggregate_firmware_job_states(&[
-                FirmwareState::Completed,
-                FirmwareState::Queued,
-                FirmwareState::Unknown,
-            ]),
-            FirmwareState::Queued,
+        value_scenarios!(run = |states| aggregate_firmware_job_states(states);
+            "active wins over unknown" {
+                &[
+                    FirmwareState::Completed,
+                    FirmwareState::Unknown,
+                    FirmwareState::InProgress,
+                ] => FirmwareState::InProgress,
+                &[
+                    FirmwareState::Completed,
+                    FirmwareState::Queued,
+                    FirmwareState::Unknown,
+                ] => FirmwareState::Queued,
+            }
         );
     }
 
     #[test]
     fn aggregate_firmware_job_states_terminal_failures_win() {
-        assert_eq!(
-            aggregate_firmware_job_states(&[
-                FirmwareState::Failed,
-                FirmwareState::InProgress,
-                FirmwareState::Unknown,
-            ]),
-            FirmwareState::Failed,
-        );
-        assert_eq!(
-            aggregate_firmware_job_states(&[
-                FirmwareState::Cancelled,
-                FirmwareState::InProgress,
-                FirmwareState::Unknown,
-            ]),
-            FirmwareState::Cancelled,
+        value_scenarios!(run = |states| aggregate_firmware_job_states(states);
+            "terminal failures win" {
+                &[
+                    FirmwareState::Failed,
+                    FirmwareState::InProgress,
+                    FirmwareState::Unknown,
+                ] => FirmwareState::Failed,
+                &[
+                    FirmwareState::Cancelled,
+                    FirmwareState::InProgress,
+                    FirmwareState::Unknown,
+                ] => FirmwareState::Cancelled,
+            }
         );
     }
 

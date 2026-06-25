@@ -4,6 +4,7 @@
 package coregrpc
 
 import (
+	"errors"
 	"time"
 
 	coregrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/coregrpc"
@@ -32,7 +33,20 @@ func makeGrpcClientMetrics() client.Metrics {
 			},
 			[]string{"grpc_method", "grpc_status_code"}),
 	}
-	prometheus.MustRegister(metrics.responseLatency)
+	// Use Register (not MustRegister) and tolerate a duplicate registration: the
+	// manager-level CreateGrpcClient is retried until it succeeds (e.g. on a
+	// transient cert-load failure at startup), and each attempt re-enters this
+	// function. MustRegister would panic on the second attempt and turn an
+	// otherwise-recoverable retry into a crash loop. On a duplicate, reuse the
+	// already-registered collector.
+	if err := prometheus.Register(metrics.responseLatency); err != nil {
+		are := prometheus.AlreadyRegisteredError{}
+		if errors.As(err, &are) {
+			metrics.responseLatency = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panic(err)
+		}
+	}
 	return metrics
 }
 
@@ -56,7 +70,16 @@ func newWorkflowMetrics() coregrpctypes.WorkflowMetrics {
 			},
 			[]string{"activity", "status"}),
 	}
-	prometheus.MustRegister(metrics.latency)
+	// See makeGrpcClientMetrics: tolerate a duplicate registration on retry
+	// instead of panicking, reusing the already-registered collector.
+	if err := prometheus.Register(metrics.latency); err != nil {
+		are := prometheus.AlreadyRegisteredError{}
+		if errors.As(err, &are) {
+			metrics.latency = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panic(err)
+		}
+	}
 	return metrics
 }
 

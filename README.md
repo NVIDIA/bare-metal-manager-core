@@ -32,16 +32,19 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 ### Quick start
 
 ```bash
-# 1. Build and push images to your registry
-#    NICo Core image: <your-registry>/nvmetal-nico:<tag>  (this repo)
-#    NICo REST images: <your-registry>/nico-rest-api:<tag>, etc.
+# 1. Build all container images from this clone, then push them to your registry.
+#    See docs/manuals/building_nico_containers.md for the build-host prerequisites.
+export IMAGE_REGISTRY=my-registry.example.com/infra-controller
+make images IMAGE_REGISTRY="${IMAGE_REGISTRY}"   # NICo Core (nico) + REST service images
+#    Then: docker push "${IMAGE_REGISTRY}/nico:latest"
+#          docker push "${IMAGE_REGISTRY}/nico-rest-api:latest"   # ...and the other nico-rest-* images
 
 # 2. Set environment variables
 export KUBECONFIG=/path/to/kubeconfig
-export NICO_IMAGE_REGISTRY=<your-registry>           # e.g. my-registry.example.com/infra-controller
-export NICO_CORE_IMAGE_TAG=<nico-core-tag>           # e.g. 2.0.0-pr-58-g38a54a3f
-export NICO_REST_IMAGE_TAG=<nico-rest-tag>           # e.g. 2.0.0-pr-58-g38a54a3f
-# export REGISTRY_PULL_SECRET=<raw API key>          # optional; raw key for authenticated registries
+export NICO_IMAGE_REGISTRY="${IMAGE_REGISTRY}"
+export NICO_CORE_IMAGE_TAG=NICO_CORE_TAG             # e.g. 2.0.0-pr-58-g38a54a3f
+export NICO_REST_IMAGE_TAG=NICO_REST_TAG             # e.g. 2.0.0-pr-58-g38a54a3f
+# export REGISTRY_PULL_SECRET=RAW_API_KEY            # optional; raw key for authenticated registries
 
 # 3. Customize site-specific values
 #    Edit helm-prereqs/values/nico-core.yaml:

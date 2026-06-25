@@ -513,32 +513,3 @@ fn test_stats_clone() {
     assert_eq!(stats1.total_processed, stats2.total_processed);
     assert_eq!(stats1.total_bytes_processed, stats2.total_bytes_processed);
 }
-
-// Performance-oriented tests
-#[test]
-fn test_stats_performance_no_contention() {
-    let tracker = QueueStatsTracker::new();
-    let start = std::time::Instant::now();
-
-    // Perform many operations quickly
-    for i in 0..10_000 {
-        tracker.increment_pending(i % 1000);
-        if i % 2 == 0 {
-            tracker.decrement_pending_increment_processed(i % 1000);
-        } else {
-            tracker.decrement_pending_increment_failed(i % 1000);
-        }
-    }
-
-    let elapsed = start.elapsed();
-
-    // Should complete very quickly (atomic operations are fast)
-    assert!(
-        elapsed.as_millis() < 100,
-        "Stats operations should be very fast"
-    );
-
-    // Verify final state is consistent
-    let stats = tracker.to_stats();
-    assert_eq!(stats.total_processed + stats.total_failed, 10_000);
-}

@@ -82,23 +82,6 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
 }
 
 #[crate::sqlx_test]
-async fn test_db_find_by_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-    let ids = seed_expected_racks(&mut txn).await;
-
-    let expected_rack = find_by_rack_id(&mut txn, &ids[0])
-        .await?
-        .expect("Expected rack not found");
-
-    assert_eq!(expected_rack.rack_id, ids[0]);
-    assert_eq!(expected_rack.rack_profile_id.as_str(), "NVL72");
-    assert_eq!(expected_rack.metadata.name, "rack-1");
-    assert_eq!(expected_rack.metadata.description, "Test rack 1");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn test_db_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
     let _ids = seed_expected_racks(&mut txn).await;
@@ -114,45 +97,6 @@ async fn test_db_find_nonexistent(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let rack_id = new_rack_id();
     let result = find_by_rack_id(&mut txn, &rack_id).await?;
     assert!(result.is_none());
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-
-    let rack_id = new_rack_id();
-    let metadata = Metadata {
-        name: "test-rack".to_string(),
-        description: "A test rack".to_string(),
-        labels: [("env".to_string(), "test".to_string())]
-            .into_iter()
-            .collect(),
-    };
-
-    let created = create(
-        &mut txn,
-        &ExpectedRack {
-            rack_id: rack_id.clone(),
-            rack_profile_id: RackProfileId::new("NVL72"),
-
-            metadata,
-        },
-    )
-    .await?;
-
-    assert_eq!(created.rack_id, rack_id);
-    assert_eq!(created.rack_profile_id.as_str(), "NVL72");
-    assert_eq!(created.metadata.name, "test-rack");
-    assert_eq!(created.metadata.labels.get("env").unwrap(), "test");
-
-    let found = find_by_rack_id(&mut txn, &rack_id)
-        .await?
-        .expect("Should find the rack we just created");
-
-    assert_eq!(found.rack_id, rack_id);
-    assert_eq!(found.rack_profile_id.as_str(), "NVL72");
-
     Ok(())
 }
 

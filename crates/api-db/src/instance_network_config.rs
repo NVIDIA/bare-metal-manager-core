@@ -55,7 +55,7 @@ pub async fn batch_get_inband_segments_by_machine_ids(
 /// Add inband interfaces to a network config based on segment IDs.
 /// This is a pure function that can be used after batch querying.
 ///
-/// This only injects when `auto` is true. If we get a non-auto
+/// This only injects when `auto_config` is set with a VpcId. If we get a non-auto
 /// config, just leave as-is and return it unchanged (as in, there
 /// are no inband interfaces to add).
 ///
@@ -67,9 +67,9 @@ pub fn add_inband_interfaces_to_config(
     mut network_config: InstanceNetworkConfig,
     host_inband_segment_ids: &[NetworkSegmentId],
 ) -> DatabaseResult<InstanceNetworkConfig> {
-    if !network_config.auto {
+    let Some(vpc_id) = network_config.auto_config.map(|c| c.vpc_id) else {
         return Ok(network_config);
-    }
+    };
 
     if !network_config.interfaces.is_empty() {
         return Err(DatabaseError::InvalidArgument(format!(
@@ -94,6 +94,7 @@ pub fn add_inband_interfaces_to_config(
             requested_ip_addr: None,
             ipv6_interface_config: None,
             routing_profile: None,
+            vpc_id: Some(vpc_id),
         });
     }
 

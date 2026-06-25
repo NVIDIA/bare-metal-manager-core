@@ -24,6 +24,7 @@ use libredfish::{Redfish, SystemPowerControl};
 use model::machine::{
     BiosConfigInfo, BiosConfigState, ManagedHostState, ManagedHostStateSnapshot, PowerState,
 };
+use model::predicted_machine_interface::PredictedMachineInterface;
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -90,7 +91,8 @@ pub(super) async fn configure_host_bios(
     mh_snapshot: &ManagedHostStateSnapshot,
     retry_count: u32,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    let boot_interface = boot_interface_target(mh_snapshot);
+    let predictions = super::load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let boot_interface = boot_interface_target(mh_snapshot, &predictions);
 
     let bios_job_id = match call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
@@ -381,8 +383,9 @@ pub(super) async fn advance_polling_bios_setup(
     mh_snapshot: &ManagedHostStateSnapshot,
     retry_count: u32,
     machine_controller_config: &MachineStateControllerConfig,
+    predictions: &[PredictedMachineInterface],
 ) -> Result<PollingBiosSetupOutcome, StateHandlerError> {
-    let boot_interface = boot_interface_target(mh_snapshot);
+    let boot_interface = boot_interface_target(mh_snapshot, predictions);
     let stuck_for = mh_snapshot.host_snapshot.state.version.since_state_change();
 
     let is_bios_setup_result = match &boot_interface {
@@ -459,7 +462,8 @@ pub(super) async fn handle_bios_setup_failed_recovery(
     mh_snapshot: &ManagedHostStateSnapshot,
     recovered_state: ManagedHostState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let boot_interface = boot_interface_target(mh_snapshot);
+    let predictions = super::load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let boot_interface = boot_interface_target(mh_snapshot, &predictions);
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)

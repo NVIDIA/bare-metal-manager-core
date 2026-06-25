@@ -898,7 +898,9 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -964,7 +966,9 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1021,7 +1025,9 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1106,7 +1112,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1177,7 +1185,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1263,7 +1273,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1329,7 +1341,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1458,7 +1472,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let initial_config = rpc::InstanceConfig {
@@ -1524,7 +1540,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
@@ -1639,7 +1657,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ipv6_interface_config: None,
                             routing_profile: None,
                         }],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1679,7 +1699,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ipv6_interface_config: None,
                             routing_profile: None,
                         }],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1721,7 +1743,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             ipv6_interface_config: None,
                             routing_profile: None,
                         }],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1857,7 +1881,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 routing_profile: None,
                             },
                         ],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1915,7 +1941,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 routing_profile: None,
                             },
                         ],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,
@@ -1973,7 +2001,9 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 routing_profile: None,
                             },
                         ],
+                        #[allow(deprecated)]
                         auto: false,
+                        auto_config: None,
                     }),
                     infiniband: None,
                     network_security_group_id: None,

@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
@@ -150,6 +150,32 @@ pub async fn find_by_ips(
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
         .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
+}
+
+/// Fetches explored DPU endpoints whose reported system serial number is in
+/// `serials`. Resolves the host-to-DPU serial join for a page of hosts without
+/// loading every explored endpoint. Constrained to DPU reports
+/// (`Systems[0].Id == "Bluefield"`) so a host endpoint with a coincidentally
+/// matching serial is not pulled in.
+///
+/// `exploration_report` is the constantly-rewritten site-exploration blob, so we
+/// deliberately do not index this JSON path: DPU-endpoint cardinality per site is
+/// low and this serves an occasional admin query, so a scoped scan beats taxing
+/// the exploration write path with an expression index.
+pub async fn find_by_dpu_serial_numbers(
+    db: impl DbReader<'_>,
+    serials: Vec<String>,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints \
+                 WHERE exploration_report->'Systems'->0->>'SerialNumber' = ANY($1) \
+                 AND exploration_report->'Systems'->0->>'Id' = 'Bluefield'";
+
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(serials)
+        .fetch_all(db)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_dpu_serial_numbers", e))
 }
 
 /// find_all returns all explored endpoints that site explorer has been able to probe
@@ -426,6 +452,16 @@ pub async fn set_preingestion_initial_bmc_reset(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::InitialBMCReset { phase };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_set_ntp_servers(
+    address: IpAddr,
+    set_at: Option<DateTime<Utc>>,
+    attempts: u32,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::SetNtpServers { set_at, attempts };
     set_preingestion(address, state, txn).await
 }
 

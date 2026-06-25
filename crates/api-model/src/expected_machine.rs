@@ -26,6 +26,7 @@ use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 use crate::metadata::Metadata;
+use crate::network_segment::NetworkSegmentType;
 
 /// Per-host DPU operating mode declared by a site operator on an
 /// `ExpectedMachine`. Per-host values win over the site-wide
@@ -92,7 +93,18 @@ pub struct ExpectedMachineRequest {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ExpectedHostNic {
     pub mac_address: MacAddress,
-    // something to help the dhcp code select the right ip subnet, eg: bf3, onboard, cx8, oob, etc.
+    /// The network segment type this NIC's first DHCP lease should come from.
+    ///
+    /// A NIC's segment is normally determined by its DHCP relay -- the segment
+    /// whose prefix contains the relay address. Where segment prefixes nest or
+    /// overlap, one relay can match several segments; declaring this narrows the
+    /// choice to the segment of this type. `None` (with no legacy
+    /// [`Self::nic_type`]) leaves the relay's match as-is. Resolved via
+    /// [`Self::resolved_network_segment_type`].
+    #[serde(default)]
+    pub network_segment_type: Option<NetworkSegmentType>,
+    /// Legacy free-form NIC-type segment hint (`bf3`, `onboard`, `oob`, ...).
+    /// Kept for backward compatibility; prefer `network_segment_type`.
     pub nic_type: Option<String>,
     pub fixed_ip: Option<IpAddr>,
     pub fixed_mask: Option<String>,
@@ -107,6 +119,28 @@ pub struct ExpectedHostNic {
     /// interface accordingly).
     #[serde(default)]
     pub primary: Option<bool>,
+}
+
+impl ExpectedHostNic {
+    /// The network segment type to narrow this NIC's DHCP segment selection to,
+    /// if the declaration names one. Prefers the typed
+    /// [`Self::network_segment_type`]; otherwise maps the legacy
+    /// [`Self::nic_type`] string so machines declared before the typed field
+    /// keep their segment. `None` -> selection stays with whatever segment(s)
+    /// the relay's prefix matches.
+    pub fn resolved_network_segment_type(&self) -> Option<NetworkSegmentType> {
+        if let Some(segment_type) = self.network_segment_type {
+            return Some(segment_type);
+        }
+        // Legacy `nic_type` mapping -- droppable once declarations carry the
+        // typed field. `bf3`/`dpu`/`onboard` named the admin segment, `bmc`/`oob`
+        // the underlay; anything else left selection to the relay.
+        match self.nic_type.as_deref()?.to_ascii_lowercase().as_str() {
+            "bf3" | "dpu" | "onboard" => Some(NetworkSegmentType::Admin),
+            "bmc" | "oob" => Some(NetworkSegmentType::Underlay),
+            _ => None,
+        }
+    }
 }
 
 fn deserialize_optional_ip_addr_lossy<'de, D>(deserializer: D) -> Result<Option<IpAddr>, D::Error>
@@ -169,6 +203,22 @@ pub struct ExpectedMachineData {
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
+
+impl ExpectedMachineData {
+    /// The MAC the operator declared as this host's boot interface via
+    /// `ExpectedHostNic.primary`. This is the single source of declared boot
+    /// intent the writers consult -- site-explorer ingestion, DHCP, and
+    /// prediction promotion -- so they all agree on which NIC wins. The API
+    /// enforces at most one `primary` host NIC, so the first match is the
+    /// declaration. `None` leaves the boot interface to today's automation
+    /// (DPU takeover during ingestion, else the `pick_boot_interface` fallback).
+    pub fn declared_primary_mac(&self) -> Option<MacAddress> {
+        self.host_nics
+            .iter()
+            .find(|nic| nic.primary == Some(true))
+            .map(|nic| nic.mac_address)
+    }
+}
 
 /// Per-host lifecycle profile for settings that affect state-machine progression.
 /// `Option<bool>` fields support CLI patch semantics (`None` = not specified,
@@ -426,5 +476,132 @@ mod tests {
             disable_lockdown: Some(false),
         };
         assert!(!hlp.is_empty());
+    }
+
+    /// `declared_primary_mac` returns the MAC of the one NIC flagged
+    /// `primary: Some(true)`, and `None` when nothing is declared. `primary:
+    /// Some(false)` is an explicit non-primary, not a declaration.
+    #[test]
+    fn declared_primary_mac_returns_the_flagged_nic() {
+        let mac_a: MacAddress = "AA:BB:CC:00:00:01".parse().unwrap();
+        let mac_b: MacAddress = "AA:BB:CC:00:00:02".parse().unwrap();
+
+        let nic = |mac: MacAddress, primary: Option<bool>| ExpectedHostNic {
+            mac_address: mac,
+            primary,
+            ..Default::default()
+        };
+
+        // Nothing declared -- empty, or only explicit non-primaries.
+        assert_eq!(ExpectedMachineData::default().declared_primary_mac(), None);
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, None), nic(mac_b, Some(false))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            None
+        );
+
+        // The declared NIC wins.
+        assert_eq!(
+            ExpectedMachineData {
+                host_nics: vec![nic(mac_a, Some(false)), nic(mac_b, Some(true))],
+                ..Default::default()
+            }
+            .declared_primary_mac(),
+            Some(mac_b)
+        );
+    }
+
+    /// `resolved_network_segment_type` prefers the typed `network_segment_type`
+    /// and otherwise maps the legacy `nic_type` string (case-insensitively),
+    /// returning `None` when neither declaration names a segment type.
+    #[test]
+    fn resolved_network_segment_type_prefers_typed_field_then_legacy_nic_type() {
+        struct Case {
+            name: &'static str,
+            network_segment_type: Option<NetworkSegmentType>,
+            nic_type: Option<&'static str>,
+            want: Option<NetworkSegmentType>,
+        }
+
+        let cases = [
+            Case {
+                name: "typed field selects its segment",
+                network_segment_type: Some(NetworkSegmentType::Tenant),
+                nic_type: None,
+                want: Some(NetworkSegmentType::Tenant),
+            },
+            Case {
+                name: "typed field wins over a legacy hint",
+                network_segment_type: Some(NetworkSegmentType::Underlay),
+                nic_type: Some("onboard"),
+                want: Some(NetworkSegmentType::Underlay),
+            },
+            Case {
+                name: "legacy onboard maps to admin",
+                network_segment_type: None,
+                nic_type: Some("onboard"),
+                want: Some(NetworkSegmentType::Admin),
+            },
+            Case {
+                name: "legacy bf3 maps to admin",
+                network_segment_type: None,
+                nic_type: Some("bf3"),
+                want: Some(NetworkSegmentType::Admin),
+            },
+            Case {
+                name: "legacy dpu maps to admin",
+                network_segment_type: None,
+                nic_type: Some("dpu"),
+                want: Some(NetworkSegmentType::Admin),
+            },
+            Case {
+                name: "legacy bmc maps to underlay",
+                network_segment_type: None,
+                nic_type: Some("bmc"),
+                want: Some(NetworkSegmentType::Underlay),
+            },
+            Case {
+                name: "legacy oob maps to underlay",
+                network_segment_type: None,
+                nic_type: Some("oob"),
+                want: Some(NetworkSegmentType::Underlay),
+            },
+            Case {
+                name: "legacy hint is case-insensitive",
+                network_segment_type: None,
+                nic_type: Some("BF3"),
+                want: Some(NetworkSegmentType::Admin),
+            },
+            Case {
+                name: "unknown legacy hint selects nothing",
+                network_segment_type: None,
+                nic_type: Some("cx8"),
+                want: None,
+            },
+            Case {
+                name: "nothing declared selects nothing",
+                network_segment_type: None,
+                nic_type: None,
+                want: None,
+            },
+        ];
+
+        for case in cases {
+            let nic = ExpectedHostNic {
+                mac_address: "AA:BB:CC:00:00:01".parse().unwrap(),
+                network_segment_type: case.network_segment_type,
+                nic_type: case.nic_type.map(String::from),
+                ..Default::default()
+            };
+            assert_eq!(
+                nic.resolved_network_segment_type(),
+                case.want,
+                "{}",
+                case.name
+            );
+        }
     }
 }

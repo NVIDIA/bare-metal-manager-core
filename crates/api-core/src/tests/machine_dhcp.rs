@@ -209,6 +209,54 @@ async fn test_non_primary_admin_interface_dhcp_is_rejected(
 }
 
 #[crate::sqlx_test]
+async fn test_discover_dhcp_includes_site_ntp_server_ips(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers = vec![
+        "198.51.100.10".parse().unwrap(),
+        "198.51.100.11".parse().unwrap(),
+    ];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("FF:FF:FF:FF:FF:FF", FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.ntp_servers,
+        vec!["198.51.100.10".to_string(), "198.51.100.11".to_string()]
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_discover_dhcp_returns_empty_ntp_servers_when_site_not_configured(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.ntp_servers = vec![];
+    let env =
+        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("FF:FF:FF:FF:FF:EE", FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(response.ntp_servers, Vec::<String>::new());
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_multiple_machines_dhcp_with_api(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -287,6 +335,7 @@ async fn test_machine_dhcp_declared_admin_nic_allocates_from_relay_admin_segment
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-ADMIN-RELAY-001".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: admin_nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: None,
@@ -329,6 +378,71 @@ async fn test_machine_dhcp_declared_admin_nic_allocates_from_relay_admin_segment
 }
 
 #[crate::sqlx_test]
+async fn test_machine_dhcp_declared_segment_type_allocates_from_relay_admin_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.rack_management_enabled = true;
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+
+    // A second admin segment, so the relay -- not the declaration -- decides
+    // which admin segment is used once selection is narrowed to Admin.
+    let second_admin_segment = create_network_segment(
+        &env.api,
+        "ADMIN_2",
+        "192.0.12.0/24",
+        "192.0.12.1",
+        rpc::forge::NetworkSegmentType::Admin,
+        None,
+        true,
+    )
+    .await;
+
+    // Declare the host NIC's segment type directly -- the typed field, no
+    // legacy nic_type string.
+    let bmc_mac: MacAddress = "7a:7b:7c:7d:7e:20".parse().unwrap();
+    let admin_nic_mac: MacAddress = "7a:7b:7c:7d:7e:21".parse().unwrap();
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-ADMIN-TYPED-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: admin_nic_mac.to_string(),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                primary: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP through the second admin relay allocates from that admin segment --
+    // the typed declaration narrowed selection to Admin, the relay picked which.
+    let response = env
+        .api
+        .discover_dhcp(DhcpDiscovery::builder(admin_nic_mac, "192.0.12.1").tonic_request())
+        .await?
+        .into_inner();
+
+    assert_eq!(response.segment_id.unwrap(), second_admin_segment);
+    assert_eq!(response.mac_address, admin_nic_mac.to_string());
+    assert_eq!(response.prefix, "192.0.12.0/24");
+
+    let interface_id = response
+        .machine_interface_id
+        .expect("DHCP response should include machine_interface_id");
+    let mut txn = env.pool.begin().await?;
+    let persisted_interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await?;
+    assert_eq!(persisted_interface.segment_id, second_admin_segment);
+    assert_eq!(persisted_interface.mac_address, admin_nic_mac);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -361,7 +475,9 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 routing_profile: None,
             },
         ],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     mh.instance_builer(&env).network(network).build().await;

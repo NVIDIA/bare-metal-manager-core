@@ -243,6 +243,7 @@ pub enum CollectorEvent {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ReportSource {
     BmcSensors,
+    BmcEvents,
     BmcLeakDetectors,
     TrayLeakDetection,
     RackLeakDetection,
@@ -252,6 +253,7 @@ impl ReportSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BmcSensors => "bmc-sensors",
+            Self::BmcEvents => "bmc-events",
             Self::BmcLeakDetectors => "bmc-leak-detectors",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
@@ -262,6 +264,7 @@ impl ReportSource {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Probe {
     Sensor,
+    IntrusionSensorTriggered,
     LeakDetection,
 }
 
@@ -269,6 +272,7 @@ impl Probe {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sensor => "BmcSensor",
+            Self::IntrusionSensorTriggered => "IntrusionSensorTriggered",
             Self::LeakDetection => "BmcLeakDetection",
         }
     }
@@ -281,6 +285,7 @@ pub enum Classification {
     SensorCritical,
     SensorFatal,
     SensorFailure,
+    PreventAllocations,
     Leak,
     LeakDetector,
 }
@@ -293,6 +298,7 @@ impl Classification {
             Self::SensorCritical => "SensorCritical",
             Self::SensorFatal => "SensorFatal",
             Self::SensorFailure => "SensorFailure",
+            Self::PreventAllocations => "PreventAllocations",
             Self::Leak => "Leak",
             Self::LeakDetector => "LeakDetector",
         }
@@ -433,6 +439,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum AlertCase {
         WithTarget,
+        Intrusion,
         WithoutClassifications,
     }
 
@@ -566,6 +573,15 @@ mod tests {
                 message: "fan warning".to_string(),
                 classifications: vec![Classification::SensorWarning, Classification::SensorFailure],
             },
+            AlertCase::Intrusion => HealthReportAlert {
+                probe_id: Probe::IntrusionSensorTriggered,
+                target: Some("HostBMC".to_string()),
+                message: "Physical Chassis Intrusion Alert".to_string(),
+                classifications: vec![
+                    Classification::SensorCritical,
+                    Classification::PreventAllocations,
+                ],
+            },
             AlertCase::WithoutClassifications => HealthReportAlert {
                 probe_id: Probe::LeakDetection,
                 target: None,
@@ -640,6 +656,10 @@ mod tests {
                 ReportSource::BmcSensors => "bmc-sensors",
             }
 
+            "BMC events" {
+                ReportSource::BmcEvents => "bmc-events",
+            }
+
             "BMC leak detectors" {
                 ReportSource::BmcLeakDetectors => "bmc-leak-detectors",
             }
@@ -668,6 +688,13 @@ mod tests {
                 Probe::Sensor => ProbeSummary {
                     as_str: "BmcSensor",
                     health_report_id: "BmcSensor".to_string(),
+                },
+            }
+
+            "intrusion sensor triggered" {
+                Probe::IntrusionSensorTriggered => ProbeSummary {
+                    as_str: "IntrusionSensorTriggered",
+                    health_report_id: "IntrusionSensorTriggered".to_string(),
                 },
             }
 
@@ -723,6 +750,13 @@ mod tests {
                 Classification::SensorFailure => ClassificationSummary {
                     as_str: "SensorFailure",
                     health_report_classification: "SensorFailure".to_string(),
+                },
+            }
+
+            "prevent allocations" {
+                Classification::PreventAllocations => ClassificationSummary {
+                    as_str: "PreventAllocations",
+                    health_report_classification: "PreventAllocations".to_string(),
                 },
             }
 
@@ -823,6 +857,21 @@ mod tests {
                     classifications: vec![
                         "SensorWarning".to_string(),
                         "SensorFailure".to_string(),
+                        "Hardware".to_string(),
+                    ],
+                },
+            }
+
+            "intrusion alert" {
+                AlertCase::Intrusion => AlertSummary {
+                    id: "IntrusionSensorTriggered".to_string(),
+                    target: Some("HostBMC".to_string()),
+                    message: "Physical Chassis Intrusion Alert".to_string(),
+                    tenant_message: None,
+                    in_alert_since: false,
+                    classifications: vec![
+                        "SensorCritical".to_string(),
+                        "PreventAllocations".to_string(),
                         "Hardware".to_string(),
                     ],
                 },

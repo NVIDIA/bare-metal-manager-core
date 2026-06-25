@@ -2283,6 +2283,7 @@ pub async fn handle_maintenance(
 #[cfg(test)]
 mod tests {
     use carbide_rack::firmware_update::RackFirmwareInventory;
+    use carbide_test_support::{Check, check_values};
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use model::rack::{
@@ -2455,224 +2456,172 @@ mod tests {
         assert_eq!(status.error_message.as_deref(), Some("invalid SOT JSON"));
     }
 
+    /// A firmware-upgrade activity with no version/components/force, the form
+    /// used by the maintenance-state transition tables.
+    fn firmware_upgrade() -> MaintenanceActivity {
+        MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+            force_update: false,
+        }
+    }
+
+    fn nvos_update() -> MaintenanceActivity {
+        MaintenanceActivity::NvosUpdate {
+            config_json: r#"{"Id":"fw-nvos"}"#.into(),
+        }
+    }
+
+    fn scope_of(activities: Vec<MaintenanceActivity>) -> MaintenanceScope {
+        MaintenanceScope {
+            activities,
+            ..Default::default()
+        }
+    }
+
+    fn firmware_start() -> RackMaintenanceState {
+        RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade: FirmwareUpgradeState::Start,
+        }
+    }
+
+    fn configure_start() -> RackMaintenanceState {
+        RackMaintenanceState::ConfigureNmxCluster {
+            configure_nmx_cluster: ConfigureNmxClusterState::Start,
+        }
+    }
+
+    fn nvos_start() -> RackMaintenanceState {
+        RackMaintenanceState::NVOSUpdate {
+            nvos_update: NvosUpdateState::Start,
+        }
+    }
+
+    fn powering_on() -> RackMaintenanceState {
+        RackMaintenanceState::PowerSequence {
+            rack_power: RackPowerState::PoweringOn,
+        }
+    }
+
     // ── first_maintenance_state ─────────────────────────────────────────
 
     #[test]
-    fn first_maintenance_state_all_activities() {
-        let scope = MaintenanceScope::default();
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::FirmwareUpgrade {
-                rack_firmware_upgrade: FirmwareUpgradeState::Start,
-            }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_only_firmware() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::FirmwareUpgrade {
-                firmware_version: None,
-                components: vec![],
-                force_update: false,
-            }],
-            ..Default::default()
-        };
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::FirmwareUpgrade { .. }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_only_configure() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::ConfigureNmxCluster],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn first_maintenance_state_only_nvos() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::NvosUpdate {
-                config_json: r#"{"Id":"fw-nvos"}"#.into(),
-            }],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::NVOSUpdate {
-                nvos_update: NvosUpdateState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn first_maintenance_state_only_power_sequence() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::PowerSequence],
-            ..Default::default()
-        };
-        assert!(matches!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::PowerSequence {
-                rack_power: RackPowerState::PoweringOn,
-            }
-        ));
-    }
-
-    #[test]
-    fn first_maintenance_state_configure_and_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::ConfigureNmxCluster,
-                MaintenanceActivity::PowerSequence,
+    fn test_first_maintenance_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> firmware first",
+                    input: MaintenanceScope::default(),
+                    expect: firmware_start(),
+                },
+                Check {
+                    scenario: "only firmware -> firmware",
+                    input: scope_of(vec![firmware_upgrade()]),
+                    expect: firmware_start(),
+                },
+                Check {
+                    scenario: "only configure -> configure",
+                    input: scope_of(vec![MaintenanceActivity::ConfigureNmxCluster]),
+                    expect: configure_start(),
+                },
+                Check {
+                    scenario: "only nvos -> nvos",
+                    input: scope_of(vec![nvos_update()]),
+                    expect: nvos_start(),
+                },
+                Check {
+                    scenario: "only power sequence -> power",
+                    input: scope_of(vec![MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
+                },
+                Check {
+                    scenario: "configure and power -> configure first",
+                    input: scope_of(vec![
+                        MaintenanceActivity::ConfigureNmxCluster,
+                        MaintenanceActivity::PowerSequence,
+                    ]),
+                    expect: configure_start(),
+                },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            first_maintenance_state(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
+            |scope| first_maintenance_state(&scope),
         );
     }
 
     // ── next_state_after_firmware ───────────────────────────────────────
 
     #[test]
-    fn after_firmware_all_activities_skips_nvos_without_explicit_json() {
-        let scope = MaintenanceScope::default();
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            next_state_after_nvos(&scope)
-        );
-    }
-
-    #[test]
-    fn after_firmware_without_configure_goes_to_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+    fn test_next_state_after_firmware() {
+        check_values(
+            [
+                // All activities: no explicit NVOS JSON, so NVOS is skipped and
+                // the scope falls through to ConfigureNmxCluster.
+                Check {
+                    scenario: "all activities skips nvos without explicit json -> configure",
+                    input: MaintenanceScope::default(),
+                    expect: configure_start(),
                 },
-                MaintenanceActivity::PowerSequence,
-            ],
-            ..Default::default()
-        };
-        assert!(matches!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::PowerSequence { .. }
-        ));
-    }
-
-    #[test]
-    fn after_firmware_only_firmware_goes_to_completed() {
-        let scope = MaintenanceScope {
-            activities: vec![MaintenanceActivity::FirmwareUpgrade {
-                firmware_version: None,
-                components: vec![],
-                force_update: false,
-            }],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::Completed,
-        );
-    }
-
-    #[test]
-    fn after_firmware_explicit_nvos_preserves_requested_firmware() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+                Check {
+                    scenario: "firmware and power, no configure -> power",
+                    input: scope_of(vec![firmware_upgrade(), MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
                 },
-                MaintenanceActivity::NvosUpdate {
-                    config_json: r#"{"Id":"fw-nvos"}"#.into(),
+                Check {
+                    scenario: "only firmware -> completed",
+                    input: scope_of(vec![firmware_upgrade()]),
+                    expect: RackMaintenanceState::Completed,
+                },
+                Check {
+                    scenario: "explicit nvos preserves requested firmware -> nvos",
+                    input: scope_of(vec![firmware_upgrade(), nvos_update()]),
+                    expect: nvos_start(),
                 },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_firmware(&scope),
-            RackMaintenanceState::NVOSUpdate {
-                nvos_update: NvosUpdateState::Start,
-            },
+            |scope| next_state_after_firmware(&scope),
         );
     }
 
     // ── next_state_after_nvos ──────────────────────────────────────────
 
     #[test]
-    fn after_nvos_all_activities_goes_to_configure() {
-        let scope = MaintenanceScope::default();
-        assert_eq!(
-            next_state_after_nvos(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
-        );
-    }
-
-    #[test]
-    fn after_nvos_without_configure_goes_to_power() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::NvosUpdate {
-                    config_json: r#"{"Id":"fw-nvos"}"#.into(),
+    fn test_next_state_after_nvos() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> configure",
+                    input: MaintenanceScope::default(),
+                    expect: configure_start(),
                 },
-                MaintenanceActivity::PowerSequence,
+                Check {
+                    scenario: "nvos and power, no configure -> power",
+                    input: scope_of(vec![nvos_update(), MaintenanceActivity::PowerSequence]),
+                    expect: powering_on(),
+                },
             ],
-            ..Default::default()
-        };
-        assert!(matches!(
-            next_state_after_nvos(&scope),
-            RackMaintenanceState::PowerSequence { .. }
-        ));
+            |scope| next_state_after_nvos(&scope),
+        );
     }
 
     // ── next_state_after_configure ──────────────────────────────────────
 
     #[test]
-    fn after_configure_all_activities_goes_to_power() {
-        let scope = MaintenanceScope::default();
-        assert!(matches!(
-            next_state_after_configure(&scope),
-            RackMaintenanceState::PowerSequence {
-                rack_power: RackPowerState::PoweringOn,
-            }
-        ));
-    }
-
-    #[test]
-    fn after_configure_without_power_goes_to_completed() {
-        let scope = MaintenanceScope {
-            activities: vec![
-                MaintenanceActivity::FirmwareUpgrade {
-                    firmware_version: None,
-                    components: vec![],
-                    force_update: false,
+    fn test_next_state_after_configure() {
+        check_values(
+            [
+                Check {
+                    scenario: "all activities -> power",
+                    input: MaintenanceScope::default(),
+                    expect: powering_on(),
                 },
-                MaintenanceActivity::ConfigureNmxCluster,
+                Check {
+                    scenario: "firmware and configure, no power -> completed",
+                    input: scope_of(vec![
+                        firmware_upgrade(),
+                        MaintenanceActivity::ConfigureNmxCluster,
+                    ]),
+                    expect: RackMaintenanceState::Completed,
+                },
             ],
-            ..Default::default()
-        };
-        assert_eq!(
-            next_state_after_configure(&scope),
-            RackMaintenanceState::Completed,
+            |scope| next_state_after_configure(&scope),
         );
     }
 }

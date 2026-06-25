@@ -1644,7 +1644,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 						TenantKeysetIds:      instanceSshKeyGroupIds,
 					},
 					Os:      osConfig,
-					Network: buildInstanceNetworkConfig(instance.AutoNetwork, data.interfaceConfigs),
+					Network: buildInstanceNetworkConfig(instance.AutoNetwork, data.interfaceConfigs, vpc.ControllerVpcID),
 					Infiniband: &cwssaws.InstanceInfinibandConfig{
 						IbInterfaces: data.ibInterfaceConfigs,
 					},

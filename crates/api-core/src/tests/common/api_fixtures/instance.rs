@@ -207,7 +207,9 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -244,7 +246,9 @@ pub fn single_interface_network_config_with_vfs(
 
     rpc::InstanceNetworkConfig {
         interfaces,
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -269,7 +273,9 @@ pub fn interface_network_config_with_devices(
         .collect();
     rpc::InstanceNetworkConfig {
         interfaces,
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -288,7 +294,9 @@ pub fn single_interface_network_config_with_vpc_prefix(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 

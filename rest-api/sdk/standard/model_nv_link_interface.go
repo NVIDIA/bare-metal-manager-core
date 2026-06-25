@@ -41,7 +41,7 @@ type NVLinkInterface struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the NVLinkInterface was last updated
 	Updated *time.Time `json:"updated,omitempty"`
-	// List of deprecations for NVLinkInterface API object
+	// Deprecations active for this resource. Returned only if there are active deprecations.
 	Deprecations []Deprecation `json:"deprecations,omitempty"`
 }
 

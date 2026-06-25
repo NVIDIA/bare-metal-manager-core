@@ -84,6 +84,23 @@ pub struct MachineStateControllerConfig {
 }
 
 impl MachineStateControllerConfig {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_default() -> Self {
+        Self {
+            dpu_wait_time: Duration::seconds(1),
+            power_down_wait: Duration::seconds(1),
+            failure_retry_time: Duration::seconds(1),
+            dpu_up_threshold: Duration::weeks(52),
+            controller: StateControllerConfig::default(),
+            scout_reporting_timeout: Duration::weeks(52),
+            uefi_boot_wait: Duration::seconds(0),
+            max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
+            ),
+            polling_bios_setup_stuck_threshold:
+                MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
+        }
+    }
+
     pub fn dpu_wait_time_default() -> Duration {
         Duration::minutes(5)
     }

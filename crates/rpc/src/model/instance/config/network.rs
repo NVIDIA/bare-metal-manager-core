@@ -20,12 +20,14 @@ use std::net::IpAddr;
 
 use itertools::Itertools;
 use model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InstanceInterfaceRoutingProfile, InstanceNetworkConfig,
-    InterfaceFunctionId, InterfaceFunctionType, Ipv6InterfaceConfig, NetworkDetails,
+    DeviceLocator, InstanceInterfaceConfig, InstanceInterfaceRoutingProfile,
+    InstanceNetworkAutoConfig, InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType,
+    Ipv6InterfaceConfig, NetworkDetails,
 };
 
 use crate as rpc;
 use crate::errors::RpcDataConversionError;
+use crate::forge;
 
 impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
     type Error = RpcDataConversionError;
@@ -135,7 +137,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
 
     fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
         // try_from for interfaces:
-        let auto = config.auto;
+        let auto = config.auto_config.is_some();
 
         if auto && !config.interfaces.is_empty() {
             return Err(RpcDataConversionError::InvalidArgument(
@@ -306,10 +308,26 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 host_inband_mac_address: None,
                 device_locator,
                 internal_uuid: uuid::Uuid::new_v4(),
+                vpc_id: None,
             });
         }
 
-        Ok(Self { interfaces, auto })
+        Ok(Self {
+            interfaces,
+            auto_config: config.auto_config.map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
+impl TryFrom<forge::InstanceNetworkAutoConfig> for InstanceNetworkAutoConfig {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: forge::InstanceNetworkAutoConfig) -> Result<Self, Self::Error> {
+        Ok(Self {
+            vpc_id: value
+                .vpc_id
+                .ok_or(RpcDataConversionError::MissingArgument("vpc_id"))?,
+        })
     }
 }
 
@@ -321,7 +339,6 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
         // stripping resolved interfaces in the case of an auto config,
         // but leaving them untouched otherwise.
         let config = config.into_external_view();
-        let auto = config.auto;
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
             let function_type = iface.function_id.function_type();
@@ -369,7 +386,20 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             });
         }
 
-        Ok(rpc::InstanceNetworkConfig { interfaces, auto })
+        Ok(rpc::InstanceNetworkConfig {
+            interfaces,
+            auto_config: config.auto_config.map(Into::into),
+            #[allow(deprecated)]
+            auto: config.auto_config.is_some(),
+        })
+    }
+}
+
+impl From<InstanceNetworkAutoConfig> for forge::InstanceNetworkAutoConfig {
+    fn from(value: InstanceNetworkAutoConfig) -> Self {
+        Self {
+            vpc_id: Some(value.vpc_id),
+        }
     }
 }
 
@@ -422,7 +452,7 @@ mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{scenarios, value_scenarios};
     use carbide_uuid::network::NetworkSegmentId;
-    use carbide_uuid::vpc::VpcPrefixId;
+    use carbide_uuid::vpc::{VpcId, VpcPrefixId};
     use model::instance::config::network::{INTERFACE_VFID_MAX, INTERFACE_VFID_MIN};
 
     use super::*;
@@ -448,7 +478,9 @@ mod tests {
                 ipv6_interface_config: None,
                 routing_profile: None,
             }],
+            #[allow(deprecated)]
             auto: false,
+            auto_config: None,
         };
 
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
@@ -467,6 +499,7 @@ mod tests {
                 network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into()),),
                 device_locator: None,
                 internal_uuid: netconfig.interfaces.first().unwrap().internal_uuid,
+                vpc_id: None,
             }]
         );
     }
@@ -500,7 +533,9 @@ mod tests {
 
         let config = rpc::InstanceNetworkConfig {
             interfaces,
+            #[allow(deprecated)]
             auto: false,
+            auto_config: None,
         };
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
         let mut netconf_interfaces_iter = netconfig.interfaces.iter();
@@ -518,6 +553,7 @@ mod tests {
             network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into())),
             device_locator: None,
             internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
+            vpc_id: None,
         }];
 
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
@@ -535,6 +571,7 @@ mod tests {
                 network_details: Some(NetworkDetails::NetworkSegment(segment_id)),
                 device_locator: None,
                 internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
+                vpc_id: None,
             });
         }
         assert_eq!(netconfig.interfaces, &expected_interfaces[..]);
@@ -629,7 +666,8 @@ mod tests {
             run = |interfaces| {
                 let network_config = rpc::InstanceNetworkConfig {
                     interfaces,
-                    auto: false,
+                    #[allow(deprecated)] auto: false,
+                    auto_config: None,
                 };
                 let network_config =
                     InstanceNetworkConfig::try_from(network_config).map_err(drop)?;
@@ -720,8 +758,9 @@ mod tests {
                 host_inband_mac_address: None,
                 device_locator: None,
                 internal_uuid: uuid::Uuid::new_v4(),
+                vpc_id: None,
             }],
-            auto: false,
+            auto_config: None,
         };
 
         // Model -> RPC
@@ -780,7 +819,9 @@ mod tests {
                     }],
                 }),
             }],
+            #[allow(deprecated)]
             auto: false,
+            auto_config: None,
         };
 
         let model: InstanceNetworkConfig = rpc_config.try_into().unwrap();
@@ -829,7 +870,9 @@ mod tests {
                     }],
                 }),
             }],
+            #[allow(deprecated)]
             auto: false,
+            auto_config: None,
         };
 
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
@@ -907,7 +950,8 @@ mod tests {
             run = |iface| {
                 let rpc_config = rpc::InstanceNetworkConfig {
                     interfaces: vec![iface],
-                    auto: false,
+                    #[allow(deprecated)] auto: false,
+                    auto_config: None,
                 };
                 InstanceNetworkConfig::try_from(rpc_config).is_ok()
             };
@@ -943,7 +987,9 @@ mod tests {
                 ipv6_interface_config: None,
                 routing_profile: None,
             }],
+            #[allow(deprecated)]
             auto: false,
+            auto_config: None,
         };
         let model: InstanceNetworkConfig = rpc_config.try_into().unwrap();
         assert_eq!(
@@ -969,7 +1015,11 @@ mod tests {
                 ipv6_interface_config: None,
                 routing_profile: None,
             }],
+            #[allow(deprecated)]
             auto: true,
+            auto_config: Some(forge::InstanceNetworkAutoConfig {
+                vpc_id: Some(VpcId::new()),
+            }),
         };
         let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
         let err = result.expect_err("auto + non-empty interfaces should be rejected");
@@ -982,15 +1032,20 @@ mod tests {
 
     #[test]
     fn test_auto_allows_empty_interfaces() {
+        let vpc_id = VpcId::new();
         // Verify "auto" requests work.
         let rpc_config = rpc::InstanceNetworkConfig {
             interfaces: vec![],
-            auto: true,
+            #[allow(deprecated)]
+            auto: false,
+            auto_config: Some(forge::InstanceNetworkAutoConfig {
+                vpc_id: Some(vpc_id),
+            }),
         };
         let model: InstanceNetworkConfig = rpc_config
             .try_into()
             .expect("auto + empty should round-trip");
-        assert!(model.auto);
         assert!(model.interfaces.is_empty());
+        assert_eq!(model.auto_config.unwrap().vpc_id, vpc_id);
     }
 }

@@ -9,3 +9,4 @@
 !crates
 !crates/
 !crates/**
+!pxe/ipxe/local/embed.ipxe

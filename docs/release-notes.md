@@ -130,7 +130,7 @@ This release of NICo is open-source software (OSS).
 - The update logic for NVLink Logical Partition inventory metadata has been improved.
 - The `DpuExtensionService` now supports `name` as an argument for the `orderBy` parameter.
 - NICo now supports bulk creation/update of `ExpectedMachine` objects.
-- The Go version has been updated to v1.25.4.
+- The Go version has been updated to v1.25.11.
 - The `nv-redfish` package has been updated to v0.1.3.
 
 ### Bug Fixes

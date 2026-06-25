@@ -41,6 +41,7 @@ serde_json = { workspace = true }
 test-cdylib = { workspace = true }
 tempfile = { workspace = true }
 carbide-rpc = { path = "../rpc" }
+carbide-test-support = { path = "../test-support" }
 prometheus = { workspace = true }
 
 [build-dependencies]
