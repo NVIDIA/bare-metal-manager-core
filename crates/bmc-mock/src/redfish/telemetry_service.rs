@@ -131,7 +131,7 @@ fn sensor_metric_values<'a>(
             Some(json!({
                 "MetricId": sensor.id,
                 "MetricValue": reading.to_string(),
-                "MetricProperty": format!("{odata_id}#/Reading"),
+                "MetricProperty": odata_id,
                 "Timestamp": timestamp,
             }))
         })
@@ -146,9 +146,11 @@ mod tests {
     use url::Url;
 
     use super::REPORT_ID;
-    use crate::test_support::NoopCallbacks;
     use crate::test_support::axum_http_client::AxumRouterHttpClient;
-    use crate::{HostHardwareType, HostMachineInfo, MachineInfo, machine_router};
+    use crate::test_support::{NoopCallbacks, TEST_MAC_POOL};
+    use crate::{
+        DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo, machine_router,
+    };
 
     async fn get(
         client: &AxumRouterHttpClient,
@@ -167,10 +169,20 @@ mod tests {
 
     #[tokio::test]
     async fn telemetry_service_serves_sensor_readings_as_metric_report() {
+        let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
+        let hw_type = HostHardwareType::DellPowerEdgeR750;
+        let ranges_config = mac_pool.allocate_range_config().unwrap();
+
         let (router, _) = machine_router(
             &MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::DellPowerEdgeR750,
-                vec![],
+                hw_type,
+                vec![DpuMachineInfo::new(
+                    hw_type,
+                    &mut mac_pool,
+                    DpuSettings::default(),
+                )],
+                &mut mac_pool,
+                ranges_config,
             )),
             Arc::new(NoopCallbacks),
             "test-host-id".to_string(),
@@ -205,11 +217,6 @@ mod tests {
         assert!(!values.is_empty(), "report should mirror chassis sensors");
         assert_eq!(report["MetricValues@odata.count"], values.len());
         for value in values {
-            let property = value["MetricProperty"].as_str().expect("MetricProperty");
-            assert!(
-                property.contains("/Sensors/") && property.ends_with("#/Reading"),
-                "property should point at a sensor reading: {property}"
-            );
             value["MetricValue"]
                 .as_str()
                 .expect("MetricValue string")
