@@ -491,6 +491,7 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 		validatePagination       bool
 		validateTenantIDs        bool
 		validateTenantIDsPresent bool
+		requirePeerTenantIDs     []uuid.UUID
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -681,12 +682,31 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedCount:  4,
 		},
 		{
-			name:           "provider and tenant admin filters by multiple peerTenantId values",
+			name:           "provider and tenant admin filters by peerTenantId for tenant 2",
 			reqOrgName:     ipOrg2,
-			queryString:    fmt.Sprintf("peerTenantId=%s&peerTenantId=%s", tn1.ID, tnProvider.ID),
+			queryParams:    map[string]string{"peerTenantId": tn2.ID.String()},
 			user:           ipu2,
 			expectedStatus: http.StatusOK,
-			expectedCount:  2,
+			expectedCount:  1,
+			requirePeerTenantIDs: []uuid.UUID{tn2.ID},
+		},
+		{
+			name:           "provider and tenant admin filters by peerTenantId for provider tenant",
+			reqOrgName:     ipOrg2,
+			queryParams:    map[string]string{"peerTenantId": tnProvider.ID.String()},
+			user:           ipu2,
+			expectedStatus: http.StatusOK,
+			expectedCount:  1,
+			requirePeerTenantIDs: []uuid.UUID{tnProvider.ID},
+		},
+		{
+			name:                 "provider and tenant admin filters by multiple peerTenantId values",
+			reqOrgName:           ipOrg2,
+			queryString:          fmt.Sprintf("peerTenantId=%s&peerTenantId=%s", tn2.ID, tnProvider.ID),
+			user:                 ipu2,
+			expectedStatus:       http.StatusOK,
+			expectedCount:        2,
+			requirePeerTenantIDs: []uuid.UUID{tn2.ID, tnProvider.ID},
 		},
 		{
 			name:              "tenant admin 1 filters by vpcId and peerTenantId",
@@ -765,6 +785,22 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 						tenantIDs := []string{*peering.Vpc1TenantId, *peering.Vpc2TenantId}
 						assert.Contains(t, tenantIDs, tn1.ID.String())
 						assert.Contains(t, tenantIDs, tn2.ID.String())
+					}
+				}
+				if len(tt.requirePeerTenantIDs) > 0 {
+					matchedPeerTenantIDs := make(map[uuid.UUID]bool, len(tt.requirePeerTenantIDs))
+					for _, peering := range list {
+						require.NotNil(t, peering.Vpc1TenantId)
+						require.NotNil(t, peering.Vpc2TenantId)
+						for _, tenantID := range tt.requirePeerTenantIDs {
+							tenantIDStr := tenantID.String()
+							if *peering.Vpc1TenantId == tenantIDStr || *peering.Vpc2TenantId == tenantIDStr {
+								matchedPeerTenantIDs[tenantID] = true
+							}
+						}
+					}
+					for _, tenantID := range tt.requirePeerTenantIDs {
+						assert.True(t, matchedPeerTenantIDs[tenantID], "expected at least one peering involving tenant %s", tenantID)
 					}
 				}
 			}

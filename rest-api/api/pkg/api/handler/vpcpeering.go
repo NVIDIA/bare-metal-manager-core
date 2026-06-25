@@ -542,43 +542,75 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	// Get vpcId from query param
 	if vpcIDStrs := qParams["vpcId"]; len(vpcIDStrs) != 0 {
 		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("vpcId", vpcIDStrs), logger)
+		vpcIDs := make([]uuid.UUID, 0, len(vpcIDStrs))
 		for _, vpcIDStr := range vpcIDStrs {
-			vpc, verr := common.GetVpcFromIDString(ctx, nil, vpcIDStr, nil, gavph.dbSession)
-			if verr != nil {
-				if verr == common.ErrInvalidID {
-					logger.Warn().Msg(fmt.Sprintf("invalid value in vpcId query: %v", vpcIDStr))
-					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid VPC ID in query", nil)
-				}
-				if errors.Is(verr, cdb.ErrDoesNotExist) {
-					logger.Warn().Msg(fmt.Sprintf("could not find VPC with ID %v specified in query", vpcIDStr))
-					return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Could not find VPC with ID %v specified in query", vpcIDStr), nil)
-				}
-				logger.Error().Err(verr).Msg("error retrieving VPC from DB")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to retrieve VPC with ID %v specified in query", vpcIDStr), nil)
+			vpcID, err := uuid.Parse(vpcIDStr)
+			if err != nil {
+				logger.Warn().Msg(fmt.Sprintf("invalid value in vpcId query: %v", vpcIDStr))
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid VPC ID %v in query", vpcIDStr), nil)
 			}
-			filterInput.VpcIDs = append(filterInput.VpcIDs, vpc.ID)
+			vpcIDs = append(vpcIDs, vpcID)
 		}
+		vpcDAO := cdbm.NewVpcDAO(gavph.dbSession)
+		vpcs, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: vpcIDs},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving VPCs from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPCs specified in query", nil)
+		}
+		vpcIDsMap := make(map[uuid.UUID]struct{}, len(vpcs))
+		for _, vpc := range vpcs {
+			vpcIDsMap[vpc.ID] = struct{}{}
+		}
+		for _, vpcID := range vpcIDs {
+			if _, ok := vpcIDsMap[vpcID]; !ok {
+				logger.Warn().Msg(fmt.Sprintf("could not find VPC with ID %v specified in query", vpcID))
+				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Could not find VPC with ID %v specified in query", vpcID), nil)
+			}
+		}
+		filterInput.VpcIDs = vpcIDs
 	}
 
 	// Get peerTenantId from query param
 	if peerTenantIDStrs := qParams["peerTenantId"]; len(peerTenantIDStrs) != 0 {
 		gavph.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("peerTenantId", peerTenantIDStrs), logger)
+		peerTenantIDs := make([]uuid.UUID, 0, len(peerTenantIDStrs))
 		for _, peerTenantIDStr := range peerTenantIDStrs {
-			peerTenant, verr := common.GetTenantFromIDString(ctx, nil, peerTenantIDStr, gavph.dbSession)
-			if verr != nil {
-				if verr == common.ErrInvalidID {
-					logger.Warn().Msg(fmt.Sprintf("invalid value in peerTenantId query: %v", peerTenantIDStr))
-					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid peer tenant ID %v in query", peerTenantIDStr), nil)
-				}
-				if errors.Is(verr, cdb.ErrDoesNotExist) {
-					logger.Warn().Msg(fmt.Sprintf("could not find tenant with ID %v specified in query", peerTenantIDStr))
-					return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Could not find tenant with ID %v specified in query", peerTenantIDStr), nil)
-				}
-				logger.Error().Err(verr).Msg("error retrieving Tenant from DB")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to retrieve tenant with ID %v specified in query", peerTenantIDStr), nil)
+			peerTenantID, err := uuid.Parse(peerTenantIDStr)
+			if err != nil {
+				logger.Warn().Msg(fmt.Sprintf("invalid value in peerTenantId query: %v", peerTenantIDStr))
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid peer tenant ID %v in query", peerTenantIDStr), nil)
 			}
-			filterInput.PeerTenantIDs = append(filterInput.PeerTenantIDs, peerTenant.ID)
+			peerTenantIDs = append(peerTenantIDs, peerTenantID)
 		}
+		tnDAO := cdbm.NewTenantDAO(gavph.dbSession)
+		peerTenants, _, err := tnDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.TenantFilterInput{TenantIDs: peerTenantIDs},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Tenants from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenants specified in query", nil)
+		}
+		peerTenantIDsMap := make(map[uuid.UUID]struct{}, len(peerTenants))
+		for _, peerTenant := range peerTenants {
+			peerTenantIDsMap[peerTenant.ID] = struct{}{}
+		}
+		for _, peerTenantID := range peerTenantIDs {
+			if _, ok := peerTenantIDsMap[peerTenantID]; !ok {
+				logger.Warn().Msg(fmt.Sprintf("could not find tenant with ID %v specified in query", peerTenantID))
+				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Could not find tenant with ID %v specified in query", peerTenantID), nil)
+			}
+		}
+		filterInput.PeerTenantIDs = peerTenantIDs
 	}
 
 	// Validate pagination request

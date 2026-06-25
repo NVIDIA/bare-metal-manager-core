@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
@@ -19,7 +20,20 @@ import (
 const (
 	// TenantRelationName is the relation name for the Tenant model
 	TenantRelationName = "Tenant"
+
+	// TenantOrderByDefault default field to be used for ordering when none specified
+	TenantOrderByDefault = "created"
 )
+
+// TenantOrderByFields is a list of fields that can be used for ordering Tenants
+var TenantOrderByFields = []string{"created", "name", "org"}
+
+// TenantFilterInput input parameters for GetAll method
+type TenantFilterInput struct {
+	TenantIDs       []uuid.UUID
+	Orgs            []string
+	OrgDisplayNames []string
+}
 
 // TenantCreateInput input parameters for Create method
 type TenantCreateInput struct {
@@ -113,6 +127,8 @@ type TenantDAO interface {
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*Tenant, error)
 	//
+	GetAll(ctx context.Context, tx *db.Tx, filter TenantFilterInput, page paginator.PageInput, includeRelations []string) ([]Tenant, int, error)
+	//
 	GetAllByOrg(ctx context.Context, tx *db.Tx, org string, includeRelations []string) ([]Tenant, error)
 	//
 	Create(ctx context.Context, tx *db.Tx, input TenantCreateInput) (*Tenant, error)
@@ -155,6 +171,61 @@ func (tsd TenantSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, in
 	}
 
 	return tn, nil
+}
+
+func (tsd TenantSQLDAO) setQueryWithFilter(filter TenantFilterInput, query *bun.SelectQuery, tnDAOSpan *stracer.CurrentContextSpan) *bun.SelectQuery {
+	if filter.Orgs != nil {
+		query = query.Where("tn.org IN (?)", bun.In(filter.Orgs))
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "orgs", filter.Orgs)
+	}
+
+	if filter.OrgDisplayNames != nil {
+		query = query.Where("tn.org_display_name IN (?)", bun.In(filter.OrgDisplayNames))
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "org_display_names", filter.OrgDisplayNames)
+	}
+
+	if filter.TenantIDs != nil {
+		query = query.Where("tn.id IN (?)", bun.In(filter.TenantIDs))
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "tenant_ids", filter.TenantIDs)
+	}
+
+	return query
+}
+
+// GetAll returns all Tenants matching the given filter.
+func (tsd TenantSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter TenantFilterInput, page paginator.PageInput, includeRelations []string) ([]Tenant, int, error) {
+	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.GetAll")
+	if tnDAOSpan != nil {
+		defer tnDAOSpan.End()
+	}
+
+	tns := []Tenant{}
+	if filter.TenantIDs != nil && len(filter.TenantIDs) == 0 {
+		return tns, 0, nil
+	}
+
+	query := db.GetIDB(tx, tsd.dbSession).NewSelect().Model(&tns)
+	query = tsd.setQueryWithFilter(filter, query, tnDAOSpan)
+
+	for _, relation := range includeRelations {
+		query = query.Relation(relation)
+	}
+
+	if page.OrderBy == nil {
+		page.OrderBy = paginator.NewDefaultOrderBy(TenantOrderByDefault)
+	}
+
+	pag, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, page.OrderBy, TenantOrderByFields)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = pag.Query.Limit(pag.Limit).Offset(pag.Offset).Scan(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return tns, pag.Total, nil
 }
 
 // GetAllByOrg returns all Tenants for an Org
