@@ -2661,7 +2661,7 @@ paths:
           in: query
           name: peerTenantId
           required: false
-          description: Optional filter by tenant ID of a VPC involved in the peering.
+          description: Optional filter by tenant ID of a VPC involved in the peering. Repeat the parameter to match multiple tenants.
         - schema:
             type: string
             enum:

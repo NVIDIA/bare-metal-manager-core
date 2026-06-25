@@ -367,7 +367,7 @@ func (r ApiGetAllVpcPeeringRequest) VpcId(vpcId string) ApiGetAllVpcPeeringReque
 	return r
 }
 
-// Optional filter by tenant ID of a VPC involved in the peering.
+// Optional filter by tenant ID of a VPC involved in the peering. Repeat the parameter to match multiple tenants.
 func (r ApiGetAllVpcPeeringRequest) PeerTenantId(peerTenantId string) ApiGetAllVpcPeeringRequest {
 	r.peerTenantId = &peerTenantId
 	return r

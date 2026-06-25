@@ -481,14 +481,16 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 	cfg := common.GetTestConfig()
 
 	tests := []struct {
-		name               string
-		reqOrgName         string
-		queryParams        map[string]string
-		user               *cdbm.User
-		expectedStatus     int
-		expectedCount      int
-		validatePagination bool
-		validateTenantIDs  bool
+		name                     string
+		reqOrgName               string
+		queryParams              map[string]string
+		queryString              string
+		user                     *cdbm.User
+		expectedStatus           int
+		expectedCount            int
+		validatePagination       bool
+		validateTenantIDs        bool
+		validateTenantIDsPresent bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -517,12 +519,13 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:               "tenant admin 1 lists across all sites when siteId omitted",
-			reqOrgName:         tnOrg1,
-			user:               tnu1,
-			expectedStatus:     http.StatusOK,
-			expectedCount:      6,
-			validatePagination: true,
+			name:                     "tenant admin 1 lists across all sites when siteId omitted",
+			reqOrgName:               tnOrg1,
+			user:                     tnu1,
+			expectedStatus:           http.StatusOK,
+			expectedCount:            6,
+			validatePagination:       true,
+			validateTenantIDsPresent: true,
 		},
 		{
 			name:           "tenant admin 1 lists peerings in site 1",
@@ -678,12 +681,20 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedCount:  4,
 		},
 		{
-			name:           "tenant admin 1 filters by vpcId and peerTenantId",
-			reqOrgName:     tnOrg1,
-			queryParams:    map[string]string{"vpcId": vpc1.ID.String(), "peerTenantId": tn2.ID.String()},
-			user:           tnu1,
+			name:           "provider and tenant admin filters by multiple peerTenantId values",
+			reqOrgName:     ipOrg2,
+			queryString:    fmt.Sprintf("peerTenantId=%s&peerTenantId=%s", tn1.ID, tnProvider.ID),
+			user:           ipu2,
 			expectedStatus: http.StatusOK,
-			expectedCount:  1,
+			expectedCount:  2,
+		},
+		{
+			name:              "tenant admin 1 filters by vpcId and peerTenantId",
+			reqOrgName:        tnOrg1,
+			queryParams:       map[string]string{"vpcId": vpc1.ID.String(), "peerTenantId": tn2.ID.String()},
+			user:              tnu1,
+			expectedStatus:    http.StatusOK,
+			expectedCount:     1,
 			validateTenantIDs: true,
 		},
 	}
@@ -699,13 +710,17 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 
 			e := echo.New()
 			url := "/?"
-			first := true
-			for k, v := range tt.queryParams {
-				if !first {
-					url += "&"
+			if tt.queryString != "" {
+				url += tt.queryString
+			} else {
+				first := true
+				for k, v := range tt.queryParams {
+					if !first {
+						url += "&"
+					}
+					url += fmt.Sprintf("%s=%s", k, v)
+					first = false
 				}
-				url += fmt.Sprintf("%s=%s", k, v)
-				first = false
 			}
 			req := httptest.NewRequest(http.MethodGet, url, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -735,6 +750,12 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 					err := json.Unmarshal([]byte(paginationHeader), &pageResp)
 					require.NoError(t, err)
 					assert.Equal(t, tt.expectedCount, pageResp.Total)
+				}
+				if tt.validateTenantIDsPresent {
+					for _, peering := range list {
+						require.NotNil(t, peering.Vpc1TenantId)
+						require.NotNil(t, peering.Vpc2TenantId)
+					}
 				}
 				if tt.validateTenantIDs {
 					require.NotEmpty(t, list)
