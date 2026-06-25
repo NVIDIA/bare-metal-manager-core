@@ -43,6 +43,7 @@ pub mod session_service;
 pub mod software_inventory;
 pub mod storage;
 pub mod task_service;
+pub mod telemetry_service;
 pub mod thermal_subsystem;
 pub mod update_service;
 
