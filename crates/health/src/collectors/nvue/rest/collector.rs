@@ -28,29 +28,44 @@ use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
-fn system_health_to_f64(status: Option<&str>) -> f64 {
+const SYSTEM_HEALTH_STATES: &[&str] = &["ok", "not_ok", "unknown"];
+
+/// anything else (including absent) => "unknown".
+fn system_health_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("OK") => 1.0,
-        Some("Not OK") => 2.0,
-        _ => 0.0,
+        Some("OK") => "ok",
+        Some("Not OK") => "not_ok",
+        _ => "unknown",
     }
 }
 
-fn partition_health_to_f64(status: Option<&str>) -> f64 {
+const PARTITION_HEALTH_STATES: &[&str] = &[
+    "healthy",
+    "degraded_bandwidth",
+    "degraded",
+    "unhealthy",
+    "unknown",
+];
+
+/// The four known states map to themselves; anything else (including absent) => "unknown".
+fn partition_health_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("healthy") => 1.0,
-        Some("degraded_bandwidth") => 2.0,
-        Some("degraded") => 3.0,
-        Some("unhealthy") => 4.0,
-        _ => 0.0,
+        Some("healthy") => "healthy",
+        Some("degraded_bandwidth") => "degraded_bandwidth",
+        Some("degraded") => "degraded",
+        Some("unhealthy") => "unhealthy",
+        _ => "unknown",
     }
 }
 
-fn app_status_to_f64(status: Option<&str>) -> f64 {
+const APP_STATUS_STATES: &[&str] = &["ok", "not_ok", "unknown"];
+
+/// anything else (including absent) => "unknown".
+fn app_status_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("ok") => 1.0,
-        Some("not ok") => 2.0,
-        _ => 0.0,
+        Some("ok") => "ok",
+        Some("not ok") => "not_ok",
+        _ => "unknown",
     }
 }
 
@@ -77,32 +92,36 @@ fn temp_to_f64(value: Option<&str>) -> Option<f64> {
     value.and_then(|s| s.trim().parse::<f64>().ok())
 }
 
-/// Map a temperature sensor's string `state` to a numeric gauge: "ok"
-/// (case-insensitive) => 1.0, any other non-empty value => 0.0, absent => None
-/// (so callers emit nothing rather than fabricating a value).
-fn temp_state_to_f64(state: Option<&str>) -> Option<f64> {
+const TEMP_STATE_STATES: &[&str] = &["ok", "not_ok"];
+
+/// Map a temperature sensor's string `state` to a StateSet state: "ok"
+/// (case-insensitive) => "ok", any other present value => "not_ok", absent =>
+/// None (so callers emit nothing rather than fabricating an all-zero StateSet).
+fn temp_state_to_state(state: Option<&str>) -> Option<&'static str> {
     state.map(|s| {
         if s.trim().eq_ignore_ascii_case("ok") {
-            1.0
+            "ok"
         } else {
-            0.0
+            "not_ok"
         }
     })
 }
 
+const FAN_LED_STATES: &[&str] = &["ok", "not_ok"];
+
 /// Map the aggregate `FAN_STATUS` LED state from the platform/environment parent
-/// summary to a numeric gauge: "green"/"ok" (case-insensitive) => 1.0, any other
-/// non-empty value (e.g. "amber"/"red") => 0.0, absent/empty => None (so callers
-/// emit nothing rather than fabricating a value).
-fn fan_led_to_f64(state: Option<&str>) -> Option<f64> {
+/// summary to a StateSet state: "green"/"ok" (case-insensitive) => "ok", any
+/// other non-empty value (e.g. "amber"/"red") => "not_ok", absent/empty => None
+/// (so callers emit nothing rather than fabricating an all-zero StateSet).
+fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
     let s = state?.trim();
     if s.is_empty() {
         return None;
     }
     if s.eq_ignore_ascii_case("green") || s.eq_ignore_ascii_case("ok") {
-        Some(1.0)
+        Some("ok")
     } else {
-        Some(0.0)
+        Some("not_ok")
     }
 }
 
@@ -179,8 +198,8 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
 
         match self.client.get_system_health().await {
             Ok(Some(health)) => {
-                let value = system_health_to_f64(health.status.as_deref());
-                self.emit_metric("system_health", None, value, "state", vec![]);
+                let current = system_health_to_state(health.status.as_deref());
+                self.emit_state_set("system_health", None, current, SYSTEM_HEALTH_STATES, vec![]);
                 entity_count += 1;
             }
             Ok(None) => {}
@@ -198,12 +217,12 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         match self.client.get_cluster_apps().await {
             Ok(Some(apps)) => {
                 for (name, app) in &apps {
-                    let value = app_status_to_f64(app.status.as_deref());
-                    self.emit_metric(
+                    let current = app_status_to_state(app.status.as_deref());
+                    self.emit_state_set(
                         "cluster_app",
                         Some(name),
-                        value,
-                        "state",
+                        current,
+                        APP_STATUS_STATES,
                         vec![(Cow::Borrowed("app_name"), name.clone())],
                     );
                     entity_count += 1;
@@ -225,18 +244,18 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             Ok(Some(partitions)) => {
                 for (part_id, partition) in &partitions {
                     let part_name = partition.name.as_deref().unwrap_or(part_id);
-                    let health_value = partition_health_to_f64(partition.health.as_deref());
+                    let health_state = partition_health_to_state(partition.health.as_deref());
                     let gpu_count = partition.num_gpus.unwrap_or(0) as f64;
 
                     let partition_labels = vec![
                         (Cow::Borrowed("partition_id"), part_id.clone()),
                         (Cow::Borrowed("partition_name"), part_name.to_string()),
                     ];
-                    self.emit_metric(
+                    self.emit_state_set(
                         "partition_health",
                         Some(part_id),
-                        health_value,
-                        "state",
+                        health_state,
+                        PARTITION_HEALTH_STATES,
                         partition_labels.clone(),
                     );
                     self.emit_metric(
@@ -323,8 +342,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 for (sensor_name, temp) in &temps {
                     // Each field is optional; emit only the ones present/parseable
                     // rather than fabricating absent thresholds.
-                    let sensor_label =
-                        || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
+                    let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
 
                     if let Some(value) = temp_to_f64(temp.current.as_deref()) {
                         self.emit_metric(
@@ -356,12 +374,14 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                         );
                         entity_count += 1;
                     }
-                    if let Some(value) = temp_state_to_f64(temp.state.as_deref()) {
-                        self.emit_metric(
+                    // Absent `state` => emit nothing (never fabricate an
+                    // all-zero StateSet); present => one 0/1 series per state.
+                    if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
+                        self.emit_state_set(
                             "platform_temperature_state",
                             Some(sensor_name),
-                            value,
-                            "state",
+                            current,
+                            TEMP_STATE_STATES,
                             sensor_label(),
                         );
                         entity_count += 1;
@@ -384,10 +404,11 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             Ok(Some(env)) => {
                 // Switch-level aggregate FAN_STATUS LED; emit only when present
                 // and the state maps to a value, absent → nothing.
-                if let Some(value) =
-                    env.get("FAN_STATUS").and_then(|s| fan_led_to_f64(s.state.as_deref()))
+                if let Some(current) = env
+                    .get("FAN_STATUS")
+                    .and_then(|s| fan_led_to_state(s.state.as_deref()))
                 {
-                    self.emit_metric("fan_led", None, value, "state", vec![]);
+                    self.emit_state_set("fan_led", None, current, FAN_LED_STATES, vec![]);
                     entity_count += 1;
                 }
             }
@@ -498,6 +519,41 @@ impl NvueRestCollector {
             .into(),
         ));
     }
+
+    /// emit an OpenMetrics StateSet: one `0.0`/`1.0` series per possible state,
+    /// with the current state's series == 1.0 and an added `state` label. The
+    /// existing per-entity `labels` are carried onto every series; `key_base`
+    /// is the per-entity key qualifier (it is suffixed with the state name so
+    /// each series gets a unique key). Unit is always "state".
+    fn emit_state_set(
+        &self,
+        metric_type: &str,
+        key_base: Option<&str>,
+        current_state: &str,
+        all_states: &[&str],
+        labels: Vec<(Cow<'static, str>, String)>,
+    ) {
+        for state in all_states {
+            let mut series_labels = labels.clone();
+            series_labels.push((Cow::Borrowed("state"), state.to_string()));
+
+            // suffix the state onto the per-entity qualifier so each series key
+            // is unique (switch-level series have no entity qualifier, so the
+            // state name alone disambiguates them).
+            let qualifier = match key_base {
+                Some(base) => format!("{base}:{state}"),
+                None => (*state).to_string(),
+            };
+
+            self.emit_metric(
+                metric_type,
+                Some(&qualifier),
+                if *state == current_state { 1.0 } else { 0.0 },
+                "state",
+                series_labels,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -514,30 +570,74 @@ mod tests {
     use crate::bmc::BoxFuture;
     use crate::config::NvueRestPaths;
 
+    /// Assert OpenMetrics StateSet semantics over a captured fan-out: exactly
+    /// one 0/1 series per `all_states` entry, each with unit "state" and a
+    /// `state` label; the series whose `state` label equals `current` has value
+    /// 1.0 and every other series is 0.0. `entity` (if any) is asserted present
+    /// on every series.
+    fn assert_state_set(
+        samples: &[MetricSample],
+        metric_type: &str,
+        entity: Option<(&str, &str)>,
+        all_states: &[&str],
+        current: &str,
+    ) {
+        let series: Vec<&MetricSample> = samples
+            .iter()
+            .filter(|s| s.metric_type == metric_type)
+            .collect();
+        assert_eq!(
+            series.len(),
+            all_states.len(),
+            "{metric_type}: expected one series per state"
+        );
+        for state in all_states {
+            let sample = series
+                .iter()
+                .find(|s| s.labels.iter().any(|(k, v)| k == "state" && v == state))
+                .unwrap_or_else(|| panic!("{metric_type}: missing series for state {state}"));
+            assert_eq!(sample.unit, "state", "state {state}");
+            assert_eq!(
+                sample.value,
+                if *state == current { 1.0 } else { 0.0 },
+                "{metric_type} state {state}: value (current={current})"
+            );
+            if let Some((label, value)) = entity {
+                assert!(
+                    sample.labels.iter().any(|(k, v)| k == label && v == value),
+                    "{metric_type} state {state}: missing entity label {label}={value}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_system_health_mapping() {
-        assert_eq!(system_health_to_f64(Some("OK")), 1.0);
-        assert_eq!(system_health_to_f64(Some("Not OK")), 2.0);
-        assert_eq!(system_health_to_f64(None), 0.0);
-        assert_eq!(system_health_to_f64(Some("unknown_value")), 0.0);
+        assert_eq!(system_health_to_state(Some("OK")), "ok");
+        assert_eq!(system_health_to_state(Some("Not OK")), "not_ok");
+        assert_eq!(system_health_to_state(None), "unknown");
+        assert_eq!(system_health_to_state(Some("unknown_value")), "unknown");
     }
 
     #[test]
     fn test_partition_health_mapping() {
-        assert_eq!(partition_health_to_f64(Some("unknown")), 0.0);
-        assert_eq!(partition_health_to_f64(Some("healthy")), 1.0);
-        assert_eq!(partition_health_to_f64(Some("degraded_bandwidth")), 2.0);
-        assert_eq!(partition_health_to_f64(Some("degraded")), 3.0);
-        assert_eq!(partition_health_to_f64(Some("unhealthy")), 4.0);
-        assert_eq!(partition_health_to_f64(None), 0.0);
+        assert_eq!(partition_health_to_state(Some("unknown")), "unknown");
+        assert_eq!(partition_health_to_state(Some("healthy")), "healthy");
+        assert_eq!(
+            partition_health_to_state(Some("degraded_bandwidth")),
+            "degraded_bandwidth"
+        );
+        assert_eq!(partition_health_to_state(Some("degraded")), "degraded");
+        assert_eq!(partition_health_to_state(Some("unhealthy")), "unhealthy");
+        assert_eq!(partition_health_to_state(None), "unknown");
     }
 
     #[test]
     fn test_app_status_mapping() {
-        assert_eq!(app_status_to_f64(Some("ok")), 1.0);
-        assert_eq!(app_status_to_f64(Some("not ok")), 2.0);
-        assert_eq!(app_status_to_f64(None), 0.0);
-        assert_eq!(app_status_to_f64(Some("other")), 0.0);
+        assert_eq!(app_status_to_state(Some("ok")), "ok");
+        assert_eq!(app_status_to_state(Some("not ok")), "not_ok");
+        assert_eq!(app_status_to_state(None), "unknown");
+        assert_eq!(app_status_to_state(Some("other")), "unknown");
     }
 
     #[test]
@@ -569,30 +669,31 @@ mod tests {
     }
 
     #[test]
-    fn test_temp_state_to_f64_mapping() {
-        assert_eq!(temp_state_to_f64(Some("ok")), Some(1.0));
-        assert_eq!(temp_state_to_f64(Some("OK")), Some(1.0));
-        assert_eq!(temp_state_to_f64(Some(" ok ")), Some(1.0));
-        assert_eq!(temp_state_to_f64(Some("warning")), Some(0.0));
-        assert_eq!(temp_state_to_f64(Some("")), Some(0.0));
-        assert_eq!(temp_state_to_f64(None), None);
+    fn test_temp_state_to_state_mapping() {
+        assert_eq!(temp_state_to_state(Some("ok")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some("OK")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some(" ok ")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some("warning")), Some("not_ok"));
+        assert_eq!(temp_state_to_state(Some("")), Some("not_ok"));
+        // absent => None (emit nothing, never fabricate)
+        assert_eq!(temp_state_to_state(None), None);
     }
 
     #[test]
-    fn test_fan_led_to_f64_mapping() {
-        // green/ok (case-insensitive) => 1.0
-        assert_eq!(fan_led_to_f64(Some("green")), Some(1.0));
-        assert_eq!(fan_led_to_f64(Some("GREEN")), Some(1.0));
-        assert_eq!(fan_led_to_f64(Some(" green ")), Some(1.0));
-        assert_eq!(fan_led_to_f64(Some("ok")), Some(1.0));
-        assert_eq!(fan_led_to_f64(Some("OK")), Some(1.0));
-        // any other non-empty value => 0.0
-        assert_eq!(fan_led_to_f64(Some("amber")), Some(0.0));
-        assert_eq!(fan_led_to_f64(Some("red")), Some(0.0));
+    fn test_fan_led_to_state_mapping() {
+        // green/ok (case-insensitive) => "ok"
+        assert_eq!(fan_led_to_state(Some("green")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("GREEN")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some(" green ")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("ok")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("OK")), Some("ok"));
+        // any other non-empty value => "not_ok"
+        assert_eq!(fan_led_to_state(Some("amber")), Some("not_ok"));
+        assert_eq!(fan_led_to_state(Some("red")), Some("not_ok"));
         // absent/empty => None (emit nothing)
-        assert_eq!(fan_led_to_f64(Some("")), None);
-        assert_eq!(fan_led_to_f64(Some("   ")), None);
-        assert_eq!(fan_led_to_f64(None), None);
+        assert_eq!(fan_led_to_state(Some("")), None);
+        assert_eq!(fan_led_to_state(Some("   ")), None);
+        assert_eq!(fan_led_to_state(None), None);
     }
 
     /// Drives the same parse + emit logic `run_iteration` uses for the
@@ -793,37 +894,36 @@ mod tests {
                     sensor_label(),
                 );
             }
-            if let Some(value) = temp_state_to_f64(temp.state.as_deref()) {
-                collector.emit_metric(
+            if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
+                collector.emit_state_set(
                     "platform_temperature_state",
                     Some(sensor_name),
-                    value,
-                    "state",
+                    current,
+                    TEMP_STATE_STATES,
                     sensor_label(),
                 );
             }
         }
 
         let samples = sink.samples.lock().unwrap();
-        // ASIC1: 4 series; Ambient-MNG-Temp: 2 series (current + state) = 6 total.
-        assert_eq!(samples.len(), 6, "unexpected emitted sample count");
+        // ASIC1: current + max + crit (3) + state StateSet (2) = 5.
+        // Ambient-MNG-Temp: current (1) + state StateSet (2) = 3. Total 8.
+        assert_eq!(samples.len(), 8, "unexpected emitted sample count");
 
         // Helper: find a sample by metric_type + sensor label.
         let find = |metric_type: &str, sensor: &str| {
             samples.iter().find(|s| {
                 s.metric_type == metric_type
-                    && s.labels
-                        .iter()
-                        .any(|(k, v)| k == "sensor" && v == sensor)
+                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == sensor)
             })
         };
 
-        // ASIC1: all four series present with correct name/unit/value/label/key.
+        // ASIC1: the three scalar temperature series present with correct
+        // name/unit/value/label/key.
         let expected_asic1: &[(&str, &str, f64)] = &[
             ("platform_temperature", "celsius", 43.0),
             ("platform_temperature_max", "celsius", 105.0),
             ("platform_temperature_critical", "celsius", 120.0),
-            ("platform_temperature_state", "state", 1.0),
         ];
         for (metric_type, unit, value) in expected_asic1 {
             let sample = find(metric_type, "ASIC1")
@@ -838,14 +938,44 @@ mod tests {
             assert_eq!(sample.labels[0].1, "ASIC1");
         }
 
-        // Ambient-MNG-Temp: only current + state emitted.
-        let ambient_current = find("platform_temperature", "Ambient-MNG-Temp")
-            .expect("ambient current sample");
+        // ASIC1 state="ok" => StateSet: ok=1, not_ok=0; sensor label preserved.
+        let asic1_state: Vec<MetricSample> = samples
+            .iter()
+            .filter(|s| {
+                s.metric_type == "platform_temperature_state"
+                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == "ASIC1")
+            })
+            .cloned()
+            .collect();
+        assert_state_set(
+            &asic1_state,
+            "platform_temperature_state",
+            Some(("sensor", "ASIC1")),
+            TEMP_STATE_STATES,
+            "ok",
+        );
+
+        // Ambient-MNG-Temp: only current + state StateSet emitted.
+        let ambient_current =
+            find("platform_temperature", "Ambient-MNG-Temp").expect("ambient current sample");
         assert_eq!(ambient_current.value, 27.0);
         assert_eq!(ambient_current.unit, "celsius");
-        assert!(
-            find("platform_temperature_state", "Ambient-MNG-Temp").is_some(),
-            "ambient state sample expected"
+        let ambient_state: Vec<MetricSample> = samples
+            .iter()
+            .filter(|s| {
+                s.metric_type == "platform_temperature_state"
+                    && s.labels
+                        .iter()
+                        .any(|(k, v)| k == "sensor" && v == "Ambient-MNG-Temp")
+            })
+            .cloned()
+            .collect();
+        assert_state_set(
+            &ambient_state,
+            "platform_temperature_state",
+            Some(("sensor", "Ambient-MNG-Temp")),
+            TEMP_STATE_STATES,
+            "ok",
         );
 
         // A sensor missing max/crit must NOT emit those series.
@@ -886,25 +1016,25 @@ mod tests {
         struct Case {
             name: &'static str,
             json: &'static str,
-            // expected emitted fan_led value, or None when nothing must emit.
-            expected: Option<f64>,
+            // expected current StateSet state, or None when nothing must emit.
+            expected: Option<&'static str>,
         }
 
         let cases = [
             Case {
-                name: "green LED emits 1.0",
+                name: "green LED => ok",
                 json: r#"{"FAN_STATUS": {"state": "green", "type": "led"}}"#,
-                expected: Some(1.0),
+                expected: Some("ok"),
             },
             Case {
-                name: "ok LED emits 1.0",
+                name: "ok LED => ok",
                 json: r#"{"FAN_STATUS": {"state": "ok", "type": "led"}}"#,
-                expected: Some(1.0),
+                expected: Some("ok"),
             },
             Case {
-                name: "amber LED emits 0.0",
+                name: "amber LED => not_ok",
                 json: r#"{"FAN_STATUS": {"state": "amber", "type": "led"}}"#,
-                expected: Some(0.0),
+                expected: Some("not_ok"),
             },
             Case {
                 name: "absent FAN_STATUS emits nothing",
@@ -923,27 +1053,41 @@ mod tests {
             let env: PlatformEnvironmentResponse =
                 serde_json::from_str(case.json).expect("env json parses");
             // Mirror run_iteration's emit logic exactly.
-            if let Some(value) =
-                env.get("FAN_STATUS").and_then(|s| fan_led_to_f64(s.state.as_deref()))
+            if let Some(current) = env
+                .get("FAN_STATUS")
+                .and_then(|s| fan_led_to_state(s.state.as_deref()))
             {
-                collector.emit_metric("fan_led", None, value, "state", vec![]);
+                collector.emit_state_set("fan_led", None, current, FAN_LED_STATES, vec![]);
             }
 
             let samples = sink.samples.lock().unwrap();
             match case.expected {
-                Some(expected_value) => {
-                    assert_eq!(samples.len(), 1, "case '{}': expected one sample", case.name);
-                    let sample = &samples[0];
-                    assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
-                    assert_eq!(sample.metric_type, "fan_led", "case '{}'", case.name);
-                    assert_eq!(sample.unit, "state", "case '{}'", case.name);
-                    assert_eq!(sample.value, expected_value, "case '{}'", case.name);
-                    assert_eq!(sample.key, "fan_led", "case '{}'", case.name);
-                    assert!(
-                        sample.labels.is_empty(),
-                        "case '{}': fan_led is switch-level, no per-entity label",
-                        case.name
-                    );
+                Some(current) => {
+                    // switch-level StateSet: no per-entity label, but a `state`
+                    // label per series; series keys are unique per state.
+                    assert_state_set(&samples, "fan_led", None, FAN_LED_STATES, current);
+                    for sample in samples.iter() {
+                        assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
+                        let state = sample
+                            .labels
+                            .iter()
+                            .find(|(k, _)| k == "state")
+                            .map(|(_, v)| v.clone())
+                            .expect("state label present");
+                        assert_eq!(
+                            sample.key,
+                            format!("fan_led:{state}"),
+                            "case '{}'",
+                            case.name
+                        );
+                        // switch-level: the only label is `state`.
+                        assert_eq!(
+                            sample.labels.len(),
+                            1,
+                            "case '{}': fan_led is switch-level (only the state label)",
+                            case.name
+                        );
+                    }
                 }
                 None => assert_eq!(
                     samples.len(),
