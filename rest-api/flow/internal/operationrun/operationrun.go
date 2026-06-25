@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package operationrun defines the domain model and normalization helpers for
-// operation runs. Storage lives in the store subpackage; protobuf and DAO
-// conversions live under internal/converter.
+// operation runs. Management, planning, and storage live under the manager
+// subpackages; protobuf and DAO conversions live under internal/converter.
 package operationrun
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
@@ -79,81 +79,6 @@ func (s OperationRunTargetStatus) IsActive() bool {
 	return s == OperationRunTargetStatusSubmitted
 }
 
-// ComponentFilterKind discriminates the two variants of ComponentFilter.
-type ComponentFilterKind string
-
-const (
-	// ComponentFilterKindTypes filters by component type.
-	ComponentFilterKindTypes ComponentFilterKind = "types"
-	// ComponentFilterKindComponents targets specific components by UUID.
-	ComponentFilterKindComponents ComponentFilterKind = "components"
-)
-
-// ComponentFilter is the discriminated union stored in target component-filter
-// JSON. Exactly one of Types or Components must be non-nil when Kind is set.
-type ComponentFilter struct {
-	Kind ComponentFilterKind `json:"kind"`
-	// Types lists the component type strings when Kind == "types".
-	Types []string `json:"types,omitempty"`
-	// Components lists the component UUIDs when Kind == "components".
-	Components []uuid.UUID `json:"components,omitempty"`
-}
-
-func (cf *ComponentFilter) validate() error {
-	switch cf.Kind {
-	case ComponentFilterKindTypes:
-		if len(cf.Types) == 0 {
-			return fmt.Errorf(
-				"component filter kind %q requires at least one type",
-				cf.Kind,
-			)
-		}
-		if len(cf.Components) > 0 {
-			return fmt.Errorf(
-				"component filter kind %q must not have components set",
-				cf.Kind,
-			)
-		}
-	case ComponentFilterKindComponents:
-		if len(cf.Components) == 0 {
-			return fmt.Errorf(
-				"component filter kind %q requires at least one component",
-				cf.Kind,
-			)
-		}
-		if len(cf.Types) > 0 {
-			return fmt.Errorf(
-				"component filter kind %q must not have types set", cf.Kind,
-			)
-		}
-	default:
-		return fmt.Errorf("unknown component filter kind: %q", cf.Kind)
-	}
-
-	return nil
-}
-
-// UnmarshalComponentFilter parses target component-filter JSON. Nil, empty,
-// and JSON null all mean "no filter", so the target applies to all components
-// in the rack.
-func UnmarshalComponentFilter(raw json.RawMessage) (*ComponentFilter, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return nil, nil
-	}
-
-	var cf ComponentFilter
-	if err := json.Unmarshal(trimmed, &cf); err != nil {
-		return nil, err
-	}
-
-	if err := cf.validate(); err != nil {
-		return nil, err
-	}
-
-	return &cf, nil
-}
-
 // OperationRun is the internal service representation of an operation run.
 // Create ignores server-owned lifecycle and timestamp fields and always starts
 // the persisted run in pending/none state.
@@ -175,22 +100,61 @@ type OperationRun struct {
 	FinishedAt        *time.Time
 }
 
+// DecodedSelector decodes and validates the stored selector configuration.
+func (r *OperationRun) DecodedSelector() (Selector, error) {
+	var selector Selector
+	if err := UnmarshalConfig(r.Selector, &selector); err != nil {
+		return nil, fmt.Errorf("unmarshal operation run selector: %w", err)
+	}
+	if err := selector.Validate(); err != nil {
+		return nil, fmt.Errorf("validate operation run selector: %w", err)
+	}
+
+	return selector, nil
+}
+
+// DecodedOptions decodes and validates the stored options configuration.
+func (r *OperationRun) DecodedOptions() (*Options, error) {
+	var options Options
+	if err := UnmarshalConfig(r.Options, &options); err != nil {
+		return nil, fmt.Errorf("unmarshal operation run options: %w", err)
+	}
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("validate operation run options: %w", err)
+	}
+
+	return &options, nil
+}
+
+// DecodedOperation decodes and validates the stored operation template.
+func (r *OperationRun) DecodedOperation() (*Operation, error) {
+	var operation Operation
+	if err := UnmarshalConfig(r.OperationTemplate, &operation); err != nil {
+		return nil, fmt.Errorf("unmarshal operation run template: %w", err)
+	}
+	if err := operation.Validate(); err != nil {
+		return nil, fmt.Errorf("validate operation run template: %w", err)
+	}
+
+	return &operation, nil
+}
+
 // OperationRunTarget is the internal service representation of one rack
 // execution target in an operation run.
 type OperationRunTarget struct {
-	ID              uuid.UUID
-	OperationRunID  uuid.UUID
-	RackID          uuid.UUID
-	SequenceIndex   int32
-	PhaseIndex      int32
-	ComponentFilter json.RawMessage
-	TaskID          *uuid.UUID
-	Status          OperationRunTargetStatus
-	Message         string
-	RetryAfter      *time.Time
-	RetryState      json.RawMessage
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID               uuid.UUID
+	OperationRunID   uuid.UUID
+	RackID           uuid.UUID
+	SequenceIndex    int32
+	PhaseIndex       int32
+	ComponentsByType operation.ComponentsByType
+	TaskID           *uuid.UUID
+	Status           OperationRunTargetStatus
+	Message          string
+	RetryAfter       *time.Time
+	RetryState       json.RawMessage
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // StateFilter matches operation runs by status, reason, or both. When both are
@@ -237,6 +201,9 @@ const (
 	// TargetPhaseScopeCurrentAndCompletedPhases returns every materialized
 	// phase through the current phase.
 	TargetPhaseScopeCurrentAndCompletedPhases
+	// TargetPhaseScopeAllMaterializedTargets returns every materialized target
+	// row for internal planning use cases such as prior-run exclusions.
+	TargetPhaseScopeAllMaterializedTargets
 )
 
 // TargetListOptions filters operation-run target list queries.

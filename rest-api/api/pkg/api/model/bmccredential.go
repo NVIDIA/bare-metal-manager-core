@@ -16,23 +16,23 @@ import (
 const (
 	// BMCCredentialKindSiteWideRoot stores the site-wide BMC root credential
 	// (empty username). Maps to CredentialType_SiteWideBmcRoot.
-	BMCCredentialKindSiteWideRoot = "site-wide-root"
+	BMCCredentialKindSiteWideRoot = "SiteWideRoot"
 	// BMCCredentialKindBMCRoot stores a per-BMC root credential keyed by MAC
 	// address. Maps to CredentialType_RootBmcByMacAddress.
-	BMCCredentialKindBMCRoot = "bmc-root"
+	BMCCredentialKindBMCRoot = "BMCRoot"
 )
 
 // APIBMCCredentialRequest sets (creates or overwrites) a BMC credential.
 type APIBMCCredentialRequest struct {
 	// SiteID is the ID of the Site where the credential is stored.
 	SiteID string `json:"siteId"`
-	// Kind selects which BMC credential to store: "site-wide-root" or "bmc-root".
+	// Kind selects which BMC credential to store: "SiteWideRoot" or "BMCRoot".
 	Kind string `json:"kind"`
 	// Password is the credential password (required).
 	Password string `json:"password"`
-	// Username is optional; Core defaults to "root" when omitted for bmc-root.
+	// Username is optional; Core defaults to "root" when omitted for BMCRoot.
 	Username *string `json:"username,omitempty"`
-	// MacAddress is required for kind "bmc-root" and ignored for "site-wide-root".
+	// MacAddress is required for kind "BMCRoot" and ignored for "SiteWideRoot".
 	MacAddress *string `json:"macAddress,omitempty"`
 }
 
@@ -40,11 +40,11 @@ type APIBMCCredentialRequest struct {
 type APIBMCCredential struct {
 	// SiteID is the ID of the Site where the credential is stored.
 	SiteID string `json:"siteId"`
-	// Kind selects which BMC credential was stored: "site-wide-root" or "bmc-root".
+	// Kind selects which BMC credential was stored: "SiteWideRoot" or "BMCRoot".
 	Kind string `json:"kind"`
-	// Username is optional; Core defaults to "root" when omitted for bmc-root.
+	// Username is optional; Core defaults to "root" when omitted for BMCRoot.
 	Username *string `json:"username,omitempty"`
-	// MacAddress is required for kind "bmc-root" and ignored for "site-wide-root".
+	// MacAddress is required for kind "BMCRoot" and ignored for "SiteWideRoot".
 	MacAddress *string `json:"macAddress,omitempty"`
 }
 

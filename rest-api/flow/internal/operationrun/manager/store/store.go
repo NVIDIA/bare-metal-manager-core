@@ -44,7 +44,7 @@ type Store interface {
 	) ([]*operationrun.OperationRun, int32, error)
 
 	// CreateTargets inserts materialized rack execution targets for a run. The
-	// dispatcher calls this when opening a phase.
+	// manager calls this after planning to persist the frozen execution plan.
 	CreateTargets(
 		ctx context.Context,
 		runID uuid.UUID,
@@ -224,6 +224,11 @@ func (s *PostgresStore) CreateTargets(
 		if target == nil {
 			return fmt.Errorf("operation run target %d is required", idx)
 		}
+
+		if err := target.ComponentsByType.Validate(); err != nil {
+			return fmt.Errorf("operation run target %d components_by_type: %w", idx, err)
+		}
+
 		target.OperationRunID = runID
 		target.Status = operationrun.OperationRunTargetStatusPending
 		rows = append(rows, dao.OperationRunTargetTo(target))
@@ -361,7 +366,8 @@ func applyTargetPhaseScope(
 			"ort.phase_index < "+currentPhaseIndexSubquery,
 			runID,
 		)
-	case operationrun.TargetPhaseScopeCurrentAndCompletedPhases:
+	case operationrun.TargetPhaseScopeCurrentAndCompletedPhases,
+		operationrun.TargetPhaseScopeAllMaterializedTargets:
 		return q
 	default:
 		return q.Where(

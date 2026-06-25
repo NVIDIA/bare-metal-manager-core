@@ -16,8 +16,21 @@
  */
 
 use super::{CollectorEvent, DataSink, EventContext};
+use crate::config::TracingSinkConfig;
 
-pub struct TracingSink;
+/// Sink that writes health events through the process tracing subscriber.
+pub struct TracingSink {
+    include_diagnostics: bool,
+}
+
+impl TracingSink {
+    /// Builds a tracing sink from configuration.
+    pub fn new(config: &TracingSinkConfig) -> Self {
+        Self {
+            include_diagnostics: config.include_diagnostics,
+        }
+    }
+}
 
 impl DataSink for TracingSink {
     fn sink_type(&self) -> &'static str {
@@ -60,13 +73,29 @@ impl DataSink for TracingSink {
                 );
             }
             CollectorEvent::Log(record) => {
-                tracing::info!(
-                    endpoint = %context.endpoint_key(),
-                    collector = %context.collector_type,
-                    severity = %record.severity,
-                    body = %record.body,
-                    "Log event"
-                );
+                let has_included_diagnostics =
+                    self.include_diagnostics && record.diagnostic_record.is_some();
+
+                let record = record.emitted_log_record(self.include_diagnostics);
+
+                if has_included_diagnostics {
+                    tracing::info!(
+                        endpoint = %context.endpoint_key(),
+                        collector = %context.collector_type,
+                        severity = %record.severity,
+                        body = %record.body,
+                        attributes = ?record.attributes,
+                        "Log event"
+                    );
+                } else {
+                    tracing::info!(
+                        endpoint = %context.endpoint_key(),
+                        collector = %context.collector_type,
+                        severity = %record.severity,
+                        body = %record.body,
+                        "Log event"
+                    );
+                }
             }
             CollectorEvent::Firmware(info) => {
                 tracing::info!(

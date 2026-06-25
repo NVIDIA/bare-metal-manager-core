@@ -40,11 +40,12 @@ fn pcie(part: &str, fw: &str, serial: &str, id: &str) -> PCIeDevice {
     }
 }
 
-// Exercises the full explored-device read path: seed a host whose Redfish PCIe
-// inventory shows a NIC-mode DPU plus that DPU's own BMC endpoint, then confirm
-// the handler projects the device and joins it to its DPU BMC by serial.
+// Exercises the paginated explored-device read path: seed a host whose Redfish
+// PCIe inventory shows a NIC-mode DPU plus that DPU's own BMC endpoint, then
+// confirm the host-ids step lists the host and the by-ids step projects the
+// device and joins it to its DPU BMC by serial.
 #[crate::sqlx_test()]
-async fn test_get_explored_mlx_devices(
+async fn test_find_explored_mlx_devices(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
@@ -91,10 +92,26 @@ async fn test_get_explored_mlx_devices(
     db::explored_endpoints::insert(dpu_ip, &dpu_report, false, &mut txn).await?;
     txn.commit().await?;
 
+    // List the host BMC IPs carrying BlueField devices -- the DPU endpoint is
+    // excluded, since it reports no host-side inventory.
+    let host_ids = env
+        .api
+        .find_explored_mlx_device_host_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter {},
+        ))
+        .await
+        .map(|response| response.into_inner())
+        .unwrap()
+        .host_ids;
+    assert_eq!(host_ids, vec!["192.0.2.20".to_string()]);
+
+    // Fetch the devices for that page of hosts.
     let devices = env
         .api
-        .get_explored_mlx_devices(tonic::Request::new(
-            ::rpc::site_explorer::GetExploredMlxDevicesRequest { host_bmc_ip: None },
+        .find_explored_mlx_devices_by_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredMlxDevicesByIdsRequest {
+                host_ids: host_ids.clone(),
+            },
         ))
         .await
         .map(|response| response.into_inner())
@@ -119,12 +136,12 @@ async fn test_get_explored_mlx_devices(
         Some(::rpc::site_explorer::NicMode::Nic as i32)
     );
 
-    // The host filter scopes the result to a single host BMC.
+    // A page naming a host with no explored devices comes back empty.
     let other_host = env
         .api
-        .get_explored_mlx_devices(tonic::Request::new(
-            ::rpc::site_explorer::GetExploredMlxDevicesRequest {
-                host_bmc_ip: Some("198.51.100.1".to_string()),
+        .find_explored_mlx_devices_by_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredMlxDevicesByIdsRequest {
+                host_ids: vec!["198.51.100.1".to_string()],
             },
         ))
         .await

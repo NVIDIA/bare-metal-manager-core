@@ -21,9 +21,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 mod health_report;
+mod intrusion_events;
 mod leak_events;
 mod rack_leak;
 pub use health_report::HealthReportProcessor;
+pub use intrusion_events::BmcIntrusionEventProcessor;
 pub use leak_events::LeakEventProcessor;
 pub use rack_leak::RackLeakProcessor;
 

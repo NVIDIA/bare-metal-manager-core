@@ -2456,19 +2456,28 @@ dependencies = [
  "config-version",
  "duration-str",
  "eyre",
+ "hex",
  "http",
  "libnmxc",
  "libnmxm",
  "opentelemetry",
  "rand 0.10.1",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-pki-types",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "tracing",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
@@ -6552,7 +6561,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.12#29de93f4bd4b1c5de8c57fef9ac49d1b7d93494d"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.15#539221bcc0b16603e16bc2ee3d9632ce8576e330"
 dependencies = [
  "chrono",
  "clap",
@@ -7211,6 +7220,7 @@ name = "nico-admin-cli"
 version = "0.0.1"
 dependencies = [
  "bmc-vendor",
+ "carbide-api-model",
  "carbide-health-report",
  "carbide-libmlx",
  "carbide-libmlx-model",

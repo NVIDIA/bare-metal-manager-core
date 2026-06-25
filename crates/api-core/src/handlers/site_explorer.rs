@@ -151,26 +151,72 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
-pub(crate) async fn get_explored_mlx_devices(
+pub(crate) async fn find_explored_mlx_device_host_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+    request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
+) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceHostIdList>, Status> {
+    log_request_data(&request);
+
+    // The host BMC IPs whose Redfish PCIe inventory carries a BlueField device --
+    // the pages the client walks. DPU endpoints are excluded; they report no
+    // host-side inventory and would yield no devices.
+    let endpoints = db::explored_endpoints::find_all(&api.database_connection).await?;
+    let host_ids = endpoints
+        .iter()
+        .filter(|ep| !ep.report.is_dpu() && ep.report.has_bluefield_devices())
+        .map(|ep| ep.address.to_string())
+        .collect();
+
+    Ok(Response::new(
+        ::rpc::site_explorer::ExploredMlxDeviceHostIdList { host_ids },
+    ))
+}
+
+pub(crate) async fn find_explored_mlx_devices_by_ids(
+    api: &Api,
+    request: Request<::rpc::site_explorer::ExploredMlxDevicesByIdsRequest>,
 ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
     log_request_data(&request);
 
-    let host_filter = request
+    let ips: Vec<IpAddr> = request
         .into_inner()
-        .host_bmc_ip
-        .map(|ip| IpAddr::from_str(&ip))
-        .transpose()
+        .host_ids
+        .iter()
+        .map(|rs| IpAddr::from_str(rs))
+        .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)?;
 
-    // Load every explored endpoint: the projection reads each host's PCIe
-    // inventory, and the serial join needs the DPU endpoints alongside them.
-    let endpoints = db::explored_endpoints::find_all(&api.database_connection).await?;
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if ips.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if ips.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    // Load only the requested host reports, derive the BlueField device serials
+    // they hold, then fetch just the DPU endpoints those serials match -- rather
+    // than scanning every explored endpoint per page. The serial query is
+    // constrained to DPU reports, so a host with a coincidentally matching serial
+    // is not pulled in.
+    let mut endpoints = db::explored_endpoints::find_by_ips(&api.database_connection, ips).await?;
+    let serials: Vec<String> = endpoints
+        .iter()
+        .flat_map(|ep| ep.report.bluefield_device_serials())
+        .collect();
+    if !serials.is_empty() {
+        let dpus =
+            db::explored_endpoints::find_by_dpu_serial_numbers(&api.database_connection, serials)
+                .await?;
+        endpoints.extend(dpus);
+    }
 
     let devices = model::site_explorer::collect_explored_mlx_devices(&endpoints)
         .into_iter()
-        .filter(|device| host_filter.is_none_or(|ip| device.host_bmc_ip == ip))
         .map(::rpc::site_explorer::ExploredMlxDevice::from)
         .collect();
 

@@ -630,12 +630,12 @@ _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/t
     --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
     --tls-server-name interservice.server.temporal.local"
 kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n cloud --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+    sh -c "temporal operator namespace create -n cloud --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n site --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+    sh -c "temporal operator namespace create -n site --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 # flow Temporal namespace — required by NICo Flow workers; pod panics on startup if absent.
 kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n flow --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+    sh -c "temporal operator namespace create -n flow --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
@@ -763,7 +763,7 @@ _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/t
     --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
     --tls-server-name interservice.server.temporal.local"
 kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n '${NICO_SITE_UUID}' --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+    sh -c "temporal operator namespace create -n '${NICO_SITE_UUID}' --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 echo "Temporal namespace ready"
 
 # FLOW_GRPC_ENABLED toggles the site-agent's Flow gRPC client (see
@@ -796,7 +796,7 @@ _CONNECTED=false
 for _i in $(seq 1 24); do
     _POD="$(kubectl get pods -n nico-rest \
         -l "app.kubernetes.io/name=nico-rest-site-agent" \
-        -o name 2>/dev/null | head -1)"
+        -o name 2>/dev/null | head -1 || true)"
     if [ -n "${_POD}" ] && \
        kubectl logs -n nico-rest "${_POD}" --since=5m 2>/dev/null \
            | grep -q "NicoClient: successfully connected to server"; then

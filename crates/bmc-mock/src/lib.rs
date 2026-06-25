@@ -30,6 +30,7 @@ mod http;
 mod hw;
 pub mod injection;
 mod json;
+pub mod mac_address_pool;
 mod machine_info;
 mod middleware_router;
 mod mock_machine_router;

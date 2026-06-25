@@ -79,19 +79,19 @@ initContainers: []
 
 ## Boot-artifact init containers
 ## Each entry is rendered as a Kubernetes init container with the boot-artifacts
-## volume automatically mounted at /boot-artifacts/blobs/internal.
+## volume automatically mounted at /forge-boot-artifacts/blobs/internal.
 bootArtifactContainers: []
 # bootArtifactContainers:
 #   - name: boot-artifacts-x86-64
 #     image: <your-registry>/boot-artifacts-x86_64:latest
-#     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+#     command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
 #   - name: boot-artifacts-aarch64
 #     image: <your-registry>/boot-artifacts-aarch64:latest
 #     # NOTE: the aarch64 image ships /aarch64 + /apt (NOT /firmware) — copying a missing dir crash-loops the init.
-#     command: ["sh", "-c", "cp -r /aarch64 /apt /boot-artifacts/blobs/internal"]
+#     command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
 #   - name: machine-validation-config
 #     image: <your-registry>/machine-validation-config:latest
-#     command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
+#     command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
 service:
   grpc:
@@ -111,7 +111,12 @@ certificate:
   ## are appended to the generated list).
   dnsNames: []
   uris: []
-  extraDnsNames: []
+  # carbide-api.forge: the forge-dpu-agent (v0.10.3) still dials the API by this
+  # legacy name during the carbide->nico rename; without this SAN the DPU agent
+  # rejects the serving cert (TLS BadCertificate) and never heartbeats (DPUs stuck
+  # at WaitingForNetworkConfig). See issue #2823.
+  extraDnsNames:
+    - carbide-api.forge
   extraUris: []
 
 migrationJob:

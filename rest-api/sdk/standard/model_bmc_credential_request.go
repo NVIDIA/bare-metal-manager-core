@@ -30,9 +30,9 @@ type BMCCredentialRequest struct {
 	Kind string `json:"kind"`
 	// Credential password.
 	Password string `json:"password"`
-	// Optional username; Core defaults to \"root\" for bmc-root when omitted.
+	// Optional username; Core defaults to \"root\" for BMCRoot when omitted.
 	Username *string `json:"username,omitempty"`
-	// BMC MAC address. Required for kind bmc-root, ignored for site-wide-root.
+	// BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
 	MacAddress *string `json:"macAddress,omitempty"`
 }
 

@@ -122,6 +122,7 @@ fn build_log_event(idx: usize) -> CollectorEvent {
                 (Cow::Borrowed("entry_id"), idx.to_string()),
                 (Cow::Borrowed("service_id"), "logservice-1".to_string()),
             ],
+            diagnostic_record: None,
         }
         .into(),
     )

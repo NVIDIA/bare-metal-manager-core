@@ -40,8 +40,10 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
+use carbide_nvlink_manager::{
+    NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
+};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -298,6 +300,7 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
+    pub switch_cert_monitor: Arc<Mutex<SwitchCertificateMonitor>>,
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
@@ -1008,6 +1011,19 @@ impl TestEnv {
             .unwrap();
     }
 
+    pub async fn run_switch_cert_monitor_iteration(
+        &self,
+    ) -> SwitchCertificateMonitorIterationResult {
+        let cancel_token = CancellationToken::new();
+        self.switch_cert_monitor
+            .lock()
+            .await
+            .run_single_iteration(&cancel_token)
+            .boxed()
+            .await
+            .unwrap()
+    }
+
     pub fn db_reader(&self) -> PgPoolReader {
         self.pool.clone().into()
     }
@@ -1396,6 +1412,13 @@ pub async fn create_test_env_with_overrides(
         api.work_lock_manager_handle.clone(),
     );
 
+    let switch_cert_monitor = SwitchCertificateMonitor::new(
+        db_pool.clone(),
+        test_meter.meter(),
+        config.nvlink_config.clone().unwrap(),
+        api.work_lock_manager_handle.clone(),
+    );
+
     let attestation_enabled = config.attestation_enabled;
     let ipmi_tool = carbide_ipmi::test_support();
     let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
@@ -1767,6 +1790,7 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
+        switch_cert_monitor: Arc::new(Mutex::new(switch_cert_monitor)),
         test_credential_manager: credential_manager.clone(),
         rms_sim,
         test_component_manager,

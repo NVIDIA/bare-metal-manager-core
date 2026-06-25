@@ -202,10 +202,12 @@ navigation:
           contents:
             - page: Core Metrics
               path: observability/core_metrics.md
-            - page: Traces
-              path: observability/tracing.md
             - page: Logging
               path: observability/logging.md
+            - page: Machines and DPU Logging
+              path: observability/machine-dpu-logs.md
+            - page: Traces
+              path: observability/tracing.md
         - page: NICo Debug WebUI
           path: operations/debug_webui.md
         - section: Playbooks

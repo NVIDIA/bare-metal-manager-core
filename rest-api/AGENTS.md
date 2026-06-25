@@ -191,6 +191,8 @@ verification expectations.
   passwords and other credentials are never returned. Keep OpenAPI
   descriptions focused on the REST contract rather than internal gRPC
   implementation details.
+- API-layer enum-like request constants exposed through JSON use CapitalCase
+  values, for example `SiteWideRoot` and `BMCRoot`.
 
 ### Prefer range-based iteration over C-style `for` loops
 

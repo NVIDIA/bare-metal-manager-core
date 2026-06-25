@@ -12998,18 +12998,18 @@ components:
           type: string
           description: Which BMC credential to store.
           enum:
-            - site-wide-root
-            - bmc-root
+            - SiteWideRoot
+            - BMCRoot
         password:
           type: string
           minLength: 1
           description: Credential password.
         username:
           type: string
-          description: Optional username; Core defaults to "root" for bmc-root when omitted.
+          description: Optional username; Core defaults to "root" for BMCRoot when omitted.
         macAddress:
           type: string
-          description: BMC MAC address. Required for kind bmc-root, ignored for site-wide-root.
+          description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
     BMCCredential:
       type: object
       title: BMCCredential
@@ -13026,14 +13026,14 @@ components:
           type: string
           description: Which BMC credential was stored.
           enum:
-            - site-wide-root
-            - bmc-root
+            - SiteWideRoot
+            - BMCRoot
         username:
           type: string
-          description: Optional username; Core defaults to "root" for bmc-root when omitted.
+          description: Optional username; Core defaults to "root" for BMCRoot when omitted.
         macAddress:
           type: string
-          description: BMC MAC address. Required for kind bmc-root, ignored for site-wide-root.
+          description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object

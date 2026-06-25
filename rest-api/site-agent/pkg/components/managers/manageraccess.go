@@ -21,6 +21,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/networksecuritygroup"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/nvlinklogicalpartition"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/operatingsystem"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/site"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sku"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/sshkeygroup"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/subnet"
@@ -54,6 +55,11 @@ func (m *Manager) Bootstrap() *bootstrap.BoostrapAPI {
 // Orchestrator - Add orchestrator manager instance here
 func (m *Manager) Orchestrator() *workflow.API {
 	return workflow.NewWorkflowManager(m.Data.EB, m.API, m.Conf)
+}
+
+// Site - Add Site manager instance here
+func (m *Manager) Site() *site.API {
+	return site.NewSiteManager(m.Data.EB, m.API, m.Conf)
 }
 
 // VPC - Add vpc manager instance here

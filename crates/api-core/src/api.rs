@@ -1092,11 +1092,18 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
-    async fn get_explored_mlx_devices(
+    async fn find_explored_mlx_device_host_ids(
         &self,
-        request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+        request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceHostIdList>, Status> {
+        crate::handlers::site_explorer::find_explored_mlx_device_host_ids(self, request).await
+    }
+
+    async fn find_explored_mlx_devices_by_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredMlxDevicesByIdsRequest>,
     ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
-        crate::handlers::site_explorer::get_explored_mlx_devices(self, request).await
+        crate::handlers::site_explorer::find_explored_mlx_devices_by_ids(self, request).await
     }
 
     async fn update_machine_hardware_info(
@@ -1355,6 +1362,13 @@ impl Forge for Api {
         request: Request<MachineInterfaceId>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::boot_override::clear(self, request).await
+    }
+
+    async fn get_machine_boot_interfaces(
+        &self,
+        request: Request<rpc::GetMachineBootInterfacesRequest>,
+    ) -> Result<Response<rpc::GetMachineBootInterfacesResponse>, Status> {
+        crate::handlers::machine_boot_interfaces::get_machine_boot_interfaces(self, request).await
     }
 
     async fn get_network_topology(

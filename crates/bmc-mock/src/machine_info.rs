@@ -16,16 +16,15 @@
  */
 use std::borrow::Cow;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+use crate::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use crate::redfish::update_service::UpdateServiceConfig;
-use crate::{hw, redfish};
-static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 use crate::{
     DUMMY_FACTORY_DPU_PASSWORD, DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HostHardwareType,
+    hw, redfish,
 };
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
@@ -46,6 +45,7 @@ pub struct HostMachineInfo {
     pub non_dpu_mac_address: Option<MacAddress>,
     pub nvos_mac_addresses: Vec<MacAddress>,
     pub switch_serial_number: Option<String>,
+    pub hw_mac_addr_pool: MacAddressPoolConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -88,14 +88,13 @@ impl Default for DpuSettings {
     }
 }
 
-impl Default for DpuMachineInfo {
-    fn default() -> Self {
-        Self::new(HostHardwareType::DellPowerEdgeR750, DpuSettings::default())
-    }
-}
-
 impl DpuMachineInfo {
-    pub fn new(hw_type: HostHardwareType, settings: DpuSettings) -> Self {
+    pub fn new(
+        hw_type: HostHardwareType,
+        pool: &mut MacAddressPool,
+        settings: DpuSettings,
+    ) -> Self {
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         let bmc_mac_address = next_mac();
         let host_mac_address = next_mac();
         let oob_mac_address = next_mac();
@@ -145,7 +144,13 @@ impl DpuMachineInfo {
 }
 
 impl HostMachineInfo {
-    pub fn new(hw_type: HostHardwareType, dpus: Vec<DpuMachineInfo>) -> Self {
+    pub fn new(
+        hw_type: HostHardwareType,
+        dpus: Vec<DpuMachineInfo>,
+        pool: &mut MacAddressPool,
+        hw_mac_addr_pool: MacAddressPoolConfig,
+    ) -> Self {
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         let bmc_mac_address = next_mac();
         let nvos_mac_addresses = if matches!(hw_type, HostHardwareType::NvidiaSwitchNd5200Ld) {
             vec![next_mac()]
@@ -171,6 +176,7 @@ impl HostMachineInfo {
             nvos_mac_addresses,
             switch_serial_number,
             dpus,
+            hw_mac_addr_pool,
         }
     }
 
@@ -377,6 +383,8 @@ impl HostMachineInfo {
                 .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
                 .collect()
         };
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::dell_poweredge_r750::DellPowerEdgeR750 {
             bmc_mac_address: self.bmc_mac_address,
             product_serial_number: Cow::Borrowed(&self.serial),
@@ -448,6 +456,8 @@ impl HostMachineInfo {
             [superchip_a_sn, "1642225000086"],
             ["MT2521XZ0GJM", "MT2521XZ0GJM-SYNTH"],
         );
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::dgx_gb300_nvl::DgxGB300Nvl {
             system_0_serial_number: "1332425360072".into(),
             chassis_0_serial_number: "1332425360072".into(),
@@ -489,6 +499,8 @@ impl HostMachineInfo {
             [superchip_a_sn, "1764625800673"],
             ["MT2609603LCN", "MT2609603LQ2"],
         );
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
             system_0_serial_number: "A978250X6404492".into(),
             chassis_0_serial_number: "HA261S056572".into(),
@@ -524,6 +536,8 @@ impl HostMachineInfo {
         let superchip_b_sn = "165300000002";
         let io_board0_sn = "MT2524000001";
         let io_board1_sn = "MT2524000002";
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
             system_0_serial_number: "012345678901234567890123".into(),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
@@ -586,6 +600,8 @@ impl HostMachineInfo {
     }
 
     fn nvidia_switch_nd5200_ld(&self) -> hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld<'_> {
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld {
             bmc_mac_address_eth0: self.bmc_mac_address,
             bmc_mac_address_eth1: next_mac(),
@@ -600,6 +616,8 @@ impl HostMachineInfo {
     }
 
     fn nvidia_dgx_h100(&self) -> hw::nvidia_dgx_h100::NvidiaDgxH100<'_> {
+        let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
+        let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         let storage_nic0_p0_mac = next_mac();
         let storage_nic0_serial = format!("MT{}", storage_nic0_p0_mac.to_string().replace(":", ""));
         hw::nvidia_dgx_h100::NvidiaDgxH100 {
@@ -782,19 +800,6 @@ impl MachineInfo {
             ),
         }
     }
-}
-
-fn next_mac() -> MacAddress {
-    let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
-
-    let bytes: Vec<u8> = [0x02u8, 0x01]
-        .into_iter()
-        .chain(next_mac_num.to_be_bytes())
-        .collect();
-
-    let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
-
-    MacAddress::from(mac_bytes)
 }
 
 /// CPU / GPU / IO-board chassis common to every GB300 tray: NVIDIA HGX reference

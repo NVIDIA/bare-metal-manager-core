@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use bmc_mock::HostHardwareType;
+use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
 use futures::future::try_join_all;
 use rpc::forge::{DpuMode, VpcVirtualizationType};
 use tokio::sync::mpsc;
@@ -56,47 +57,83 @@ impl MachineATron {
             })
             .unwrap_or_default();
 
-        // If we've persisted the machine info on a previous run, use that
-        let machines: Vec<HostMachineHandle> = self
-            .app_context
-            .app_config
-            .machines
-            .iter()
-            .flat_map(|(config_name, config)| {
-                if let Some(persisted_machines) = persisted_machines
-                    .as_mut()
-                    .and_then(|m| m.remove(config_name.as_str()))
-                {
-                    tracing::info!("Recovering persisted machines for config {}", config_name);
-                    persisted_machines
-                        .into_iter()
-                        .map(|persisted| {
-                            let host_machine = HostMachine::from_persisted(
-                                persisted,
-                                config_name.clone(),
-                                self.app_context.clone(),
-                                config.clone(),
-                            );
+        // If we've persisted the machine info on a previous run, use that.
+        // Reserve all persisted MACs before allocating anything new, so recovery
+        // is independent of config iteration order.
+        let machines = {
+            let mut mac_address_pool = self.app_context.mac_address_pool.lock().unwrap();
 
-                            host_machine.start(paused)
+            if let Some(persisted_machines) = persisted_machines.as_ref() {
+                for persisted in persisted_machines.values().flatten() {
+                    let hw_mac_address_ranges = persisted
+                        .hw_mac_addr_pool
+                        .as_ref()
+                        .map(|pool| MacAddressPoolConfig::new(pool.base, pool.host_bits))
+                        .transpose()?;
+                    if let Some(hw_mac_address_ranges) = hw_mac_address_ranges {
+                        mac_address_pool.reserve_range_config(hw_mac_address_ranges)?;
+                    }
+                    persisted
+                        .mac_addresses()
+                        .filter(|addr| {
+                            !hw_mac_address_ranges.is_some_and(|range| range.contains(*addr))
                         })
-                        .collect::<Vec<_>>()
-                } else {
-                    tracing::info!("Constructing machines for config {}", config_name);
-                    (0..config.host_count)
-                        .map(move |_| {
-                            let host_machine = HostMachine::new(
-                                self.app_context.clone(),
-                                config_name.clone(),
-                                config.clone(),
-                            );
-
-                            host_machine.start(paused)
-                        })
-                        .collect::<Vec<_>>()
+                        .map(|addr| mac_address_pool.reserve(addr))
+                        .collect::<Result<Vec<_>, _>>()?;
                 }
-            })
-            .collect();
+            }
+
+            self.app_context
+                .app_config
+                .machines
+                .iter()
+                .flat_map(|(config_name, config)| {
+                    if let Some(persisted_machines) = persisted_machines
+                        .as_mut()
+                        .and_then(|m| m.remove(config_name.as_str()))
+                    {
+                        tracing::info!("Recovering persisted machines for config {}", config_name);
+                        persisted_machines
+                            .into_iter()
+                            .map(|persisted| -> eyre::Result<HostMachineHandle> {
+                                let hw_mac_address_ranges = persisted
+                                    .hw_mac_addr_pool
+                                    .as_ref()
+                                    .map(|pool| {
+                                        MacAddressPoolConfig::new(pool.base, pool.host_bits)
+                                    })
+                                    .unwrap_or_else(|| mac_address_pool.allocate_range_config())?;
+                                let host_machine = HostMachine::from_persisted(
+                                    persisted,
+                                    config_name.clone(),
+                                    self.app_context.clone(),
+                                    config.clone(),
+                                    hw_mac_address_ranges,
+                                );
+
+                                Ok(host_machine.start(paused))
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        tracing::info!("Constructing machines for config {}", config_name);
+                        (0..config.host_count)
+                            .map(|_| {
+                                let mac_range = mac_address_pool.allocate_range_config()?;
+                                let host_machine = HostMachine::new(
+                                    self.app_context.clone(),
+                                    config_name.clone(),
+                                    config.clone(),
+                                    &mut mac_address_pool,
+                                    mac_range,
+                                );
+
+                                Ok(host_machine.start(paused))
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
 
         if self.app_context.app_config.register_expected_machines {
             for machine in &machines {
