@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+#[cfg(any(test, feature = "test-support"))]
+use std::collections::HashMap;
+
 use model::machine::HostHealthConfig;
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +47,24 @@ pub struct MachineStateHandlerSiteConfig {
     pub spdm_enabled: bool,
 
     pub dpu_enable_secure_boot: bool,
+}
+
+impl MachineStateHandlerSiteConfig {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_default() -> Self {
+        Self {
+            firmware_global: FirmwareGlobal::test_default(),
+            machine_state_controller: MachineStateControllerConfig::test_default(),
+            host_health: HostHealthConfig::default(),
+            selected_profile: libredfish::BiosProfileType::Performance,
+            bios_profiles: HashMap::new(),
+            oem_manager_profiles: HashMap::new(),
+            dpa_enabled: true,
+            dpf_enabled: false,
+            spdm_enabled: false,
+            dpu_enable_secure_boot: true,
+        }
+    }
 }
 
 /// A UTC time window defined by a start and end timestamp.

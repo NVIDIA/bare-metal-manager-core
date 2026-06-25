@@ -885,6 +885,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         }),
 
         dhcp_servers: vec!["127.0.0.1".to_string()],
+        ntp_servers: vec![],
         vni_device: "".to_string(),
 
         managed_host_config: Some(rpc::forge::ManagedHostNetworkConfig {

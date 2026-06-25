@@ -46,7 +46,7 @@ BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/
 #
 # Make sure to update the RUST_NIGHTLY variable in
 # dev/docker/Dockerfile.build-container-x86_64 if you change this.
-RUST_NIGHTLY = "nightly-2026-05-27"
+RUST_NIGHTLY = "nightly-2026-06-16"
 
 [tasks.book]
 workspace = false
@@ -203,7 +203,7 @@ echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p
 
 [tasks.build-cargo-docker-image-minimal]
 category = "Build"
-description = "Build minimal Cargo Docker image (Rust 1.90 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. carbide-rpc)."
+description = "Build minimal Cargo Docker image (Rust 1.96 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. carbide-rpc)."
 workspace = false
 script = '''
 set -e
@@ -213,7 +213,7 @@ echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal --
 
 [tasks.build-pxe-build-container]
 category = "Build"
-description = "Build the PXE artifact build container image (Ubuntu 24.04 + Rust 1.90 + mkosi deps). Required once before pxe-docker-x86."
+description = "Build the PXE artifact build container image (Ubuntu 24.04 + Rust 1.96 + mkosi deps). Required once before pxe-docker-x86."
 workspace = false
 script = '''
 set -e
@@ -301,7 +301,7 @@ fi
 
 [tasks.cargo-docker-minimal]
 category = "Build"
-description = "Run Cargo in minimal Linux image (Rust 1.90 + protoc). Requires build-cargo-docker-image-minimal once (~2-5 min). For DB tests set DATABASE_URL (use host.docker.internal, not localhost). Runs as root and chowns /code afterward so target/ stays writable on macOS/Colima."
+description = "Run Cargo in minimal Linux image (Rust 1.96 + protoc). Requires build-cargo-docker-image-minimal once (~2-5 min). For DB tests set DATABASE_URL (use host.docker.internal, not localhost). Runs as root and chowns /code afterward so target/ stays writable on macOS/Colima."
 workspace = false
 dependencies = ["check-cargo-home-set"]
 script = '''

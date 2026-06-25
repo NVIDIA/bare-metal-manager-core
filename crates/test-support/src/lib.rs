@@ -56,7 +56,9 @@
 //!
 //! When several rows belong to the same named condition, [`scenarios!`] keeps the
 //! inputs and expected outcomes visible while removing the repeated [`Case`]
-//! fields:
+//! fields. Pass the operation under test as a `run =` closure -- the form most
+//! tables use, because the same syntax also takes an inline expression or a row
+//! that destructures several inputs:
 //!
 //! ```
 //! use carbide_test_support::Outcome::*;
@@ -66,7 +68,7 @@
 //!     input.parse::<u8>().map_err(|_| format!("bad byte: {input}"))
 //! }
 //!
-//! scenarios!(parse_byte:
+//! scenarios!(run = |input| parse_byte(input);
 //!     "valid bytes" {
 //!         "0" => Yields(0),
 //!         "42" => Yields(42),
@@ -78,6 +80,9 @@
 //!     }
 //! );
 //! ```
+//!
+//! For a bare named function, the `fn:` shorthand reads a little cleaner --
+//! `scenarios!(parse_byte: ...)` expands to exactly the same table.
 //!
 //! # A single case
 //!
@@ -161,7 +166,7 @@
 //!     input % 2 == 0
 //! }
 //!
-//! value_scenarios!(is_even:
+//! value_scenarios!(run = |n| is_even(n);
 //!     "parity" {
 //!         2 => true,
 //!         7 => false,
@@ -169,15 +174,37 @@
 //! );
 //! ```
 //!
+//! # Several inputs per row
+//!
+//! When a row carries more than one input, keep using the macro: declare a
+//! *local* struct with content-named fields, use it as the row `input`, and
+//! destructure it in the `run =` closure. The struct keeps each row readable; the
+//! closure does the work:
+//!
+//! ```
+//! use carbide_test_support::value_scenarios;
+//!
+//! struct Row {
+//!     left: u8,
+//!     right: u8,
+//! }
+//!
+//! value_scenarios!(run = |Row { left, right }| left.saturating_add(right);
+//!     "saturating add" {
+//!         Row { left: 1, right: 2 } => 3,
+//!         Row { left: 250, right: 10 } => 255,
+//!     }
+//! );
+//! ```
+//!
 //! # What's shared, and what stays a convention
 //!
-//! [`Outcome`] is the one piece worth sharing — every fallible test otherwise
+//! [`Outcome`] is the one piece worth sharing -- every fallible test otherwise
 //! re-invents the same "succeeds / fails / fails-with-a-specific-error" enum.
 //! [`scenarios!`] and [`value_scenarios!`] are intentionally thin syntax over
-//! [`Case`] and [`Check`]: they make repeated one-input tables easier to read, but
-//! when a row carries several inputs or expected values, a *local* `struct Case`
-//! with content-named fields plus [`assert_outcome`] still reads better — so that
-//! stays a convention, not a type.
+//! [`Case`] and [`Check`]. [`assert_outcome`] is the primitive they are built on;
+//! reach for it directly only when a case needs a fully hand-written body that
+//! neither a macro nor [`Case::check`] can express.
 
 use std::fmt::Debug;
 use std::future::Future;

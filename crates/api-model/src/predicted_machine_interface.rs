@@ -32,6 +32,12 @@ pub struct PredictedMachineInterface {
     /// MAC, handed to the `machine_interfaces` row at DHCP promotion so
     /// the host's boot target is a full pair from its first owned interface.
     pub boot_interface_id: Option<String>,
+    /// The declared `ExpectedHostNic.primary` intent, carried so promotion into
+    /// `machine_interfaces` lands the operator's chosen boot interface as
+    /// `primary_interface`. `false` when nothing is declared -- promotion then
+    /// leaves the row non-primary and the boot interface falls to the
+    /// `pick_boot_interface` automation.
+    pub primary_interface: bool,
 }
 
 impl PredictedMachineInterface {
@@ -50,4 +56,6 @@ pub struct NewPredictedMachineInterface<'a> {
     pub mac_address: MacAddress,
     pub expected_network_segment_type: NetworkSegmentType,
     pub boot_interface_id: Option<String>,
+    /// See [`PredictedMachineInterface::primary_interface`].
+    pub primary_interface: bool,
 }

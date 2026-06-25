@@ -21,32 +21,32 @@ use std::str::FromStr;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::dns::{Domain, NewDomain};
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
-use crate::tests::common::api_fixtures::create_test_env;
+use crate as db;
+
+async fn init_dwrt1_domain(txn: &mut sqlx::PgTransaction<'_>) -> db::DatabaseResult<Domain> {
+    db::dns::domain::persist(NewDomain::new("dwrt1.com"), txn.as_mut()).await
+}
 
 #[crate::sqlx_test]
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mut txn = env.pool.begin().await?;
-    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
-        .await?
-        .into_iter()
-        .next()
-        .unwrap();
+    let mut txn = pool.begin().await?;
+    let domain = init_dwrt1_domain(&mut txn).await?;
 
     let new_ns = NewNetworkSegment {
         name: "PDX01-M01-H14-IPMITOR-01".to_string(),
-        // domain id from tests/fixtures/create_domain.sql
         subdomain_id: Some(domain.id),
         vpc_id: None,
         mtu: 1490,
         prefixes: vec![NewNetworkPrefix {
             prefix: IpNetwork::V4("192.168.0.0/24".parse().unwrap()),
             gateway: Some(IpAddr::V4("192.168.0.1".parse().unwrap())),
+            dhcpv6_link_address: None,
             num_reserved: 14,
         }],
         vlan_id: None,

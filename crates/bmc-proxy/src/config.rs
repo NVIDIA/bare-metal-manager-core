@@ -70,7 +70,7 @@ impl Defaults {
 
     fn trust_config() -> TrustConfig {
         TrustConfig {
-            spiffe_trust_domain: "forge.local".to_string(),
+            spiffe_trust_domain: "nico.local".to_string(),
             spiffe_service_base_paths: vec![
                 "/forge-system/sa/".to_string(),
                 "/default/sa/".to_string(),
@@ -259,7 +259,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -277,7 +277,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -298,7 +298,7 @@ mod tests {
                     ],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -316,7 +316,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -334,7 +334,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -352,7 +352,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),
@@ -370,7 +370,7 @@ mod tests {
                     allowed_principals: vec![],
                     identity_pemfile_path: "/tls/cert.pem".to_string(),
                     root_cafile_path: "/tls/ca.pem".to_string(),
-                    trust_domain: "forge.local".to_string(),
+                    trust_domain: "nico.local".to_string(),
                     service_base_paths: vec![
                         "/forge-system/sa/".to_string(),
                         "/default/sa/".to_string(),

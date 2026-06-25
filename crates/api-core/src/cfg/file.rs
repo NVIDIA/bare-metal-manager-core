@@ -128,6 +128,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dhcp_servers: Vec<Ipv4Addr>,
 
+    /// NTP server IP addresses for the site.
+    #[serde(default)]
+    pub ntp_servers: Vec<Ipv4Addr>,
+
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
@@ -2863,6 +2867,10 @@ mod tests {
             config.dhcp_servers,
             vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
+        assert_eq!(
+            config.ntp_servers,
+            vec![Ipv4Addr::new(10, 20, 30, 40), Ipv4Addr::new(50, 60, 70, 80)]
+        );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
@@ -3822,7 +3830,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
                 prefix: "172.20.0.0/24".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.20.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3835,7 +3845,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
                 prefix: "172.99.0.0/26".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "172.99.0.1".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3848,7 +3860,9 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
                 prefix: "10.217.18.192/30".parse().unwrap(),
+                prefix_v6: None,
                 gateway: "10.217.18.193".parse().unwrap(),
+                dhcpv6_link_address: None,
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),

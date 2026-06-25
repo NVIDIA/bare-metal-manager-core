@@ -96,6 +96,9 @@ pub mod vpc_peering;
 pub mod vpc_prefix;
 pub mod work_lock_manager;
 
+#[cfg(test)]
+mod test_support;
+
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -2044,6 +2044,70 @@ fn nmxc_simulator_tests_enabled() -> bool {
     std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
 }
 
+const GB200_TRAY_4_CHASSIS_SERIAL: &str = "27XYX27000001";
+
+/// Removes the `nvlink_nmxc_endpoints` row for `chassis_serial` so NMX-C resolution fails in tests.
+async fn delete_nvlink_nmxc_endpoint(pool: &sqlx::PgPool, chassis_serial: &str) {
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("begin txn for nvlink_nmxc_endpoint delete");
+    assert!(
+        db::nvlink_nmxc_endpoints::delete(txn.as_mut(), chassis_serial)
+            .await
+            .expect("delete nvlink_nmxc_endpoint"),
+        "nvlink_nmxc_endpoint row missing for {chassis_serial}"
+    );
+    txn.commit()
+        .await
+        .expect("commit nvlink_nmxc_endpoint delete");
+}
+
+/// Asserts the machine has a populated NVLink status observation with partition assignments.
+async fn assert_machine_nvlink_observation_present(
+    mh: &TestManagedHost,
+    expected_gpu_count: usize,
+) {
+    let machine = mh.host().rpc_machine().await;
+    let observation = machine
+        .nvlink_status_observation
+        .as_ref()
+        .expect("expected nvlink_status_observation to be set");
+    assert_eq!(observation.gpu_status.len(), expected_gpu_count);
+    for gpu_obs in &observation.gpu_status {
+        assert!(
+            gpu_obs.logical_partition_id.is_some(),
+            "expected logical_partition_id on gpu observation"
+        );
+        assert!(
+            gpu_obs.partition_id.is_some(),
+            "expected partition_id on gpu observation"
+        );
+    }
+}
+
+/// Asserts `nvlink_status_observation` was cleared (null) via RPC and in the database.
+async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sqlx::PgPool) {
+    let machine = mh.host().rpc_machine().await;
+    assert!(
+        machine.nvlink_status_observation.is_none(),
+        "expected null nvlink_status_observation via RPC, got {:?}",
+        machine.nvlink_status_observation
+    );
+
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("begin txn for nvlink observation check");
+    let db_machine = mh.host().db_machine(&mut txn).await;
+    assert!(
+        db_machine.nvlink_status_observation.is_none(),
+        "expected null nvlink_status_observation in DB, got {:?}",
+        db_machine.nvlink_status_observation
+    );
+    txn.commit().await.expect("commit nvlink observation check");
+}
+
 async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
     pool: sqlx::PgPool,
     with_mtls: bool,
@@ -2875,4 +2939,130 @@ async fn test_managed_host_creation_with_tray_default_partition_use_nmxc_simulat
         .partition_info_list;
     assert_eq!(nmxc_partitions.len(), 1);
     assert_eq!(nmxc_partitions[0].name, "tray_partition_1");
+}
+
+/// Verifies null `nvlink_status_observation` is written when the NMX-C endpoint cannot be resolved.
+/// Verifies the NVLink config is not synced when NMX-C is unreachable.
+#[crate::sqlx_test]
+async fn test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator(
+    pool: sqlx::PgPool,
+) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let mut test_overrides = TestEnvOverrides::with_config(config);
+    test_overrides.nmxc_simulator = Some(true);
+
+    let env =
+        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Ready");
+
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: discovery_info
+            .gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config, segment_id).await;
+
+    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let ids_all = env
+        .api
+        .find_nv_link_partition_ids(tonic::Request::new(
+            rpc::forge::NvLinkPartitionSearchFilter {
+                name: None,
+                tenant_organization_id: None,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(ids_all.partition_ids.len(), 1);
+
+    let mut nmxc_sim_client = env
+        .nmxc_sim
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
+        .await
+        .unwrap();
+    let nmxc_partitions = nmxc_sim_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+    assert_eq!(nmxc_partitions.len(), 1);
+
+    assert_machine_nvlink_observation_present(&mh, 4).await;
+
+    let instance = tinstance.rpc_instance().await;
+    let instance_status = instance.status();
+    let nvl_status = instance_status.inner().nvlink.as_ref().unwrap();
+    assert_eq!(nvl_status.configs_synced(), rpc::SyncState::Synced);
+
+    delete_nvlink_nmxc_endpoint(&pool, GB200_TRAY_4_CHASSIS_SERIAL).await;
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    assert_machine_nvlink_observation_null(&mh, &pool).await;
+
+    let instance_after_failure = tinstance.rpc_instance().await;
+    let instance_status_after_failure = instance_after_failure.status();
+    let nvlink_status_after_failure = instance_status_after_failure
+        .inner()
+        .nvlink
+        .as_ref()
+        .expect("expected nvlink status after monitor iteration");
+    assert_ne!(
+        nvlink_status_after_failure.configs_synced(),
+        rpc::SyncState::Synced,
+        "nvlink config must not remain Synced when NMX-C is unreachable"
+    );
 }

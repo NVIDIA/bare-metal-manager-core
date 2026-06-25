@@ -56,6 +56,8 @@ struct RedfishSimState {
     get_task_trigger_evidence_returns_interrupted: bool,
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
+    is_boot_order_setup: Option<bool>,
+    default_lockdown: Option<EnabledDisabled>,
     job_state_sequence: VecDeque<JobState>,
     /// Offset (in seconds) applied to the BMC `DateTime` returned by
     /// `get_manager`, relative to the controller's `Utc::now()`. Defaults to 0
@@ -131,6 +133,17 @@ impl RedfishSim {
         }
     }
 
+    /// Return the simulated lockdown state for each Redfish client target.
+    pub fn lockdown_states(&self) -> Vec<EnabledDisabled> {
+        self.state
+            .lock()
+            .unwrap()
+            .hosts
+            .values()
+            .map(|host| host.lockdown)
+            .collect()
+    }
+
     /// Build a simulator with optional SPDM / firmware-integration test flags.
     pub fn with_test_overrides(overrides: RedfishSimTestOverrides) -> Self {
         Self {
@@ -155,6 +168,20 @@ impl RedfishSim {
 
     pub fn set_is_bios_setup(&self, ready: bool) {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
+    }
+
+    /// Configure whether simulated Redfish reports the host boot order as ready.
+    pub fn set_is_boot_order_setup(&self, ready: bool) {
+        self.state.lock().unwrap().is_boot_order_setup = Some(ready);
+    }
+
+    /// Configure simulated BMC lockdown state for existing and future clients.
+    pub fn set_lockdown(&self, lockdown: EnabledDisabled) {
+        let mut state = self.state.lock().unwrap();
+        state.default_lockdown = Some(lockdown);
+        for host_state in state.hosts.values_mut() {
+            host_state.lockdown = lockdown;
+        }
     }
 
     /// Set the offset (in seconds) applied to the BMC `DateTime` returned by
@@ -199,6 +226,7 @@ pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
     BmcReset,
     SetUtcTimezone,
+    SetNtpServers(Vec<String>),
     MachineSetup {
         oem_manager_profiles: libredfish::BiosProfileVendor,
         /// The boot interface the setup call targeted (`None` when the caller
@@ -1197,6 +1225,7 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
+            state.is_boot_order_setup = Some(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
             host_state
                 .actions
@@ -1255,9 +1284,14 @@ impl Redfish for RedfishSimClient {
 
     fn lockdown_bmc<'a>(
         &'a self,
-        _target: EnabledDisabled,
+        target: EnabledDisabled,
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.lockdown = target;
+            Ok(())
+        })
     }
 
     fn get_gpu_sensors<'a>(
@@ -1373,11 +1407,12 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
+            let is_boot_order_setup = state.is_boot_order_setup.unwrap_or(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
                 boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
-            Ok(true)
+            Ok(is_boot_order_setup)
         })
     }
 
@@ -1785,6 +1820,23 @@ impl Redfish for RedfishSimClient {
             Ok(())
         })
     }
+
+    fn set_ntp_servers<'a>(
+        &'a self,
+        servers: &'a [String],
+    ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
+        Box::pin(async move {
+            self.state
+                .lock()
+                .unwrap()
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .actions
+                .push(RedfishSimAction::SetNtpServers(servers.to_vec()));
+            Ok(())
+        })
+    }
 }
 
 #[async_trait]
@@ -1802,12 +1854,13 @@ impl RedfishClientPool for RedfishSim {
                 host: host.to_string(),
                 vendor,
             });
+            let default_lockdown = state.default_lockdown.unwrap_or(EnabledDisabled::Disabled);
             state
                 .hosts
                 .entry(host.to_string())
                 .or_insert(RedfishSimHostState {
                     power: PowerState::On,
-                    lockdown: EnabledDisabled::Disabled,
+                    lockdown: default_lockdown,
                     actions: Default::default(),
                 });
             if state.fw_version.is_empty() {
