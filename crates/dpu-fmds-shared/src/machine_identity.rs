@@ -347,6 +347,13 @@ pub fn metadata_header_is_true(headers: &HeaderMap) -> bool {
         .is_some_and(|s| s.eq_ignore_ascii_case("true"))
 }
 
+/// Returns true when the request carries `X-Forwarded-For` (any value).
+///
+/// Per SPIFFE/IMDS SDD, identity requests must not include this header.
+pub fn request_has_x_forwarded_for(headers: &HeaderMap) -> bool {
+    headers.contains_key("x-forwarded-for")
+}
+
 pub fn accept_text_plain(headers: &HeaderMap) -> bool {
     headers
         .get(ACCEPT)
@@ -524,6 +531,14 @@ pub async fn serve_meta_data_identity<S: MetaDataIdentitySigner + ?Sized>(
             .into_response();
     }
 
+    if request_has_x_forwarded_for(&headers) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "X-Forwarded-For header is not permitted for meta-data/identity\n",
+        )
+            .into_response();
+    }
+
     match signer.rate_limited_identity_request(&uri, &headers).await {
         Ok(MetaDataIdentityOutcome::HttpProxy(resp)) => resp,
         Ok(MetaDataIdentityOutcome::Forge(resp)) => {
@@ -610,6 +625,88 @@ mod tests {
         let mut h2 = HeaderMap::new();
         h2.insert("metadata", HeaderValue::from_static("TRUE"));
         assert!(metadata_header_is_true(&h2));
+    }
+
+    #[test]
+    fn request_has_x_forwarded_for_cases() {
+        let cases: &[(&[(&str, &str)], bool)] = &[
+            (&[], false),
+            (&[("Metadata", "true")], false),
+            (&[("X-Forwarded-For", "1.2.3.4")], true),
+            (&[("x-forwarded-for", "1.2.3.4")], true),
+            (
+                &[("Metadata", "true"), ("X-Forwarded-For", "1.2.3.4")],
+                true,
+            ),
+        ];
+
+        for (header_pairs, want) in cases {
+            let mut headers = HeaderMap::new();
+            for (name, value) in *header_pairs {
+                headers.insert(
+                    *name,
+                    HeaderValue::from_str(value).expect("valid header value"),
+                );
+            }
+            assert_eq!(
+                request_has_x_forwarded_for(&headers),
+                *want,
+                "header_pairs={header_pairs:?}"
+            );
+        }
+    }
+
+    struct StubIdentitySigner;
+
+    #[async_trait]
+    impl MetaDataIdentitySigner for StubIdentitySigner {
+        async fn wait_identity_permit(&self) -> Result<(), tonic::Status> {
+            Ok(())
+        }
+
+        async fn machine_identity_response(
+            &self,
+            _uri: &Uri,
+            _headers: &HeaderMap,
+            _audiences: Vec<String>,
+        ) -> Result<MetaDataIdentityOutcome, tonic::Status> {
+            Ok(MetaDataIdentityOutcome::Forge(MachineIdentityResponse {
+                access_token: "stub-token".to_string(),
+                issued_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
+                token_type: "Bearer".to_string(),
+                expires_in_sec: 60,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn serve_meta_data_identity_rejects_x_forwarded_for() {
+        let uri: Uri = "http://169.254.169.254/latest/meta-data/identity?aud=test"
+            .parse()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("metadata", HeaderValue::from_static("true"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("1.2.3.4"));
+
+        let response = serve_meta_data_identity(&StubIdentitySigner, uri, headers).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            &body[..],
+            b"X-Forwarded-For header is not permitted for meta-data/identity\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn serve_meta_data_identity_allows_valid_metadata_only_request() {
+        let uri: Uri = "http://169.254.169.254/latest/meta-data/identity?aud=test"
+            .parse()
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("metadata", HeaderValue::from_static("true"));
+
+        let response = serve_meta_data_identity(&StubIdentitySigner, uri, headers).await;
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]
