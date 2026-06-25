@@ -36,11 +36,6 @@ use tokio_util::sync::CancellationToken;
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 
-// The Scout heartbeat interval is 30 seconds. Keep heartbeat-based stale reconciliation above three
-// missed beats so a low configured stale timeout does not fail healthy active runs between
-// heartbeats.
-const MIN_HEARTBEAT_STALE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
-
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,
     config: MachineValidationConfig,
@@ -53,6 +48,17 @@ impl MachineValidationManager {
         config: MachineValidationConfig,
         meter: opentelemetry::metrics::Meter,
     ) -> Self {
+        let configured_stale_run_timeout = config.stale_run_timeout;
+        let config = config.with_minimum_stale_run_timeout();
+        if config.stale_run_timeout != configured_stale_run_timeout {
+            tracing::warn!(
+                configured_stale_run_timeout_seconds = configured_stale_run_timeout.as_secs(),
+                minimum_stale_run_timeout_seconds =
+                    MachineValidationConfig::MIN_STALE_RUN_TIMEOUT.as_secs(),
+                "machine validation stale_run_timeout is below minimum; using minimum"
+            );
+        }
+
         let hold_period = config
             .run_interval
             .saturating_add(std::time::Duration::from_secs(60));
@@ -204,7 +210,7 @@ fn active_validation_age_seconds(
 }
 
 fn heartbeat_stale_timeout(configured_timeout: std::time::Duration) -> std::time::Duration {
-    configured_timeout.max(MIN_HEARTBEAT_STALE_TIMEOUT)
+    configured_timeout.max(MachineValidationConfig::MIN_STALE_RUN_TIMEOUT)
 }
 
 fn stale_validations(
