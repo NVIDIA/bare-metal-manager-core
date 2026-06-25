@@ -495,6 +495,11 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 
         let http_client = reqwest::Client::builder()
             .timeout(request_timeout)
+            // NMX-T switch endpoints serve a self-signed cert (same as the NVUE REST
+            // collector). Accepting invalid certs also avoids a native-root-CA load
+            // failure at client build time on minimal runtime images without
+            // ca-certificates, which otherwise surfaces as "builder error".
+            .danger_accept_invalid_certs(true)
             .build()
             .map_err(|e| {
                 HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
