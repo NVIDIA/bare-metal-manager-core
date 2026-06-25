@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload binary artifact with semantic version
         if: inputs.push_enabled == true
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -210,7 +210,7 @@ jobs:
 
       - name: Upload binary artifact with latest tag
         if: inputs.is_main_branch == 'true' && inputs.push_enabled == true
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -279,7 +279,7 @@ jobs:
             | gzip > "artifacts/${{ inputs.service_name }}-${{ steps.docker-tags.outputs.artifact_version }}.tar.gz"
 
       - name: Upload Docker image artifact with semantic version
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image
@@ -291,7 +291,7 @@ jobs:
 
       - name: Upload Docker image artifact with latest tag
         if: inputs.is_main_branch == 'true'
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image
