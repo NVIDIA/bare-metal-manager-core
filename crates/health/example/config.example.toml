@@ -207,12 +207,6 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 
 # ==============================================================================
 # Switch Host Collectors: What data to collect from NVLink Switch Hosts
-#
-# NMX-T and NVUE (REST + gNMI) are disabled by default in config.rs because
-# they are only meaningful for switch host endpoints
-# (switch.endpoint_role = "host"). This example enables all three for the
-# GB200 NVLink switch-host scenario. Deploy only where the target endpoint is
-# a switch host; non-switch hosts should omit these sections entirely.
 # ==============================================================================
 
 [collectors.nmxt]
@@ -228,25 +222,18 @@ system_health_enabled = true
 cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
-# Per-sensor temperatures from `/nvue_v1/platform/environment/temperature`
-# (current/max/crit in celsius + sensor state). Emits only the fields each
-# sensor actually reports.
 platform_environment_temperature_enabled = true
-# Aggregate fan LED state from the `/nvue_v1/platform/environment` parent
-# summary (the `FAN_STATUS` entry). Switch-level: "green"/"ok" => 1.0, any
-# other state => 0.0.
 platform_environment_status_enabled = true
 
-# NVUE gNMI streaming collector. Disabled by default in code; explicitly
-# enabled here for the GB200 NVLink switch-host scenario. Subscribes to
+# NVUE gNMI streaming collector, disabled by default. Subscribes to
 # gNMI SAMPLE paths (components + interfaces) and pushes metrics through
-# the DataSink pipeline. PrometheusSink serves the /metrics endpoint;
-# OtlpSink (when configured separately) pushes to an OTel Collector.
+# the configured sinks. gNMI ON_CHANGE targets system-events
 [collectors.nvue.gnmi]
+# periodic SAMPLE
 gnmi_port = 9339
 sample_interval = "5m"
 request_timeout = "30s"
-# gNMI ON_CHANGE subscription for system events
+# streaming ON_CHANGE
 system_events_enabled = true
 
 [collectors.nvue.gnmi.paths]
