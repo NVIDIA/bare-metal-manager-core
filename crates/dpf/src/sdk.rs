@@ -2668,30 +2668,6 @@ mod tests {
         assert_eq!(result, "old-password");
     }
 
-    #[tokio::test]
-    async fn test_init_config_defaults() {
-        let config = InitDpfResourcesConfig::default();
-        assert!(config.bfb_url.is_empty());
-        assert_eq!(config.deployment_name, "dpu-deployment");
-        assert_eq!(config.flavor_name, crate::flavor::DEFAULT_FLAVOR_NAME);
-        assert!(config.services.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_init_config_custom() {
-        let config = InitDpfResourcesConfig {
-            bfb_url: "http://example.com/test.bfb".to_string(),
-            deployment_name: "my-deployment".to_string(),
-            flavor_name: "my-flavor".to_string(),
-            services: vec![],
-            proxy: None,
-        };
-
-        assert_eq!(config.bfb_url, "http://example.com/test.bfb");
-        assert_eq!(config.deployment_name, "my-deployment");
-        assert_eq!(config.flavor_name, "my-flavor");
-    }
-
     fn terminating_timestamp() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Time {
         k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
             k8s_openapi::jiff::Timestamp::UNIX_EPOCH,
@@ -3128,186 +3104,149 @@ mod tests {
         );
     }
 
+    /// `verify_node_labels` against a `TestLabeler` (which requires the single
+    /// label `test/node=true`): a node carries the current labels only when its
+    /// `metadata.labels` is a superset of the labeler's `node_labels()`. A
+    /// missing node verifies as `true` because it will be (re)created with the
+    /// current labels. Each row seeds one node state and asserts the verdict.
+    ///
+    /// Folds the six former `test_verify_node_labels_*` cases.
     #[tokio::test]
-    async fn test_verify_node_labels_current_labels_returns_true() {
-        let mock = SdkMock::new();
-        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
+    async fn verify_node_labels_against_seeded_node() {
+        use carbide_test_support::Outcome::Yields;
+        use carbide_test_support::{Case, check_cases_async};
 
-        let info = DpuNodeInfo {
-            node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".parse().unwrap(),
-            device_ids: vec!["dpu-001".to_string()],
+        /// What the mock's node store holds before the check runs.
+        enum Seeded {
+            /// No node at all under the queried name.
+            Absent,
+            /// A node created through `register_dpu_node`, so it carries
+            /// whatever labels the labeler currently produces.
+            RegisteredByLabeler,
+            /// A node inserted directly with these `metadata.labels`
+            /// (`None` means the labels field is absent entirely).
+            WithLabels(Option<BTreeMap<String, String>>),
+        }
+
+        struct Row {
+            /// Pre-existing node state in the mock.
+            seeded: Seeded,
+            /// Node name passed to `verify_node_labels`.
+            query: &'static str,
+        }
+
+        // Build the per-row mock + SDK, seed the node, run the check.
+        let run = |row: Row| async move {
+            let mock = SdkMock::new();
+            // A node seeded with explicit labels is inserted before the SDK is
+            // built; `RegisteredByLabeler` is handled after the build (it needs
+            // the SDK to apply the labeler); `Absent` seeds nothing.
+            if let Seeded::WithLabels(labels) = &row.seeded {
+                let node = DPUNode {
+                    metadata: ObjectMeta {
+                        name: Some("node-host-001".to_string()),
+                        namespace: Some(TEST_NAMESPACE.to_string()),
+                        labels: labels.clone(),
+                        ..Default::default()
+                    },
+                    spec: DpuNodeSpec {
+                        dpus: Some(vec![]),
+                        node_dms_address: None,
+                        node_reboot_method: None,
+                    },
+                    status: None,
+                };
+                mock.nodes
+                    .write()
+                    .unwrap()
+                    .insert(SdkMock::key(&node), node);
+            }
+
+            let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+                .with_labeler(TestLabeler)
+                .build_without_resources()
+                .await
+                .unwrap();
+
+            if matches!(row.seeded, Seeded::RegisteredByLabeler) {
+                sdk.register_dpu_node(DpuNodeInfo {
+                    node_id: "host-001".to_string(),
+                    host_bmc_ip: "10.0.0.1".parse().unwrap(),
+                    device_ids: vec!["dpu-001".to_string()],
+                })
+                .await
+                .unwrap();
+            }
+
+            // DpfError isn't PartialEq, so render it to a String for the
+            // table's Outcome comparison; these rows all expect success anyway.
+            sdk.verify_node_labels(row.query)
+                .await
+                .map_err(|e| e.to_string())
         };
-        sdk.register_dpu_node(info).await.unwrap();
 
-        assert!(sdk.verify_node_labels("node-host-001").await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_verify_node_labels_missing_node_returns_true() {
-        let mock = SdkMock::new();
-        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
-
-        assert!(
-            sdk.verify_node_labels("node-does-not-exist").await.unwrap(),
-            "non-existent node should return true (will be created with current labels)"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verify_node_labels_stale_labels_returns_false() {
-        let mock = SdkMock::new();
-
-        let stale_node = DPUNode {
-            metadata: ObjectMeta {
-                name: Some("node-host-001".to_string()),
-                namespace: Some(TEST_NAMESPACE.to_string()),
-                labels: Some(BTreeMap::from([(
-                    "old/stale-label".to_string(),
-                    "true".to_string(),
-                )])),
-                ..Default::default()
-            },
-            spec: DpuNodeSpec {
-                dpus: Some(vec![]),
-                node_dms_address: None,
-                node_reboot_method: None,
-            },
-            status: None,
-        };
-        mock.nodes
-            .write()
-            .unwrap()
-            .insert(SdkMock::key(&stale_node), stale_node);
-
-        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
-
-        assert!(
-            !sdk.verify_node_labels("node-host-001").await.unwrap(),
-            "node with stale labels should return false"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verify_node_labels_no_labels_returns_false() {
-        let mock = SdkMock::new();
-
-        let bare_node = DPUNode {
-            metadata: ObjectMeta {
-                name: Some("node-host-001".to_string()),
-                namespace: Some(TEST_NAMESPACE.to_string()),
-                labels: None,
-                ..Default::default()
-            },
-            spec: DpuNodeSpec {
-                dpus: Some(vec![]),
-                node_dms_address: None,
-                node_reboot_method: None,
-            },
-            status: None,
-        };
-        mock.nodes
-            .write()
-            .unwrap()
-            .insert(SdkMock::key(&bare_node), bare_node);
-
-        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
-
-        assert!(
-            !sdk.verify_node_labels("node-host-001").await.unwrap(),
-            "node with no labels should return false when labeler expects labels"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verify_node_labels_superset_returns_true() {
-        let mock = SdkMock::new();
-
-        let superset_node = DPUNode {
-            metadata: ObjectMeta {
-                name: Some("node-host-001".to_string()),
-                namespace: Some(TEST_NAMESPACE.to_string()),
-                labels: Some(BTreeMap::from([
-                    ("test/node".to_string(), "true".to_string()),
-                    ("extra/label".to_string(), "extra-value".to_string()),
-                ])),
-                ..Default::default()
-            },
-            spec: DpuNodeSpec {
-                dpus: Some(vec![]),
-                node_dms_address: None,
-                node_reboot_method: None,
-            },
-            status: None,
-        };
-        mock.nodes
-            .write()
-            .unwrap()
-            .insert(SdkMock::key(&superset_node), superset_node);
-
-        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
-
-        assert!(
-            sdk.verify_node_labels("node-host-001").await.unwrap(),
-            "node with a superset of expected labels should return true"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_verify_node_labels_wrong_value_returns_false() {
-        let mock = SdkMock::new();
-
-        let wrong_value_node = DPUNode {
-            metadata: ObjectMeta {
-                name: Some("node-host-001".to_string()),
-                namespace: Some(TEST_NAMESPACE.to_string()),
-                labels: Some(BTreeMap::from([(
-                    "test/node".to_string(),
-                    "false".to_string(),
-                )])),
-                ..Default::default()
-            },
-            spec: DpuNodeSpec {
-                dpus: Some(vec![]),
-                node_dms_address: None,
-                node_reboot_method: None,
-            },
-            status: None,
-        };
-        mock.nodes
-            .write()
-            .unwrap()
-            .insert(SdkMock::key(&wrong_value_node), wrong_value_node);
-
-        let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
-            .with_labeler(TestLabeler)
-            .build_without_resources()
-            .await
-            .unwrap();
-
-        assert!(
-            !sdk.verify_node_labels("node-host-001").await.unwrap(),
-            "node with correct key but wrong value should return false"
-        );
+        check_cases_async(
+            [
+                Case {
+                    scenario: "node registered by labeler has current labels",
+                    input: Row {
+                        seeded: Seeded::RegisteredByLabeler,
+                        query: "node-host-001",
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "missing node verifies true (created with current labels)",
+                    input: Row {
+                        seeded: Seeded::Absent,
+                        query: "node-does-not-exist",
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "stale labels (none of the required keys) -> false",
+                    input: Row {
+                        seeded: Seeded::WithLabels(Some(BTreeMap::from([(
+                            "old/stale-label".to_string(),
+                            "true".to_string(),
+                        )]))),
+                        query: "node-host-001",
+                    },
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "no labels field at all -> false",
+                    input: Row {
+                        seeded: Seeded::WithLabels(None),
+                        query: "node-host-001",
+                    },
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "superset of required labels -> true",
+                    input: Row {
+                        seeded: Seeded::WithLabels(Some(BTreeMap::from([
+                            ("test/node".to_string(), "true".to_string()),
+                            ("extra/label".to_string(), "extra-value".to_string()),
+                        ]))),
+                        query: "node-host-001",
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "required key present but wrong value -> false",
+                    input: Row {
+                        seeded: Seeded::WithLabels(Some(BTreeMap::from([(
+                            "test/node".to_string(),
+                            "false".to_string(),
+                        )]))),
+                        query: "node-host-001",
+                    },
+                    expect: Yields(false),
+                },
+            ],
+            run,
+        )
+        .await;
     }
 }

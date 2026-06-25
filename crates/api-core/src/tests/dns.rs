@@ -342,6 +342,143 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
     assert!(shortname_a.content.parse::<IpAddr>().unwrap().is_ipv4());
 }
 
+// test_dns_ptr verifies that a reverse-DNS (PTR) query resolves an address to the
+// fully-qualified hostname of the interface that holds it. The handler parses the
+// in-addr.arpa / ip6.arpa qname back to an address and looks the interface up by
+// address, so this exercises both the IPv4 and IPv6 reverse paths end to end.
+#[crate::sqlx_test]
+async fn test_dns_ptr(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let api = &env.api;
+
+    let (host_id, _dpu_id) = create_managed_host(&env).await.into();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let interface = db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
+        .await
+        .unwrap();
+
+    // The primary interface already holds an IPv4 address from the managed host
+    // creation flow; reuse it for the IPv4 reverse lookup. (An interface may hold
+    // at most one address per family, so we cannot add a second IPv4 here.)
+    let ipv4_addr = interface
+        .addresses
+        .iter()
+        .copied()
+        .find(|addr| addr.is_ipv4())
+        .expect("primary interface should have an IPv4 address");
+
+    // Add an IPv6 address so the IPv6 reverse path has something to resolve.
+    let ipv6_addr: IpAddr = "fd00::1".parse().unwrap();
+    sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2)")
+        .bind(interface.id)
+        .bind(ipv6_addr)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // PTR content is the interface's fully-qualified hostname, matching the
+    // forward (shortname) view's name for the same interface.
+    let expected_fqdn = format!("{}.{}.", interface.hostname, DOMAIN_NAME);
+
+    // Each case issues one PTR lookup. `expected` is the FQDN of the single
+    // record we expect back, or None when the query should resolve to nothing.
+    struct PtrCase {
+        description: &'static str,
+        qname: String,
+        expected: Option<String>,
+    }
+
+    let cases = [
+        PtrCase {
+            description: "IPv4 reverse lookup resolves to the interface FQDN",
+            qname: ip_to_arpa(ipv4_addr),
+            expected: Some(expected_fqdn.clone()),
+        },
+        PtrCase {
+            description: "IPv6 reverse lookup resolves to the interface FQDN",
+            qname: ip_to_arpa(ipv6_addr),
+            expected: Some(expected_fqdn.clone()),
+        },
+        PtrCase {
+            description: "an address no interface holds resolves to nothing",
+            qname: "1.113.0.203.in-addr.arpa.".to_string(),
+            expected: None,
+        },
+        PtrCase {
+            description: "a qname that does not parse yields nothing, not an error",
+            qname: "not.an.address.in-addr.arpa.".to_string(),
+            expected: None,
+        },
+    ];
+
+    for case in cases {
+        let records = lookup_ptr(api, &case.qname).await;
+        match case.expected {
+            Some(expected_content) => {
+                assert_eq!(
+                    records.len(),
+                    1,
+                    "{}: expected one record",
+                    case.description
+                );
+                assert_eq!(records[0].qtype, "PTR", "{}", case.description);
+                assert_eq!(
+                    records[0].qname, case.qname,
+                    "{}: the queried qname is echoed back",
+                    case.description
+                );
+                assert_eq!(records[0].content, expected_content, "{}", case.description);
+            }
+            None => assert!(records.is_empty(), "{}", case.description),
+        }
+    }
+}
+
+/// Issue a PTR `lookup_record` query and return the reply records.
+async fn lookup_ptr(
+    api: &crate::api::Api,
+    qname: &str,
+) -> Vec<rpc::protos::dns::DnsResourceRecord> {
+    api.lookup_record(tonic::Request::new(
+        rpc::protos::dns::DnsResourceRecordLookupRequest {
+            qname: qname.to_string(),
+            zone_id: uuid::Uuid::new_v4().to_string(),
+            local: None,
+            remote: None,
+            qtype: "PTR".to_string(),
+            real_remote: None,
+        },
+    ))
+    .await
+    .unwrap()
+    .into_inner()
+    .records
+}
+
+/// Build the reverse-DNS qname for an address: the octets (IPv4) or nibbles
+/// (IPv6) in reverse order, each as its own label, then the arpa suffix.
+fn ip_to_arpa(addr: IpAddr) -> String {
+    let mut qname = String::new();
+    match addr {
+        IpAddr::V4(addr) => {
+            for octet in addr.octets().into_iter().rev() {
+                qname.push_str(&format!("{octet}."));
+            }
+            qname.push_str("in-addr.arpa.");
+        }
+        IpAddr::V6(addr) => {
+            for octet in addr.octets().into_iter().rev() {
+                qname.push_str(&format!("{:x}.{:x}.", octet & 0x0f, octet >> 4));
+            }
+            qname.push_str("ip6.arpa.");
+        }
+    }
+    qname
+}
+
 // Get the current number of rows in the dns_records view,
 // which is expected to start at 0, and then progress, as
 // the test continues.

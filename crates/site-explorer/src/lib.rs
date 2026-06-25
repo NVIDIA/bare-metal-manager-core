@@ -26,7 +26,7 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
-use carbide_network::sanitized_mac;
+use carbide_network::{is_locally_administered_mac, sanitized_mac};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
@@ -34,7 +34,7 @@ use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
-use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
+use db::{self, DatabaseError, Transaction, machine, power_shelf as db_power_shelf};
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -78,6 +78,7 @@ mod managed_host;
 use db::ObjectColumnFilter;
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 pub use managed_host::is_endpoint_in_managed_host;
+use model::DpuModel;
 use model::expected_machine::DpuMode;
 use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
@@ -95,7 +96,7 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
-use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
+use self::metrics::{DpuMigrationSignal, PairingBlockerReason, exploration_error_to_metric_label};
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 
@@ -284,6 +285,7 @@ pub struct SiteExplorer {
 
 impl SiteExplorer {
     const ITERATION_WORK_KEY: &'static str = "SiteExplorer::run_single_iteration";
+    const SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE: usize = 500;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -484,6 +486,7 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
         expected_endpoint_index: &ExploredEndpointIndex,
     ) -> SiteExplorerResult<()> {
+        let audit_load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
 
         // Grab them all because we care about everything,
@@ -492,6 +495,29 @@ impl SiteExplorer {
         let explored_managed_hosts = db::explored_managed_host::find_all(txn.as_pgconn()).await?;
 
         txn.rollback().await?;
+        metrics.record_phase_latency("audit_load", audit_load_start.elapsed());
+
+        let bmc_endpoint_addresses = explored_endpoints
+            .iter()
+            .filter(|ep| ep.report.endpoint_type == EndpointType::Bmc)
+            .map(|ep| ep.address)
+            .collect_vec();
+        let audit_state_load_start = Instant::now();
+        let mut txn = self.txn_begin().await?;
+        let machine_audit_states = db::machine::find_site_explorer_machine_audit_states_by_bmc_ips(
+            &mut txn,
+            &bmc_endpoint_addresses,
+        )
+        .await?;
+        txn.rollback().await?;
+        metrics.record_phase_latency("audit_state_load", audit_state_load_start.elapsed());
+        let machine_audit_states: HashMap<IpAddr, db::machine::SiteExplorerMachineAuditState> =
+            machine_audit_states
+                .into_iter()
+                .map(|state| (state.bmc_ip, state))
+                .collect();
+        let mut pending_health_report_updates = Vec::new();
+        let audit_compute_start = Instant::now();
 
         // Go through all the explored endpoints and collect metrics and submit
         // health reports
@@ -502,27 +528,10 @@ impl SiteExplorer {
             }
 
             // We need to find the last health report for the endpoint in order to update it with latest health data
-            let mut txn = self.txn_begin().await?;
-            let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
-            let machine = match machine_id.as_ref() {
-                Some(id) => db::machine::find(
-                    &mut txn,
-                    ObjectFilter::One(*id),
-                    MachineSearchConfig {
-                        include_dpus: true,
-                        include_predicted_host: true,
-                        ..Default::default()
-                    },
-                )
-                .await?
-                .into_iter()
-                .next(),
-                None => None,
-            };
-
-            let previous_health_report = machine
-                .as_ref()
-                .and_then(|machine| machine.site_explorer_health_report());
+            let machine_audit_state = machine_audit_states.get(&ep.address);
+            let machine_id = machine_audit_state.map(|state| state.machine_id);
+            let previous_health_report =
+                machine_audit_state.and_then(|state| state.site_explorer_health_report.as_ref());
             let mut new_health_report: health_report::HealthReport =
                 health_report::HealthReport::empty(
                     health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
@@ -650,13 +659,29 @@ impl SiteExplorer {
             }
 
             new_health_report.update_in_alert_since(previous_health_report);
-            if let Some(id) = machine_id.as_ref() {
-                db::machine::update_site_explorer_health_report(&mut txn, id, &new_health_report)
+            if let Some(id) = machine_id
+                && site_explorer_health_report_needs_update(
+                    previous_health_report,
+                    &new_health_report,
+                )
+            {
+                pending_health_report_updates.push((id, new_health_report));
+            }
+        }
+        metrics.record_phase_latency("audit_compute", audit_compute_start.elapsed());
+
+        let audit_write_start = Instant::now();
+        for health_report_updates in
+            pending_health_report_updates.chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
+        {
+            let mut txn = self.txn_begin().await?;
+            for (id, health_report) in health_report_updates {
+                db::machine::update_site_explorer_health_report(txn.as_pgconn(), id, health_report)
                     .await?;
             }
-
             txn.commit().await?;
         }
+        metrics.record_phase_latency("audit_write", audit_write_start.elapsed());
 
         // Count the total number of explored managed hosts
         for explored_managed_host in explored_managed_hosts {
@@ -676,7 +701,13 @@ impl SiteExplorer {
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<SiteIdentifiedHosts> {
         self.check_preconditions(metrics).await?;
+
+        let update_explored_endpoints_start = Instant::now();
         let expected_endpoint_index = self.update_explored_endpoints(metrics).await?;
+        metrics.record_phase_latency(
+            "update_explored_endpoints",
+            update_explored_endpoints_start.elapsed(),
+        );
 
         // Create a list of DPUs and hosts that site explorer should try to ingest. Site explorer uses the following criteria to determine whether
         // to ingest a given endpoint (creating a managed host containing the endpoint and adding it to the state machine):
@@ -685,7 +716,12 @@ impl SiteExplorer {
         // If site explorer is unable to retrieve this mac address, there is no point in creating a managed host: we will not be able to configure the host appropriately.
         // 2b) If the endpoint is for a host: make sure that the host is on and that infinite boot is enabled. Otherwise, we will not be able to provision the DPU appropriately
         // once we create a managed host and add it to the state machine.
+        let identify_machines_to_ingest_start = Instant::now();
         let (explored_dpus, explored_hosts) = self.identify_machines_to_ingest(metrics).await?;
+        metrics.record_phase_latency(
+            "identify_machines_to_ingest",
+            identify_machines_to_ingest_start.elapsed(),
+        );
 
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
@@ -693,6 +729,7 @@ impl SiteExplorer {
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticeable effect is that ManagedHost population might be delayed a bit.
+        let identify_managed_hosts_start = Instant::now();
         let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
@@ -701,45 +738,70 @@ impl SiteExplorer {
                 explored_hosts,
             )
             .await?;
+        metrics.record_phase_latency(
+            "identify_managed_hosts",
+            identify_managed_hosts_start.elapsed(),
+        );
 
         if self.config.create_machines.load(Ordering::Relaxed) {
-            let start_create_machines = std::time::Instant::now();
+            let start_create_machines = Instant::now();
             let create_machines_res = self
                 .machine_creator
                 .create_machines(metrics, &mut identified_hosts, &expected_endpoint_index)
                 .await;
-            metrics.create_machines_latency = Some(start_create_machines.elapsed());
+            let create_machines_latency = start_create_machines.elapsed();
+            metrics.create_machines_latency = Some(create_machines_latency);
+            metrics.record_phase_latency("create_machines", create_machines_latency);
             create_machines_res?;
         }
 
         // Identify and create power shelves
+        let identify_power_shelves_to_ingest_start = Instant::now();
         let explored_power_shelves = self.identify_power_shelves_to_ingest().await?;
+        metrics.record_phase_latency(
+            "identify_power_shelves_to_ingest",
+            identify_power_shelves_to_ingest_start.elapsed(),
+        );
 
         if self.config.create_power_shelves.load(Ordering::Relaxed) {
-            let start_create_power_shelves = std::time::Instant::now();
+            let start_create_power_shelves = Instant::now();
             let create_power_shelves_res = self
                 .create_power_shelves(metrics, explored_power_shelves, &expected_endpoint_index)
                 .await;
-            metrics.create_power_shelves_latency = Some(start_create_power_shelves.elapsed());
+            let create_power_shelves_latency = start_create_power_shelves.elapsed();
+            metrics.create_power_shelves_latency = Some(create_power_shelves_latency);
+            metrics.record_phase_latency("create_power_shelves", create_power_shelves_latency);
             create_power_shelves_res?;
         }
 
         // Identify and create switches
+        let identify_switches_to_ingest_start = Instant::now();
         let explored_switches = self.identify_switches_to_ingest().await?;
+        metrics.record_phase_latency(
+            "identify_switches_to_ingest",
+            identify_switches_to_ingest_start.elapsed(),
+        );
 
         if self.config.create_switches.load(Ordering::Relaxed) {
-            let start_create_switches = std::time::Instant::now();
+            let start_create_switches = Instant::now();
             let create_switches_res = self
                 .switch_creator
                 .create_switches(metrics, &explored_switches, &expected_endpoint_index)
                 .await;
-            metrics.create_switches_latency = Some(start_create_switches.elapsed());
+            let create_switches_latency = start_create_switches.elapsed();
+            metrics.create_switches_latency = Some(create_switches_latency);
+            metrics.record_phase_latency("create_switches", create_switches_latency);
             create_switches_res?;
         }
 
         // Audit after everything has been explored, identified, and created.
+        let audit_exploration_results_start = Instant::now();
         self.audit_exploration_results(metrics, &expected_endpoint_index)
             .await?;
+        metrics.record_phase_latency(
+            "audit_exploration_results",
+            audit_exploration_results_start.elapsed(),
+        );
 
         // Retained boot interface records that aged out of the configured
         // window are already ignored at read time; sweep them once per pass
@@ -1121,25 +1183,59 @@ impl SiteExplorer {
                         host_dpu_mode,
                         &ep,
                         &mut dpu_exploration,
+                        metrics,
                     )
                     .await;
                 }
             }
 
-            // A DPU can show up as a chassis network adapter instead of a PCIe
-            // device on some BMCs; fall back to those only if the PCIe scan found none.
+            // A DPU can show up as a chassis instead of a PCIe device on some
+            // BMCs; fall back to the chassis inventory only if the PCIe scan
+            // found none.
             if dpu_exploration.expected_managed_total() == 0 {
                 for chassis in ep.report.chassis.iter() {
-                    for network_adapter in chassis.network_adapters.iter() {
+                    // Some BMCs (e.g. the AMI/Lenovo GB300 host BMC) report the
+                    // BlueField as the chassis object itself -- model, part_number
+                    // and serial_number live on the chassis, while its nested
+                    // network adapter carries an empty serial. Match on the
+                    // chassis identity in that case; otherwise fall back to the
+                    // chassis's network adapters (other vendors put the DPU
+                    // serial there). Matching only one of the two per chassis
+                    // keeps a single DPU from being counted twice.
+                    let chassis_is_bluefield = chassis
+                        .part_number
+                        .as_deref()
+                        .map(str::trim)
+                        .is_some_and(is_bluefield_model);
+                    let chassis_has_serial = chassis
+                        .serial_number
+                        .as_deref()
+                        .map(str::trim)
+                        .is_some_and(|serial| !serial.is_empty());
+                    if chassis_is_bluefield && chassis_has_serial {
                         self.record_host_dpu_device(
-                            network_adapter.part_number.as_deref(),
-                            network_adapter.serial_number.as_deref(),
+                            chassis.part_number.as_deref(),
+                            chassis.serial_number.as_deref(),
                             &dpu_sn_to_endpoint,
                             host_dpu_mode,
                             &ep,
                             &mut dpu_exploration,
+                            metrics,
                         )
                         .await;
+                    } else {
+                        for network_adapter in chassis.network_adapters.iter() {
+                            self.record_host_dpu_device(
+                                network_adapter.part_number.as_deref(),
+                                network_adapter.serial_number.as_deref(),
+                                &dpu_sn_to_endpoint,
+                                host_dpu_mode,
+                                &ep,
+                                &mut dpu_exploration,
+                                metrics,
+                            )
+                            .await;
+                        }
                     }
                 }
             }
@@ -1149,7 +1245,7 @@ impl SiteExplorer {
             let DpuExplorationState {
                 reported_total: host_reported_dpus_total,
                 running_as_nic_total: mut host_reported_dpus_nic_mode_total,
-                all_configured: all_dpus_configured_properly_in_host,
+                all_configured: mut all_dpus_configured_properly_in_host,
                 running_as_dpu: mut dpus_explored_for_host,
             } = dpu_exploration;
 
@@ -1166,30 +1262,54 @@ impl SiteExplorer {
                 {
                     for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
-                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(&dpu_ep, &ep)
-                                && host_reported_dpus_total
-                                    .saturating_sub(host_reported_dpus_nic_mode_total)
-                                    > 0
-                            {
-                                host_reported_dpus_nic_mode_total += 1;
-                                continue;
-                            }
+                            // Enforce the host's declared DPU mode on a fallback-serial
+                            // match the same way the host-reported path does, rather than
+                            // trusting it as already-configured. A DPU still in the wrong
+                            // mode gets a `set_nic_mode` here and has to wait for the host
+                            // reset to apply it; without this, a DPU-mode BlueField on a
+                            // `NicMode` host would be attached and then dropped to zero-DPU
+                            // (the `NicMode` arm further down), leaving the database reading
+                            // "NIC-mode host" while the hardware stayed in DPU mode.
+                            let mode_check = Some(
+                                self.check_and_configure_dpu_mode(
+                                    &dpu_ep,
+                                    dpu_ep.report.model().unwrap_or_default(),
+                                    host_dpu_mode,
+                                    metrics,
+                                )
+                                .await,
+                            );
 
-                            // we found at least one DPU from expected machines for this host
-                            // assume that the expected machines is the source of truth. Clear the
-                            // contents of dpus_explored_for_host to discard the previous results of
-                            // iterating over the hosts pcie devices.
-                            if !dpu_added {
-                                dpus_explored_for_host.clear();
+                            match classify_matched_dpu(&dpu_ep, &ep, mode_check) {
+                                DiscoveredDpu::RunningAsDpu(dpu) => {
+                                    // The expected-machine fallback list is the source of
+                                    // truth here, so discard whatever the PCIe scan found
+                                    // on the first confirmed match.
+                                    if !dpu_added {
+                                        dpus_explored_for_host.clear();
+                                    }
+                                    dpu_added = true;
+                                    dpus_explored_for_host.push(dpu);
+                                }
+                                DiscoveredDpu::RunningAsNic => {
+                                    host_reported_dpus_nic_mode_total += 1;
+                                }
+                                DiscoveredDpu::NeedsReconfig => {
+                                    // `set_nic_mode` was just issued; the host needs a
+                                    // reset before this DPU re-reports in the new mode, so
+                                    // mark it not-yet-configured and let the reset path
+                                    // below run.
+                                    all_dpus_configured_properly_in_host = false;
+                                }
+                                DiscoveredDpu::ModeCheckFailed(err) => {
+                                    tracing::warn!(
+                                        dpu = %dpu_ep.address,
+                                        dpu_sn = %dpu_sn,
+                                        error = %err,
+                                        "failed to check fallback-matched DPU mode; skipping this device this pass",
+                                    );
+                                }
                             }
-
-                            dpu_added = true;
-                            dpus_explored_for_host.push(ExploredDpu {
-                                bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report.into(),
-                            });
                         }
                     }
                 }
@@ -1203,21 +1323,29 @@ impl SiteExplorer {
                     // confirmed to be running as plain NICs.
                     let expected_managed_dpus_total =
                         host_reported_dpus_total.saturating_sub(host_reported_dpus_nic_mode_total);
-                    if expected_managed_dpus_total > 0 {
-                        tracing::warn!(
-                            address = %ep.address,
-                            exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
-                            dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
-                        );
+                    // Enter the reset/wait path when DPUs are still expected to pair, or
+                    // when a `set_nic_mode` was just issued -- a fallback-serial match can
+                    // queue a flip even on a host whose BMC reports no DPU over PCIe
+                    // (`expected_managed_dpus_total == 0`), which is the usual reason we are
+                    // on the fallback path at all.
+                    if expected_managed_dpus_total > 0 || !all_dpus_configured_properly_in_host {
+                        if expected_managed_dpus_total > 0 {
+                            tracing::warn!(
+                                address = %ep.address,
+                                exploration_report = ?ep,
+                                "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
+                                dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
+                            );
+                        }
 
                         if !all_dpus_configured_properly_in_host {
                             // A queued `set_nic_mode` only takes effect after a host
-                            // power cycle, so drive one for every vendor -- the
-                            // Redfish `ComputerSystem.Reset` action is standard
-                            // across BMCs -- throttled by `reset_rate_limit`. A BMC
-                            // that refuses the request surfaces the host as needing
-                            // a manual power cycle via the pairing-blocker metric.
+                            // power cycle, so drive one for every vendor --
+                            // `redfish_powercycle` issues `PowerCycle` and falls back
+                            // to a cold `ACPowercycle` for vendors that refuse it --
+                            // throttled by `reset_rate_limit`. A BMC that refuses both
+                            // surfaces the host as needing a manual power cycle via
+                            // the pairing-blocker metric.
                             let time_since_redfish_powercycle = Utc::now().signed_duration_since(
                                 ep.last_redfish_powercycle.unwrap_or_default(),
                             );
@@ -1225,6 +1353,9 @@ impl SiteExplorer {
                                 tracing::warn!(
                                     "power cycling host {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
                                     ep.address,
+                                );
+                                metrics.increment_dpu_migration_signal(
+                                    DpuMigrationSignal::ResetRequested,
                                 );
 
                                 if let Err(err) = self.redfish_powercycle(ep.address).await {
@@ -1247,10 +1378,11 @@ impl SiteExplorer {
                                 // loop stays visible to operators instead of
                                 // rebooting hourly in silence.
                                 //
-                                // TODO(chet): If the power cycle doesn't appear to
-                                // be flipping the NIC to the expected mode, this is
-                                // where we'd want to introduce a cold power cycle
-                                // (`ForceOff`/`On` or similar).
+                                // The reset above already escalates a refused
+                                // `PowerCycle` to a cold `ACPowercycle`
+                                // (`redfish_powercycle`), so a host still unflipped
+                                // here is mid-flight or genuinely stuck -- either way
+                                // it stays visible via the metric.
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::ManualPowerCycleRequired,
                                 );
@@ -1293,9 +1425,15 @@ impl SiteExplorer {
             // If we know the booting interface of the host, we should use this for deciding
             // primary interface.
             let mut is_sorted = false;
+            // A declared `ExpectedHostNic.primary` (when the matched expected
+            // machine sets one) wins over the automatic DPU-PF pick, so the
+            // explored default names the same NIC the managed store will.
+            let declared_primary = expected_explored_endpoint_index
+                .matched_expected_machine(&ep.address)
+                .and_then(|expected| expected.data.declared_primary_mac());
             if let Some(mac_address) = ep
                 .report
-                .fetch_host_primary_interface_mac(&dpus_explored_for_host)
+                .fetch_host_primary_interface_mac(&dpus_explored_for_host, declared_primary)
             {
                 // Capture the boot interface's [stable] Redfish interface id
                 // alongside its MAC. Only persist when both resolve from the
@@ -1370,7 +1508,12 @@ impl SiteExplorer {
             // earlier on after detecting the host_dpu_mode as such, so
             // this shouldn't fire.
             let dpus = match host_dpu_mode {
-                DpuMode::NicMode => Vec::new(),
+                DpuMode::NicMode => {
+                    metrics.increment_dpu_migration_signal(
+                        DpuMigrationSignal::RegisteredZeroDpuForNicMode,
+                    );
+                    Vec::new()
+                }
                 DpuMode::DpuMode => dpus_explored_for_host,
                 // Now that we continue/return early for NoDpu hosts,
                 // we shouldn't actually get here. Probably could be
@@ -1439,6 +1582,7 @@ impl SiteExplorer {
     /// `set_nic_mode` to auto-correct a mismatch -- happens here; the actual
     /// classification of its result lives in [`classify_matched_dpu`], which is
     /// unit-tested directly. Both the PCIe loop and the chassis fallback call this.
+    #[allow(clippy::too_many_arguments)]
     async fn record_host_dpu_device(
         &self,
         part_number: Option<&str>,
@@ -1447,6 +1591,7 @@ impl SiteExplorer {
         host_dpu_mode: DpuMode,
         host_ep: &ExploredEndpoint,
         exploration: &mut DpuExplorationState,
+        metrics: &mut SiteExplorationMetrics,
     ) {
         // Count every DPU the host reports, independent of whether we've
         // discovered its BMC yet.
@@ -1468,8 +1613,13 @@ impl SiteExplorer {
         // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
         let mode_check = match part_number {
             Some(model) => Some(
-                self.check_and_configure_dpu_mode(dpu_ep, model.to_string(), host_dpu_mode)
-                    .await,
+                self.check_and_configure_dpu_mode(
+                    dpu_ep,
+                    model.to_string(),
+                    host_dpu_mode,
+                    metrics,
+                )
+                .await,
             ),
             None => None,
         };
@@ -2516,9 +2666,30 @@ impl SiteExplorer {
             })
     }
 
+    /// Drive a power cycle to apply a queued BlueField NIC-mode change.
+    ///
+    /// `PowerCycle` (Redfish `ComputerSystem.Reset`) is implemented only by Dell
+    /// and the DPU BMCs; other host vendors -- and Vikings -- refuse it. Fall
+    /// back to `ACPowercycle`, the cold AC cycle the HPE/Lenovo/Supermicro/GBx00
+    /// wrappers implement, so the queued change still applies without an
+    /// operator. If both are refused the error propagates and the caller
+    /// surfaces `ManualPowerCycleRequired`.
     async fn redfish_powercycle(&self, bmc_ip_address: IpAddr) -> SiteExplorerResult<()> {
-        self.redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+        if let Err(power_cycle_err) = self
+            .redfish_power_control(bmc_ip_address, libredfish::SystemPowerControl::PowerCycle)
+            .await
+        {
+            tracing::warn!(
+                %bmc_ip_address,
+                error = %power_cycle_err,
+                "PowerCycle failed; falling back to ACPowercycle to apply the queued NIC mode change",
+            );
+            self.redfish_power_control(
+                bmc_ip_address,
+                libredfish::SystemPowerControl::ACPowercycle,
+            )
             .await?;
+        }
 
         let mut txn = self.txn_begin().await?;
 
@@ -2806,6 +2977,7 @@ impl SiteExplorer {
         dpu_ep: &ExploredEndpoint,
         dpu_model: String,
         host_dpu_mode: DpuMode,
+        metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<bool> {
         // Compute the target NIC mode. `None` means "no opinion -- don't
         // attempt to reconfigure" (e.g., BF2 where the heuristic doesn't
@@ -2841,7 +3013,9 @@ impl SiteExplorer {
                     ?host_dpu_mode,
                     "site explorer found a DPU with a mode that does not match the target; will try to reconfigure"
                 );
+                metrics.increment_dpu_migration_signal(DpuMigrationSignal::ModeMismatchFound);
                 self.set_nic_mode(dpu_ep, target_nic_mode).await?;
+                metrics.increment_dpu_migration_signal(DpuMigrationSignal::SetNicModeIssued);
                 Ok(false)
             }
             None => {
@@ -3020,26 +3194,118 @@ fn get_base_mac_from_sys_image_version(sys_image_version: &String) -> Result<Str
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
-    // First, try to grab a MAC from explored Redfish data,
-    // which lives under ComputerSystem. Otherwise, just fall
-    // back to the legacy method via get_sys_image_version.
+    // Base-MAC derivation has three paths, tried in order of trust:
+    //   1. Primary  : the explored ComputerSystem base_mac (OEM Redfish BaseMAC).
+    //   2. Legacy    : derived from UpdateService/FirmwareInventory/DPU_SYS_IMAGE.Version.
+    //   3. BMC offset: derived from the BMC manager eth0 MAC minus a per-platform
+    //                  offset (fallback-only; see derive_base_mac_from_bmc_eth0).
+    // We only hard-fail if all three paths fail.
 
-    // Try the explored computer-system base_mac first
+    // Path 1: explored computer-system base_mac.
     if let Some(system_mac) = dpu_ep.report.systems.first().and_then(|s| s.base_mac) {
         return Ok(system_mac.to_mac());
     }
 
-    tracing::warn!("ComputerSystem doesn't have base_mac, falling back to legacy method");
-    let legacy_mac = get_base_mac_from_sys_image_version(get_sys_image_version(
-        dpu_ep.report.service.as_ref(),
-    )?)?;
+    // Path 2: legacy DPU_SYS_IMAGE derivation. Soft-fail so we can try path 3.
+    tracing::warn!("ComputerSystem doesn't have base_mac, falling back to DPU_SYS_IMAGE method");
+    let legacy_err = match get_sys_image_version(dpu_ep.report.service.as_ref())
+        .and_then(get_base_mac_from_sys_image_version)
+        .and_then(|legacy_mac| {
+            sanitized_mac(&legacy_mac).map_err(|e| {
+                format!("Failed to build sanitized MAC from legacy/service MAC: {e} (source_mac: {legacy_mac})")
+            })
+        }) {
+        Ok(mac) => return Ok(mac),
+        Err(e) => {
+            tracing::warn!("DPU_SYS_IMAGE derivation failed, falling back to BMC eth0 offset: {e}");
+            e
+        }
+    };
 
-    // Sanitize the legacy MAC and return it
-    sanitized_mac(&legacy_mac).map_err(|e| {
-        format!(
-            "Failed to build sanitized MAC from legacy/service MAC: {e} (source_mac: {legacy_mac})"
-        )
-    })
+    // Path 3: BMC manager eth0 MAC minus a per-platform offset. If this path is
+    // also unavailable, surface the legacy error so we still fail the old way.
+    derive_base_mac_from_bmc_eth0(&dpu_ep.report).ok_or(legacy_err)
+}
+
+// The PF0 base MAC sits a fixed offset below the DPU BMC's eth0 MAC, within the
+// contiguous MAC block allocated to the card. Per the BlueField-3 DPU Controller
+// User Manual (§10.1, "DPU Controller Board Label"):
+//   * host high-speed ports are `base + port_index`
+//   * `DPU_BMC_MAC = OOB_MAC + 1`
+// so the offset decomposes as `(OOB - base) + 1`.
+//
+// Measured on a real BF3 DPU (offset = 0x25 = 37):
+//   DPU BMC eth0                              : 5c:25:73:9e:ac:eb
+//   base (DPU_SYS_IMAGE 5c25:7303:009e:acc6)  : 5c:25:73:9e:ac:c6
+// which implies OOB = bmc - 1 = ...ea and a host-reservation gap of
+// (OOB - base) = 0x24 = 36, consistent with the manual's `BMC = OOB + 1`.
+//
+// The host-reservation gap is not published and could differ on other SKUs
+// (e.g. 1- vs 2-port); revisit if a card of a different SKU mis-derives.
+const BF3_ETH0_TO_BASE_MAC_OFFSET: u64 = 0x25; // measured: BlueField-3, see above
+
+/// The per-platform offset to subtract from the BMC manager eth0 MAC to obtain
+/// the DPU PF0 base MAC, or `None` for platforms we can't classify (we never guess).
+fn bmc_eth0_to_base_mac_offset(report: &EndpointExplorationReport) -> Option<u64> {
+    match report.identify_dpu()? {
+        DpuModel::BlueField3 => Some(BF3_ETH0_TO_BASE_MAC_OFFSET),
+        // BlueField-2 is not supported by the BMC eth0 offset fallback.
+        DpuModel::BlueField2 | DpuModel::Unknown => None,
+    }
+}
+
+/// Fallback-only (item #2 of issue #1076): derive the DPU PF0 base MAC from the
+/// BMC manager eth0 MAC minus a platform-specific offset. Returns `None` if the
+/// eth0 interface MAC is missing, locally-administered (pre-sync), the platform
+/// is unknown, or the subtraction would underflow.
+fn derive_base_mac_from_bmc_eth0(report: &EndpointExplorationReport) -> Option<MacAddress> {
+    let offset = bmc_eth0_to_base_mac_offset(report)?;
+
+    // Pick the eth0 interface specifically -- the OOB interface also lives in
+    // the manager's ethernet_interfaces list.
+    let bmc_eth0 = report
+        .managers
+        .iter()
+        .flat_map(|m| m.ethernet_interfaces.iter())
+        .find(|e| {
+            e.id.as_deref()
+                .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
+        })
+        .and_then(|e| e.mac_address)?;
+
+    // A real NVIDIA BMC MAC is globally unique. A locally-administered MAC means
+    // the BMC hasn't synced its burned-in address yet (transient post-boot
+    // state) -- refuse to derive a base MAC from it rather than hand back a
+    // plausible-but-wrong value.
+    if is_locally_administered_mac(bmc_eth0) {
+        tracing::warn!(
+            bmc_eth0 = %bmc_eth0,
+            "BMC eth0 MAC is locally-administered (pre-sync?); skipping offset derivation",
+        );
+        return None;
+    }
+
+    let derived = mac_to_u64(bmc_eth0).checked_sub(offset)?;
+    let mac = u64_to_mac(derived);
+    tracing::warn!(
+        bmc_eth0 = %bmc_eth0,
+        derived = %mac,
+        "derived DPU base MAC from BMC eth0 via offset fallback",
+    );
+    Some(mac)
+}
+
+/// MAC address as a 48-bit big-endian integer (top two bytes of the u64 are zero).
+fn mac_to_u64(mac: MacAddress) -> u64 {
+    mac.bytes()
+        .iter()
+        .fold(0u64, |acc, &byte| (acc << 8) | u64::from(byte))
+}
+
+/// Inverse of [`mac_to_u64`]; the high 16 bits are discarded.
+fn u64_to_mac(value: u64) -> MacAddress {
+    let b = value.to_be_bytes();
+    MacAddress::new([b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
 /// Whether a discovered DPU BMC is reporting that it's running as a plain NIC.
@@ -3197,6 +3463,30 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
     )
 }
 
+fn site_explorer_health_report_needs_update(
+    previous_health_report: Option<&health_report::HealthReport>,
+    new_health_report: &health_report::HealthReport,
+) -> bool {
+    match previous_health_report {
+        None => !new_health_report.alerts.is_empty(),
+        Some(_) if new_health_report.alerts.is_empty() => true,
+        Some(previous_health_report) => {
+            !health_reports_equal_ignoring_observed_at(previous_health_report, new_health_report)
+        }
+    }
+}
+
+fn health_reports_equal_ignoring_observed_at(
+    left: &health_report::HealthReport,
+    right: &health_report::HealthReport,
+) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.observed_at = None;
+    right.observed_at = None;
+    left == right
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
@@ -3205,6 +3495,89 @@ mod tests {
     use model::site_explorer::PreingestionState;
 
     use super::*;
+
+    #[test]
+    fn mac_u64_roundtrip() {
+        let mac: MacAddress = "a0:88:c2:46:0c:68".parse().unwrap();
+        assert_eq!(mac_to_u64(mac), 0x0000_a088_c246_0c68);
+        assert_eq!(u64_to_mac(mac_to_u64(mac)), mac);
+    }
+
+    #[test]
+    fn u64_to_mac_discards_high_bits() {
+        // High 16 bits set must not leak into the MAC bytes.
+        assert_eq!(
+            u64_to_mac(0xffff_a088_c246_0c68),
+            "a0:88:c2:46:0c:68".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn bf3_offset_derives_measured_base_mac() {
+        // Real BF3 DPU measurement (see BF3_ETH0_TO_BASE_MAC_OFFSET):
+        // BMC eth0 - offset must yield the DPU_SYS_IMAGE-derived base MAC.
+        let bmc_eth0: MacAddress = "5c:25:73:9e:ac:eb".parse().unwrap();
+        let base: MacAddress = "5c:25:73:9e:ac:c6".parse().unwrap();
+        let derived = u64_to_mac(mac_to_u64(bmc_eth0) - BF3_ETH0_TO_BASE_MAC_OFFSET);
+        assert_eq!(derived, base);
+        // Cross-check the documented BMC = OOB + 1 relationship.
+        let oob = u64_to_mac(mac_to_u64(bmc_eth0) - 1);
+        assert_eq!(oob, "5c:25:73:9e:ac:ea".parse().unwrap());
+    }
+
+    // Minimal BlueField-3 report with a single manager eth0 interface carrying
+    // `eth0_mac`. Classifies as BF3 (system id "Bluefield" + Card1 BF3 chassis).
+    fn bf3_report_with_eth0(eth0_mac: &str) -> EndpointExplorationReport {
+        use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface, Manager};
+        EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "Card1".to_string(),
+                model: Some("NVIDIA BlueField 3 DPU".to_string()),
+                ..Default::default()
+            }],
+            managers: vec![Manager {
+                id: "Bluefield_BMC".to_string(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("eth0".to_string()),
+                    mac_address: Some(eth0_mac.parse().unwrap()),
+                    ..Default::default()
+                }],
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn bmc_eth0_offset_skips_locally_administered_mac() {
+        // Transient pre-sync MAC (locally-administered bit set) must not derive
+        // a base MAC, even though the platform classifies and an eth0 exists.
+        let transient = bf3_report_with_eth0("9a:72:d5:07:ae:7e");
+        assert_eq!(bmc_eth0_to_base_mac_offset(&transient), Some(0x25));
+        assert!(derive_base_mac_from_bmc_eth0(&transient).is_none());
+
+        // Sanity: the same report with the real (globally-unique) eth0 derives.
+        let synced = bf3_report_with_eth0("5c:25:73:9e:ac:eb");
+        assert_eq!(
+            derive_base_mac_from_bmc_eth0(&synced),
+            Some("5c:25:73:9e:ac:c6".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn bmc_eth0_offset_fallback_unsupported_for_bf2() {
+        // BlueField-2 is intentionally not supported by the BMC eth0 offset
+        // fallback, so derivation must return None even when an eth0 MAC exists.
+        let mut report = load_bf2_ep_report();
+        for s in report.systems.iter_mut() {
+            s.base_mac = None;
+        }
+        assert!(bmc_eth0_to_base_mac_offset(&report).is_none());
+        assert!(derive_base_mac_from_bmc_eth0(&report).is_none());
+    }
 
     fn load_bf2_ep_report() -> EndpointExplorationReport {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/test_data/bf2_report.json");
@@ -3431,5 +3804,68 @@ mod tests {
         assert!(should_alert_power_state(PowerState::Off));
         assert!(should_alert_power_state(PowerState::Paused));
         assert!(should_alert_power_state(PowerState::Unknown));
+    }
+
+    #[test]
+    fn test_site_explorer_health_report_needs_update() {
+        fn empty_report() -> health_report::HealthReport {
+            health_report::HealthReport::empty(
+                health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
+            )
+        }
+
+        fn report_with_alert(
+            message: &str,
+            in_alert_since: Option<chrono::DateTime<chrono::Utc>>,
+        ) -> health_report::HealthReport {
+            let mut report = empty_report();
+            report.alerts.push(health_report::HealthProbeAlert {
+                id: "BmcExplorationFailure".parse().unwrap(),
+                target: Some("192.0.2.10".to_string()),
+                in_alert_since,
+                message: message.to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            });
+            report
+        }
+
+        let empty = empty_report();
+        assert!(!site_explorer_health_report_needs_update(None, &empty));
+
+        let alert_started_at = chrono::Utc::now();
+        let new_alert = report_with_alert("Endpoint exploration failed", Some(alert_started_at));
+        assert!(site_explorer_health_report_needs_update(None, &new_alert));
+
+        let mut previous_alert = new_alert.clone();
+        previous_alert.observed_at = Some(alert_started_at);
+        let mut same_alert = new_alert;
+        same_alert.observed_at = None;
+        assert!(!site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &same_alert,
+        ));
+
+        let mut timestamp_changed = same_alert;
+        timestamp_changed.alerts[0].in_alert_since =
+            Some(alert_started_at + chrono::Duration::seconds(1));
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &timestamp_changed,
+        ));
+
+        let changed_alert =
+            report_with_alert("Endpoint exploration still failed", Some(alert_started_at));
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &changed_alert,
+        ));
+
+        assert!(site_explorer_health_report_needs_update(
+            Some(&previous_alert),
+            &empty,
+        ));
     }
 }

@@ -24,6 +24,7 @@ import (
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/conflict"
@@ -43,13 +44,14 @@ import (
 // It acts as an adapter between gRPC protobuf messages and the internal managers,
 // handling protobuf conversion and delegating business logic to the InventoryManager.
 type FlowServerImpl struct {
-	inventoryManager           inventorymanager.Manager // Business logic manager for inventory operations
-	taskManager                taskmanager.Manager      // Task manager for orchestrating task lifecycle
-	taskStore                  taskstore.Store          // Task store for task queries
-	taskScheduleStore          taskschedule.Store       // Persistence layer for task schedules
-	taskScheduleDispatcher     *taskschedule.Dispatcher // Background poller that fires due task schedules
-	conflictResolver           *conflict.Resolver       // Reused for inter-schedule conflict detection
-	pb.UnimplementedFlowServer                          // Embedded protobuf server interface for forward compatibility
+	inventoryManager           inventorymanager.Manager    // Business logic manager for inventory operations
+	taskManager                taskmanager.Manager         // Task manager for orchestrating task lifecycle
+	taskStore                  taskstore.Store             // Task store for task queries
+	taskScheduleStore          taskschedule.Store          // Persistence layer for task schedules
+	taskScheduleDispatcher     *taskschedule.Dispatcher    // Background poller that fires due task schedules
+	operationRunManager        operationrunmanager.Manager // Operation-run manager for run planning and persistence
+	conflictResolver           *conflict.Resolver          // Reused for inter-schedule conflict detection
+	pb.UnimplementedFlowServer                             // Embedded protobuf server interface for forward compatibility
 }
 
 // newServerImplementation creates a new Flow gRPC server implementation.
@@ -59,6 +61,7 @@ type FlowServerImpl struct {
 //   - inventoryManager: The inventory manager instance for handling rack and component topology
 //   - taskManager: The Task manager for orchestrating task lifecycle
 //   - taskStore: The task store for task queries
+//   - operationRunManager: The operation-run manager for planning and persisting operation runs
 //
 // Returns:
 //   - *FlowServerImpl: A new server implementation instance
@@ -69,6 +72,7 @@ func newServerImplementation(
 	taskStore taskstore.Store,
 	taskScheduleStore taskschedule.Store,
 	taskScheduleDispatcher *taskschedule.Dispatcher,
+	operationRunManager operationrunmanager.Manager,
 ) (*FlowServerImpl, error) {
 	return &FlowServerImpl{
 		inventoryManager:       inventoryManager,
@@ -76,6 +80,7 @@ func newServerImplementation(
 		taskStore:              taskStore,
 		taskScheduleStore:      taskScheduleStore,
 		taskScheduleDispatcher: taskScheduleDispatcher,
+		operationRunManager:    operationRunManager,
 		conflictResolver:       conflict.NewResolver(taskStore),
 	}, nil
 }

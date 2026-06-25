@@ -402,32 +402,31 @@ mod tests {
         Ok(())
     }
 
-    // test_sync_with_duplicate_addresses_in_input tests to
-    // make sure sync handles gracefully when the input array
-    // contains duplicate addresses.
+    // test_sync_with_duplicate_addresses_in_input pins the contract that
+    // `replace` does not de-duplicate its input: addresses are handed straight
+    // to a single batched INSERT, so a repeated address trips the
+    // `address inet NOT NULL UNIQUE` constraint and the whole call is rejected.
+    // Callers are responsible for passing a unique address set.
     #[crate::sqlx_test]
     async fn test_sync_with_duplicate_addresses_in_input(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        // Create input with duplicates
+        // Input carrying the same address twice.
         let mut addresses = test_ips(3);
-        addresses.push(addresses[0]); // Add duplicate
+        addresses.push(addresses[0]);
 
-        // Should handle gracefully (database constraint will handle uniqueness)
         let result = super::replace(&mut txn, &addresses, RouteServerSourceType::ConfigFile).await;
 
-        // This might succeed (if database handles duplicates) or fail - both are acceptable
-        // The important thing is that it doesn't panic
+        // The duplicate must trip the UNIQUE constraint specifically, not merely
+        // fail for some unrelated reason.
         match result {
-            Ok(_) => {
-                let entries = super::get(txn.as_mut()).await?;
-                assert_eq!(entries.len(), 3); // Should only have unique entries
-            }
-            Err(_) => {
-                // Also acceptable if database rejects duplicates
-            }
+            Err(DatabaseError::Sqlx(e)) if matches!(&e.source, sqlx::Error::Database(db) if db.is_unique_violation()) =>
+                {}
+            other => panic!(
+                "replace should reject a duplicate address with a unique-violation error, got: {other:?}"
+            ),
         }
 
         Ok(())

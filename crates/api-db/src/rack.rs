@@ -28,6 +28,9 @@ use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
 
+#[cfg(test)]
+mod test_metadata;
+
 #[derive(Copy, Clone)]
 pub struct IdColumn;
 impl ColumnInfo<'_> for IdColumn {

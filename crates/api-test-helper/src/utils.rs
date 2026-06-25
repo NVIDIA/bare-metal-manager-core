@@ -88,7 +88,7 @@ impl IntegrationTestEnvironment {
         // Pick free ports for addresses we need. This is still racy, as it's not guaranteed that
         // the ports will still be available when we start the servers, but it's better than
         // hardcoding them.
-        let (carbide_api_addrs, carbide_metrics_addrs, vault_addr) = {
+        let (carbide_api_addrs, carbide_metrics_addrs) = {
             let mut listeners = vec![]; // hold the listeners so that we don't get the same port twice
             let mut api_addrs = vec![];
             let mut metrics_addrs = vec![];
@@ -107,22 +107,16 @@ impl IntegrationTestEnvironment {
                 });
             }
 
-            // Pick an address for vault too
-            let vault_addr = {
-                let l = TcpListener::bind("127.0.0.1:0")?;
-                let addr = l.local_addr()?;
-                listeners.push(l);
-                addr
-            };
-
-            (api_addrs, metrics_addrs, vault_addr)
+            (api_addrs, metrics_addrs)
         };
 
-        let vault = vault::start(vault_addr).await?;
+        // vault picks its own free port (retrying past races) and reports it
+        // back on the handle, so we don't reserve one here.
+        let vault = vault::start().await?;
 
         let credential_config = CredentialConfig {
             vault: VaultConfig {
-                address: Some(format!("https://{vault_addr}")),
+                address: Some(format!("https://{}", vault.addr)),
                 kv_mount_location: Some("secret".to_string()),
                 pki_mount_location: Some("forgeca".to_string()),
                 pki_role_name: Some("forge-cluster".to_string()),

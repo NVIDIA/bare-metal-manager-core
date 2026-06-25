@@ -67,7 +67,7 @@ pub async fn allocate(
                 api_client,
                 &mut machine_ids,
                 min_interface_count,
-                allocate_request.zero_dpu,
+                allocate_request.flat_vpc_id,
             )
             .await
             else {
@@ -109,7 +109,7 @@ pub async fn allocate(
                 api_client,
                 &mut machine_ids,
                 min_interface_count,
-                allocate_request.zero_dpu,
+                allocate_request.flat_vpc_id,
             )
             .await
             else {

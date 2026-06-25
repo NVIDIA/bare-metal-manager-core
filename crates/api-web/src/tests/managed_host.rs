@@ -14,10 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::str::FromStr as _;
+
 use axum::body::Body;
 use carbide_rpc_utils::ManagedHostOutput;
 use carbide_test_harness::TestMachine as _;
 use db::{machine, managed_host};
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
+};
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
@@ -210,6 +215,72 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
     assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
     assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_html_includes_health_alert_details(
+    pool: sqlx::PgPool,
+) -> eyre::Result<()> {
+    let env = TestEnv::new(pool).await;
+    let mh = env.create_ready_managed_host(1).await.0;
+
+    let report = HealthReport {
+        source: "mock-bmc-intrusion".to_string(),
+        triggered_by: None,
+        observed_at: None,
+        successes: vec![],
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("IntrusionSensorTriggered")?,
+            target: Some("HostBMC".to_string()),
+            in_alert_since: None,
+            message: "Physical Chassis Intrusion Alert".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                HealthAlertClassification::hardware(),
+                HealthAlertClassification::sensor_critical(),
+                HealthAlertClassification::prevent_allocations(),
+            ],
+        }],
+    };
+
+    let mut txn = env.test_harness.db_txn().await;
+    db::machine::insert_health_report(
+        &mut txn,
+        &mh.host.id,
+        HealthReportApplyMode::Merge,
+        &report,
+        false,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri("/admin/managed-host")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    assert!(
+        body_str.contains(
+            "IntrusionSensorTriggered [Target: HostBMC]: Physical Chassis Intrusion Alert"
+        )
+    );
 
     Ok(())
 }

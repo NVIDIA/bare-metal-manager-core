@@ -140,7 +140,7 @@ jobs:
         if: inputs.build_type == 'ephemeral'
         uses: ./.github/actions/setup-mkosi-environment
         with:
-          rust-version: '1.90.0'
+          rust-version: '1.96.0'
           arch: ${{ inputs.arch }}
 
       # Setup Docker for container-based builds

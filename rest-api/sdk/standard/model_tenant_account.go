@@ -41,6 +41,8 @@ type TenantAccount struct {
 	Status *TenantAccountStatus `json:"status,omitempty"`
 	// Chronological status history for the Tenant Account
 	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Deprecations active for this resource. Returned only if there are active deprecations.
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
 	// Date/time when the Tenant Account was created
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Tenant Account was last updated
@@ -374,6 +376,38 @@ func (o *TenantAccount) SetStatusHistory(v []StatusDetail) {
 	o.StatusHistory = v
 }
 
+// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
+func (o *TenantAccount) GetDeprecations() []Deprecation {
+	if o == nil || IsNil(o.Deprecations) {
+		var ret []Deprecation
+		return ret
+	}
+	return o.Deprecations
+}
+
+// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *TenantAccount) GetDeprecationsOk() ([]Deprecation, bool) {
+	if o == nil || IsNil(o.Deprecations) {
+		return nil, false
+	}
+	return o.Deprecations, true
+}
+
+// HasDeprecations returns a boolean if a field has been set.
+func (o *TenantAccount) HasDeprecations() bool {
+	if o != nil && !IsNil(o.Deprecations) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
+func (o *TenantAccount) SetDeprecations(v []Deprecation) {
+	o.Deprecations = v
+}
+
 // GetCreated returns the Created field value if set, zero value otherwise.
 func (o *TenantAccount) GetCreated() time.Time {
 	if o == nil || IsNil(o.Created) {
@@ -474,6 +508,9 @@ func (o TenantAccount) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.StatusHistory) {
 		toSerialize["statusHistory"] = o.StatusHistory
+	}
+	if !IsNil(o.Deprecations) {
+		toSerialize["deprecations"] = o.Deprecations
 	}
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created

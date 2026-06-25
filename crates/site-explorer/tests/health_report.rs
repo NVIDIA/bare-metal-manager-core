@@ -24,6 +24,7 @@ use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer
 use carbide_test_harness::prelude::*;
 use carbide_uuid::machine::MachineId;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::site_explorer::EndpointExplorationError;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
@@ -160,6 +161,111 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
             classifications: vec!["PreventAllocations".to_string()]
         }]
     );
+
+    let stored_site_explorer_report =
+        db::machine::find_one(&pool, &created_host.host.id, MachineSearchConfig::default())
+            .await?
+            .unwrap()
+            .site_explorer_health_report()
+            .cloned()
+            .unwrap();
+
+    // A steady-state pass with the same endpoint result should not rewrite the
+    // site-explorer merge report.
+    explorer.run_single_iteration().await?;
+
+    let next_site_explorer_report =
+        db::machine::find_one(&pool, &created_host.host.id, MachineSearchConfig::default())
+            .await?
+            .unwrap()
+            .site_explorer_health_report()
+            .cloned()
+            .unwrap();
+    assert_eq!(next_site_explorer_report, stored_site_explorer_report);
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_site_explorer_machine_audit_state_bulk_lookup_matches_existing_path(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let test_harness = TestHarness::builder(pool.clone()).build().await;
+    let domain = test_harness.test_domain().await;
+    let network_controller = test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let explorer = test_site_explorer(&test_harness, site_explorer_config());
+    let (created_host, build_data) = test_harness
+        .managed_host_builder(&explorer, underlay_segment)
+        .build()
+        .await;
+
+    let host_bmc_ip = build_data.host_bmc_ip();
+    let dpu_bmc_ip = build_data.first_dpu_bmc_ip();
+    let unknown_bmc_ip = "192.0.2.10".parse()?;
+
+    let mut site_explorer_report = health_report::HealthReport::empty(
+        health_report::HealthReport::SITE_EXPLORER_SOURCE.into(),
+    );
+    site_explorer_report
+        .alerts
+        .push(health_report::HealthProbeAlert {
+            id: "BmcExplorationFailure".parse().unwrap(),
+            target: Some(host_bmc_ip.to_string()),
+            in_alert_since: None,
+            message: "Endpoint exploration failed".to_string(),
+            tenant_message: None,
+            classifications: vec![health_report::HealthAlertClassification::prevent_allocations()],
+        });
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    db::machine::update_site_explorer_health_report(
+        txn.as_pgconn(),
+        &created_host.host.id,
+        &site_explorer_report,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let bmc_ips = vec![host_bmc_ip, dpu_bmc_ip, unknown_bmc_ip];
+    let mut existing_path_states = Vec::new();
+    let mut txn = db::Transaction::begin(&pool).await?;
+    for bmc_ip in &bmc_ips {
+        let Some(machine_id) = db::machine::find_id_by_bmc_ip(txn.as_pgconn(), bmc_ip).await?
+        else {
+            continue;
+        };
+        let machine = db::machine::find(
+            &mut txn,
+            db::ObjectFilter::One(machine_id),
+            MachineSearchConfig {
+                include_dpus: true,
+                include_predicted_host: true,
+                ..Default::default()
+            },
+        )
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+        existing_path_states.push(db::machine::SiteExplorerMachineAuditState {
+            bmc_ip: *bmc_ip,
+            machine_id,
+            site_explorer_health_report: machine.site_explorer_health_report().cloned(),
+        });
+    }
+    txn.commit().await?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let mut bulk_lookup_states =
+        db::machine::find_site_explorer_machine_audit_states_by_bmc_ips(&mut txn, &bmc_ips).await?;
+    txn.commit().await?;
+
+    existing_path_states.sort_by_key(|state| state.bmc_ip);
+    bulk_lookup_states.sort_by_key(|state| state.bmc_ip);
+
+    assert_eq!(bulk_lookup_states, existing_path_states);
 
     Ok(())
 }

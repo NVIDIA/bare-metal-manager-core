@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -67,55 +66,9 @@ async fn test_find_switch_ids_and_by_ids(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_find_switches_by_ids_empty_returns_error(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let result = env
-        .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
-            switch_ids: vec![],
-        }))
-        .await;
-    assert!(result.is_err());
-    assert_eq!(
-        result.err().unwrap().message(),
-        "at least one ID must be provided"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_find_switches_by_ids_over_max(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let count = env.config.max_find_by_ids + 1;
-    let switch_ids: Vec<SwitchId> = (0..count)
-        .map(|_| SwitchId::from(uuid::Uuid::new_v4()))
-        .collect();
-
-    let result = env
-        .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
-            switch_ids,
-        }))
-        .await;
-    assert!(result.is_err());
-    assert_eq!(
-        result.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-
-    Ok(())
-}
+// The empty-list and over-max guards for `find_switches_by_ids` are shared
+// API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.
 
 #[crate::sqlx_test]
 async fn test_find_switch_ids_excludes_deleted(
@@ -416,7 +369,7 @@ async fn test_find_ready_control_plane_configured_switch_ids_in_rack(
         let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
             .await?
             .expect("switch should exist");
-        db_switch::try_update_controller_state(
+        let updated = db_switch::try_update_controller_state(
             txn.as_mut(),
             switch_id,
             switch.controller_state.version,
@@ -424,6 +377,10 @@ async fn test_find_ready_control_plane_configured_switch_ids_in_rack(
             &SwitchControllerState::Ready,
         )
         .await?;
+        assert!(
+            updated,
+            "setup should update switch controller state with the current version"
+        );
 
         if let Some(status) = fm_status {
             db_switch::update_fabric_manager_status(txn.as_mut(), switch_id, Some(status)).await?;
@@ -443,6 +400,90 @@ async fn test_find_ready_control_plane_configured_switch_ids_in_rack(
     )
     .await?;
     assert_eq!(found_other, vec![other_rack_switch]);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_find_ready_control_plane_configured_switch_endpoints_prefers_primary(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_uuid::rack::RackId;
+    use db::switch as db_switch;
+    use model::switch::{
+        CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus,
+        SwitchControllerState,
+    };
+
+    use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
+
+    let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await?;
+
+    let rack_id: RackId = "rack-sw-endpoint".parse().unwrap();
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await?;
+    txn.commit().await?;
+
+    let secondary_switch = new_switch(&env, Some("Switch1".to_string()), None).await?;
+    let primary_switch = new_switch(&env, Some("Switch2".to_string()), None).await?;
+
+    let configured_status = FabricManagerStatus {
+        fabric_manager_state: FabricManagerState::Ok,
+        addition_info: Some(CONTROL_PLANE_STATE_CONFIGURED.to_string()),
+        reason: None,
+        error_message: None,
+    };
+
+    let mut txn = env.pool.begin().await?;
+    for switch_id in [secondary_switch, primary_switch] {
+        sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+            .bind(&rack_id)
+            .bind(switch_id)
+            .execute(txn.as_mut())
+            .await?;
+
+        let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+            .await?
+            .expect("switch should exist");
+        let updated = db_switch::try_update_controller_state(
+            txn.as_mut(),
+            switch_id,
+            switch.controller_state.version,
+            switch.controller_state.version.increment(),
+            &SwitchControllerState::Ready,
+        )
+        .await?;
+        assert!(
+            updated,
+            "setup should update switch controller state with the current version"
+        );
+
+        db_switch::update_fabric_manager_status(txn.as_mut(), switch_id, Some(&configured_status))
+            .await?;
+    }
+    db_switch::set_primary_switch_for_rack(txn.as_mut(), &rack_id, &primary_switch).await?;
+
+    let expected_nvos_ip = db_switch::find_switch_endpoints_by_ids(txn.as_mut(), &[primary_switch])
+        .await?
+        .pop()
+        .expect("primary switch endpoint")
+        .nvos_ip
+        .expect("primary switch nvos ip");
+
+    let endpoints =
+        db_switch::find_ready_control_plane_configured_switch_endpoints(txn.as_mut()).await?;
+    let rack_endpoints = endpoints
+        .into_iter()
+        .filter(|endpoint| endpoint.rack_id == rack_id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(rack_endpoints.len(), 1);
+    assert_eq!(rack_endpoints[0].switch_id, primary_switch);
+    assert_eq!(rack_endpoints[0].rack_id, rack_id);
+    assert_eq!(rack_endpoints[0].nvos_ip, expected_nvos_ip);
 
     Ok(())
 }

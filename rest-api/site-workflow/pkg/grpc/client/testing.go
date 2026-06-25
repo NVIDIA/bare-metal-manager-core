@@ -68,6 +68,11 @@ type MockCoreGrpcServiceClient struct {
 func (mcgsc *MockCoreGrpcServiceClient) Version(ctx context.Context, in *wflows.VersionRequest, opts ...grpc.CallOption) (*wflows.BuildInfo, error) {
 	out := new(wflows.BuildInfo)
 	out.BuildVersion = "1.0.0"
+	if siteFabricPrefixes, ok := ctx.Value("siteFabricPrefixes").([]string); ok {
+		out.RuntimeConfig = &wflows.RuntimeConfig{
+			SiteFabricPrefixes: siteFabricPrefixes,
+		}
+	}
 	return out, nil
 }
 

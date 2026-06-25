@@ -87,6 +87,21 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
             .map(NewNetworkPrefix::try_from)
             .collect::<Result<Vec<NewNetworkPrefix>, RpcDataConversionError>>()?;
 
+        let ipv4_prefix_count = prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv4())
+            .count();
+        let ipv6_prefix_count = prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv6())
+            .count();
+        if ipv4_prefix_count > 1 || ipv6_prefix_count > 1 {
+            return Err(RpcDataConversionError::InvalidArgument(
+                "Network segment cannot contain more than one prefix from the same address family."
+                    .to_string(),
+            ));
+        }
+
         let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
 
         let segment_type: NetworkSegmentType = value.segment_type.rpc_try_into()?;
@@ -330,6 +345,26 @@ mod tests {
                     ],
                     NetworkSegmentType::Admin,
                 ) => Yields((2, false)),
+            }
+
+            "two IPv4 prefixes rejected" {
+                make_test_creation_request(
+                    vec![
+                        ipv4_prefix("192.0.2.0/24", Some("192.0.2.1")),
+                        ipv4_prefix("198.51.100.0/24", Some("198.51.100.1")),
+                    ],
+                    NetworkSegmentType::Admin,
+                ) => Fails,
+            }
+
+            "two IPv6 prefixes rejected" {
+                make_test_creation_request(
+                    vec![
+                        ipv6_prefix("2001:db8:1::/64"),
+                        ipv6_prefix("2001:db8:2::/64"),
+                    ],
+                    NetworkSegmentType::Admin,
+                ) => Fails,
             }
 
             "tenant /64 IPv6 allowed" {

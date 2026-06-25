@@ -16,12 +16,14 @@
  */
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::NetworkSegmentId;
+use carbide_uuid::vpc::VpcId;
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
     pub instance_id: InstanceId,
     pub segment_id: NetworkSegmentId,
+    pub vpc_id: VpcId,
     // pub id: Uuid,          // unused
     pub address: std::net::IpAddr,
     // pub prefix: IpNetwork, // unused

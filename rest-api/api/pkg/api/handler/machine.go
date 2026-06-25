@@ -1957,5 +1957,5 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 
 	logger.Info().Msg("finishing API handler")
 
-	return c.JSON(http.StatusAccepted, nil)
+	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 }

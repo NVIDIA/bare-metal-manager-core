@@ -308,7 +308,7 @@ type ApiDeleteInstanceTypeRequest struct {
 	instanceTypeId string
 }
 
-func (r ApiDeleteInstanceTypeRequest) Execute() (*http.Response, error) {
+func (r ApiDeleteInstanceTypeRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
 	return r.ApiService.DeleteInstanceTypeExecute(r)
 }
 
@@ -334,16 +334,19 @@ func (a *InstanceTypeAPIService) DeleteInstanceType(ctx context.Context, org str
 }
 
 // Execute executes the request
-func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTypeRequest) (*http.Response, error) {
+//
+//	@return DeletionAcceptedResponse
+func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTypeRequest) (*DeletionAcceptedResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod  = http.MethodDelete
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *DeletionAcceptedResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceType")
 	if err != nil {
-		return nil, &GenericOpenAPIError{error: err.Error()}
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
 	localVarPath := localBasePath + "/v2/org/{org}/nico/instance/type/{instanceTypeId}"
@@ -373,19 +376,19 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTy
 	}
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
-		return nil, err
+		return localVarReturnValue, nil, err
 	}
 
 	localVarHTTPResponse, err := a.client.callAPI(req)
 	if err != nil || localVarHTTPResponse == nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
 	localVarHTTPResponse.Body.Close()
 	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
 	if err != nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	if localVarHTTPResponse.StatusCode >= 300 {
@@ -398,15 +401,24 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTy
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
-				return localVarHTTPResponse, newErr
+				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
 		}
-		return localVarHTTPResponse, newErr
+		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
 
-	return localVarHTTPResponse, nil
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
 type ApiDeleteInstanceTypeMachineAssociationRequest struct {
@@ -417,7 +429,7 @@ type ApiDeleteInstanceTypeMachineAssociationRequest struct {
 	machineAssociationId string
 }
 
-func (r ApiDeleteInstanceTypeMachineAssociationRequest) Execute() (*http.Response, error) {
+func (r ApiDeleteInstanceTypeMachineAssociationRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
 	return r.ApiService.DeleteInstanceTypeMachineAssociationExecute(r)
 }
 
@@ -447,16 +459,19 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociation(ctx contex
 }
 
 // Execute executes the request
-func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r ApiDeleteInstanceTypeMachineAssociationRequest) (*http.Response, error) {
+//
+//	@return DeletionAcceptedResponse
+func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r ApiDeleteInstanceTypeMachineAssociationRequest) (*DeletionAcceptedResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod  = http.MethodDelete
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *DeletionAcceptedResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceTypeMachineAssociation")
 	if err != nil {
-		return nil, &GenericOpenAPIError{error: err.Error()}
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
 	localVarPath := localBasePath + "/v2/org/{org}/nico/instance/type/{instanceTypeId}/machine/{machineAssociationId}"
@@ -487,19 +502,19 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r A
 	}
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
-		return nil, err
+		return localVarReturnValue, nil, err
 	}
 
 	localVarHTTPResponse, err := a.client.callAPI(req)
 	if err != nil || localVarHTTPResponse == nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
 	localVarHTTPResponse.Body.Close()
 	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
 	if err != nil {
-		return localVarHTTPResponse, err
+		return localVarReturnValue, localVarHTTPResponse, err
 	}
 
 	if localVarHTTPResponse.StatusCode >= 300 {
@@ -512,15 +527,24 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r A
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
-				return localVarHTTPResponse, newErr
+				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
 		}
-		return localVarHTTPResponse, newErr
+		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
 
-	return localVarHTTPResponse, nil
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
 type ApiGetAllInstanceTypeRequest struct {

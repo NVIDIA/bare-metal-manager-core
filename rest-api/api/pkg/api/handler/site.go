@@ -168,8 +168,10 @@ func (csh CreateSiteHandler) Handle(c echo.Context) error {
 			IsSerialConsoleEnabled:   false,
 			Status:                   cdbm.SiteStatusPending,
 			CreatedBy:                dbUser.ID,
+			// New sites default to the v2 networking posture.
 			Config: cdbm.SiteConfig{
-				NetworkSecurityGroup: true, // The default case for a new site is to support NSGs.
+				NativeNetworking:     true,
+				NetworkSecurityGroup: true,
 			},
 		}
 		if apiRequest.Location != nil {
@@ -1142,7 +1144,7 @@ func (dsh DeleteSiteHandler) Handle(c echo.Context) error {
 	// Create response
 	logger.Info().Msg("finishing API handler")
 
-	return c.String(http.StatusAccepted, "Deletion request was accepted")
+	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 }
 
 // GetSiteStatusDetailsHandler is the API Handler for getting Site StatusDetail records

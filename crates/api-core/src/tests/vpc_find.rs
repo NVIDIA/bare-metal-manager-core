@@ -20,6 +20,7 @@ use ::rpc::forge as rpc;
 use carbide_uuid::vpc::VpcId;
 use rpc::forge_server::Forge;
 
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
@@ -135,49 +136,8 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc3, vpc_list.vpcs[0]);
 }
 
-#[crate::sqlx_test()]
-async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-
-    // create vector of IDs with more than max allowed
-    // it does not matter if these are real or not, since we are testing an error back for passing more than max
-    let end_index: u32 = env.config.max_find_by_ids + 1;
-    let vpc_ids = (1..=end_index).map(|_| VpcId::default()).collect();
-
-    let request = tonic::Request::new(rpc::VpcsByIdsRequest { vpc_ids });
-
-    let response = env.api.find_vpcs_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-}
-
-#[crate::sqlx_test()]
-async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let request = tonic::Request::new(rpc::VpcsByIdsRequest::default());
-
-    let response = env.api.find_vpcs_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        "at least one ID must be provided",
-    );
-}
+// The empty-list and over-max guards for `find_vpcs_by_ids` are shared API-layer
+// code, proven once across representative RPCs in `tests::find_by_ids_guards`.
 
 #[crate::sqlx_test]
 async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -185,8 +145,8 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     let vpc_id = VpcId::new();
 
     sqlx::query(r#"
-        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
-    "#).bind(vpc_id).execute(txn.deref_mut()).await?;
+        INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', $2, 'V1-T1666644937952267');
+    "#).bind(vpc_id).bind(FIXTURE_TENANT_ORG_ID).execute(txn.deref_mut()).await?;
 
     let some_vpc = db::vpc::find_by_name(txn.as_mut(), "test vpc 1").await?;
 
@@ -332,6 +292,7 @@ async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
         .id;
     let vpc = db::vpc::find_by_segment(&env.pool, segment_id)
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(vpc.id.to_string(), vpc_id.to_string());
 }

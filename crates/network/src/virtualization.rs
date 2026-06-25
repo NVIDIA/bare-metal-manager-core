@@ -232,11 +232,7 @@ mod sqlx_db_tests {
 
 impl fmt::Display for VpcVirtualizationType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => write!(f, "etv"),
-            Self::Fnn => write!(f, "fnn"),
-            Self::Flat => write!(f, "flat"),
-        }
+        f.write_str(self.as_str())
     }
 }
 

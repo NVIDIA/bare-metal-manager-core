@@ -970,6 +970,46 @@ async fn test_extension_service_creation_with_same_name(
 }
 
 #[crate::sqlx_test]
+async fn test_extension_service_recreate_same_name_after_delete(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+
+    create_test_tenants(&env).await?;
+
+    let service_name = "test-service";
+    let extension_service = create_test_extension_service(&env.api, service_name, None).await?;
+    let service_id = extension_service.service_id.clone();
+
+    let delete_resp = env
+        .api
+        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            versions: vec![],
+        }))
+        .await;
+    assert!(delete_resp.is_ok());
+
+    let find_resp = env
+        .api
+        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+            service_ids: vec![service_id],
+        }))
+        .await;
+    assert!(find_resp.is_ok());
+    assert!(find_resp.unwrap().into_inner().services.is_empty());
+
+    let recreate_resp = create_test_extension_service(&env.api, service_name, None).await;
+    assert!(recreate_resp.is_ok());
+
+    let recreated_service = recreate_resp.unwrap();
+    assert_eq!(recreated_service.service_name, service_name);
+    assert_ne!(recreated_service.service_id, extension_service.service_id);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
     let service_version = create_test_extension_service_and_tenants(&env).await?;

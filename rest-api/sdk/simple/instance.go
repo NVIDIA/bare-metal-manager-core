@@ -304,6 +304,6 @@ func (im InstanceManager) Delete(ctx context.Context, id string) *ApiError {
 	ctx = WithLogger(ctx, im.client.Logger)
 	ctx = context.WithValue(ctx, standard.ContextAccessToken, im.client.Config.Token)
 
-	resp, err := im.client.apiClient.InstanceAPI.DeleteInstance(ctx, im.client.apiMetadata.Organization, id).Execute()
+	_, resp, err := im.client.apiClient.InstanceAPI.DeleteInstance(ctx, im.client.apiMetadata.Organization, id).Execute()
 	return HandleResponseError(resp, err)
 }

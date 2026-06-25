@@ -1063,7 +1063,9 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 
 	// Delete SSH Key Group Instance associations
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(mi.dbSession)
-	skgias, _, err := skgiaDAO.GetAll(ctx, tx, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, tx, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+		InstanceIDs: []uuid.UUID{instance.ID},
+	}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance associations from DB")
 		terr := tx.Rollback()
@@ -1073,7 +1075,7 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 		return err
 	}
 	for _, skgia := range skgias {
-		serr := skgiaDAO.DeleteByID(ctx, tx, skgia.ID)
+		serr := skgiaDAO.Delete(ctx, tx, skgia.ID)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("failed to delete SSH Key Group Instance association from DB")
 			terr := tx.Rollback()

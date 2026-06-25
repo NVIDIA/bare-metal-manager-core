@@ -9,7 +9,7 @@ Command-line client for the NVIDIA Infrastructure Controller (NICo) REST API. Co
 
 ## Prerequisites
 
-- Go 1.25.4 or later
+- Go 1.25.11 or later
 - Access to a running NVIDIA Infrastructure Controller (NICo) REST API instance (local via `make kind-reset` or remote)
 
 ## Installation

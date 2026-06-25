@@ -5,13 +5,16 @@ package protobuf
 
 import (
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	opmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
@@ -51,14 +54,6 @@ func TestOperationRunFromDefaults(t *testing.T) {
 	require.True(t, ok)
 	require.EqualValues(t, 1, equal.PhaseCount)
 	require.False(t, options.PhasePolicy.AdvancePolicy.AutoAdvance)
-	require.Equal(
-		t,
-		operationrun.InclusiveScopeCompositionIntersect,
-		mustUnmarshalOperation(t, run.OperationTemplate).
-			TargetScope.
-			InclusiveScopeComposition,
-	)
-
 	operation := mustUnmarshalOperation(t, run.OperationTemplate)
 	require.Equal(t, taskcommon.TaskTypeFirmwareControl, operation.Type)
 	require.Equal(t, taskcommon.OpCodeFirmwareControlUpgrade, operation.Code)
@@ -70,8 +65,7 @@ func TestOperationRunFromDefaults(t *testing.T) {
 		operation.QueueOptions.ConflictStrategy,
 	)
 	require.EqualValues(t, 300, operation.QueueOptions.QueueTimeoutSeconds)
-	require.False(t, operation.TargetScope.ExcludeTargetSpec)
-	require.False(t, operation.TargetScope.ExcludeOperationRunTargets)
+	require.Empty(t, operation.TargetScope.ExcludedOperationRunIDs)
 	payload, ok := operation.Payload.(*operations.FirmwareControlTaskInfo)
 	require.True(t, ok)
 	require.Equal(t, operations.FirmwareOperationUpgrade, payload.Operation)
@@ -291,57 +285,26 @@ func TestOperationRunFromRejectsInvalidFailureCountGate(t *testing.T) {
 	)
 }
 
-func TestOperationRunFromRejectsExcludeTargetSpecWithoutTargetSpec(t *testing.T) {
-	req := validCreateRequest()
-	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
-		ExcludeTargetSpec: true,
-	}
-
-	_, err := OperationRunFrom(req)
-	require.ErrorContains(
-		t,
-		err,
-		"target_scope.exclude_target_spec requires operation target_spec",
-	)
-}
-
-func TestOperationRunFromRejectsExcludeOperationRunTargetsWithoutRunIDs(t *testing.T) {
-	req := validCreateRequest()
-	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
-		ExcludeOperationRunTargets: true,
-	}
-
-	_, err := OperationRunFrom(req)
-	require.ErrorContains(
-		t,
-		err,
-		"target_scope.exclude_operation_run_targets requires target_scope.operation_run_ids",
-	)
-}
-
 func TestOperationRunFromRejectsInvalidOperationRunID(t *testing.T) {
 	req := validCreateRequest()
 	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
-		OperationRunIds: []*pb.UUID{{Id: "not-a-uuid"}},
+		ExcludeOperationRunIds: []*pb.UUID{{Id: "not-a-uuid"}},
 	}
 
 	_, err := OperationRunFrom(req)
 	require.ErrorContains(
 		t,
 		err,
-		"target_scope.operation_run_ids[0] must be a valid UUID",
+		"target_scope.exclude_operation_run_ids[0] must be a valid UUID",
 	)
 }
 
 func TestOperationRunFromPreservesTargetScope(t *testing.T) {
 	req := validCreateRequest()
 	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
-		ExcludeTargetSpec: true,
-		OperationRunIds: []*pb.UUID{
+		ExcludeOperationRunIds: []*pb.UUID{
 			{Id: "22222222-2222-2222-2222-222222222222"},
 		},
-		ExcludeOperationRunTargets: true,
-		InclusiveScopeComposition:  pb.OperationRunInclusiveScopeComposition_OPERATION_RUN_INCLUSIVE_SCOPE_COMPOSITION_UNION,
 	}
 	req.Configuration.Operation.GetUpgradeFirmware().TargetSpec = &pb.OperationTargetSpec{
 		Targets: &pb.OperationTargetSpec_Racks{
@@ -361,36 +324,118 @@ func TestOperationRunFromPreservesTargetScope(t *testing.T) {
 	require.NoError(t, err)
 	operation := mustUnmarshalOperation(t, run.OperationTemplate)
 	targetScope := operation.TargetScope
-	require.True(t, targetScope.ExcludeTargetSpec)
-	require.Len(t, targetScope.OperationRunIDs, 1)
+	require.Len(t, targetScope.ExcludedOperationRunIDs, 1)
 	require.Equal(
 		t,
 		"22222222-2222-2222-2222-222222222222",
-		targetScope.OperationRunIDs[0].String(),
-	)
-	require.True(t, targetScope.ExcludeOperationRunTargets)
-	require.Equal(
-		t,
-		operationrun.InclusiveScopeCompositionUnion,
-		targetScope.InclusiveScopeComposition,
+		targetScope.ExcludedOperationRunIDs[0].String(),
 	)
 }
 
-func TestOperationRunFromDefaultsUnknownInclusiveScopeComposition(t *testing.T) {
+func TestOperationRunFromPreservesDefaultScopeComponentFilter(t *testing.T) {
 	req := validCreateRequest()
 	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
-		InclusiveScopeComposition: pb.OperationRunInclusiveScopeComposition(99),
+		DefaultScopeComponentFilter: &pb.ComponentFilter{
+			Filter: &pb.ComponentFilter_Types{
+				Types: &pb.ComponentTypes{
+					Types: []pb.ComponentType{
+						pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+					},
+				},
+			},
+		},
 	}
 
 	run, err := OperationRunFrom(req)
 	require.NoError(t, err)
 
 	operation := mustUnmarshalOperation(t, run.OperationTemplate)
+	filter := operation.TargetScope.DefaultScopeComponentFilter
+	require.NotNil(t, filter)
+	require.Equal(t, opmodel.ComponentFilterKindTypes, filter.Kind)
+	require.Equal(t, []string{"Compute"}, filter.Types)
+
+	got, err := OperationRunTo(run)
+	require.NoError(t, err)
 	require.Equal(
 		t,
-		operationrun.InclusiveScopeCompositionIntersect,
-		operation.TargetScope.InclusiveScopeComposition,
+		[]pb.ComponentType{pb.ComponentType_COMPONENT_TYPE_COMPUTE},
+		got.GetConfiguration().
+			GetOperation().
+			GetTargetScope().
+			GetDefaultScopeComponentFilter().
+			GetTypes().
+			GetTypes(),
 	)
+}
+
+func TestOperationRunFromRejectsDefaultScopeFilterWithTargetSpec(t *testing.T) {
+	req := validCreateRequest()
+	req.Configuration.Operation.TargetScope = &pb.OperationRunTargetScope{
+		DefaultScopeComponentFilter: &pb.ComponentFilter{
+			Filter: &pb.ComponentFilter_Types{
+				Types: &pb.ComponentTypes{
+					Types: []pb.ComponentType{
+						pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+					},
+				},
+			},
+		},
+	}
+	req.Configuration.Operation.GetUpgradeFirmware().TargetSpec = &pb.OperationTargetSpec{
+		Targets: &pb.OperationTargetSpec_Racks{
+			Racks: &pb.RackTargets{
+				Targets: []*pb.RackTarget{
+					{
+						Identifier: &pb.RackTarget_Id{
+							Id: &pb.UUID{Id: "11111111-1111-1111-1111-111111111111"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := OperationRunFrom(req)
+	require.ErrorContains(
+		t,
+		err,
+		"target_scope.default_scope_component_filter requires target_spec to be omitted",
+	)
+}
+
+func TestOperationRunTargetToUsesResolvedComponentsByType(t *testing.T) {
+	createdAt := time.Date(2026, 6, 16, 1, 2, 3, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Minute)
+	componentA := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")
+	componentB := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000002")
+	componentC := uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000001")
+
+	got, err := OperationRunTargetTo(&operationrun.OperationRunTarget{
+		ID:             uuid.New(),
+		OperationRunID: uuid.New(),
+		RackID:         uuid.New(),
+		SequenceIndex:  1,
+		PhaseIndex:     2,
+		Status:         operationrun.OperationRunTargetStatusPending,
+		ComponentsByType: opmodel.ComponentsByType{
+			devicetypes.ComponentTypeNVSwitch: {componentC},
+			devicetypes.ComponentTypeCompute: {
+				componentB,
+				componentA,
+			},
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	})
+	require.NoError(t, err)
+
+	groups := got.GetComponentsByType().GetGroups()
+	require.Len(t, groups, 2)
+	require.Equal(t, pb.ComponentType_COMPONENT_TYPE_COMPUTE, groups[0].GetType())
+	require.Equal(t, []*pb.UUID{UUIDTo(componentA), UUIDTo(componentB)}, groups[0].GetComponentIds())
+	require.Equal(t, pb.ComponentType_COMPONENT_TYPE_NVSWITCH, groups[1].GetType())
+	require.Equal(t, []*pb.UUID{UUIDTo(componentC)}, groups[1].GetComponentIds())
 }
 
 func mustUnmarshalSelector(

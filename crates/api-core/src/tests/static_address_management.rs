@@ -513,6 +513,71 @@ async fn test_assign_external_ip_moves_to_static_assignments(
     Ok(())
 }
 
+/// Verifies that an external static IPv6 assignment moves the interface to the
+/// static-assignments segment and that the anchor segment is dual-stack.
+///
+/// This covers the IPv6 counterpart to external static IPv4 assignment: static
+/// addresses outside managed prefixes must still land on the durable
+/// static-assignment topology.
+#[crate::sqlx_test]
+async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+
+    // Create an addressless interface that can safely receive a static IPv6 assignment.
+    let mut txn = env.pool.begin().await?;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        MacAddress::from_str("aa:bb:cc:dd:ee:2a").unwrap(),
+        std::slice::from_ref(&relay),
+        None,
+        None,
+    )
+    .await?;
+    db::machine_interface_address::delete(&mut txn, &interface.id).await?;
+    txn.commit().await?;
+
+    // Assign an external IPv6 address that is outside managed network prefixes.
+    let requested_ipv6_address: IpAddr = "2001:db8:ffff::100".parse().unwrap();
+    env.api
+        .assign_static_address(Request::new(AssignStaticAddressRequest {
+            interface_id: Some(interface.id),
+            ip_address: requested_ipv6_address.to_string(),
+        }))
+        .await?;
+
+    // Re-read the interface and static segment to verify the durable topology.
+    let mut txn = env.pool.begin().await?;
+    let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
+    let static_seg = db::network_segment::static_assignments(&mut txn).await?;
+    assert_eq!(
+        updated.segment_id, static_seg.id,
+        "interface should have moved to the static-assignments segment"
+    );
+    assert!(
+        updated.addresses.contains(&requested_ipv6_address),
+        "interface should carry the assigned IPv6 address"
+    );
+    assert!(
+        static_seg
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv4()),
+        "static-assignments should keep its IPv4 placeholder"
+    );
+    assert!(
+        static_seg
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.prefix.is_ipv6()),
+        "static-assignments should include an IPv6 placeholder"
+    );
+
+    Ok(())
+}
+
 /// When assigning a static IP within the interface's current segment,
 /// the segment_id should not change.
 #[crate::sqlx_test]

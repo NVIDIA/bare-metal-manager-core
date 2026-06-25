@@ -35,8 +35,8 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::metadata::Metadata;
 use model::site_explorer::{
-    ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredManagedHost, NicMode, PreingestionState, UefiDevicePath,
+    Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+    ExploredDpu, ExploredManagedHost, NetworkAdapter, NicMode, PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
@@ -2252,11 +2252,55 @@ async fn test_fetch_host_primary_interface_mac(
         });
     }
 
+    // No declaration: the automatic pick stands -- the lowest-PCI DPU host-PF
+    // (the second mock DPU, given the device paths set above).
     let expected_mac: MacAddress = mock_dpus[1].host_mac_address;
     let mac = host_report
-        .fetch_host_primary_interface_mac(&explored_dpus)
+        .fetch_host_primary_interface_mac(&explored_dpus, None)
         .unwrap();
     assert_eq!(mac, expected_mac);
+
+    // A declared primary on a DPU host-PF wins over the automatic pick -- here
+    // the first DPU, which the PCI ordering would NOT have chosen.
+    let declared_dpu_pf = mock_dpus[0].host_mac_address;
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(declared_dpu_pf))
+            .unwrap(),
+        declared_dpu_pf,
+    );
+
+    // The headline case: a declared *integrated* NIC -- which the DPU-only
+    // automatic pick can never name -- becomes the explored default.
+    let integrated_nic = host_report
+        .systems
+        .first()
+        .unwrap()
+        .ethernet_interfaces
+        .iter()
+        .filter_map(|e| e.mac_address)
+        .find(|mac| {
+            !explored_dpus
+                .iter()
+                .any(|d| d.host_pf_mac_address == Some(*mac))
+        })
+        .expect("the fixture host should have a non-DPU integrated NIC");
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(integrated_nic))
+            .unwrap(),
+        integrated_nic,
+    );
+
+    // A declared MAC absent from this report is ignored -- the automatic pick
+    // stands.
+    let absent_mac: MacAddress = "de:ad:be:ef:00:01".parse().unwrap();
+    assert_eq!(
+        host_report
+            .fetch_host_primary_interface_mac(&explored_dpus, Some(absent_mac))
+            .unwrap(),
+        expected_mac,
+    );
     Ok(())
 }
 
@@ -2601,6 +2645,359 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
             .iter()
             .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
         "expected an automatic host PowerCycle on the non-Dell (Lenovo) host to apply the queued NIC mode change; power calls so far: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// `PowerCycle` is implemented only by Dell and the DPU BMCs; other vendors --
+/// and Vikings -- refuse it. When that happens, site-explorer falls back to a
+/// cold `ACPowercycle` so the queued NIC-mode change still applies without an
+/// operator, rather than parking immediately on `ManualPowerCycleRequired`.
+#[sqlx_test]
+async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    // DPU reports DPU mode; the operator-declared NicMode override forces the
+    // correction (and therefore the reset).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config.clone()],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2635-AC-FALLBACK".to_string(),
+                metadata: Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    // This vendor refuses `PowerCycle` (like a Viking); the reset must fall
+    // back to the cold `ACPowercycle`.
+    explorer
+        .endpoint_explorer()
+        .fail_power_control(libredfish::SystemPowerControl::PowerCycle);
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    db::explored_endpoints::set_preingestion_complete(dpu_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    // Second iteration: matching issues `set_nic_mode`, then the reset path
+    // tries `PowerCycle`, gets refused, and falls back to `ACPowercycle`.
+    explorer.run_single_iteration().await.unwrap();
+
+    let power_calls = explorer
+        .endpoint_explorer()
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    // Scope the fallback-order check to the host under test so another
+    // endpoint's power actions can't skew the `PowerCycle`-before-`ACPowercycle`
+    // positions.
+    let host_power_calls = power_calls
+        .iter()
+        .filter(|(addr, _)| addr.ip() == host_bmc_ip)
+        .collect::<Vec<_>>();
+    let powercycle_pos = host_power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle));
+    let acpowercycle_pos = host_power_calls
+        .iter()
+        .position(|(_, action)| matches!(action, libredfish::SystemPowerControl::ACPowercycle));
+    assert!(
+        powercycle_pos.is_some(),
+        "expected `PowerCycle` to be attempted; power calls so far: {power_calls:?}"
+    );
+    assert!(
+        acpowercycle_pos.is_some(),
+        "expected the `ACPowercycle` fallback after `PowerCycle` was refused; power calls so far: {power_calls:?}"
+    );
+    // A fallback is only correct if `PowerCycle` is the one tried first.
+    assert!(
+        powercycle_pos < acpowercycle_pos,
+        "expected `PowerCycle` (at {powercycle_pos:?}) before the `ACPowercycle` fallback (at {acpowercycle_pos:?}); power calls: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// Regression guard for the fallback-serial path (#2631): a DPU paired only
+/// through `fallback_dpu_serial_numbers` must get the same NIC-mode enforcement
+/// as a host-reported one. The host BMC here enumerates no DPU over PCIe -- the
+/// usual reason the fallback exists (e.g. a GB200 that drops a DPU from its
+/// inventory) -- so the only link is the operator-listed serial, and the DPU is
+/// still reporting DPU mode against a `NicMode` host.
+///
+/// Before the fix the fallback path trusted the match as already-configured: it
+/// attached the DPU without a mode check, then dropped it to zero-DPU, so the
+/// host registered as a NIC-mode host while the BlueField stayed in DPU mode and
+/// `set_nic_mode` was never issued. Now the flip is issued, the host is
+/// power-cycled to apply it, and the host waits instead of settling this pass.
+#[sqlx_test]
+async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = Env::new(pool).await;
+
+    const FALLBACK_DPU_SERIAL: &str = "fallback-only-dpu-serial";
+    // DPU reports DPU mode; the host report carries no DPU device, so the
+    // serial is the only thing that can pair them.
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        serial: FALLBACK_DPU_SERIAL.to_string(),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig::default();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    // Operator declares the host NIC mode and lists the DPU's serial as a
+    // pairing fallback.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-2631-FALLBACK-NIC".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                fallback_dpu_serial_numbers: vec![FALLBACK_DPU_SERIAL.to_string()],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(mock_host.into())),
+    ]);
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    // Second iteration: per-host matching falls through to the fallback-serial
+    // path, which must enforce the declared NIC mode.
+    explorer.run_single_iteration().await.unwrap();
+
+    {
+        let calls = explorer
+            .endpoint_explorer()
+            .set_nic_mode_calls
+            .lock()
+            .unwrap();
+        assert!(
+            calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+            "fallback-matched DPU on a NicMode host should get set_nic_mode(Nic); calls so far: {calls:?}"
+        );
+    }
+
+    // The host must not settle as a zero-DPU managed host until the flip has
+    // applied -- otherwise the database reads "NIC-mode host" while the
+    // BlueField is still physically in DPU mode.
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert!(
+        explored_managed_hosts.is_empty(),
+        "host should wait for the queued NIC-mode flip to apply, not register as zero-DPU this pass"
+    );
+
+    // The reset path fires even though the host BMC never enumerated the DPU
+    // over PCIe (`expected_managed_dpus_total == 0`), so the queued flip can
+    // actually apply.
+    {
+        let power_calls = explorer
+            .endpoint_explorer()
+            .redfish_power_control_calls
+            .lock()
+            .unwrap();
+        assert!(
+            power_calls
+                .iter()
+                .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+            "host should be power-cycled to apply the queued NIC-mode flip; power calls so far: {power_calls:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Some host BMCs (e.g. the AMI/Lenovo GB300 `HG635N_V2`) report the BlueField
+/// as the chassis object itself -- model, part_number and serial_number live on
+/// the chassis, while its nested network adapter carries an empty serial -- and
+/// don't enumerate the DPU over PCIe at all. The host<->DPU serial match must
+/// therefore consider the chassis identity, not just `chassis.network_adapters[]`.
+///
+/// Here the operator declares NO `fallback_dpu_serial_numbers` and the default
+/// `DpuMode`, so the only thing that can pair the host with its DPU is the
+/// chassis-reported serial. The host must pair (and not fall through to the
+/// zero-DPU path).
+#[sqlx_test]
+async fn test_site_explorer_pairs_dpu_from_chassis_serial(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = Env::new(pool).await;
+
+    const CHASSIS_DPU_SERIAL: &str = "chassis-reported-dpu-serial";
+    // The DPU's BMC reports DPU mode; the host BMC carries no DPU PCIe device,
+    // only the BlueField chassis below, so the chassis serial is the only link.
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        serial: CHASSIS_DPU_SERIAL.to_string(),
+        ..DpuConfig::default()
+    };
+    // A host with no DPU configs: its report carries no BlueField PCIe device or
+    // network adapter, so the only BlueField is the chassis we push below. (A
+    // configured DPU would inject a phantom BlueField into the host's PCIe scan,
+    // making `expected_managed_total() != 0` and skipping the chassis fallback.)
+    let mock_host = ManagedHostConfig::zero_dpu();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-GB300-CHASSIS-SERIAL".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_report: EndpointExplorationReport = mock_host.into();
+    host_report.chassis.push(Chassis {
+        id: "Riser_Slot1_BlueField_3_SmartNIC_Main_Card".to_string(),
+        manufacturer: Some("Nvidia".to_string()),
+        model: Some("BlueField-3 SmartNIC Main Card".to_string()),
+        part_number: Some("900-9D3B6-00CN-PA0".to_string()),
+        serial_number: Some(CHASSIS_DPU_SERIAL.to_string()),
+        network_adapters: vec![NetworkAdapter {
+            id: "Riser_Slot1_BlueField_3_SmartNIC_Main_Card".to_string(),
+            serial_number: Some(String::new()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_config.clone().into())),
+        (host_bmc.ip.parse().unwrap(), Ok(host_report)),
+    ]);
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    // Second iteration: per-host matching pairs the DPU off the chassis serial.
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "GB300 host should pair via its chassis-reported BlueField serial"
+    );
+    assert_eq!(
+        explored_managed_hosts[0].dpus.len(),
+        1,
+        "the chassis-matched DPU should be attached to the host"
     );
 
     Ok(())

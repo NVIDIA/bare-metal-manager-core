@@ -68,6 +68,7 @@ mod mqtt_state_change_hook;
 mod network_segment;
 mod run;
 mod scout_stream;
+pub mod secrets;
 pub mod setup;
 mod storage;
 

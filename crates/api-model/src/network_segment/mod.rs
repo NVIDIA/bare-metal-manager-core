@@ -79,8 +79,15 @@ pub struct NetworkDefinition {
     pub segment_type: NetworkDefinitionSegmentType,
     /// CIDR notation
     pub prefix: IpNetwork,
+    /// Optional IPv6 CIDR for dual-stack config-seeded segments.
+    #[serde(default)]
+    pub prefix_v6: Option<IpNetwork>,
     /// Usually the first IP in the prefix range
     pub gateway: IpAddr,
+    /// DHCPv6 relay link-address used to identify this segment. It may
+    /// be outside `prefix_v6`, so it is modeled separately from gateway.
+    #[serde(default)]
+    pub dhcpv6_link_address: Option<IpAddr>,
     /// Typically 9000 for admin network, 1500 for underlay
     pub mtu: i32,
     /// How many addresses to skip before allocating
@@ -341,18 +348,74 @@ impl NewNetworkSegment {
         domain_id: DomainId,
         value: &NetworkDefinition,
     ) -> Result<Self, ModelError> {
-        let prefix = NewNetworkPrefix {
+        // Validate the optional IPv6-specific config before expanding it
+        // into persisted prefix rows.
+        if let Some(prefix_v6) = value.prefix_v6
+            && !prefix_v6.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.prefix_v6 must be an IPv6 prefix.".to_string(),
+            ));
+        }
+
+        if let Some(link_address) = value.dhcpv6_link_address
+            && !link_address.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.dhcpv6_link_address must be an IPv6 address.".to_string(),
+            ));
+        }
+
+        // Keep the one-prefix-per-family invariant explicit before the
+        // database unique index has to reject the insert.
+        if let Some(prefix_v6) = value.prefix_v6
+            && value.prefix.is_ipv6() == prefix_v6.is_ipv6()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition cannot contain more than one prefix from the same address family."
+                    .to_string(),
+            ));
+        }
+
+        // A DHCPv6 link-address only has meaning when there is a v6 prefix row
+        // to carry it.
+        if value.prefix.is_ipv4()
+            && value.prefix_v6.is_none()
+            && value.dhcpv6_link_address.is_some()
+        {
+            return Err(ModelError::InvalidArgument(
+                "NetworkDefinition.dhcpv6_link_address requires an IPv6 prefix.".to_string(),
+            ));
+        }
+
+        // Expand the config definition into one row for the primary prefix and
+        // an optional second row for the dual-stack IPv6 prefix.
+        let mut prefixes = vec![NewNetworkPrefix {
             prefix: value.prefix,
-            gateway: Some(value.gateway),
+            gateway: value.prefix.is_ipv4().then_some(value.gateway),
+            dhcpv6_link_address: if value.prefix.is_ipv6() {
+                value.dhcpv6_link_address
+            } else {
+                None
+            },
             num_reserved: value.reserve_first,
-        };
+        }];
+        if let Some(prefix_v6) = value.prefix_v6 {
+            prefixes.push(NewNetworkPrefix {
+                prefix: prefix_v6,
+                gateway: None,
+                dhcpv6_link_address: value.dhcpv6_link_address,
+                num_reserved: value.reserve_first,
+            });
+        }
+
         Ok(NewNetworkSegment {
             id: uuid::Uuid::new_v4().into(),
             name: name.to_string(), // Set by the caller later
             subdomain_id: Some(domain_id),
             vpc_id: None,
             mtu: value.mtu,
-            prefixes: vec![prefix],
+            prefixes,
             vlan_id: None,
             vni: None,
             segment_type: value.segment_type.into(),
@@ -575,6 +638,117 @@ mod tests {
 
             "host_inband" {
                 NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
+            }
+        );
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct BuiltPrefix {
+        prefix: String,
+        gateway: Option<String>,
+        dhcpv6_link_address: Option<String>,
+        num_reserved: i32,
+    }
+
+    /// Builds a config network definition for segment expansion tests.
+    fn definition(
+        prefix: &str,
+        prefix_v6: Option<&str>,
+        dhcpv6_link_address: Option<&str>,
+    ) -> NetworkDefinition {
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::Admin,
+            prefix: prefix.parse().unwrap(),
+            prefix_v6: prefix_v6.map(|prefix| prefix.parse().unwrap()),
+            gateway: prefix.parse::<IpNetwork>().unwrap().network(),
+            dhcpv6_link_address: dhcpv6_link_address.map(|addr| addr.parse().unwrap()),
+            mtu: 1500,
+            reserve_first: 5,
+            allocation_strategy: AllocationStrategy::Dynamic,
+            vpc_name: None,
+        }
+    }
+
+    /// Expands a network definition and returns the persisted prefix shape.
+    fn build_definition_prefixes(value: NetworkDefinition) -> Result<Vec<BuiltPrefix>, String> {
+        NewNetworkSegment::build_from("test-segment", uuid::Uuid::new_v4().into(), &value)
+            .map(|segment| {
+                segment
+                    .prefixes
+                    .into_iter()
+                    .map(|prefix| BuiltPrefix {
+                        prefix: prefix.prefix.to_string(),
+                        gateway: prefix.gateway.map(|addr| addr.to_string()),
+                        dhcpv6_link_address: prefix
+                            .dhcpv6_link_address
+                            .map(|addr| addr.to_string()),
+                        num_reserved: prefix.num_reserved,
+                    })
+                    .collect()
+            })
+            .map_err(|err| err.to_string())
+    }
+
+    /// Verifies config-seeded segments expand to at most one prefix per family.
+    #[test]
+    fn build_from_network_definition_expands_dual_stack_prefixes() {
+        scenarios!(
+            // Build the config-seeded segment and project the prefix rows that
+            // will be persisted.
+            run = build_definition_prefixes;
+            "v4-only keeps the legacy gateway row" {
+                definition("192.0.2.0/24", None, None) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "192.0.2.0/24".to_string(),
+                        gateway: Some("192.0.2.0".to_string()),
+                        dhcpv6_link_address: None,
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "v6-only has no gateway and carries the dhcpv6 link-address" {
+                definition("2001:db8::/64", None, Some("2001:db8:ffff::1")) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "2001:db8::/64".to_string(),
+                        gateway: None,
+                        dhcpv6_link_address: Some("2001:db8:ffff::1".to_string()),
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "dual-stack builds one row per family" {
+                definition("192.0.2.0/24", Some("2001:db8::/64"), Some("2001:db8:ffff::1")) => Yields(vec![
+                    BuiltPrefix {
+                        prefix: "192.0.2.0/24".to_string(),
+                        gateway: Some("192.0.2.0".to_string()),
+                        dhcpv6_link_address: None,
+                        num_reserved: 5,
+                    },
+                    BuiltPrefix {
+                        prefix: "2001:db8::/64".to_string(),
+                        gateway: None,
+                        dhcpv6_link_address: Some("2001:db8:ffff::1".to_string()),
+                        num_reserved: 5,
+                    },
+                ]),
+            }
+
+            "prefix_v6 must be IPv6" {
+                definition("192.0.2.0/24", Some("198.51.100.0/24"), None) => Fails,
+            }
+
+            "two IPv6 prefixes are rejected" {
+                definition("2001:db8:1::/64", Some("2001:db8:2::/64"), None) => Fails,
+            }
+
+            "dhcpv6 link-address must be IPv6" {
+                definition("192.0.2.0/24", Some("2001:db8::/64"), Some("192.0.2.1")) => Fails,
+            }
+
+            "dhcpv6 link-address requires a v6 prefix" {
+                definition("192.0.2.0/24", None, Some("2001:db8::1")) => Fails,
             }
         );
     }

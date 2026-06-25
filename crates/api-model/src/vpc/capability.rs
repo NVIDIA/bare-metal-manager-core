@@ -918,6 +918,7 @@ mod tests {
                 .map(|p| NewNetworkPrefix {
                     prefix: p.parse().unwrap(),
                     gateway: None,
+                    dhcpv6_link_address: None,
                     num_reserved: 0,
                 })
                 .collect(),

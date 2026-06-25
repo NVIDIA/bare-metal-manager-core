@@ -80,6 +80,23 @@ pub(crate) async fn clear_host_uefi_password(
         id: machine_id.to_string(),
     })?;
 
+    // If we have no record of a UEFI password ever being set on this host,
+    // there is nothing to clear. Issuing the redfish ChangePassword call in
+    // that case fails on the BMC with a confusing 400 (the OldPassword we
+    // send doesn't match the empty value the BMC expects), so short-circuit
+    // with a warning and a successful no-op response instead of surfacing an
+    // internal error to the operator.
+    if snapshot.host_snapshot.bios_password_set_time.is_none() {
+        txn.commit().await?;
+        tracing::warn!(
+            %machine_id,
+            "No UEFI password is recorded as set on this host; nothing to clear"
+        );
+        return Ok(Response::new(rpc::ClearHostUefiPasswordResponse {
+            job_id: None,
+        }));
+    }
+
     let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
         CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
     })?;

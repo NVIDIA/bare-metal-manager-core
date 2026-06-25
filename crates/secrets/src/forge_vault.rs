@@ -46,7 +46,7 @@ use crate::credentials::{
 
 const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
 const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
-const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "forge.local";
+const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "nico.local";
 const DEFAULT_SPIFFE_MACHINE_BASE_PATH: &str = "/forge-system/machine/";
 const VAULT_SPIFFE_TRUST_DOMAIN_ENV_VAR: &str = "VAULT_SPIFFE_TRUST_DOMAIN";
 const VAULT_SPIFFE_MACHINE_BASE_PATH_ENV_VAR: &str = "VAULT_SPIFFE_MACHINE_BASE_PATH";
@@ -765,11 +765,27 @@ impl CertificateProvider for ForgeVaultClient {
     }
 }
 
+/// How a bulk enumeration treats vault errors other than 404 (which always
+/// just means "nothing here").
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EnumerationMode {
+    /// Warn and keep going. Fine for diagnostics, where a partial answer
+    /// beats none.
+    BestEffort,
+    /// Fail the whole enumeration. Required when the caller will act on
+    /// the result as if it were complete -- the one-time import writes a
+    /// permanent completion marker, so a silently dropped subtree would
+    /// become silently lost credentials.
+    Strict,
+}
+
 impl ForgeVaultClient {
     /// list_secrets returns all secret paths in the
     /// KV mount.
     pub async fn list_secrets(&self) -> Result<Vec<String>, SecretsError> {
-        let paths = self.list_secrets_for_path("").await?;
+        let paths = self
+            .list_secrets_for_path("", EnumerationMode::BestEffort)
+            .await?;
         tracing::info!(count = paths.len(), "listed all vault secret paths");
         Ok(paths)
     }
@@ -780,7 +796,9 @@ impl ForgeVaultClient {
         &self,
         prefix: &crate::credentials::CredentialPrefix,
     ) -> Result<Vec<String>, SecretsError> {
-        let paths = self.list_secrets_for_path(prefix.as_str()).await?;
+        let paths = self
+            .list_secrets_for_path(prefix.as_str(), EnumerationMode::BestEffort)
+            .await?;
         tracing::info!(
             prefix = prefix.as_str(),
             count = paths.len(),
@@ -789,12 +807,12 @@ impl ForgeVaultClient {
         Ok(paths)
     }
 
-    /// list_secrets_for_path recursively lists all
-    /// secret paths under the given path prefix in
-    /// the KV mount.
-    pub async fn list_secrets_for_path(
+    /// list_secrets_for_path recursively lists all secret paths under the
+    /// given path prefix in the KV mount.
+    async fn list_secrets_for_path(
         &self,
         path_prefix: &str,
+        mode: EnumerationMode,
     ) -> Result<Vec<String>, SecretsError> {
         let vault_client = self.vault_client().await?;
         let mount = &self.vault_client_config.kv_mount_location;
@@ -806,10 +824,16 @@ impl ForgeVaultClient {
             let entries = match kv2::list(vault_client.deref(), mount, &dir).await {
                 Ok(e) => e,
                 Err(ClientError::APIError { code: 404, .. }) => continue,
+                Err(e) if mode == EnumerationMode::Strict => {
+                    return Err(SecretsError::GenericError(eyre!(
+                        "failed to list vault path {dir:?}: {e}"
+                    )));
+                }
                 Err(e) => {
                     tracing::warn!(
                         prefix = %dir,
-                        "failed to list vault path: {e}"
+                        error = %e,
+                        "failed to list vault path"
                     );
                     continue;
                 }
@@ -837,11 +861,25 @@ impl ForgeVaultClient {
         Ok(paths)
     }
 
-    /// get_secrets returns all secrets in the KV
-    /// mount (paths + credentials).
+    /// get_secrets returns all secrets in the KV mount (paths plus
+    /// credentials), skipping unreadable entries with a warning.
     pub async fn get_secrets(&self) -> Result<Vec<(String, Credentials)>, SecretsError> {
-        let paths = self.list_secrets().await?;
-        self.read_secrets(&paths).await
+        let paths = self
+            .list_secrets_for_path("", EnumerationMode::BestEffort)
+            .await?;
+        self.read_secrets(&paths, EnumerationMode::BestEffort).await
+    }
+
+    /// get_secrets_strict returns all secrets in the KV mount, failing on
+    /// the first list or read error instead of skipping. The one-time
+    /// Postgres import uses this so a vault hiccup aborts the import --
+    /// and leaves the completion marker unwritten -- rather than quietly
+    /// importing a subset.
+    pub async fn get_secrets_strict(&self) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self
+            .list_secrets_for_path("", EnumerationMode::Strict)
+            .await?;
+        self.read_secrets(&paths, EnumerationMode::Strict).await
     }
 
     /// get_secrets_for_prefix returns all secrets
@@ -850,8 +888,10 @@ impl ForgeVaultClient {
         &self,
         prefix: &crate::credentials::CredentialPrefix,
     ) -> Result<Vec<(String, Credentials)>, SecretsError> {
-        let paths = self.list_secrets_for_prefix(prefix).await?;
-        self.read_secrets(&paths).await
+        let paths = self
+            .list_secrets_for_path(prefix.as_str(), EnumerationMode::BestEffort)
+            .await?;
+        self.read_secrets(&paths, EnumerationMode::BestEffort).await
     }
 
     /// get_secrets_for_path returns all secrets under
@@ -860,16 +900,19 @@ impl ForgeVaultClient {
         &self,
         path_prefix: &str,
     ) -> Result<Vec<(String, Credentials)>, SecretsError> {
-        let paths = self.list_secrets_for_path(path_prefix).await?;
-        self.read_secrets(&paths).await
+        let paths = self
+            .list_secrets_for_path(path_prefix, EnumerationMode::BestEffort)
+            .await?;
+        self.read_secrets(&paths, EnumerationMode::BestEffort).await
     }
 
-    /// read_secrets reads credentials from vault for
-    /// each path. Skips 404s and logs warnings on
-    /// other errors.
+    /// read_secrets reads credentials from vault for each path. 404s are
+    /// always skipped (deleted between list and read); other errors follow
+    /// the enumeration mode.
     async fn read_secrets(
         &self,
         paths: &[String],
+        mode: EnumerationMode,
     ) -> Result<Vec<(String, Credentials)>, SecretsError> {
         let vault_client = self.vault_client().await?;
         let mount = &self.vault_client_config.kv_mount_location;
@@ -886,10 +929,16 @@ impl ForgeVaultClient {
                         "vault secret not found"
                     );
                 }
+                Err(e) if mode == EnumerationMode::Strict => {
+                    return Err(SecretsError::GenericError(eyre!(
+                        "failed to read vault secret {path:?}: {e}"
+                    )));
+                }
                 Err(e) => {
                     tracing::warn!(
                         path = %path,
-                        "failed to read: {e}"
+                        error = %e,
+                        "failed to read vault secret"
                     );
                 }
             }
@@ -907,7 +956,7 @@ pub struct VaultConfig {
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
     pub vault_cacert: Option<String>,
-    /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `forge.local`.
+    /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `nico.local`.
     pub spiffe_trust_domain: Option<String>,
     /// Path prefix after the trust domain, e.g. `/forge-system/machine/`.
     pub spiffe_machine_base_path: Option<String>,
@@ -1037,6 +1086,36 @@ pub fn create_vault_client(
     Ok(Arc::new(forge_vault_client))
 }
 
+/// Build raw vaultrs client settings for a separate vault consumer (the
+/// Transit KMS provider), with the same address, CA trust, and timeout that
+/// `ForgeVaultClient` itself connects with. Without the CA wiring, a
+/// vaultrs client only trusts public roots and fails TLS against a
+/// site-CA-signed vault.
+///
+/// Authentication is NOT at parity with `ForgeVaultClient`: this requires a
+/// static vault token in the config and does not support the Kubernetes
+/// service-account login flow. Deployments using SA auth cannot configure a
+/// transit KMS provider until that lands.
+pub fn create_raw_vault_client_settings(
+    vault_config: &VaultConfig,
+) -> eyre::Result<VaultClientSettings> {
+    let configured_ca_path = vault_config
+        .vault_cacert()
+        .unwrap_or_else(|_| DEFAULT_VAULT_CA_PATH.to_string());
+    let ca_path = resolve_vault_root_ca_path(configured_ca_path.as_str())?;
+
+    let mut builder = VaultClientSettingsBuilder::default();
+    builder
+        .token(vault_config.token()?)
+        .address(vault_config.address()?)
+        .timeout(Some(Duration::from_secs(60)))
+        .ca_certs(vec![ca_path])
+        .verify(true);
+    builder
+        .build()
+        .map_err(|e| eyre!("vault client settings: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use base64::Engine;
@@ -1058,6 +1137,14 @@ mod tests {
             machine_spiffe_uri("forge.local", "forge-system/machine", "abc-123"),
             "spiffe://forge.local/forge-system/machine/abc-123"
         );
+    }
+
+    #[test]
+    fn vault_config_spiffe_trust_domain_defaults_to_nico_local() {
+        use super::VaultConfig;
+
+        let config = VaultConfig::default();
+        assert_eq!(config.spiffe_trust_domain(), "nico.local");
     }
 
     fn jwt_from_payload(payload_value: serde_json::Value) -> String {

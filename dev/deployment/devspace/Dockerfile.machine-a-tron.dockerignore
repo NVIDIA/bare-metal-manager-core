@@ -12,3 +12,7 @@
 !include
 !include/
 !include/**
+!pxe/
+!pxe/ipxe/
+!pxe/ipxe/local/
+!pxe/ipxe/local/embed.ipxe

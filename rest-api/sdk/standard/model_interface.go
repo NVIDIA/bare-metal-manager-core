@@ -44,7 +44,8 @@ type Interface struct {
 	// A list of IPv4 or IPv6 addresses
 	IpAddresses []string `json:"ipAddresses,omitempty"`
 	// Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
-	RequestedIpAddress   NullableString                        `json:"requestedIpAddress,omitempty"`
+	RequestedIpAddress NullableString `json:"requestedIpAddress,omitempty"`
+	// Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
 	InlineRoutingProfile NullableInterfaceInlineRoutingProfile `json:"inlineRoutingProfile,omitempty"`
 	// Status of the Interface
 	Status *InterfaceStatus `json:"status,omitempty"`

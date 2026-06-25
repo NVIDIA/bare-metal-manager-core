@@ -164,10 +164,12 @@ tags:
 
       SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
   - name: InfiniBand Partition
+    x-displayName: InfiniBand Partition
     description: |-
       InfiniBand (IB) is a high-performance, low-latency networking standard designed for interconnecting servers and storage in HPC (High-Performance Computing) and AI systems,
       utilizing RDMA (Remote Direct Memory Access) to reduce CPU overhead. InfiniBand Partitions are used to group Machines into logical partitions for network isolation and load distribution.
   - name: NVLink Logical Partition
+    x-displayName: NVLink Logical Partition
     description: |-
       NVLink Logical Partitions are used to group GPUs into logical partitions for shared memory and low-latency direct communication between GPUs.
 
@@ -214,6 +216,7 @@ tags:
 
       It can be used by the Provider to describe the overlay network of a particular Site. Providers can also use Allocations to delegate portions of these IP Blocks to Tenants.
   - name: DPU Extension Service
+    x-displayName: DPU Extension Service
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
   - name: SSH Key Group
@@ -279,6 +282,39 @@ tags:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
 paths:
+  '/v2/org/{org}/nico/credential/bmc':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    put:
+      summary: Create Or Update BMC Credential
+      tags:
+        - BMC Credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BMCCredentialRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BMCCredential'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      operationId: create-or-update-bmc-credential
+      description: |-
+        Create or update a site-wide or per-BMC root credential. Equivalent
+        to `carbide-admin-cli credential add-bmc`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/service-account/current':
     parameters:
       - schema:
@@ -759,7 +795,15 @@ paths:
       operationId: delete-tenant-account
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -1023,6 +1067,14 @@ paths:
       responses:
         '202':
           description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       tags:
@@ -1449,7 +1501,15 @@ paths:
       operationId: delete-allocation
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -1874,7 +1934,15 @@ paths:
       operationId: delete-ipblock
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -2091,7 +2159,7 @@ paths:
                       vni: 12001
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
                       networkSecurityGroupPropagationDetails:
-                        id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                        objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                         detailedStatus: Partial
                         status: Synchronizing
                         details: ''
@@ -2304,9 +2372,9 @@ paths:
                       region: us-west-1
                       env: dev
                     status: Ready
-                    networkSecurityGroupId: 'c602eb90-3039-11f0-997a-b38d4fc8389e,'
+                    networkSecurityGroupId: 'c602eb90-3039-11f0-997a-b38d4fc8389e'
                     networkSecurityGroupPropagationDetails:
-                      id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                      objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       detailedStatus: Partial
                       status: Synchronizing
                       details: ''
@@ -2348,7 +2416,15 @@ paths:
       operationId: delete-vpc
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -4853,7 +4929,15 @@ paths:
       operationId: delete-infiniband-partition
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5175,7 +5259,15 @@ paths:
       operationId: delete-nvlink-logical-partition
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5224,14 +5316,6 @@ paths:
                           message: 'Request received, pending processing'
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
-                      deprecations:
-                        - queryParam: includeMachineAssociation
-                          replacedBy: includeMachineAssignment
-                          takeActionBy: '2023-07-26T00:00:00Z'
-                          notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                        - attribute: displayName
-                          takeActionBy: '2024-10-30T00:00:00Z'
-                          notice: '''displayName'' has been deprecated. Please take action immediately.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-2:
@@ -5258,14 +5342,6 @@ paths:
                           message: 'Request received, pending processing'
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
-                      deprecations:
-                        - queryParam: includeMachineAssociation
-                          replacedBy: includeMachineAssignment
-                          takeActionBy: '2023-07-26T00:00:00Z'
-                          notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                        - attribute: displayName
-                          takeActionBy: '2024-10-30T00:00:00Z'
-                          notice: '''displayName'' has been deprecated. Please take action immediately.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-3:
@@ -5293,14 +5369,6 @@ paths:
                           message: 'Request received, pending processing'
                           created: '2025-05-24T14:15:22Z'
                           updated: '2025-05-24T14:15:22Z'
-                      deprecations:
-                        - queryParam: includeMachineAssociation
-                          replacedBy: includeMachineAssignment
-                          takeActionBy: '2023-07-26T00:00:00Z'
-                          notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                        - attribute: displayName
-                          takeActionBy: '2024-10-30T00:00:00Z'
-                          notice: '''displayName'' has been deprecated. Please take action immediately.'
                       created: '2025-05-24T14:15:22Z'
                       updated: '2025-05-24T14:15:22Z'
           headers:
@@ -5442,14 +5510,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - queryParam: includeMachineAssociation
-                        replacedBy: includeMachineAssignment
-                        takeActionBy: '2023-07-26T00:00:00Z'
-                        notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                      - attribute: displayName
-                        takeActionBy: '2024-10-30T00:00:00Z'
-                        notice: '''displayName'' has been deprecated. Please take action immediately.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -5558,14 +5618,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - queryParam: includeMachineAssociation
-                        replacedBy: includeMachineAssignment
-                        takeActionBy: '2023-07-26T00:00:00Z'
-                        notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                      - attribute: displayName
-                        takeActionBy: '2024-10-30T00:00:00Z'
-                        notice: '''displayName'' has been deprecated. Please take action immediately.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -5601,7 +5653,15 @@ paths:
       operationId: delete-instance-type
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5644,14 +5704,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - queryParam: includeMachineAssociation
-                        replacedBy: includeMachineAssignment
-                        takeActionBy: '2023-07-26T00:00:00Z'
-                        notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-                      - attribute: displayName
-                        takeActionBy: '2024-10-30T00:00:00Z'
-                        notice: '''displayName'' has been deprecated. Please take action immediately.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -5845,7 +5897,15 @@ paths:
       operationId: delete-instance-type-machine-association
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -5900,7 +5960,7 @@ paths:
                       isUpdatePending: false
                       networkSecurityGroupId: 'c602eb90-3039-11f0-997a-b38d4fc8389e,'
                       networkSecurityGroupPropagationDetails:
-                        id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                        objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                         detailedStatus: Partial
                         status: Synchronizing
                         details: ''
@@ -5987,11 +6047,6 @@ paths:
                           message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
-                      deprecations:
-                        - attribute: sshkeygroups
-                          replacedBy: sshKeyGroups
-                          takeActionBy: '2025-09-04T00:00:00Z'
-                          notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-2:
@@ -6012,7 +6067,7 @@ paths:
                       userData: null
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
                       networkSecurityGroupPropagationDetails:
-                        id: 37804b21-0a00-4668-81cb-af9e1b07ad3e
+                        objectId: 37804b21-0a00-4668-81cb-af9e1b07ad3e
                         detailedStatus: Partial
                         status: Synchronizing
                         details: ''
@@ -6078,11 +6133,6 @@ paths:
                           message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
-                      deprecations:
-                        - attribute: sshkeygroups
-                          replacedBy: sshKeyGroups
-                          takeActionBy: '2025-09-04T00:00:00Z'
-                          notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups'' and will be removed on September 9th, 2025. Please update your usage accordingly.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-3:
@@ -6103,7 +6153,7 @@ paths:
                       userData: null
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
                       networkSecurityGroupPropagationDetails:
-                        id: 37804b21-0a00-4668-81cb-af9e1b07ad3e
+                        objectId: 37804b21-0a00-4668-81cb-af9e1b07ad3e
                         detailedStatus: Partial
                         status: Synchronizing
                         details: ''
@@ -6162,11 +6212,6 @@ paths:
                           message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
-                      deprecations:
-                        - attribute: sshkeygroups
-                          replacedBy: sshKeyGroups
-                          takeActionBy: '2025-09-04T00:00:00Z'
-                          notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups'' and will be removed on September 9th, 2025. Please update your usage accordingly.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
           headers:
@@ -6392,11 +6437,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - attribute: sshkeygroups
-                        replacedBy: sshKeyGroups
-                        takeActionBy: '2025-09-04T00:00:00Z'
-                        notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
                 With DPU Extension Service Deployments:
@@ -6751,7 +6791,7 @@ paths:
                     userData: null
                     networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
                     networkSecurityGroupPropagationDetails:
-                      id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                      objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       detailedStatus: Partial
                       status: Synchronizing
                       details: ''
@@ -6851,11 +6891,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - attribute: sshkeygroups
-                        replacedBy: sshKeyGroups
-                        takeActionBy: '2025-09-04T00:00:00Z'
-                        notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -6885,7 +6920,15 @@ paths:
       operationId: delete-instance
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -6977,7 +7020,6 @@ paths:
                         updated: '2019-08-24T14:15:22Z'
                       - id: 84a2cf1e-73fc-42f4-974e-33a4e9889eb9
                         instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
-                        siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
                         partitionId: 8b05d5c3-8de4-48c8-8d1c-399a8abc3ab8
                         device: 'MT2910 Family [ConnectX-7]'
                         deviceInstance: 2
@@ -7035,11 +7077,6 @@ paths:
                         message: 'Request received, pending processing'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
-                    deprecations:
-                      - attribute: sshkeygroups
-                        replacedBy: sshKeyGroups
-                        takeActionBy: '2025-09-04T00:00:00Z'
-                        notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -8198,7 +8235,15 @@ paths:
       operationId: delete-operating-system
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -9026,7 +9071,15 @@ paths:
       operationId: delete-machine
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11400,7 +11453,15 @@ paths:
       operationId: delete-network-security-group
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11971,7 +12032,15 @@ paths:
       operationId: delete-ssh-key-group
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -12258,7 +12327,15 @@ paths:
       operationId: delete-ssh-key
       responses:
         '202':
-          description: Accepted
+          description: Deletion request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAcceptedResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -12904,6 +12981,59 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
+    BMCCredentialRequest:
+      type: object
+      title: BMCCredentialRequest
+      description: Request to create or update a BMC credential.
+      required:
+        - siteId
+        - kind
+        - password
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which BMC credential to store.
+          enum:
+            - SiteWideRoot
+            - BMCRoot
+        password:
+          type: string
+          minLength: 1
+          description: Credential password.
+        username:
+          type: string
+          description: Optional username; Core defaults to "root" for BMCRoot when omitted.
+        macAddress:
+          type: string
+          description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    BMCCredential:
+      type: object
+      title: BMCCredential
+      description: BMC credential metadata returned after create or update. Password is never returned.
+      required:
+        - siteId
+        - kind
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which BMC credential was stored.
+          enum:
+            - SiteWideRoot
+            - BMCRoot
+        username:
+          type: string
+          description: Optional username; Core defaults to "root" for BMCRoot when omitted.
+        macAddress:
+          type: string
+          description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -13341,6 +13471,11 @@ components:
           items:
             $ref: '#/components/schemas/StatusDetail'
           description: 'Chronological status history for the Tenant Account'
+        deprecations:
+          type: array
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
+          items:
+            $ref: '#/components/schemas/Deprecation'
         created:
           type: string
           description: 'Date/time when the Tenant Account was created'
@@ -14136,6 +14271,11 @@ components:
         ipBlock:
           $ref: '#/components/schemas/IpBlockSummary'
           description: 'Summary of the IP Block'
+        deprecations:
+          type: array
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
+          items:
+            $ref: '#/components/schemas/Deprecation'
         created:
           type: string
           description: Date/time when the Allocation Constraint was created
@@ -14217,7 +14357,7 @@ components:
           vni: 12001
           networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
           networkSecurityGroupPropagationDetails:
-            id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+            objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
             detailedStatus: Partial
             status: Synchronizing
             details: ''
@@ -15894,14 +16034,6 @@ components:
               message: 'Request received, pending processing'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
-          deprecations:
-            - queryParam: includeMachineAssociation
-              replacedBy: includeMachineAssignment
-              takeActionBy: '2023-07-26T00:00:00Z'
-              notice: '''includeMachineAssociation'' has been deprecated in favor of ''includeMachineAssignment''. Please take action immediately.'
-            - attribute: displayName
-              takeActionBy: '2024-10-30T00:00:00Z'
-              notice: '''displayName'' has been deprecated. Please take action immediately.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -15961,7 +16093,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
-          description: 'Deprecation notices for fields returned by this resource'
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
         created:
           type: string
           description: 'Date/time when the InstanceType was created'
@@ -16223,7 +16355,7 @@ components:
           alwaysBootWithCustomIpxe: false
           networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
           networkSecurityGroupPropagationDetails:
-            id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+            objectId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
             detailedStatus: Partial
             status: Synchronizing
             details: ''
@@ -16312,11 +16444,6 @@ components:
               message: 'Request received, pending processing'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
-          deprecations:
-            - attribute: sshkeygroups
-              replacedBy: sshKeyGroups
-              takeActionBy: '2025-09-04T00:00:00Z'
-              notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
         - id: f61fbc1b-ba32-4476-aab5-5ac7c64c3f26
@@ -16392,11 +16519,6 @@ components:
               message: 'Request received, pending processing'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
-          deprecations:
-            - attribute: sshkeygroups
-              replacedBy: sshKeyGroups
-              takeActionBy: '2025-09-04T00:00:00Z'
-              notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -16550,7 +16672,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
-          description: 'Deprecation notices for fields returned by this resource'
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
         created:
           type: string
           description: 'Date/time when the Instance was created'
@@ -17523,7 +17645,7 @@ components:
           readOnly: true
         deprecations:
           type: array
-          description: List of deprecations for NVLinkInterface API object
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
           items:
             $ref: '#/components/schemas/Deprecation'
     NVLinkInterfaceStatus:
@@ -19802,11 +19924,6 @@ components:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           machineId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
           instanceTypeId: 41e36058-8403-4086-a9b8-39cb5bc9cb98
-          deprecations:
-            - attribute: id
-              replacedBy: machineId
-              takeActionBy: '2026-07-09T00:00:00Z'
-              notice: '''id'' is being deprecated in favor of ''machineId''. Please take action prior to the specified date.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -19827,7 +19944,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
-          description: 'Deprecation notices for fields returned by this resource'
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
         created:
           type: string
           description: 'Date and time the Machine Instance Type was created'
@@ -21858,7 +21975,7 @@ components:
             format: uuid
         deprecations:
           type: array
-          description: Deprecation notices for fields returned by this propagation detail
+          description: Deprecations active for this resource. Returned only if there are active deprecations.
           items:
             $ref: '#/components/schemas/Deprecation'
     NetworkSecurityGroupPropagationStatus:
@@ -22786,18 +22903,6 @@ components:
       title: Deprecation
       type: object
       description: Details of a particular deprecation in NVIDIA Infra Controller (NICo) API
-      examples:
-        - attribute: blockSize
-          replacedBy: prefixLength
-          takeActionBy: '2023-04-15T00:00:00Z'
-          notice: "'blockSize' has been deprecated in favor of 'prefixLength'. Please take action by specified date."
-        - queryParam: includeMachineAssociation
-          replacedBy: includeMachineAssignment
-          takeActionBy: '2023-07-26T00:00:00Z'
-          notice: "'includeMachineAssociation' has been deprecated in favor of 'includeMachineAssignment'. Please take action prior to the specified date"
-        - endpoint: POST /org/:orgName/nico/infrastructure-provider
-          takeActionBy: '2026-06-08T00:00:00Z'
-          notice: "'POST /org/:orgName/nico/infrastructure-provider' has been deprecated. Please take action prior to the specified date"
       properties:
         attribute:
           type:
@@ -22826,6 +22931,18 @@ components:
         notice:
           type: string
           description: Message describing the deprecation
+    DeletionAcceptedResponse:
+      title: DeletionAcceptedResponse
+      type: object
+      description: JSON body for accepted asynchronous DELETE requests
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable outcome of the delete request
+      example:
+        message: Deletion request was accepted
     NICoAPIError:
       title: NICoAPIError
       type: object
