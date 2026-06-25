@@ -106,6 +106,7 @@ impl HostMachine {
             nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
             switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
             hw_mac_addr_pool,
+            empty_ndf_mac: config.empty_ndf_mac,
         };
         let dpus = dpu_machines
             .into_iter()
@@ -182,12 +183,13 @@ impl HostMachine {
                 )
             })
             .collect::<Vec<_>>();
-        let host_info = HostMachineInfo::new(
+        let mut host_info = HostMachineInfo::new(
             config.hw_type,
             dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
             mac_pool,
             hw_pool_config,
         );
+        host_info.empty_ndf_mac = config.empty_ndf_mac;
         let dpus = dpu_machines
             .into_iter()
             .map(|d| d.start(true))

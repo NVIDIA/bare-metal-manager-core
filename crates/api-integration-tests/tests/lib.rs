@@ -193,6 +193,13 @@ async fn test_integration() -> eyre::Result<()> {
             Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
+        test_machine_a_tron_empty_ndf_mac(
+            &test_env,
+            &bmc_address_registry,
+            // Relay IP in host-inband net (zero-DPU host)
+            Ipv4Addr::new(10, 10, 11, 2),
+        )
+        .boxed(),
     ]);
 
     tokio::select! {
@@ -334,6 +341,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         1,
         1,
         false,
+        false, // empty_ndf_mac
         &test_env,
         &bmc_address_registry,
         Ipv4Addr::new(172, 20, 0, 1),
@@ -481,6 +489,7 @@ async fn test_machine_a_tron_multidpu(
         1,
         2,
         false,
+        false, // empty_ndf_mac
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -563,6 +572,7 @@ async fn test_machine_a_tron_zerodpu(
         1,
         0,
         false,
+        false, // empty_ndf_mac
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -612,6 +622,36 @@ async fn test_machine_a_tron_zerodpu(
     .await
 }
 
+/// A Dell host whose boot NIC reports an empty `NetworkDeviceFunction` MAC while
+/// its `EthernetInterface` MAC stays populated -- the NicMode-stripped / iDRAC
+/// partition case. The boot interface still resolves as a `Pair` (MAC + the
+/// interface id captured at exploration), so `PollingBiosSetup`'s `is_bios_setup`
+/// MAC lookup fails and falls back to the interface id. Reaching `Ready` proves
+/// the host no longer hangs in `HostInit` / `PollingBiosSetup`.
+async fn test_machine_a_tron_empty_ndf_mac(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        HostHardwareType::DellPowerEdgeR750,
+        1,
+        0,
+        false,
+        true, // empty_ndf_mac
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_handle| async move {
+            machine_handle
+                .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                .await?;
+            Ok::<(), eyre::Report>(())
+        },
+    )
+    .await
+}
+
 async fn test_machine_a_tron_singledpu_nic_mode(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
@@ -623,6 +663,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         1,
         1,
         true,
+        false, // empty_ndf_mac
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -686,6 +727,7 @@ async fn test_machine_a_tron_dual_stack(
         1,
         1,
         false,
+        false, // empty_ndf_mac
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -793,6 +835,7 @@ async fn test_machine_a_tron_dual_stack_l2(
         1,
         1,
         false,
+        false, // empty_ndf_mac
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -853,6 +896,7 @@ async fn run_machine_a_tron_test<F, O>(
     host_count: u32,
     dpu_per_host_count: u32,
     dpus_in_nic_mode: bool,
+    empty_ndf_mac: bool,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
@@ -896,6 +940,7 @@ where
                 scout_run_interval: Duration::from_secs(1),
                 network_virtualization_type: None,
                 dpus_in_nic_mode,
+                empty_ndf_mac,
                 dpu_firmware_versions: None,
                 dpu_agent_version: None,
             }),

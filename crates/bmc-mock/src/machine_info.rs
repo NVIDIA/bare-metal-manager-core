@@ -46,6 +46,9 @@ pub struct HostMachineInfo {
     pub nvos_mac_addresses: Vec<MacAddress>,
     pub switch_serial_number: Option<String>,
     pub hw_mac_addr_pool: MacAddressPoolConfig,
+    /// Serve an empty boot-NIC `NetworkDeviceFunction` MAC (Dell hosts only),
+    /// exercising boot-NIC resolution by interface id. Defaults to false.
+    pub empty_ndf_mac: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +180,7 @@ impl HostMachineInfo {
             switch_serial_number,
             dpus,
             hw_mac_addr_pool,
+            empty_ndf_mac: false,
         }
     }
 
@@ -393,6 +397,7 @@ impl HostMachineInfo {
                 port_1: next_mac(),
                 port_2: next_mac(),
             },
+            empty_ndf_mac: self.empty_ndf_mac,
         }
     }
 

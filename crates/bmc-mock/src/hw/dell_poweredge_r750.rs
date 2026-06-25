@@ -31,6 +31,10 @@ pub struct DellPowerEdgeR750<'a> {
     pub product_serial_number: Cow<'a, str>,
     pub nics: Vec<(hw::nic::SlotNumber, hw::nic::Nic<'a>)>,
     pub embedded_nic: EmbeddedNic,
+    /// Serve an empty `NetworkDeviceFunction` MAC for the boot NIC (its
+    /// `EthernetInterface` MAC stays populated), reproducing a NicMode-stripped
+    /// iDRAC partition where the boot NIC must be resolved by interface id.
+    pub empty_ndf_mac: bool,
 }
 
 pub struct EmbeddedNic {
@@ -194,8 +198,17 @@ impl DellPowerEdgeR750<'_> {
                 &network_adapter_id,
                 &function_id,
             );
+            // The NetworkDeviceFunction MAC normally mirrors the NIC's MAC, but a
+            // NicMode-stripped boot NIC (or an iDRAC partition) can leave it empty
+            // while the EthernetInterface still carries the MAC -- serve that
+            // asymmetry on request so the boot NIC resolves by interface id.
+            let ndf_mac_address = if self.empty_ndf_mac {
+                String::new()
+            } else {
+                nic.mac_address.to_string()
+            };
             let function = redfish::network_device_function::builder(func_resource)
-                .ethernet(json!({"MACAddress": &nic.mac_address}))
+                .ethernet(json!({"MACAddress": ndf_mac_address}))
                 .oem(redfish::oem::dell::network_device_function::dell_nic_info(
                     &function_id,
                     *slot,

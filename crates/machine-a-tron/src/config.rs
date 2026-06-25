@@ -123,6 +123,13 @@ pub struct MachineConfig {
 
     #[serde(default)]
     pub dpu_agent_version: Option<String>,
+
+    /// If true, this host's boot-NIC `NetworkDeviceFunction` reports an empty MAC
+    /// while its `EthernetInterface` MAC stays populated -- a Dell-only quirk for
+    /// exercising boot-NIC resolution by interface id. Honored only by hosts whose
+    /// hardware models a `NetworkDeviceFunction` (currently `DellPowerEdgeR750`).
+    #[serde(default)]
+    pub empty_ndf_mac: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
