@@ -144,34 +144,17 @@ impl OtlpSink {
         })
     }
 
-    /// Enqueues a parent log and, when enabled, a bounded diagnostic log.
+    /// Enqueues the emitted log record using the parent event identity.
     fn enqueue_log_event(&self, context: &EventContext, record: &LogRecord) {
-        let parent_key = self
+        let key = self
             .mapper
             .queue_key(&context.endpoint_key, &record.attributes);
-        let parent_record = record.emitted_log_record(false).into_owned();
-        let parent_event = CollectorEvent::Log(Box::new(parent_record));
+        let record = record
+            .emitted_log_record(self.include_diagnostics)
+            .into_owned();
+        let event = CollectorEvent::Log(Box::new(record));
 
-        if self
-            .queue
-            .save_latest(parent_key, (context.clone(), parent_event))
-        {
-            self.replaced_total.inc();
-        }
-
-        if !self.include_diagnostics || record.diagnostic_record.is_none() {
-            return;
-        }
-
-        let diagnostic_record = record.emitted_log_record(true).into_owned();
-        // Follow the existing OTLP queue policy: diagnostics are latest-wins
-        // per endpoint while the drain is backed up.
-        let diagnostic_key = format!("{}|diagnostic", context.endpoint_key);
-        let diagnostic_event = CollectorEvent::Log(Box::new(diagnostic_record));
-        if self
-            .queue
-            .save_latest(diagnostic_key, (context.clone(), diagnostic_event))
-        {
+        if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
         }
     }
@@ -532,7 +515,7 @@ mod tests {
         assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
-    /// Verifies parent logs keep mapper dedup while diagnostics stay bounded.
+    /// Verifies diagnostics are folded into the single latest parent log.
     #[test]
     fn diagnostic_log_record_uses_latest_wins_by_endpoint() {
         let sink = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
@@ -568,22 +551,22 @@ mod tests {
             records.push(record);
         }
 
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].body, "test");
+        assert_eq!(records.len(), 1);
 
         let diagnostic_body: serde_json::Value =
-            serde_json::from_str(&records[1].body).expect("valid diagnostic body");
+            serde_json::from_str(&records[0].body).expect("valid diagnostic body");
+        assert_eq!(diagnostic_body["message"].as_str(), Some("test"));
         assert_eq!(
             diagnostic_body["diagnostic_data"].as_str(),
             Some("payload-c")
         );
-        assert_eq!(sink.replaced_total.get() as u64, 4);
+        assert_eq!(sink.replaced_total.get() as u64, 2);
 
         assert!(
             records[0]
                 .attributes
                 .iter()
-                .all(|(key, _)| key.as_ref() != "redfish.diagnostic_data")
+                .any(|(key, _)| key.as_ref() == "redfish.parent.log_entry_id")
         );
     }
 
