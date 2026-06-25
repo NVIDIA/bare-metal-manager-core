@@ -144,8 +144,8 @@ Only explicit catalog-row mappings are emitted; unknown sources are dropped (deb
 Unit coverage that locks this behavior:
 
 - NMX-T: `test_nmxt_metric_map_locks_type_and_unit`, `test_unknown_nmxt_sources_not_allowlisted`.
-- NVUE gNMI: `test_interface_link_speed_active_gbps`, `test_platform_general_numeric_leaf_mappings`, `test_platform_general_string_leaf_is_not_exported` (string leaves emit nothing), `test_interface_numeric_leaf_table_mappings` (locks `interface_plr_bw_loss_percent` type/unit), `test_platform_general_version_info_metrics` + `test_platform_general_empty_version_string_is_not_exported` (OS/BMC/EROT version info-metrics), `test_nvue_subscribe_paths_all_enabled` (the `/platform-general/versions` subscribe path is added).
-- NVUE REST: `test_fan_max_speed_emit`, `test_fan_led_emit` (green/ok=1, amber=0, absent FAN_STATUS emits nothing) + `test_parse_platform_environment_fan_status`.
+- NVUE gNMI: `test_interface_link_speed_active_gbps`, `test_platform_general_numeric_leaf_mappings`, `test_platform_general_unmapped_string_leaf_is_not_exported` (unmapped string leaves emit nothing), `test_interface_numeric_leaf_table_mappings` (locks `interface_plr_bw_loss_percent` type/unit), `test_platform_general_version_info_metrics` + `test_platform_general_empty_version_string_is_not_exported` (OS/BMC/EROT version info-metrics), `test_nvue_subscribe_paths_all_enabled` (the `/platform-general/versions` subscribe path is added). StateSet shape (per-state 0/1 series with a `state` label, unit `state`): `test_interface_oper_status_state_set`, `test_interface_physical_port_state_enum` (polling/training => up=0/down=1), `test_interface_logical_port_state_enum`, `test_interface_phy_manager_state_enum` + `test_phy_manager_to_state_helper` (Inactive/Deactivated => up=0/down=1 substring regression), `test_component_oper_status_shared_leaf_fan_and_cpu`, `test_component_health_status_state_set` (unrecognized => unknown=1).
+- NVUE REST: `test_fan_max_speed_emit`, `test_fan_led_emit` (StateSet: green/ok => ok=1, amber => not_ok=1, absent FAN_STATUS emits nothing) + `test_parse_platform_environment_fan_status`. StateSet shape also locked by `test_system_health_mapping`, `test_partition_health_mapping`, `test_app_status_mapping`, `test_temp_state_to_state_mapping`, `test_fan_led_to_state_mapping`, and `test_platform_temperature_emit` (absent sensor `state` emits no StateSet).
 
 ## Blocker escalations (Stage 0)
 
@@ -230,7 +230,9 @@ Escalate to NMX-T owner with the NMX-T version string from the test rig.
 ### String-valued rows — RESOLVED (6 rows, now implemented)
 
 These 6 catalog rows are string-valued and were previously escalated; they are now implemented:
-- `961 PHY-MANAGER-STATE` — enum-coded to `interface_phy_manager_state` (active/linkup = 1, else 0).
+- `961 PHY-MANAGER-STATE` — emitted as a StateSet `interface_phy_manager_state` (one 0/1 series per
+  state with a `state` label; `up` when an `active`/`linkup` token matches on a word boundary, else
+  `down`).
 - `965 VL-CAPABILITIES`, `862 CONTACT`, `863 LOCATION`, `864 NODE-DESCRIPTION` — emitted as
   info-metrics (value 1 with the string carried in a label; skipped when empty, so `CONTACT`/`LOCATION`
   emit only when configured).
@@ -248,8 +250,9 @@ now has an explicit, unit-tested emit path:
 - `942 PLR-BW-LOSS-PERCENT` — gNMI `interfaces/interface/phy-diag/state/plr-bw-loss-percent`
   added to the numeric interface-leaf allowlist as `interface_plr_bw_loss_percent` (unit `percent`).
 - `967 FAN-LED` — re-sourced from NVUE REST: the `/nvue_v1/platform/environment` parent summary's
-  aggregate `FAN_STATUS.state` LED is emitted as switch-level `fan_led` (green/ok = 1.0, any other
-  state = 0.0, absent = nothing), gated on `platform_environment_status_enabled` (default true).
+  aggregate `FAN_STATUS.state` LED is emitted as switch-level `fan_led`, a StateSet (per-state 0/1
+  series with a `state` label: green/ok => `ok`, any other state => `not_ok`; absent = nothing),
+  gated on `platform_environment_status_enabled` (default true).
   The catalog's CLI LED path (`nv show platform environment led`) is not used.
 
 ### Rescue-match audit — 3 rows re-classified to ABSENT-BLOCKER (2026-06-23)
@@ -265,3 +268,90 @@ A verification pass over the 8 `RESOLVED-LIVE` rows found 3 that an earlier toke
   (`rx_power_lane_5`, `cable-proto-cap-ext`) do not exist as live SNR sources. No emit arm exists.
   Resolution: source-owner follow-up (see "Evidence to capture" step 5); keep open until an NVLink
   per-lane SNR source is identified or the rows are declared N/A for NVLink backplane switches.
+
+## NMX-T field representation validation (DEFERRED — requires live GB200 rig)
+
+These NMX-T fields had their representation changed during review (label → metric / StateSet, or
+per-sink routing). The chosen representations are **derived from source/catalog analysis, not yet
+confirmed on live hardware**, and must be validated on a real GB200 NVLink switch before merge is
+considered fully signed off.
+
+**Why this needs live verification (critical caveat).** The target firmware NVOS **25.02.2553**
+ships **NMX-T 1.3.4**, which **predates** the NMX-T Prometheus metric-vs-label renderer fix
+(**NVBug 6131830**, fixed in NMX-T 4.20.4 / 4.21.4 / 5.06.12, telemetry commit `3dd5d388`). On the
+pre-fix renderer, `/xcset/nvlink_domain_telemetry` may render the same field as a string label on
+one endpoint and a numeric gauge on another (`/metrics`), or render empty — and a `;lookup=` xcset
+suffix can flip string↔numeric. So the *actual* on-wire form of these fields on 25.02.2553 must be
+captured, not assumed. Our scraper is robust to either form (unmapped strings fall back to
+`unknown` / are dropped, never fabricated), so collection is safe regardless — but the
+representation decisions below should be re-confirmed against reality.
+
+### Capture commands (run on / against the live switch host)
+
+```bash
+# What NMX-T actually renders for the fields in question, on BOTH endpoints:
+curl -s http://<switch>:9352/metrics                       | grep -E 'local_reason_opcode|remote_reason_opcode|down_blame|fec_mode_active|Active_FEC|Module_Temperature|Status_Message'
+curl -s http://<switch>:9352/xcset/nvlink_domain_telemetry | grep -E 'local_reason_opcode|remote_reason_opcode|down_blame|Active_FEC|Module_Temperature|Status_Message' | head
+curl -s http://<switch>:9352/management/xcset/nvlink_domain_telemetry | head
+curl -s 'http://<switch>:9352/management/schema?schema_id=all' > nmxt-schema.json   # value-space / lookup tables
+# Distinct observed values per field (empirical floor for the value space):
+curl -s http://<switch>:9352/xcset/nvlink_domain_telemetry \
+  | grep -oE '(down_blame|local_reason_opcode|remote_reason_opcode|Active_FEC|Status_Message|Module_Temperature)="[^"]*"' \
+  | sort -u
+```
+
+Source-of-truth references for the value spaces (use to confirm closed-enum membership):
+NVOS `nvos/src/nvos-swss/orchagent/portsorch.h` (link-down reason opcode map `0..49`, read from
+SAI `SAI_PORT_ATTR_LINK_DOWN_{LOCAL,REMOTE}_REASON`); `Telemetry_Catalog_v4.0_Telemetry_APIs.csv`;
+NMX-T producer `gitlab-master.nvidia.com/telemetry/nmx-telemetry`.
+
+### Per-field acceptance checks
+
+1. **`cable_temperature_celsius`** (was `cable_temp` label → numeric gauge, one series/port). Confirm
+   the `Module_Temperature` label is present in the scrape; confirm our exporter emits exactly one
+   `cable_temperature_celsius` series per port with the parsed value (e.g. `"37C"→37`). On a rig with
+   **optical** modules (not just the passive backplane, which reads `0C`), confirm the value varies
+   over time **and** that no `cable_temp` *label* reappears (the churn fix). 
+2. **`down_blame`** (was label → StateSet `unknown`/`local_phy`/`remote_phy`). Confirm the live
+   string values are within that closed set; any value mapping to `unknown` that *isn't* literally
+   "Unknown" is an unmapped source token → record it and extend the mapping. Confirm exactly 3
+   series per port, exactly one `=1`. Best signal: induce/observe a link-down and confirm the active
+   state flips (`local_phy`/`remote_phy`).
+3. **`status_message`** (kept as label, **Prometheus-excluded, OTLP-only**). Confirm it is **absent**
+   from our Prometheus `/telemetry` scrape and **present** as a data-point attribute in the OTLP
+   export. Capture the distinct-value count over a soak window to confirm it is bounded (a finite
+   decode of the opcode table), not unbounded free text. If it proves unbounded/noisy in OTLP,
+   reconsider dropping or moving to the events/logs path.
+4. **`local_reason_opcode` vs `remote_reason_opcode`** (left as-is: local = string label, remote =
+   numeric `code` metric). Confirm on 25.02.2553 which form each actually renders. If **both** render
+   numeric (post-fix backport) — or if `nmxt-schema.json` exposes a stable numeric↔string map — then
+   numeric-ifying `local_reason_opcode` into a `code` metric (consistent with `remote_reason_opcode`)
+   becomes worthwhile. Until then the local=string/remote=numeric asymmetry is a documented NMX-T
+   1.3.4 source artifact, **not** our bug — do NOT hardcode a `0..49` reverse map (it differs across
+   versions, e.g. `0..37` in older customer docs).
+5. **`fec_mode_active` (`Active_FEC`)** (left as a label). Capture distinct values incl. aliases
+   (`Int_KP4_FEC_PLR` etc. vs the catalog canonical set `No_FEC` / `Firecode_FEC` / `Standard_RS_FEC`
+   / `Standard_LL_RS_FEC` / `Interleaved_Standard_RS-FEC` / `Standard_RS-FEC`). Only convert to a
+   StateSet if the alias→canonical normalization map can be sourced authoritatively; otherwise the
+   low-churn label is fine.
+
+### Cardinality observation (do this while validating)
+
+Scrape our `/telemetry` endpoint twice ~1 minute apart after collectors are warm; diff the distinct
+`(metric_type, label-set)` tuples. Expectation: stable except expected counter movement. Then induce
+a link event and re-diff — confirm the only new series are the intended StateSet flips
+(`down_blame`, port/oper state), **not** a fan-out of new label-value combinations. Record per-field
+distinct-value counts so future representation decisions have an empirical basis.
+
+### Follow-on goal (AFTER live validation): representation true-up
+
+Once the live-hardware validation above is complete, perform a deliberate **true-up** pass over the
+full NVSWITCH catalog coverage to confirm we are filling the gaps in the *best* way, not merely a
+working way:
+- Re-confirm each chosen source and representation against observed live data.
+- Revisit label-vs-metric-vs-StateSet decisions with **real cardinality numbers** (not estimates).
+- Re-examine the 16 ABSENT-BLOCKER rows for newly-available sources — especially cable optical
+  telemetry, the RDMA queue counters under active load, OS-KERNEL, and TIME-SINCE-LAST-CLEAR.
+- Reconcile the matrix to reality.
+
+This is sequenced strictly **after** hardware validation: validate what we built, then optimize.

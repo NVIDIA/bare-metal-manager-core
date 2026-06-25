@@ -46,7 +46,7 @@ conditions.
   - 942 PLR-BW-LOSS-PERCENT → gNMI `interfaces/interface/phy-diag/state/plr-bw-loss-percent`
     (`interface_plr_bw_loss_percent`, percent).
   - 967 FAN-LED → NVUE REST `/nvue_v1/platform/environment` `FAN_STATUS.state` (`fan_led`,
-    green/ok=1 else 0).
+    StateSet: `state` label, 0/1 per state — green/ok => ok, else not_ok).
   - Audit note: an earlier pass token-matched 3 further rows (870 CPU_CORE_NUMBER, 2294
     CABLE-SNR-MEDIA-LANE-N, 2295 CABLE-SNR-HOST-LANE-N) on spurious substrings; on verification no
     lane emits them, so they were re-classified to ABSENT-BLOCKER (see "Notes on blocker rows").
@@ -55,7 +55,11 @@ conditions.
     `*-CRITICAL/MAX/STATE` rows (`.crit`/`.max`/`.state`) and the 8 `*-TEMP-CURRENT` rows
     (`.current`), emitted per sensor as `platform_temperature{,_max,_critical,_state}` with a `sensor` label.
   - gNMI `platform-general` subscribe path → the 4 memory/disk rows (`886-889`).
-  - String rows → `interface_phy_manager_state` (enum-coded), `*_info` info-metrics, and the existing `component_name` label (`ASIC-NAME`).
+  - String rows → `interface_phy_manager_state` (StateSet: `state` label, 0/1 per state), `*_info` info-metrics, and the existing `component_name` label (`ASIC-NAME`).
+  - 947 DOWN-BLAME → NMX-T `down_blame` emitted as a StateSet `down_blame` (`state` label:
+    unknown/local_phy/remote_phy, 0/1 per state), one series per port (no longer a re-exported label).
+  - 946 STATUS-MESSAGE → NMX-T `status_message` is free-text; emitted as an OTLP-only data-point
+    attribute (`status_message`) and excluded from Prometheus series to bound cardinality.
 
 ## Notes on blocker rows
 

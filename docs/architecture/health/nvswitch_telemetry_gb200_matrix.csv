@@ -102,8 +102,8 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 943,RQ-GENERAL-ERROR,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 944,TIME-TO-LINKS-UP,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 945,STATUS-OPCODE,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
-946,STATUS-MESSAGE,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
-947,DOWN-BLAME,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
+946,STATUS-MESSAGE,NMX-T explicit allowlist,PRESENT,implemented,OTLP-only label status_message; excluded from Prometheus series to bound cardinality
+947,DOWN-BLAME,NMX-T explicit allowlist,PRESENT,implemented,StateSet down_blame (state label unknown/local_phy/remote_phy 0/1 per state) one series per port
 948,LOCAL-REASON-OPCODE,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 949,REMOTE-REASON-OPCODE,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 950,PHY-RECEIVED-BITS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
@@ -117,13 +117,13 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 958,PORT-LOOPING-ERRORS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 959,PORT-INACTIVE-DISCARDS,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 960,LINK-WIDTH-ACTIVE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-961,PHY-MANAGER-STATE,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi enum-coded interface_phy_manager_state
+961,PHY-MANAGER-STATE,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi interface_phy_manager_state StateSet (state label, 0/1 per state)
 962,MTU,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 963,MAX-SUPPORTED-MTU,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 964,SUPPORTED-WIDTH,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
 965,VL-CAPABILITIES,NVOS gNMI explicit allowlist,IMPLEMENTED,implemented,gnmi info metric interface_vl_capabilities_info
 966,FAN-STATE,NVOS gNMI explicit allowlist,PRESENT,implemented,gnmi exact
-967,FAN-LED,NVUE REST explicit mapping,IMPLEMENTED,implemented,nvue-rest /nvue_v1/platform/environment FAN_STATUS.state -> fan_led (green/ok=1 else 0)
+967,FAN-LED,NVUE REST explicit mapping,IMPLEMENTED,implemented,nvue-rest /nvue_v1/platform/environment FAN_STATUS.state -> fan_led StateSet (state label, 0/1 per state: green/ok=ok else not_ok)
 968,CABLE-PART-NUMBER,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 969,CABLE-SERIAL-NUMBER,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
 970,CABLE-TRANSMITTER-TECHNOLOGY,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
@@ -136,7 +136,7 @@ catalog_row,metric_param_name,corrected_primary_source,final_status,disposition,
 977,CABLE-RX-POWER-LANE0,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 978,CABLE-RX-POWER-LANE1,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
 979,CABLE-DIAG-SUPPLY-VOLTAGE,NMX-T explicit allowlist,PRESENT,implemented,nmxt family
-980,CABLE-TEMP,NMX-T explicit allowlist,PRESENT,implemented,nmxt label dim
+980,CABLE-TEMP,NMX-T explicit allowlist,PRESENT,implemented,numeric metric cable_temperature_celsius (celsius) parsed from NMX-T Module_Temperature label; one series per port
 981,CABLE-TEMP-ALARM,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/transceiver-diag/state/temp-high-alarm-flag
 982,CABLE-VOLTAGE-ALARM,NVOS gNMI explicit allowlist,ABSENT-BLOCKER,blocker,gnmi leaf not live: /components/component/transceiver/physical-channels/transceiver-diag/state/vcc-high-alarm-flag
 983,CABLE-TX-CDR-LOL,NMX-T explicit allowlist,PRESENT,implemented,nmxt cable fault flag (re-sourced; gNMI transceiver path absent on NVLink)
