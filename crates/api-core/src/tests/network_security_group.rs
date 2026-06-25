@@ -36,6 +36,7 @@ use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, interface_network_config_with_devices,
     single_interface_network_config,
 };
+use crate::tests::common::api_fixtures::test_managed_host::TestManagedHost;
 use crate::tests::common::api_fixtures::{
     create_test_env, populate_network_security_groups, site_explorer,
 };
@@ -1760,7 +1761,6 @@ async fn test_network_security_group_get_attachments(
     let good_network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
 
     let vpc_id: VpcId = uuid!("2ff5ba26-da6a-11ef-9c48-5b78e547a5e7").into();
-    let instance_id: InstanceId = uuid!("46c555e0-da6a-11ef-b86d-db132142d068").into();
 
     // Check attachments before doing anything else.
     // There should be no objects with any attached NSG.
@@ -1806,32 +1806,23 @@ async fn test_network_security_group_get_attachments(
         .await
         .unwrap();
 
+    let test_managed_host =
+        TestManagedHost::from_rpc_machine(&mh.host_snapshot.clone().into(), env.api.clone());
     // Create an Instance
-    let _ = env
-        .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
-                os: Some(default_os_config()),
-                network: Some(single_interface_network_config(segment_id)),
-                infiniband: None,
-                nvlink: None,
-                spxconfig: None,
-                network_security_group_id: Some(good_network_security_group_id.to_string()),
-                dpu_extension_services: None,
-            }),
-            instance_id: Some(instance_id),
-            instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
-                name: "newinstance".to_string(),
-                description: "desc".to_string(),
-                labels: vec![],
-            }),
-            allow_unhealthy_machine: false,
-        }))
-        .await
-        .unwrap();
+    let instance = test_managed_host
+        .instance_builer(&env)
+        .config(rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(default_os_config()),
+            network: Some(single_interface_network_config(segment_id)),
+            infiniband: None,
+            nvlink: None,
+            spxconfig: None,
+            network_security_group_id: Some(good_network_security_group_id.to_string()),
+            dpu_extension_services: None,
+        })
+        .build()
+        .await;
 
     // Check attachments
     let prop_status = env
@@ -1849,21 +1840,15 @@ async fn test_network_security_group_get_attachments(
         attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
             network_security_group_id: good_network_security_group_id.to_string(),
             vpc_ids: vec![vpc_id.to_string()],
-            instance_ids: vec![instance_id.to_string()],
+            instance_ids: vec![instance.id.to_string()],
         }],
     };
 
     assert_eq!(prop_status, expected_results);
 
-    // Delete the instance
-    env.api
-        .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
-            id: Some(instance_id),
-            issue: None,
-            is_repair_tenant: None,
-        }))
-        .await
-        .unwrap();
+    // Delete the instance and wait for it to be fully gone
+    test_managed_host.delete_instance(&env, instance.id).await;
+
     // Delete the VPC
     env.api
         .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {

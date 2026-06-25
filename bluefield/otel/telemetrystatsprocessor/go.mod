@@ -1,3 +1,3 @@
 module telemetrystatsprocessor
 
-go 1.22
+go 1.25.11

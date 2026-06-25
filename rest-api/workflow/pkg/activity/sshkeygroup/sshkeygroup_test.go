@@ -810,13 +810,17 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupStatusInDB(t *testing.T) {
 
 				// Verify all SSHKeyAssociations are deleted
 				skaDAO := cdbm.NewSSHKeyAssociationDAO(dbSession)
-				_, skasCnt, err := skaDAO.GetAll(context.Background(), nil, nil, []uuid.UUID{tt.args.skg.ID}, nil, nil, nil, nil)
+				_, skasCnt, err := skaDAO.GetAll(context.Background(), nil, cdbm.SSHKeyAssociationFilterInput{
+					SSHKeyGroupIDs: []uuid.UUID{tt.args.skg.ID},
+				}, cdbp.PageInput{}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 0, skasCnt)
 
 				// Verify SSHKeyGroupInstanceAssociations are deleted
 				skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(dbSession)
-				_, skgiasCnt, err := skgiaDAO.GetAll(context.Background(), nil, []uuid.UUID{tt.args.skg.ID}, nil, nil, nil, nil, nil, nil)
+				_, skgiasCnt, err := skgiaDAO.GetAll(context.Background(), nil, cdbm.SSHKeyGroupInstanceAssociationFilterInput{
+					SSHKeyGroupIDs: []uuid.UUID{tt.args.skg.ID},
+				}, cdbp.PageInput{}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 0, skgiasCnt)
 			}
@@ -916,7 +920,11 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 	assert.NotNil(t, skgsa7)
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(dbSession)
-	skgsa7, err = skgsaDAO.UpdateFromParams(ctx, nil, skgsa7.ID, nil, nil, nil, cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cutil.GetPtr(true))
+	skgsa7, err = skgsaDAO.Update(ctx, nil, cdbm.SSHKeyGroupSiteAssociationUpdateInput{
+		ID:              skgsa7.ID,
+		Status:          cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusError),
+		IsMissingOnSite: cutil.GetPtr(true),
+	})
 	assert.NoError(t, err)
 
 	// Build SSHKeyGroup8

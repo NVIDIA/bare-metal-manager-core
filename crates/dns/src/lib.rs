@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 use dns_record::DnsResourceRecordType;
 use eyre::Report;
 use hickory_resolver::proto::op::ResponseCode;
+use hickory_resolver::proto::rr::rdata::PTR;
 use hickory_resolver::proto::rr::{DNSClass, Name, RData};
 use hickory_server::net::runtime::Time;
 use hickory_server::proto::op::Metadata;
@@ -134,6 +135,39 @@ fn classify_failure(code: tonic::Code) -> NegativeClassification {
     NegativeClassification { code, transient }
 }
 
+/// Builds the hickory `RData` for a supported record type from the API's string
+/// `content`, logging and dropping the record when the content does not parse.
+/// `handle_request` only dispatches the supported types here, so any other qtype
+/// yields `None`.
+fn content_to_rdata(qtype: DnsResourceRecordType, content: &str) -> Option<RData> {
+    match qtype {
+        DnsResourceRecordType::A => match content.parse::<std::net::Ipv4Addr>() {
+            Ok(ip) => Some(RData::A(ip.into())),
+            Err(e) => {
+                warn!(%content, error = %e, "Failed to parse IPv4 address");
+                None
+            }
+        },
+        DnsResourceRecordType::AAAA => match content.parse::<std::net::Ipv6Addr>() {
+            Ok(ip) => Some(RData::AAAA(ip.into())),
+            Err(e) => {
+                warn!(%content, error = %e, "Failed to parse IPv6 address");
+                None
+            }
+        },
+        // The content is the target FQDN; PTR is a name, unlike the address-valued
+        // A/AAAA records.
+        DnsResourceRecordType::PTR => match content.parse::<Name>() {
+            Ok(name) => Some(RData::PTR(PTR(name))),
+            Err(e) => {
+                warn!(%content, error = %e, "Failed to parse PTR target name");
+                None
+            }
+        },
+        _ => None,
+    }
+}
+
 #[async_trait::async_trait]
 impl RequestHandler for DnsServer {
     async fn handle_request<R: ResponseHandler, T: Time>(
@@ -167,10 +201,14 @@ impl RequestHandler for DnsServer {
             let start = Instant::now();
 
             // Only handle types that DnsResourceRecordType supports and that we can build
-            // RData for; return NotImp for everything else. Currently, A and AAAA are
-            // supported; add arms here as the API and RData parsing are extended.
+            // RData for; return NotImp for everything else. Currently A, AAAA, and PTR
+            // are supported; add arms here as the API and RData parsing are extended.
             let dns_qtype = match DnsResourceRecordType::try_from(qtype.to_string().as_str()) {
-                Ok(t @ (DnsResourceRecordType::A | DnsResourceRecordType::AAAA)) => t,
+                Ok(
+                    t @ (DnsResourceRecordType::A
+                    | DnsResourceRecordType::AAAA
+                    | DnsResourceRecordType::PTR),
+                ) => t,
                 _ => {
                     warn!(%qname, %qtype, "Unsupported query type");
                     let response = MessageResponseBuilder::from_message_request(request);
@@ -345,24 +383,7 @@ impl DnsServer {
             // The API returns all record types for the qname; keep only the requested type.
             .filter(|r| DnsResourceRecordType::try_from(r.qtype.as_str()).ok() == Some(qtype))
             .filter_map(|r| {
-                let rdata = match qtype {
-                    DnsResourceRecordType::A => {
-                        let ip = r.content.parse::<std::net::Ipv4Addr>().map_err(|e| {
-                            warn!(content = %r.content, error = %e, "Failed to parse IPv4 address");
-                            e
-                        }).ok()?;
-                        RData::A(ip.into())
-                    }
-                    DnsResourceRecordType::AAAA => {
-                        let ip = r.content.parse::<std::net::Ipv6Addr>().map_err(|e| {
-                            warn!(content = %r.content, error = %e, "Failed to parse IPv6 address");
-                            e
-                        }).ok()?;
-                        RData::AAAA(ip.into())
-                    }
-                    // Unreachable: handle_request only dispatches A and AAAA to this function.
-                    _ => return None,
-                };
+                let rdata = content_to_rdata(qtype, &r.content)?;
                 // hickory infers the record type from the rdata; set the class
                 // explicitly since `from_rdata` defaults it.
                 let mut record = Record::from_rdata(record_name.clone(), r.ttl, rdata);
@@ -481,32 +502,75 @@ mod tests {
 
     #[test]
     fn classify_failure_maps_grpc_codes_to_dns_response_codes() {
+        use carbide_test_support::value_scenarios;
         use tonic::Code;
 
-        let cases = [
-            (Code::NotFound, ResponseCode::NXDomain, false),
-            (Code::InvalidArgument, ResponseCode::FormErr, false),
-            (Code::Unimplemented, ResponseCode::NotImp, false),
-            (Code::PermissionDenied, ResponseCode::Refused, false),
-            (Code::Unauthenticated, ResponseCode::Refused, false),
-            (Code::Internal, ResponseCode::ServFail, true),
-            (Code::Unavailable, ResponseCode::ServFail, true),
-            (Code::DeadlineExceeded, ResponseCode::ServFail, true),
-            (Code::ResourceExhausted, ResponseCode::ServFail, true),
-            (Code::Aborted, ResponseCode::ServFail, true),
-            (Code::Unknown, ResponseCode::ServFail, true),
-        ];
-
-        for (code, expected_code, expected_transient) in cases {
-            let classification = classify_failure(code);
-            assert_eq!(
-                classification.code, expected_code,
-                "response code for {code:?}"
-            );
-            assert_eq!(
-                classification.transient, expected_transient,
-                "transience for {code:?}"
-            );
+        /// The classification a gRPC code is expected to produce: the DNS
+        /// response code returned to the client and whether it is transient.
+        #[derive(Debug, PartialEq)]
+        struct Expected {
+            code: ResponseCode,
+            transient: bool,
         }
+
+        value_scenarios!(
+            run = |code| {
+                let NegativeClassification { code, transient } = classify_failure(code);
+                Expected { code, transient }
+            };
+            "stable, authoritative negatives" {
+                // The name genuinely does not exist.
+                Code::NotFound => Expected { code: ResponseCode::NXDomain, transient: false },
+                // A malformed query stays malformed on retry.
+                Code::InvalidArgument => Expected { code: ResponseCode::FormErr, transient: false },
+                // The upstream does not implement this qtype/operation.
+                Code::Unimplemented => Expected { code: ResponseCode::NotImp, transient: false },
+            }
+            "policy refusals" {
+                Code::PermissionDenied => Expected { code: ResponseCode::Refused, transient: false },
+                Code::Unauthenticated => Expected { code: ResponseCode::Refused, transient: false },
+            }
+            "transient failures cached briefly as ServFail" {
+                Code::Internal => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Unavailable => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::DeadlineExceeded => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::ResourceExhausted => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Aborted => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Cancelled => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::AlreadyExists => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::FailedPrecondition => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::OutOfRange => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::DataLoss => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Ok => Expected { code: ResponseCode::ServFail, transient: true },
+                Code::Unknown => Expected { code: ResponseCode::ServFail, transient: true },
+            }
+        );
+    }
+
+    #[test]
+    fn content_to_rdata_builds_supported_types_and_drops_unparseable() {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |(qtype, content): (DnsResourceRecordType, &str)| content_to_rdata(qtype, content);
+            "supported types build the matching RData" {
+                (DnsResourceRecordType::A, "192.0.2.1")
+                    => Some(RData::A(Ipv4Addr::new(192, 0, 2, 1).into())),
+                (DnsResourceRecordType::AAAA, "fd00::1")
+                    => Some(RData::AAAA("fd00::1".parse::<Ipv6Addr>().unwrap().into())),
+                // A PTR's content is the target FQDN, which round-trips into the RData.
+                (DnsResourceRecordType::PTR, "host.example.com.")
+                    => Some(RData::PTR(PTR("host.example.com.".parse::<Name>().unwrap()))),
+            }
+            "unparseable content is dropped rather than panicked on" {
+                (DnsResourceRecordType::A, "not-an-ip") => None,
+                (DnsResourceRecordType::AAAA, "192.0.2.1") => None,
+            }
+            "a type the gate never dispatches here yields nothing" {
+                (DnsResourceRecordType::SOA, "unused") => None,
+            }
+        );
     }
 }

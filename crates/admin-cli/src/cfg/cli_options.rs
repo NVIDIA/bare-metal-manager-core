@@ -25,10 +25,26 @@ use crate::{
     ipxe_template, jump, machine, machine_interfaces, machine_validation, managed_host,
     managed_switch, mlx, network_devices, network_security_group, network_segment, nvl_domain,
     nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints, operating_system, os_image, ping,
-    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
-    sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
-    vpc_peering, vpc_prefix,
+    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, secrets, set,
+    site_explorer, sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table,
+    version, vpc, vpc_peering, vpc_prefix,
 };
+
+const MAX_INTERNAL_PAGE_SIZE: usize = 100;
+
+fn parse_internal_page_size(value: &str) -> Result<usize, String> {
+    let page_size = value
+        .parse::<usize>()
+        .map_err(|err| format!("invalid internal page size: {err}"))?;
+
+    if (1..=MAX_INTERNAL_PAGE_SIZE).contains(&page_size) {
+        Ok(page_size)
+    } else {
+        Err(format!(
+            "internal page size must be between 1 and {MAX_INTERNAL_PAGE_SIZE}"
+        ))
+    }
+}
 
 #[derive(Parser, Debug)]
 #[clap(name = "nico-admin-cli")]
@@ -111,7 +127,12 @@ pub struct CliOptions {
     #[clap(subcommand)]
     pub commands: Option<CliCommand>,
 
-    #[clap(short = 'p', long, default_value_t = 100)]
+    #[clap(
+        short = 'p',
+        long,
+        default_value_t = 100,
+        value_parser = parse_internal_page_size
+    )]
     #[clap(help = "For commands that internally retrieve data with paging, use this page size.")]
     pub internal_page_size: usize,
 
@@ -202,6 +223,8 @@ pub enum CliCommand {
     ExtensionService(extension_service::Cmd),
     #[clap(about = "Firmware related actions", subcommand)]
     Firmware(firmware::Cmd),
+    #[clap(about = "Secrets management", subcommand)]
+    Secrets(secrets::Cmd),
     #[clap(
         about = "Regenerate the docs/manuals/nico-admin-cli markdown reference",
         hide = true
@@ -448,7 +471,8 @@ pub fn domain_for_command(name: &str) -> Option<CliDomain> {
 mod tests {
     use std::collections::HashSet;
 
-    use clap::CommandFactory;
+    use clap::error::ErrorKind;
+    use clap::{CommandFactory, Parser};
 
     use super::{COMMAND_DOMAINS, CliOptions, domain_for_command};
 
@@ -493,5 +517,29 @@ mod tests {
             "cli_domains.yaml lists commands that are not real top-level \
              commands; rename or remove them: {stale:?}"
         );
+    }
+
+    #[test]
+    fn internal_page_size_rejects_zero() {
+        let err = CliOptions::try_parse_from(["nico-admin-cli", "--internal-page-size", "0"])
+            .expect_err("zero page size should be rejected");
+
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn internal_page_size_rejects_values_above_max() {
+        let err = CliOptions::try_parse_from(["nico-admin-cli", "--internal-page-size", "101"])
+            .expect_err("page sizes above max should be rejected");
+
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn internal_page_size_accepts_valid_values() {
+        let opts = CliOptions::try_parse_from(["nico-admin-cli", "--internal-page-size", "100"])
+            .expect("valid page size should parse");
+
+        assert_eq!(opts.internal_page_size, 100);
     }
 }

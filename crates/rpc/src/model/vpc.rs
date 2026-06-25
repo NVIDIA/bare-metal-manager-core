@@ -36,46 +36,64 @@ impl From<rpc::forge::VpcSearchFilter> for VpcSearchFilter {
     }
 }
 
+#[allow(deprecated)]
 impl From<Vpc> for rpc::forge::Vpc {
     fn from(src: Vpc) -> Self {
+        let allocated_vni = src.status.vni.map(|v| v as u32);
+        let desired_vni = src.config.vni.map(|v| v as u32);
+        let virt_type =
+            rpc::forge::VpcVirtualizationType::from(src.config.network_virtualization_type) as i32;
+        let nsg_id = src
+            .config
+            .network_security_group_id
+            .map(|nsg_id| nsg_id.to_string());
+        let metadata = Some(rpc::Metadata {
+            name: src.metadata.name,
+            description: src.metadata.description,
+            labels: src
+                .metadata
+                .labels
+                .iter()
+                .map(|(key, value)| rpc::forge::Label {
+                    key: key.clone(),
+                    value: if value.clone().is_empty() {
+                        None
+                    } else {
+                        Some(value.clone())
+                    },
+                })
+                .collect(),
+        });
+
         rpc::forge::Vpc {
             id: Some(src.id),
             version: src.version.version_string(),
-            tenant_organization_id: src.tenant_organization_id,
-            network_security_group_id: src
-                .network_security_group_id
-                .map(|nsg_id| nsg_id.to_string()),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
             deleted: src.deleted.map(|t| t.into()),
-            tenant_keyset_id: src.tenant_keyset_id,
-            deprecated_vni: src.status.as_ref().and_then(|x| x.vni.map(|v| v as u32)),
-            vni: src.vni.map(|x| x as u32),
-            network_virtualization_type: Some(
-                rpc::forge::VpcVirtualizationType::from(src.network_virtualization_type).into(),
-            ),
-            status: src.status.map(rpc::forge::VpcStatus::from),
-            routing_profile_type: src.routing_profile_type,
-            metadata: {
-                Some(rpc::Metadata {
-                    name: src.metadata.name,
-                    description: src.metadata.description,
-                    labels: src
-                        .metadata
-                        .labels
-                        .iter()
-                        .map(|(key, value)| rpc::forge::Label {
-                            key: key.clone(),
-                            value: if value.clone().is_empty() {
-                                None
-                            } else {
-                                Some(value.clone())
-                            },
-                        })
-                        .collect(),
-                })
-            },
-            default_nvlink_logical_partition_id: None,
+            metadata,
+
+            config: Some(rpc::forge::VpcConfig {
+                tenant_organization_id: src.config.tenant_organization_id.clone(),
+                tenant_keyset_id: src.config.tenant_keyset_id.clone(),
+                network_virtualization_type: Some(virt_type),
+                network_security_group_id: nsg_id.clone(),
+                default_nvlink_logical_partition_id: src.config.default_nvlink_logical_partition_id,
+                vni: desired_vni,
+                routing_profile_type: src.config.routing_profile_type.clone(),
+            }),
+            status: Some(rpc::forge::VpcStatus::from(src.status)),
+
+            // Deprecated flat fields - populated for external client compatibility.
+            // Remove after rest component use VpcConfig/VpcStatus
+            tenant_organization_id: src.config.tenant_organization_id,
+            tenant_keyset_id: src.config.tenant_keyset_id,
+            deprecated_vni: allocated_vni,
+            vni: desired_vni,
+            network_virtualization_type: Some(virt_type),
+            network_security_group_id: nsg_id,
+            default_nvlink_logical_partition_id: src.config.default_nvlink_logical_partition_id,
+            routing_profile_type: src.config.routing_profile_type,
         }
     }
 }
@@ -233,9 +251,64 @@ impl From<VpcPeering> for rpc::forge::VpcPeering {
 
 #[cfg(test)]
 mod tests {
+    use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_test_support::value_scenarios;
+    use carbide_uuid::vpc::VpcId;
+    use model::vpc::VpcConfig;
 
     use super::*;
+
+    fn sample_vpc() -> Vpc {
+        Vpc {
+            id: VpcId::from(uuid::Uuid::new_v4()),
+            version: ConfigVersion::initial(),
+            config: VpcConfig {
+                tenant_organization_id: "tenant-1".to_string(),
+                tenant_keyset_id: Some("keyset-1".to_string()),
+                network_virtualization_type: VpcVirtualizationType::Fnn,
+                network_security_group_id: None,
+                default_nvlink_logical_partition_id: None,
+                vni: Some(42),
+                routing_profile_type: Some("EXTERNAL".to_string()),
+            },
+            status: VpcStatus { vni: Some(100) },
+            metadata: Metadata::new_with_default_name(),
+            created: chrono::Utc::now(),
+            updated: chrono::Utc::now(),
+            deleted: None,
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn vpc_to_rpc_populates_structured_and_deprecated_flat_fields() {
+        let vpc = sample_vpc();
+        let rpc_vpc = rpc::forge::Vpc::from(vpc);
+
+        let config = rpc_vpc.config.as_ref().expect("config must be set");
+        assert_eq!(config.tenant_organization_id, "tenant-1");
+        assert_eq!(config.tenant_keyset_id.as_deref(), Some("keyset-1"));
+        assert_eq!(config.vni, Some(42));
+        assert_eq!(config.routing_profile_type.as_deref(), Some("EXTERNAL"));
+        assert_eq!(
+            config.network_virtualization_type,
+            Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
+        );
+
+        let status = rpc_vpc.status.as_ref().expect("status must be set");
+        assert_eq!(status.vni, Some(100));
+
+        assert_eq!(rpc_vpc.tenant_organization_id, "tenant-1");
+        assert_eq!(rpc_vpc.tenant_keyset_id.as_deref(), Some("keyset-1"));
+        assert_eq!(rpc_vpc.vni, Some(42));
+        assert_eq!(rpc_vpc.deprecated_vni, Some(100));
+        assert_eq!(rpc_vpc.routing_profile_type.as_deref(), Some("EXTERNAL"));
+        assert_eq!(
+            rpc_vpc.network_virtualization_type,
+            Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
+        );
+        assert_eq!(status.vni, rpc_vpc.deprecated_vni);
+    }
 
     // `VpcSearchFilter::from` is a total conversion, so we project its output to
     // the fields the originals asserted: name, tenant_org_id, and the label as its

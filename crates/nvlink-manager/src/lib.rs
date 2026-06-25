@@ -21,6 +21,7 @@ mod errors;
 mod metrics;
 pub mod nmx_c_endpoint;
 pub mod nvlink;
+mod switch_cert_monitor;
 
 use std::io;
 use std::sync::Arc;
@@ -55,6 +56,8 @@ use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnap
 use model::nvl_logical_partition::LogicalPartition;
 use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
+#[cfg(feature = "test-support")]
+pub use switch_cert_monitor::{SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -877,6 +880,66 @@ pub struct NvlPartitionMonitor {
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
+}
+
+pub struct NvLinkManager {
+    db_pool: PgPool,
+    nmxc_client_pool: Arc<dyn NmxcPool>,
+    meter: opentelemetry::metrics::Meter,
+    config: NvLinkConfig,
+    host_health: HostHealthConfig,
+    work_lock_manager_handle: WorkLockManagerHandle,
+}
+
+impl NvLinkManager {
+    pub fn new(
+        db_pool: PgPool,
+        nmxc_client_pool: Arc<dyn NmxcPool>,
+        meter: opentelemetry::metrics::Meter,
+        config: NvLinkConfig,
+        host_health: HostHealthConfig,
+        work_lock_manager_handle: WorkLockManagerHandle,
+    ) -> Self {
+        Self {
+            db_pool,
+            nmxc_client_pool,
+            meter,
+            config,
+            host_health,
+            work_lock_manager_handle,
+        }
+    }
+
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
+        NvlPartitionMonitor::new(
+            self.db_pool.clone(),
+            self.nmxc_client_pool,
+            self.meter.clone(),
+            self.config.clone(),
+            self.host_health,
+            self.work_lock_manager_handle.clone(),
+        )
+        .start(join_set, cancel_token.clone())?;
+
+        if self.config.nmx_c_certificate_rotation.enabled {
+            let switch_cert_monitor = switch_cert_monitor::SwitchCertificateMonitor::new(
+                self.db_pool,
+                self.meter,
+                self.config,
+                self.work_lock_manager_handle,
+            );
+            join_set
+                .build_task()
+                .name("nmx-c-switch-cert-monitor")
+                .spawn(async move { switch_cert_monitor.run(cancel_token).await })?;
+        }
+
+        Ok(())
+    }
 }
 
 struct CheckPartitionsInput {

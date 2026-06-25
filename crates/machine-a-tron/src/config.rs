@@ -333,8 +333,6 @@ pub struct PersistedHostMachine {
     pub observed_machine_id: Option<MachineId>,
     pub installed_os: OsImage,
     pub tpm_ek_certificate: Option<Vec<u8>>,
-    pub machine_dhcp_id: Uuid,
-    pub bmc_dhcp_id: Uuid,
 }
 
 impl From<PersistedHostMachine> for HostMachineInfo {
@@ -361,8 +359,6 @@ pub struct PersistedDpuMachine {
     pub serial: String,
     pub installed_os: OsImage,
     pub dpu_index: u8,
-    pub machine_dhcp_id: Uuid,
-    pub bmc_dhcp_id: Uuid,
     #[serde(flatten)]
     pub settings: DpuSettings,
 }

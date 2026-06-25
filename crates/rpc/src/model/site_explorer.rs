@@ -19,9 +19,9 @@ use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationReport, EthernetInterface, ExploredDpu, ExploredEndpoint,
     ExploredEndpointSearchFilter, ExploredManagedHost, ExploredManagedHostSearchFilter,
-    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
-    Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, SecureBootStatus, Service,
-    SiteExplorationReport, SystemStatus,
+    ExploredMlxDevice, InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff,
+    MachineSetupStatus, Manager, MlxDeviceKind, NetworkAdapter, NicMode, PCIeDevice, PowerState,
+    SecureBootStatus, Service, SiteExplorationReport, SystemStatus,
 };
 
 use crate as rpc;
@@ -128,6 +128,38 @@ impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
         rpc::site_explorer::SiteExplorationReport {
             endpoints: report.endpoints.into_iter().map(Into::into).collect(),
             managed_hosts: report.managed_hosts.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<MlxDeviceKind> for rpc::site_explorer::MlxDeviceKind {
+    fn from(kind: MlxDeviceKind) -> Self {
+        match kind {
+            MlxDeviceKind::Bf3NicMode => rpc::site_explorer::MlxDeviceKind::Bf3NicMode,
+            MlxDeviceKind::Bf3DpuMode => rpc::site_explorer::MlxDeviceKind::Bf3DpuMode,
+            MlxDeviceKind::Bf3SuperNic => rpc::site_explorer::MlxDeviceKind::Bf3SuperNic,
+            MlxDeviceKind::Bf2Dpu => rpc::site_explorer::MlxDeviceKind::Bf2Dpu,
+            MlxDeviceKind::Unknown => rpc::site_explorer::MlxDeviceKind::Unknown,
+        }
+    }
+}
+
+impl From<ExploredMlxDevice> for rpc::site_explorer::ExploredMlxDevice {
+    fn from(device: ExploredMlxDevice) -> Self {
+        rpc::site_explorer::ExploredMlxDevice {
+            host_bmc_ip: device.host_bmc_ip.to_string(),
+            machine_id: device.machine_id.map(|id| id.to_string()),
+            device_kind: rpc::site_explorer::MlxDeviceKind::from(device.device_kind) as i32,
+            pcie_id: device.pcie_id,
+            part_number: device.part_number,
+            serial_number: device.serial_number,
+            firmware_version: device.firmware_version,
+            description: device.description,
+            dpu_bmc_ip: device.dpu_bmc_ip.map(|ip| ip.to_string()),
+            nic_mode: device.nic_mode.map(|m| match m {
+                NicMode::Nic => rpc::site_explorer::NicMode::Nic as i32,
+                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu as i32,
+            }),
         }
     }
 }

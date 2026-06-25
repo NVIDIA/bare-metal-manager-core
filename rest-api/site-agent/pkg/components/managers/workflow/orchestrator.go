@@ -215,6 +215,11 @@ func workflowOrchestrator() error {
 
 	// Register all manager flows here
 	// TODO: all RegisterSubscriber calls return an error and we ignore them. Should we?
+	err = ManagerAccess.API.Site.RegisterPublisher()
+	if err != nil {
+		return err
+	}
+
 	ManagerAccess.API.VPC.RegisterSubscriber()
 	ManagerAccess.API.VPC.RegisterPublisher()
 
@@ -248,6 +253,10 @@ func workflowOrchestrator() error {
 	ManagerAccess.API.OperatingSystem.RegisterPublisher()
 
 	ManagerAccess.API.MachineValidation.RegisterSubscriber()
+
+	// Generic Core gRPC proxy: one workflow/activity for all proxied operations,
+	// registered on the Core gRPC manager that owns the connection.
+	ManagerAccess.API.CoreGrpc.RegisterSubscriber()
 
 	ManagerAccess.API.InstanceType.RegisterSubscriber()
 	ManagerAccess.API.InstanceType.RegisterPublisher()

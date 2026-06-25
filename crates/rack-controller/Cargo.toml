@@ -45,5 +45,8 @@ sqlx = { workspace = true }
 tracing = { workspace = true }
 tonic = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

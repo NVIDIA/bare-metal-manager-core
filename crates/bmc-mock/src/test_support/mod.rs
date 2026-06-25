@@ -73,7 +73,7 @@ async fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
 
 pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::WiwynnGB200Nvl,
             vec![
                 DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
@@ -89,7 +89,7 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
 
 pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::LenovoGB300Nvl,
             vec![DpuMachineInfo::new(
                 HostHardwareType::LenovoGB300Nvl,
@@ -105,7 +105,7 @@ pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
 
 pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::NvidiaDgxGb300,
             vec![DpuMachineInfo::new(
                 HostHardwareType::NvidiaDgxGb300,
@@ -121,7 +121,7 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
 
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::SupermicroGb300Nvl,
             vec![DpuMachineInfo::new(
                 HostHardwareType::SupermicroGb300Nvl,
@@ -137,7 +137,7 @@ pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
 
 pub async fn generic_supermicro_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::GenericSupermicro,
             vec![],
         )),
@@ -150,7 +150,7 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
 
 pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::LiteOnPowerShelf,
             vec![],
         )),
@@ -163,7 +163,7 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
 
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::NvidiaSwitchNd5200Ld,
             vec![],
         )),
@@ -176,7 +176,7 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
 
 pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
+        &MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::DellPowerEdgeR750,
             vec![],
         )),
@@ -189,7 +189,7 @@ pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
 
 pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Dpu(DpuMachineInfo::new(
+        &MachineInfo::Dpu(DpuMachineInfo::new(
             HostHardwareType::DellPowerEdgeR750,
             settings,
         )),
@@ -202,7 +202,7 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
 
 pub async fn generic_ami_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(HostHardwareType::GenericAmi, vec![])),
+        &MachineInfo::Host(HostMachineInfo::new(HostHardwareType::GenericAmi, vec![])),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -224,7 +224,7 @@ mod test {
     async fn transport_supports_expand_query_through_mock_expander() {
         let client = AxumRouterHttpClient::new(
             machine_router(
-                MachineInfo::Host(HostMachineInfo::new(
+                &MachineInfo::Host(HostMachineInfo::new(
                     HostHardwareType::DellPowerEdgeR750,
                     vec![],
                 )),

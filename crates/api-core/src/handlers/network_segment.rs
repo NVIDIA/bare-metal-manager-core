@@ -143,7 +143,7 @@ pub(crate) async fn create(
             .first()
             .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
 
-        let virtualization_type = vpc.network_virtualization_type;
+        let virtualization_type = vpc.config.network_virtualization_type;
 
         // Segment compatibility (segment-type binding + IPv6 support)
         // and SVI allocation are both expressed as capability checks
@@ -214,7 +214,8 @@ pub(crate) async fn attach_to_vpc(
         .into());
     }
 
-    vpc.network_virtualization_type
+    vpc.config
+        .network_virtualization_type
         .ensure_supports_segment(&segment)
         .map_err(CarbideError::from)?;
 
@@ -264,14 +265,18 @@ pub(crate) async fn delete(
         }
     };
 
-    let response = Ok(db::network_segment::mark_as_deleted(&segment, &mut txn)
-        .await
-        .map(|_| rpc::NetworkSegmentDeletionResult {})
-        .map(Response::new)?);
+    db::network_segment::mark_as_deleted(&segment, &mut txn).await?;
+
+    // A network's reverse-DNS zone exists only because the network does, so it
+    // is dropped with the segment -- the inverse of the create-time hook in
+    // `save`.
+    for network_prefix in &segment.prefixes {
+        db::dns::remove_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
+    }
 
     txn.commit().await?;
 
-    response
+    Ok(Response::new(rpc::NetworkSegmentDeletionResult {}))
 }
 
 pub(crate) async fn for_vpc(
@@ -365,6 +370,13 @@ pub(crate) async fn save(
             return Err(err.into());
         }
     };
+
+    // A network's reverse-DNS zone is derived from its prefix and created with
+    // it, so PTR lookups for the network's addresses resolve without anyone
+    // hand-authoring the zone.
+    for network_prefix in &network_segment.prefixes {
+        db::dns::ensure_reverse_zone(network_prefix.prefix, txn.as_mut()).await?;
+    }
 
     if allocate_svi_ip {
         db::network_segment::allocate_svi_ip(&network_segment, txn).await?;

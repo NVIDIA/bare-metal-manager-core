@@ -90,6 +90,20 @@ fn parse_delete() {
     }
 }
 
+// parse_state_history ensures state-history parses with rack ID.
+#[test]
+fn parse_state_history() {
+    let cmd = Cmd::try_parse_from(["rack", "state-history", "ipp6-b03-gb-nvl-124-mini2"])
+        .expect("should parse state-history");
+
+    match cmd {
+        Cmd::StateHistory(args) => {
+            assert_eq!(args.rack_id, "ipp6-b03-gb-nvl-124-mini2".parse().unwrap());
+        }
+        _ => panic!("expected StateHistory variant"),
+    }
+}
+
 // parse_profile_show ensures profile show parses with rack ID.
 #[test]
 fn parse_profile_show() {
@@ -120,6 +134,10 @@ fn invalid_invocations_are_rejected() {
 
         "profile show without a rack_id" {
             &["rack", "profile", "show"][..] => Fails,
+        }
+
+        "state-history without a rack_id" {
+            &["rack", "state-history"][..] => Fails,
         }
     );
 }

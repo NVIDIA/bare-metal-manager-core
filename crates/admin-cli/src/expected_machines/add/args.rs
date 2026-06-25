@@ -117,7 +117,7 @@ pub struct Args {
     #[clap(
         long = "host_nics",
         value_name = "HOST_NICS",
-        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, nic_type, fixed_ip, fixed_mask, fixed_gateway, primary)",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type)",
         action = clap::ArgAction::Append
     )]
     pub host_nics: Option<String>,

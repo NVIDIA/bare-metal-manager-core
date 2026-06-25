@@ -185,7 +185,7 @@ func testSSHKeyGroupSiteAssociationSetupSchema(t *testing.T, dbSession *db.Sessi
 	assert.Nil(t, err)
 }
 
-func TestSSHKeyGroupSiteAssociationSQLDAO_CreateFromParams(t *testing.T) {
+func TestSSHKeyGroupSiteAssociationSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -236,7 +236,13 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_CreateFromParams(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			for _, skg := range tc.skgas {
-				skga, err := skgsd.CreateFromParams(ctx, nil, skg.SSHKeyGroupID, skg.SiteID, skg.Version, skg.Status, skg.CreatedBy)
+				skga, err := skgsd.Create(ctx, nil, SSHKeyGroupSiteAssociationCreateInput{
+					SSHKeyGroupID: skg.SSHKeyGroupID,
+					SiteID:        skg.SiteID,
+					Version:       skg.Version,
+					Status:        skg.Status,
+					CreatedBy:     skg.CreatedBy,
+				})
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, skga)
@@ -265,7 +271,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetByID(t *testing.T) {
 	skasd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
 	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
-	skga1, err := skasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
+	skga1, err := skasd.Create(ctx, nil, SSHKeyGroupSiteAssociationCreateInput{
+		SSHKeyGroupID: sshKeyGroup1.ID,
+		SiteID:        site.ID,
+		Status:        SSHKeyGroupSiteAssociationStatusSyncing,
+		CreatedBy:     user.ID,
+	})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -353,7 +364,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 		skgs = append(skgs, skg1)
 		assert.Nil(t, err)
 		assert.NotNil(t, skg1)
-		skga1, err := skgasd.CreateFromParams(ctx, nil, skg1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
+		skga1, err := skgasd.Create(ctx, nil, SSHKeyGroupSiteAssociationCreateInput{
+			SSHKeyGroupID: skg1.ID,
+			SiteID:        site.ID,
+			Status:        SSHKeyGroupSiteAssociationStatusSyncing,
+			CreatedBy:     user.ID,
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, skga1)
 	}
@@ -466,7 +482,22 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			objs, tot, err := skgasd.GetAll(ctx, nil, tc.paramSSHKeyGroupIDs, tc.paramSiteID, tc.paramVersion, tc.paramStatus, tc.includeRelations, tc.paramOffset, tc.paramLimit, tc.paramOrderBy)
+			objs, tot, err := skgasd.GetAll(
+				ctx,
+				nil,
+				SSHKeyGroupSiteAssociationFilterInput{
+					SSHKeyGroupIDs: tc.paramSSHKeyGroupIDs,
+					SiteID:         tc.paramSiteID,
+					Version:        tc.paramVersion,
+					Status:         tc.paramStatus,
+				},
+				paginator.PageInput{
+					Offset:  tc.paramOffset,
+					Limit:   tc.paramLimit,
+					OrderBy: tc.paramOrderBy,
+				},
+				tc.includeRelations,
+			)
 			assert.Equal(t, tc.expectError, err != nil)
 			assert.Equal(t, tc.expectCnt, len(objs))
 			assert.Equal(t, tc.expectTotal, tot)
@@ -568,7 +599,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GenerateAndUpdateVersion(t *testing.T)
 	}
 }
 
-func TestSSHKeyGroupSiteAssociationSQLDAO_UpdateFromParams(t *testing.T) {
+func TestSSHKeyGroupSiteAssociationSQLDAO_Update(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -583,63 +614,66 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
-	skga1, err := skgasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
+	skga1, err := skgasd.Create(ctx, nil, SSHKeyGroupSiteAssociationCreateInput{
+		SSHKeyGroupID: sshKeyGroup1.ID,
+		SiteID:        site.ID,
+		Status:        SSHKeyGroupSiteAssociationStatusSyncing,
+		CreatedBy:     user.ID,
+	})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		desc string
-		id   uuid.UUID
+		desc  string
+		input SSHKeyGroupSiteAssociationUpdateInput
 
-		paramSSHKeyGroupID *uuid.UUID
-		paramSiteID        *uuid.UUID
-		paramVersion       *string
-		paramStatus        *string
-
-		expectedSSHKeyGroupID *uuid.UUID
-		expectedSiteID        *uuid.UUID
-		expectedVersion       *string
-		expectedStatus        *string
-		IsMissingOnSite       *bool
+		expectedSSHKeyGroupID   *uuid.UUID
+		expectedSiteID          *uuid.UUID
+		expectedVersion         *string
+		expectedStatus          *string
+		expectedIsMissingOnSite *bool
 
 		expectError        bool
 		verifyChildSpanner bool
 	}{
 		{
-			desc:               "can update all fields",
-			id:                 skga1.ID,
-			paramSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
-			paramVersion:       cutil.GetPtr("1234"),
-			paramSiteID:        cutil.GetPtr(site2.ID),
-			paramStatus:        cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
+			desc: "can update all fields",
+			input: SSHKeyGroupSiteAssociationUpdateInput{
+				ID:              skga1.ID,
+				SSHKeyGroupID:   cutil.GetPtr(sshKeyGroup2.ID),
+				SiteID:          cutil.GetPtr(site2.ID),
+				Version:         cutil.GetPtr("1234"),
+				Status:          cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
+				IsMissingOnSite: cutil.GetPtr(true),
+			},
 
-			expectedSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
-			expectedVersion:       cutil.GetPtr("1234"),
-			expectedSiteID:        cutil.GetPtr(site2.ID),
-			expectedStatus:        cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
-			IsMissingOnSite:       cutil.GetPtr(true),
+			expectedSSHKeyGroupID:   cutil.GetPtr(sshKeyGroup2.ID),
+			expectedVersion:         cutil.GetPtr("1234"),
+			expectedSiteID:          cutil.GetPtr(site2.ID),
+			expectedStatus:          cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
+			expectedIsMissingOnSite: cutil.GetPtr(true),
 
 			expectError:        false,
 			verifyChildSpanner: true,
 		},
 		{
 			desc:        "error when ID not found",
-			id:          uuid.New(),
+			input:       SSHKeyGroupSiteAssociationUpdateInput{ID: uuid.New()},
 			expectError: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := skgasd.UpdateFromParams(ctx, nil, tc.id, tc.paramSSHKeyGroupID, tc.paramSiteID, tc.paramVersion, tc.paramStatus, tc.IsMissingOnSite)
+			got, err := skgasd.Update(ctx, nil, tc.input)
 			assert.Equal(t, tc.expectError, err != nil)
 			if err == nil {
 				assert.Equal(t, tc.expectedSSHKeyGroupID.String(), got.SSHKeyGroupID.String())
 				assert.Equal(t, tc.expectedVersion, got.Version)
 				assert.Equal(t, tc.expectedSiteID.String(), got.SiteID.String())
 				assert.Equal(t, *tc.expectedStatus, got.Status)
-				assert.Equal(t, *tc.IsMissingOnSite, got.IsMissingOnSite)
+				assert.Equal(t, *tc.expectedIsMissingOnSite, got.IsMissingOnSite)
 			}
 			if tc.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -651,7 +685,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestSSHKeyGroupSiteAssociationSQLDAO_DeleteByID(t *testing.T) {
+func TestSSHKeyGroupSiteAssociationSQLDAO_Delete(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -664,7 +698,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_DeleteByID(t *testing.T) {
 	skgasd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
 	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
-	skga1, err := skgasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
+	skga1, err := skgasd.Create(ctx, nil, SSHKeyGroupSiteAssociationCreateInput{
+		SSHKeyGroupID: sshKeyGroup1.ID,
+		SiteID:        site.ID,
+		Status:        SSHKeyGroupSiteAssociationStatusSyncing,
+		CreatedBy:     user.ID,
+	})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -690,7 +729,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_DeleteByID(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			err := skgasd.DeleteByID(ctx, nil, tc.id)
+			err := skgasd.Delete(ctx, nil, tc.id)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if !tc.expectedError {
 				tmp, err := skgasd.GetByID(ctx, nil, tc.id, nil)

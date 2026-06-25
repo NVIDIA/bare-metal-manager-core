@@ -232,6 +232,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
             data: ExpectedMachineData {
                 serial_number: "reconcile-hostnic-001".to_string(),
                 host_nics: vec![model::expected_machine::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: nic_mac,
                     nic_type: Some("onboard".into()),
                     fixed_ip: Some(parsed_fixed_ip),

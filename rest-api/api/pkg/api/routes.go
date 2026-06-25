@@ -29,6 +29,14 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewMetadataHandler(),
 		},
+		// BMC credential endpoint (Provider Admin). First operation migrated to
+		// the generic NICo Core gRPC proxy; equivalent to the admin CLI
+		// `credential add-bmc` command.
+		{
+			Path:    apiPathPrefix + "/credential/bmc",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
+		},
 		// User endpoint
 		{
 			Path:    apiPathPrefix + "/user/current",

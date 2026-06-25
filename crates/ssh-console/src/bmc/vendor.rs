@@ -317,146 +317,197 @@ impl EscapeSequence {
     }
 }
 
-#[test]
-fn test_filter_escape_sequence() {
-    // Pass-through: no escapes
-    {
-        let result =
-            EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world", false);
-        assert_eq!(result, (Cow::Borrowed(b"hello world".as_slice()), false));
-        // Make sure we don't allocate
-        assert!(matches!(result.0, Cow::Borrowed(_)));
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
+    use super::*;
+
+    /// One row of the escape-sequence filtering table: which vendor escape to
+    /// apply, the input bytes, and whether the previous slice ended mid-escape.
+    struct FilterCase {
+        escape: EscapeSequence,
+        input: &'static [u8],
+        prev_pending: bool,
     }
 
-    // Only a trailing pending escape byte
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world\x1b", false),
-        (Cow::Borrowed(b"hello world".as_slice()), true)
-    );
+    /// The Lenovo/HPE two-byte escape (`ESC (`), used by most filtering rows.
+    const ESC_PAREN: EscapeSequence = EscapeSequence::Pair((0x1b, &[0x28]));
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28", true),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+    #[test]
+    fn filter_escape_sequences_removes_escapes_and_tracks_pending() {
+        // Each row runs `filter_escape_sequences`, projecting the borrowed/owned
+        // `Cow` to an owned `Vec<u8>` so the asserted output and the pending flag
+        // both stay visible per case.
+        scenarios!(
+            run = |FilterCase { escape, input, prev_pending }| {
+                let (output, pending) = escape.filter_escape_sequences(input, prev_pending);
+                Ok::<_, ()>((output.into_owned(), pending))
+            };
 
-    assert!(
-        !EscapeSequence::Pair((0x1b, &[0x28]))
-            .filter_escape_sequences(&[0x1b, 0x1b, 0x28, 0x28], false)
-            .0
-            .windows(2)
-            .any(|w| w[0] == 0x1b && w[1] == 0x28)
-    );
+            "ESC ( pass-through and pending lead" {
+                FilterCase { escape: ESC_PAREN, input: b"hello world", prev_pending: false } => Yields((b"hello world".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"hello world\x1b", prev_pending: false } => Yields((b"hello world".to_vec(), true)),
+                FilterCase { escape: ESC_PAREN, input: b"\x1b", prev_pending: false } => Yields((b"".to_vec(), true)),
+                FilterCase { escape: ESC_PAREN, input: b"hello world\x1b!", prev_pending: false } => Yields((b"hello world\x1b!".to_vec(), false)),
+            }
 
-    assert!(
-        !EscapeSequence::Pair((0x1b, &[0x28]))
-            .filter_escape_sequences(&[0x1b, 0x28, 0x28], true)
-            .0
-            .windows(2)
-            .any(|w| w[0] == 0x1b && w[1] == 0x28)
-    );
+            "ESC ( escape removed mid-stream" {
+                FilterCase { escape: ESC_PAREN, input: b"hello \x1b\x28 world", prev_pending: false } => Yields((b"hello  world".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"hello world\x1b\x28", prev_pending: false } => Yields((b"hello world".to_vec(), false)),
+            }
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x1b", false),
-        (Cow::Borrowed(b"".as_slice()), true)
-    );
+            "ESC ( with a pending lead from the previous slice" {
+                FilterCase { escape: ESC_PAREN, input: b"\x28", prev_pending: true } => Yields((b"".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"Z", prev_pending: true } => Yields((b"\x1bZ".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"hello world", prev_pending: true } => Yields((b"\x1bhello world".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"\x28hello world", prev_pending: true } => Yields((b"hello world".to_vec(), false)),
+                FilterCase { escape: ESC_PAREN, input: b"\x28hello world\x1b", prev_pending: true } => Yields((b"hello world".to_vec(), true)),
+            }
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world\x1b!", false),
-        (Cow::Borrowed(b"hello world\x1b!".as_slice()), false)
-    );
+            "single-byte (Dell ctrl+\\) escape removed" {
+                FilterCase { escape: EscapeSequence::Single(0x1b), input: b"hello world", prev_pending: false } => Yields((b"hello world".to_vec(), false)),
+                FilterCase { escape: EscapeSequence::Single(0x1c), input: b"hello \x1c world", prev_pending: false } => Yields((b"hello  world".to_vec(), false)),
+                FilterCase { escape: EscapeSequence::Single(0x1c), input: b"hello world\x1c", prev_pending: false } => Yields((b"hello world".to_vec(), false)),
+                FilterCase { escape: EscapeSequence::Single(0x1c), input: b"\x1chello world", prev_pending: false } => Yields((b"hello world".to_vec(), false)),
+                FilterCase { escape: EscapeSequence::Single(0x1c), input: b"\x1c", prev_pending: false } => Yields((b"".to_vec(), false)),
+            }
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28]))
-            .filter_escape_sequences(b"hello \x1b\x28 world", false),
-        (Cow::Borrowed(b"hello  world".as_slice()), false)
-    );
+            "ipmitool multi-trail escape" {
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: b"~~", prev_pending: false } => Yields((b"~".to_vec(), true)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: b"~~~", prev_pending: false } => Yields((b"~~".to_vec(), true)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: b"~~.", prev_pending: false } => Yields((b"~".to_vec(), false)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: b"~.", prev_pending: false } => Yields((b"".to_vec(), false)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: b"~B", prev_pending: false } => Yields((b"".to_vec(), false)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: &[b'~', 0x1a], prev_pending: false } => Yields((b"".to_vec(), false)),
+                FilterCase { escape: IPMITOOL_ESCAPE_SEQUENCE, input: &[b'~', 0x18], prev_pending: false } => Yields((b"".to_vec(), false)),
+            }
+        );
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28]))
-            .filter_escape_sequences(b"hello world\x1b\x28", false),
-        (Cow::Borrowed(b"hello world".as_slice()), false)
-    );
+        // A clean stream is returned borrowed, with no allocation. This asserts a
+        // structural property (the `Cow` variant) that the value table above can't
+        // express, so it stays a hand-written check.
+        assert!(matches!(
+            ESC_PAREN.filter_escape_sequences(b"hello world", false).0,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            EscapeSequence::Single(0x1b)
+                .filter_escape_sequences(b"hello world", false)
+                .0,
+            Cow::Borrowed(_)
+        ));
 
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"Z", true),
-        (Cow::Borrowed(b"\x1bZ".as_slice()), false)
-    );
-
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"hello world", true),
-        (Cow::Borrowed(b"\x1bhello world".as_slice()), false)
-    );
-
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28hello world", true),
-        (Cow::Borrowed(b"hello world".as_slice()), false)
-    );
-
-    assert_eq!(
-        EscapeSequence::Pair((0x1b, &[0x28])).filter_escape_sequences(b"\x28hello world\x1b", true),
-        (Cow::Borrowed(b"hello world".as_slice()), true)
-    );
-
-    {
-        let result = EscapeSequence::Single(0x1b).filter_escape_sequences(b"hello world", false);
-        assert_eq!(result, (Cow::Borrowed(b"hello world".as_slice()), false));
-        // Make sure we don't allocate if there's no sequence
-        assert!(matches!(result.0, Cow::Borrowed(_)))
+        // Adjacent escapes must not leave a reconstructable `ESC (` pair in the
+        // output; assert that absence directly rather than the exact bytes.
+        assert!(
+            !ESC_PAREN
+                .filter_escape_sequences(&[0x1b, 0x1b, 0x28, 0x28], false)
+                .0
+                .windows(2)
+                .any(|w| w[0] == 0x1b && w[1] == 0x28)
+        );
+        assert!(
+            !ESC_PAREN
+                .filter_escape_sequences(&[0x1b, 0x28, 0x28], true)
+                .0
+                .windows(2)
+                .any(|w| w[0] == 0x1b && w[1] == 0x28)
+        );
     }
 
-    assert_eq!(
-        EscapeSequence::Single(0x1c).filter_escape_sequences(b"hello \x1c world", false),
-        (Cow::Borrowed(b"hello  world".as_slice()), false)
-    );
+    /// Wraps a [`BmcVendor`] in a struct field so its custom serde is exercised
+    /// through a real (de)serializer; the field is a plain TOML string.
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Wrap {
+        vendor: BmcVendor,
+    }
 
-    assert_eq!(
-        EscapeSequence::Single(0x1c).filter_escape_sequences(b"hello world\x1c", false),
-        (Cow::Borrowed(b"hello world".as_slice()), false)
-    );
+    const ALL_VENDORS: [(BmcVendor, &str); 7] = [
+        (BmcVendor::Ssh(SshBmcVendor::Dell), "dell"),
+        (BmcVendor::Ssh(SshBmcVendor::Lenovo), "lenovo"),
+        (BmcVendor::Ssh(SshBmcVendor::LenovoAmi), "lenovo_ami"),
+        (BmcVendor::Ssh(SshBmcVendor::Hpe), "hpe"),
+        (BmcVendor::Ssh(SshBmcVendor::Dpu), "dpu"),
+        (BmcVendor::Ipmi(IpmiBmcVendor::Supermicro), "supermicro"),
+        (
+            BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking),
+            "nvidia_viking",
+        ),
+    ];
 
-    assert_eq!(
-        EscapeSequence::Single(0x1c).filter_escape_sequences(b"\x1chello world", false),
-        (Cow::Borrowed(b"hello world".as_slice()), false)
-    );
+    #[test]
+    fn bmc_vendor_config_string_names_each_variant() {
+        // Driven from `ALL_VENDORS` so a new variant is covered by adding one row there.
+        for (vendor, config_string) in ALL_VENDORS {
+            assert_eq!(vendor.config_string(), config_string, "{vendor:?}");
+        }
+    }
 
-    assert_eq!(
-        EscapeSequence::Single(0x1c).filter_escape_sequences(b"\x1c", false),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+    #[test]
+    fn bmc_vendor_from_config_string_parses_each_variant() {
+        // Driven from `ALL_VENDORS` so a new variant is covered by adding one row there.
+        for (vendor, config_string) in ALL_VENDORS {
+            assert_eq!(
+                BmcVendor::from_config_string(config_string),
+                Some(vendor),
+                "{config_string:?}",
+            );
+        }
 
-    let ipmitool_escape_sequence = IPMITOOL_ESCAPE_SEQUENCE;
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(b"~~", false),
-        (Cow::Borrowed(b"~".as_slice()), true)
-    );
+        value_scenarios!(
+            run = |s: &str| BmcVendor::from_config_string(s);
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(b"~~~", false),
-        (Cow::Borrowed(b"~~".as_slice()), true)
-    );
+            "an unknown string has no vendor" {
+                "" => None,
+                "bogus" => None,
+            }
+        );
+    }
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(b"~~.", false),
-        (Cow::Borrowed(b"~".as_slice()), false)
-    );
+    #[test]
+    fn bmc_vendor_config_string_round_trips() {
+        // config_string -> from_config_string returns the same vendor for every variant.
+        for (vendor, _) in ALL_VENDORS {
+            assert_eq!(
+                BmcVendor::from_config_string(vendor.config_string()),
+                Some(vendor),
+                "{vendor:?}",
+            );
+        }
+    }
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(b"~.", false),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+    #[test]
+    fn bmc_vendor_serde_round_trips_through_toml() {
+        // The custom Serialize/Deserialize go through a real TOML (de)serializer.
+        for (vendor, config_string) in ALL_VENDORS {
+            let label = format!("{vendor:?}");
+            let wrap = Wrap { vendor };
+            let serialized = toml::to_string(&wrap).expect("serialize");
+            assert_eq!(
+                serialized,
+                format!("vendor = \"{config_string}\"\n"),
+                "{label}"
+            );
+            let deserialized: Wrap = toml::from_str(&serialized).expect("deserialize");
+            assert_eq!(deserialized, wrap, "{label}");
+        }
+    }
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(b"~B", false),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+    #[test]
+    fn bmc_vendor_deserialize_rejects_an_unknown_string() {
+        scenarios!(
+            run = |s: &str| toml::from_str::<Wrap>(&format!("vendor = \"{s}\"")).map_err(|e| e.to_string());
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(&[b'~', 0x1a], false),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+            "valid config strings deserialize" {
+                "dell" => Yields(Wrap { vendor: BmcVendor::Ssh(SshBmcVendor::Dell) }),
+                "nvidia_viking" => Yields(Wrap { vendor: BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking) }),
+            }
 
-    assert_eq!(
-        ipmitool_escape_sequence.filter_escape_sequences(&[b'~', 0x18], false),
-        (Cow::Borrowed(b"".as_slice()), false)
-    );
+            "an unknown string is rejected" {
+                "bogus" => Fails,
+            }
+        );
+    }
 }

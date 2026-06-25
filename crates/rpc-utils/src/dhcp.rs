@@ -96,10 +96,12 @@ impl DhcpConfig {
         carbide_provisioning_server_ipv4: Ipv4Addr,
         carbide_ntpservers: Vec<Ipv4Addr>,
         carbide_nameservers: Vec<Ipv4Addr>,
+        carbide_nameservers_v6: Vec<Ipv6Addr>,
         loopback_ip: Ipv4Addr,
     ) -> Result<Self, DhcpDataError> {
         Ok(DhcpConfig {
             carbide_nameservers,
+            carbide_nameservers_v6,
             carbide_ntpservers,
             carbide_provisioning_server_ipv4,
             carbide_dhcp_server: loopback_ip,
@@ -344,6 +346,7 @@ mod tests {
         dhcp_server: Ipv4Addr,
         ntpservers: Vec<Ipv4Addr>,
         nameservers: Vec<Ipv4Addr>,
+        nameservers_v6: Vec<Ipv6Addr>,
         lease_time_secs: u32,
     }
 
@@ -434,10 +437,11 @@ mod tests {
     }
 
     fn summarize_dhcp_config(
-        (provisioning_server, ntpservers, nameservers, dhcp_server): (
+        (provisioning_server, ntpservers, nameservers, nameservers_v6, dhcp_server): (
             Ipv4Addr,
             Vec<Ipv4Addr>,
             Vec<Ipv4Addr>,
+            Vec<Ipv6Addr>,
             Ipv4Addr,
         ),
     ) -> Result<DhcpConfigSummary, &'static str> {
@@ -445,6 +449,7 @@ mod tests {
             provisioning_server,
             ntpservers,
             nameservers,
+            nameservers_v6,
             dhcp_server,
         )
         .map(|config| DhcpConfigSummary {
@@ -452,6 +457,7 @@ mod tests {
             dhcp_server: config.carbide_dhcp_server,
             ntpservers: config.carbide_ntpservers,
             nameservers: config.carbide_nameservers,
+            nameservers_v6: config.carbide_nameservers_v6,
             lease_time_secs: config.lease_time_secs,
         })
         .map_err(dhcp_error_kind)
@@ -484,12 +490,14 @@ mod tests {
                     Ipv4Addr::new(192, 0, 2, 10),
                     vec![Ipv4Addr::new(192, 0, 2, 20)],
                     vec![Ipv4Addr::new(192, 0, 2, 53)],
+                    vec!["2001:db8::53".parse::<Ipv6Addr>().unwrap()],
                     Ipv4Addr::new(127, 0, 0, 2),
                 ) => Yields(DhcpConfigSummary {
                     provisioning_server: Ipv4Addr::new(192, 0, 2, 10),
                     dhcp_server: Ipv4Addr::new(127, 0, 0, 2),
                     ntpservers: vec![Ipv4Addr::new(192, 0, 2, 20)],
                     nameservers: vec![Ipv4Addr::new(192, 0, 2, 53)],
+                    nameservers_v6: vec!["2001:db8::53".parse::<Ipv6Addr>().unwrap()],
                     lease_time_secs: DEFAULT_LEASE_TIME_SECS,
                 }),
             }

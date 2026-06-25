@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -27,14 +27,67 @@ use tokio::sync::oneshot;
 const ROOT_TOKEN: &str = "Root Token";
 const VAULT_CACERT_ENV_STRING: &str = "$ export VAULT_CACERT";
 
+// A port can be claimed by another process between allocate_port releasing it
+// and vault binding it, so a failed start just means "try another port". Give
+// it a handful of fresh ports before treating the failure as real.
+const MAX_START_ATTEMPTS: usize = 5;
+
+// Bounds a single attempt. A vault that loses the port race exits well before
+// this (surfacing as an error right away); the timeout only stops a genuine
+// hang from stalling the retry loop.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Debug)]
 pub struct Vault {
+    /// The address vault bound. [`start`] chooses it -- retrying across ports
+    /// until one sticks -- so callers read it back here instead of picking it.
+    pub addr: SocketAddr,
     pub process: process::Child,
     pub token: String,
     pub ca_cert: String,
 }
 
-pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
+/// Start a vault dev server on a free local port and wait until it is ready.
+///
+/// vault binds the listen port itself but cannot be asked to pick a free one
+/// and report it back, so we allocate a port and hand it over. The port can be
+/// claimed in the gap between allocate_port releasing it and vault binding it,
+/// so a failed attempt retries on a fresh port. The bound address is returned
+/// on the [`Vault`].
+pub async fn start() -> Result<Vault, eyre::Report> {
+    let mut last_err = None;
+    for attempt in 1..=MAX_START_ATTEMPTS {
+        let addr = allocate_port();
+        match try_start(addr).await {
+            Ok(vault) => return Ok(vault),
+            Err(e) => {
+                // No logger here. A lost port race is expected occasionally, so
+                // keep per-attempt noise low and let the final error speak.
+                eprintln!(
+                    "vault failed to start on {addr} (attempt {attempt}/{MAX_START_ATTEMPTS}): {e:#}"
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    let err = last_err.unwrap_or_else(|| eyre::eyre!("vault never started"));
+    Err(err.wrap_err(format!(
+        "vault did not start after {MAX_START_ATTEMPTS} attempts"
+    )))
+}
+
+/// Pick a free local port by binding to port 0 and releasing it immediately.
+/// The port is free when this returns, so the caller must claim it promptly;
+/// [`start`] retries if it loses the race.
+fn allocate_port() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind to free port");
+    listener.local_addr().expect("local addr")
+}
+
+/// Spawn vault on `addr` and wait for it to report a token and CA cert. Errors
+/// if vault exits (e.g. the port was taken) or does not report readiness within
+/// [`STARTUP_TIMEOUT`], so [`start`] can retry on a fresh port.
+async fn try_start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
     let bins = crate::utils::find_prerequisites()?;
 
     let mut process =
@@ -98,9 +151,17 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
         Ok::<(), eyre::Error>(())
     });
 
-    // Vault dev prints the token immediately on startup, so block and wait for it
-    let token = token_rx.await.context("waiting for vault token")?;
-    let ca_cert = ca_rx.await.context("waiting for vault CA cert")?;
+    // Vault dev prints the token and CA cert on startup. If it loses the port
+    // race it exits instead, dropping these senders -- which surfaces here as an
+    // error so start() retries. The timeout only guards a genuine hang.
+    let ready = async {
+        let token = token_rx.await.context("waiting for vault token")?;
+        let ca_cert = ca_rx.await.context("waiting for vault CA cert")?;
+        Ok::<(String, String), eyre::Report>((token, ca_cert))
+    };
+    let (token, ca_cert) = tokio::time::timeout(STARTUP_TIMEOUT, ready)
+        .await
+        .context("timed out waiting for vault to report readiness")??;
 
     // Vault announces the cert path in its stdout log before it finishes writing the
     // file to disk. Poll until the file is present so callers can use it immediately.
@@ -116,6 +177,7 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
     }
 
     Ok(Vault {
+        addr,
         process,
         token,
         ca_cert,

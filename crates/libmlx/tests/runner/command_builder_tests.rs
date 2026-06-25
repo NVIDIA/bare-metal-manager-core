@@ -311,33 +311,6 @@ fn test_different_devices() {
 }
 
 #[test]
-fn test_verbose_logging() {
-    let options = ExecOptions::new().with_verbose(true);
-    let builder = builder(&options, "01:00.0");
-
-    let temp_file = Path::new("/tmp/test.json");
-    let variables = vec!["TEST_VAR".to_string()];
-
-    // This should succeed even with verbose logging
-    // (We can't easily test the actual logging output in unit tests)
-    let command_spec = builder.build_query_command(&variables, temp_file).unwrap();
-    assert_eq!(command_spec.program, "mlxconfig");
-}
-
-#[test]
-fn test_command_spec_to_command_conversion() {
-    let spec = CommandSpec::new("echo").arg("hello").arg("world");
-
-    let mut command = std::process::Command::new(&spec.program);
-    command.args(&spec.args);
-
-    // We can't easily test Command execution in unit tests, but we can verify
-    // the structure is correct
-    let debug_str = format!("{command:?}");
-    assert!(debug_str.contains("echo"));
-}
-
-#[test]
 fn test_realistic_mlxconfig_query_spec() {
     let options = ExecOptions::default();
     let builder = builder(&options, "01:00.0");

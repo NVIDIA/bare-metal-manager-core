@@ -361,42 +361,31 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_point_path_metadata() {
-        let topic = "BMS/v1/some/point/path/Metadata";
-        assert_eq!(
-            extract_point_path(topic, TEST_PREFIX),
-            Some("some/point/path")
+    fn test_extract_point_path() {
+        use carbide_test_support::value_scenarios;
+
+        struct Topic {
+            topic: &'static str,
+            prefix: &'static str,
+        }
+
+        value_scenarios!(
+            run = |Topic { topic, prefix }| extract_point_path(topic, prefix);
+            "the point path sits between the prefix and the suffix" {
+                Topic { topic: "BMS/v1/some/point/path/Metadata", prefix: TEST_PREFIX }
+                    => Some("some/point/path"),
+                Topic { topic: "BMS/v1/some/point/path/Value", prefix: TEST_PREFIX }
+                    => Some("some/point/path"),
+                Topic { topic: "custom/prefix/some/point/path/Value", prefix: "custom/prefix/" }
+                    => Some("some/point/path"),
+            }
+            "a topic that does not match yields nothing" {
+                // Neither a /Metadata nor a /Value suffix.
+                Topic { topic: "BMS/v1/some/point/path/Unknown", prefix: TEST_PREFIX } => None,
+                // The prefix does not match.
+                Topic { topic: "BMS/v1/some/point/path/Value", prefix: "wrong/prefix/" } => None,
+            }
         );
-    }
-
-    #[test]
-    fn test_extract_point_path_value() {
-        let topic = "BMS/v1/some/point/path/Value";
-        assert_eq!(
-            extract_point_path(topic, TEST_PREFIX),
-            Some("some/point/path")
-        );
-    }
-
-    #[test]
-    fn test_extract_point_path_unknown() {
-        let topic = "BMS/v1/some/point/path/Unknown";
-        assert_eq!(extract_point_path(topic, TEST_PREFIX), None);
-    }
-
-    #[test]
-    fn test_extract_point_path_custom_prefix() {
-        let topic = "custom/prefix/some/point/path/Value";
-        assert_eq!(
-            extract_point_path(topic, "custom/prefix/"),
-            Some("some/point/path")
-        );
-    }
-
-    #[test]
-    fn test_extract_point_path_wrong_prefix() {
-        let topic = "BMS/v1/some/point/path/Value";
-        assert_eq!(extract_point_path(topic, "wrong/prefix/"), None);
     }
 
     #[test]

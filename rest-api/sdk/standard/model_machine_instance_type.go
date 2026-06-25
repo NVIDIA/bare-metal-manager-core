@@ -30,7 +30,7 @@ type MachineInstanceType struct {
 	MachineId *string `json:"machineId,omitempty"`
 	// ID of the associated Instance Type
 	InstanceTypeId *string `json:"instanceTypeId,omitempty"`
-	// Deprecation notices for fields returned by this resource
+	// Deprecations active for this resource. Returned only if there are active deprecations.
 	Deprecations []Deprecation `json:"deprecations,omitempty"`
 	// Date and time the Machine Instance Type was created
 	Created *time.Time `json:"created,omitempty"`

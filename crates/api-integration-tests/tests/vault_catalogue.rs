@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::net::TcpListener;
-
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialPrefix, CredentialWriter, Credentials,
     MqttCredentialType,
@@ -24,11 +22,6 @@ use carbide_secrets::credentials::{
 use carbide_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
 use mac_address::MacAddress;
 use serial_test::serial;
-
-fn allocate_port() -> std::net::SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind to free port");
-    listener.local_addr().expect("local addr")
-}
 
 fn cred(user: &str, pass: &str) -> Credentials {
     Credentials::UsernamePassword {
@@ -53,13 +46,10 @@ async fn setup_vault_with_secrets() -> Option<(
         })
         .next()?;
 
-    let addr = allocate_port();
-    let vault = api_test_helper::vault::start(addr)
-        .await
-        .expect("start vault");
+    let vault = api_test_helper::vault::start().await.expect("start vault");
 
     let config = VaultConfig {
-        address: Some(format!("https://{addr}")),
+        address: Some(format!("https://{}", vault.addr)),
         kv_mount_location: Some("secret".to_string()),
         pki_mount_location: Some("forgeca".to_string()),
         pki_role_name: Some("forge-cluster".to_string()),

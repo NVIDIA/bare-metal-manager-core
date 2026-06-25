@@ -214,9 +214,59 @@ fn normalize(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use model::rack_type::RackHardwareTopology;
 
     use super::*;
+
+    /// Which RMS node-type resolver a table row exercises.
+    #[derive(Clone, Copy, Debug)]
+    enum Role {
+        Compute,
+        Switch,
+        PowerShelf,
+    }
+
+    /// One row of the product-family x role x vendor resolution matrix: a profile
+    /// built from a product family and a per-role vendor string, resolved through
+    /// the `role`'s `*_for_profile` function.
+    struct ResolveRow {
+        product_family: Option<RackProductFamily>,
+        role: Role,
+        vendor: Option<&'static str>,
+    }
+
+    /// Build a profile from a row and resolve it through the row's role function.
+    fn resolve(row: ResolveRow) -> Result<rms::NodeType, NodeTypeError> {
+        let mut profile = RackProfile {
+            product_family: row.product_family,
+            ..Default::default()
+        };
+        let vendor = row.vendor.map(str::to_string);
+        match row.role {
+            Role::Compute => {
+                profile.rack_capabilities.compute.vendor = vendor;
+                compute_node_type_for_profile(&profile)
+            }
+            Role::Switch => {
+                profile.rack_capabilities.switch.vendor = vendor;
+                switch_node_type_for_profile(&profile)
+            }
+            Role::PowerShelf => {
+                profile.rack_capabilities.power_shelf.vendor = vendor;
+                power_shelf_node_type_for_profile(&profile)
+            }
+        }
+    }
+
+    /// Construct the `UnsupportedVendor` error a row is expected to fail with.
+    fn unsupported(role: &'static str, vendor: &str) -> NodeTypeError {
+        NodeTypeError::UnsupportedVendor {
+            role,
+            vendor: vendor.to_string(),
+        }
+    }
 
     fn profile_with_product_family(product_family: RackProductFamily) -> RackProfile {
         RackProfile {
@@ -226,81 +276,187 @@ mod tests {
     }
 
     #[test]
-    fn compute_node_type_maps_gb200_nvidia() {
-        let mut profile = profile_with_product_family(RackProductFamily::Gb200);
-        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
+    fn resolves_the_product_family_role_vendor_matrix() {
+        use RackProductFamily::{Gb200, Gb300};
 
-        let node_type = compute_node_type_for_profile(&profile);
-
-        assert_eq!(node_type, Ok(rms::NodeType::ComputeGb200Nvidia));
-    }
-
-    #[test]
-    fn compute_node_type_maps_gb300_nvidia() {
-        let mut profile = profile_with_product_family(RackProductFamily::Gb300);
-        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
-
-        let node_type = compute_node_type_for_profile(&profile);
-
-        assert_eq!(node_type, Ok(rms::NodeType::ComputeGb300Nvidia));
-    }
-
-    #[test]
-    fn compute_node_type_maps_gb300_lenovo() {
-        let mut profile = profile_with_product_family(RackProductFamily::Gb300);
-        profile.rack_capabilities.compute.vendor = Some("Lenovo".to_string());
-
-        let node_type = compute_node_type_for_profile(&profile);
-
-        assert_eq!(node_type, Ok(rms::NodeType::ComputeGb300Lenovo));
-    }
-
-    #[test]
-    fn switch_node_type_maps_gb200_and_gb300() {
-        let mut gb200 = profile_with_product_family(RackProductFamily::Gb200);
-        gb200.rack_capabilities.switch.vendor = Some("NVIDIA".to_string());
-
-        let mut gb300 = profile_with_product_family(RackProductFamily::Gb300);
-        gb300.rack_capabilities.switch.vendor = Some("NVIDIA".to_string());
-
-        assert_eq!(
-            switch_node_type_for_profile(&gb200),
-            Ok(rms::NodeType::SwitchGb200Nvidia)
-        );
-        assert_eq!(
-            switch_node_type_for_profile(&gb300),
-            Ok(rms::NodeType::SwitchGb300Nvidia)
-        );
-    }
-
-    #[test]
-    fn switch_node_type_requires_vendor() {
-        let profile = profile_with_product_family(RackProductFamily::Gb200);
-
-        let node_type = switch_node_type_for_profile(&profile);
-
-        assert_eq!(
-            node_type,
-            Err(NodeTypeError::UnsupportedVendor {
-                role: "switch",
-                vendor: String::new()
-            })
-        );
-    }
-
-    #[test]
-    fn switch_node_type_uses_profile_vendor_for_validation() {
-        let mut profile = profile_with_product_family(RackProductFamily::Gb200);
-        profile.rack_capabilities.switch.vendor = Some("Other".to_string());
-
-        let node_type = switch_node_type_for_profile(&profile);
-
-        assert_eq!(
-            node_type,
-            Err(NodeTypeError::UnsupportedVendor {
-                role: "switch",
-                vendor: "Other".to_string()
-            })
+        check_cases(
+            [
+                // Compute: NVIDIA on every family; Lenovo only on GB300.
+                Case {
+                    scenario: "compute gb200 nvidia",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Compute,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: Yields(rms::NodeType::ComputeGb200Nvidia),
+                },
+                Case {
+                    scenario: "compute gb300 nvidia",
+                    input: ResolveRow {
+                        product_family: Some(Gb300),
+                        role: Role::Compute,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: Yields(rms::NodeType::ComputeGb300Nvidia),
+                },
+                Case {
+                    scenario: "compute gb300 lenovo",
+                    input: ResolveRow {
+                        product_family: Some(Gb300),
+                        role: Role::Compute,
+                        vendor: Some("Lenovo"),
+                    },
+                    expect: Yields(rms::NodeType::ComputeGb300Lenovo),
+                },
+                Case {
+                    scenario: "compute gb200 lenovo is unsupported (lenovo is gb300-only)",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Compute,
+                        vendor: Some("Lenovo"),
+                    },
+                    expect: FailsWith(unsupported("compute", "Lenovo")),
+                },
+                Case {
+                    scenario: "compute missing vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Compute,
+                        vendor: None,
+                    },
+                    expect: FailsWith(unsupported("compute", "")),
+                },
+                Case {
+                    scenario: "compute unsupported vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Compute,
+                        vendor: Some("Other"),
+                    },
+                    expect: FailsWith(unsupported("compute", "Other")),
+                },
+                Case {
+                    scenario: "compute missing product family",
+                    input: ResolveRow {
+                        product_family: None,
+                        role: Role::Compute,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: FailsWith(NodeTypeError::MissingProductFamily),
+                },
+                // Switch: NVIDIA on every family; anything else unsupported.
+                Case {
+                    scenario: "switch gb200 nvidia",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Switch,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: Yields(rms::NodeType::SwitchGb200Nvidia),
+                },
+                Case {
+                    scenario: "switch gb300 nvidia",
+                    input: ResolveRow {
+                        product_family: Some(Gb300),
+                        role: Role::Switch,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: Yields(rms::NodeType::SwitchGb300Nvidia),
+                },
+                Case {
+                    scenario: "switch missing vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Switch,
+                        vendor: None,
+                    },
+                    expect: FailsWith(unsupported("switch", "")),
+                },
+                Case {
+                    scenario: "switch unsupported vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::Switch,
+                        vendor: Some("Other"),
+                    },
+                    expect: FailsWith(unsupported("switch", "Other")),
+                },
+                Case {
+                    scenario: "switch missing product family",
+                    input: ResolveRow {
+                        product_family: None,
+                        role: Role::Switch,
+                        vendor: Some("NVIDIA"),
+                    },
+                    expect: FailsWith(NodeTypeError::MissingProductFamily),
+                },
+                // Power shelf: LiteOn and Delta on every family; anything else unsupported.
+                Case {
+                    scenario: "power shelf gb200 liteon",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::PowerShelf,
+                        vendor: Some("LiteOn"),
+                    },
+                    expect: Yields(rms::NodeType::PowershelfGb200Liteon),
+                },
+                Case {
+                    scenario: "power shelf gb200 delta",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::PowerShelf,
+                        vendor: Some("Delta"),
+                    },
+                    expect: Yields(rms::NodeType::PowershelfGb200Delta),
+                },
+                Case {
+                    scenario: "power shelf gb300 liteon",
+                    input: ResolveRow {
+                        product_family: Some(Gb300),
+                        role: Role::PowerShelf,
+                        vendor: Some("LiteOn"),
+                    },
+                    expect: Yields(rms::NodeType::PowershelfGb300Liteon),
+                },
+                Case {
+                    scenario: "power shelf gb300 delta",
+                    input: ResolveRow {
+                        product_family: Some(Gb300),
+                        role: Role::PowerShelf,
+                        vendor: Some("Delta"),
+                    },
+                    expect: Yields(rms::NodeType::PowershelfGb300Delta),
+                },
+                Case {
+                    scenario: "power shelf missing vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::PowerShelf,
+                        vendor: None,
+                    },
+                    expect: FailsWith(unsupported("power shelf", "")),
+                },
+                Case {
+                    scenario: "power shelf unsupported vendor",
+                    input: ResolveRow {
+                        product_family: Some(Gb200),
+                        role: Role::PowerShelf,
+                        vendor: Some("Other"),
+                    },
+                    expect: FailsWith(unsupported("power shelf", "Other")),
+                },
+                Case {
+                    scenario: "power shelf missing product family",
+                    input: ResolveRow {
+                        product_family: None,
+                        role: Role::PowerShelf,
+                        vendor: Some("LiteOn"),
+                    },
+                    expect: FailsWith(NodeTypeError::MissingProductFamily),
+                },
+            ],
+            resolve,
         );
     }
 
@@ -332,38 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn power_shelf_node_type_uses_profile_vendor() {
-        let mut gb200_liteon = profile_with_product_family(RackProductFamily::Gb200);
-        gb200_liteon.rack_capabilities.power_shelf.vendor = Some("LiteOn".to_string());
-
-        let mut gb300_delta = profile_with_product_family(RackProductFamily::Gb300);
-        gb300_delta.rack_capabilities.power_shelf.vendor = Some("Delta".to_string());
-
-        assert_eq!(
-            power_shelf_node_type_for_profile(&gb200_liteon),
-            Ok(rms::NodeType::PowershelfGb200Liteon)
-        );
-
-        assert_eq!(
-            power_shelf_node_type_for_profile(&gb300_delta),
-            Ok(rms::NodeType::PowershelfGb300Delta)
-        );
-    }
-
-    #[test]
-    fn power_shelf_node_type_requires_supported_vendor() {
-        let profile = profile_with_product_family(RackProductFamily::Gb200);
-
-        assert_eq!(
-            power_shelf_node_type_for_profile(&profile),
-            Err(NodeTypeError::UnsupportedVendor {
-                role: "power shelf",
-                vendor: String::new()
-            })
-        );
-    }
-
-    #[test]
     fn product_family_not_topology_selects_node_type() {
         let mut profile = profile_with_product_family(RackProductFamily::Gb300);
         profile.rack_hardware_topology = Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology);
@@ -372,47 +496,6 @@ mod tests {
         let node_type = switch_node_type_for_profile(&profile);
 
         assert_eq!(node_type, Ok(rms::NodeType::SwitchGb300Nvidia));
-    }
-
-    #[test]
-    fn compute_node_type_requires_vendor() {
-        let profile = profile_with_product_family(RackProductFamily::Gb200);
-
-        let err = compute_node_type_for_profile(&profile);
-
-        assert_eq!(
-            err,
-            Err(NodeTypeError::UnsupportedVendor {
-                role: "compute",
-                vendor: String::new()
-            })
-        );
-    }
-
-    #[test]
-    fn compute_node_type_requires_product_family() {
-        let mut profile = RackProfile::default();
-        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
-
-        let err = compute_node_type_for_profile(&profile);
-
-        assert_eq!(err, Err(NodeTypeError::MissingProductFamily));
-    }
-
-    #[test]
-    fn unsupported_vendor_returns_error() {
-        let mut profile = profile_with_product_family(RackProductFamily::Gb200);
-        profile.rack_capabilities.compute.vendor = Some("Other".to_string());
-
-        let err = compute_node_type_for_profile(&profile);
-
-        assert_eq!(
-            err,
-            Err(NodeTypeError::UnsupportedVendor {
-                role: "compute",
-                vendor: "Other".to_string()
-            })
-        );
     }
 
     #[test]

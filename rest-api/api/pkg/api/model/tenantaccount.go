@@ -20,7 +20,7 @@ const (
 
 var (
 	// Time when the AccountNumber, SubscriptionID, and SubscriptionTier attributes will be deprecated
-	accountNumberSubscriptionIDTierDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+	accountNumberSubscriptionIDTierDeprecationTime = time.Date(2026, time.September, 10, 0, 0, 0, 0, time.UTC)
 
 	tenantAccountDeprecations = []DeprecatedEntity{
 		{
