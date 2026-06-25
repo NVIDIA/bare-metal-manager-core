@@ -141,6 +141,7 @@ fn sensor_metric_values<'a>(
 mod tests {
     use std::sync::Arc;
 
+    use axum::Router;
     use nv_redfish::bmc_http::{BmcCredentials, HttpClient};
     use serde_json::json;
     use url::Url;
@@ -151,6 +152,29 @@ mod tests {
     use crate::{
         DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo, machine_router,
     };
+
+    fn test_host_mock() -> Router {
+        let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
+        let hw_type = HostHardwareType::DellPowerEdgeR750;
+        let ranges_config = mac_pool.allocate_range_config().unwrap();
+
+        machine_router(
+            &MachineInfo::Host(HostMachineInfo::new(
+                hw_type,
+                vec![DpuMachineInfo::new(
+                    hw_type,
+                    &mut mac_pool,
+                    DpuSettings::default(),
+                )],
+                &mut mac_pool,
+                ranges_config,
+            )),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+        )
+        .0
+    }
 
     async fn get(
         client: &AxumRouterHttpClient,
@@ -169,26 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn telemetry_service_serves_sensor_readings_as_metric_report() {
-        let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
-        let hw_type = HostHardwareType::DellPowerEdgeR750;
-        let ranges_config = mac_pool.allocate_range_config().unwrap();
-
-        let (router, _) = machine_router(
-            &MachineInfo::Host(HostMachineInfo::new(
-                hw_type,
-                vec![DpuMachineInfo::new(
-                    hw_type,
-                    &mut mac_pool,
-                    DpuSettings::default(),
-                )],
-                &mut mac_pool,
-                ranges_config,
-            )),
-            Arc::new(NoopCallbacks),
-            "test-host-id".to_string(),
-            false,
-        );
-        drop(mac_pool);
+        let router = test_host_mock();
         let client = AxumRouterHttpClient::new(router);
 
         let reports = "/redfish/v1/TelemetryService/MetricReports";
