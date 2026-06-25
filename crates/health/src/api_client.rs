@@ -217,11 +217,12 @@ fn switch_endpoint_metadata(
     endpoint_role: SwitchEndpointRole,
     nmxt_enabled: bool,
 ) -> Result<EndpointMetadata, HealthError> {
-    let serial = switch
+    let config = switch
         .config
         .as_ref()
-        .map(|config| config.name.clone())
         .ok_or_else(|| HealthError::GenericError("switch endpoint does not have serial".into()))?;
+
+    let serial = config.name.clone();
 
     Ok(EndpointMetadata::Switch(SwitchData {
         id: switch.id,
@@ -236,6 +237,7 @@ fn switch_endpoint_metadata(
             .and_then(|placement| placement.tray_index),
         endpoint_role,
         is_primary: switch.is_primary,
+        nmxc_enabled: config.enable_nmxc,
         nmxt_enabled,
     }))
 }

@@ -316,6 +316,7 @@ mod tests {
                 tray_index: Some(3),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
+                nmxc_enabled: false,
                 nmxt_enabled: false,
             })),
             rack_id: Some(RackId::new("RACK_2")),

@@ -644,6 +644,7 @@ mod tests {
                 tray_index: Some(4),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
+                nmxc_enabled: true,
                 nmxt_enabled: true,
             })),
             ContextKind::PowerShelf => Some(EndpointMetadata::PowerShelf(PowerShelfData {

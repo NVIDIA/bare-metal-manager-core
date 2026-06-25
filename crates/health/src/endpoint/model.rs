@@ -149,6 +149,7 @@ pub struct SwitchData {
     pub tray_index: Option<i32>,
     pub endpoint_role: SwitchEndpointRole,
     pub is_primary: bool,
+    pub nmxc_enabled: bool,
     pub nmxt_enabled: bool,
 }
 

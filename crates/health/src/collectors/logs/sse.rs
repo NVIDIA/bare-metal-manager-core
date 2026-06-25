@@ -28,7 +28,9 @@ use super::diagnostic::{
     DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
 };
 use crate::HealthError;
-use crate::collectors::runtime::{EventStream, StreamingCollector, open_sse_stream};
+use crate::collectors::runtime::{
+    EventStream, StreamingCollector, StreamingConnectResult, open_sse_stream,
+};
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, LogRecord};
 
@@ -58,7 +60,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
         })
     }
 
-    async fn connect(&mut self) -> Result<EventStream<'_>, HealthError> {
+    async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
         let sse_stream = open_sse_stream(Arc::clone(&self.bmc)).await?;
 
         let bmc = Arc::clone(&self.bmc);
@@ -70,7 +72,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
             })
             .boxed();
 
-        Ok(event_stream)
+        Ok(StreamingConnectResult::Connected(event_stream))
     }
 
     fn collector_type(&self) -> &'static str {

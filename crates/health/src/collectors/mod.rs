@@ -21,6 +21,7 @@ mod firmware;
 pub(crate) mod inventory;
 mod leak_detector;
 mod logs;
+mod nmxc;
 mod nmxt;
 mod nvue;
 mod runtime;
@@ -36,12 +37,13 @@ pub use logs::{
     DowngradeEvent, DowngradeReason, LogDowngradeRegistry, LogsCollector, LogsCollectorConfig,
     SseLogCollector, SseLogCollectorConfig,
 };
+pub use nmxc::{NmxcCollector, NmxcCollectorConfig};
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub use nvue::gnmi::subscriber::spawn_gnmi_collector;
 pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
 pub use runtime::{
     BackoffConfig, Collector, CollectorStartContext, EventStream, ExponentialBackoff,
     IterationResult, PeriodicCollector, StreamMetrics, StreamingCollector,
-    StreamingCollectorStartContext, open_sse_stream,
+    StreamingCollectorStartContext, StreamingConnectResult, open_sse_stream,
 };
 pub use sensors::{SensorCollector, SensorCollectorConfig};

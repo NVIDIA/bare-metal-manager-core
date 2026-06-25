@@ -26,10 +26,10 @@ use crate::collectors::{
     AutoFailureBudget, BackoffConfig, BudgetDecision, Collector, CollectorStartContext,
     EntityDiscoveryCollector, EntityDiscoveryCollectorConfig, FailureKind, FirmwareCollector,
     FirmwareCollectorConfig, LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector,
-    LogsCollectorConfig, MetricsCollector, MetricsCollectorConfig, NmxtCollector,
-    NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
-    SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
-    spawn_gnmi_collector,
+    LogsCollectorConfig, MetricsCollector, MetricsCollectorConfig, NmxcCollector,
+    NmxcCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
+    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
+    SseLogCollectorConfig, StreamingCollectorStartContext, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -37,6 +37,20 @@ use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
     PathBuf::from(template.replace("{machine_id}", endpoint_id))
+}
+
+/// Returns whether an endpoint is eligible for direct NMX-C Subscribe collection.
+pub(super) fn switch_supports_nmxc_subscription(endpoint: &BmcEndpoint) -> bool {
+    endpoint.switch_data().is_some_and(|switch| {
+        // Carbide API exposes switch host targets through Switch.nvos_info, but
+        // NMX-C Subscribe is only valid on the primary switch when desired NMX-C
+        // config is enabled. FabricManager readiness is still discovered by
+        // attempting Subscribe and retrying with backoff, because API status can
+        // lag runtime state.
+        matches!(switch.endpoint_role, SwitchEndpointRole::Host)
+            && switch.is_primary
+            && switch.nmxc_enabled
+    })
 }
 
 pub(super) fn spawn_collectors_for_endpoint(
@@ -467,6 +481,64 @@ fn spawn_switch_host_collectors(
         }
     }
 
+    if let Configurable::Enabled(nmxc_cfg) = &ctx.nmxc_config
+        && !ctx.collectors.contains(CollectorKind::Nmxc, &key)
+        && switch_supports_nmxc_subscription(endpoint)
+    {
+        if !ctx.log_event_sink_enabled {
+            tracing::warn!(
+                endpoint_key = %key,
+                "NMX-C streaming collector requires an enabled tracing, log_file, or OTLP sink, skipping"
+            );
+        } else if let Some(data_sink) = data_sink.clone() {
+            let collector_registry = Arc::new(
+                ctx.metrics_manager
+                    .create_collector_registry(format!("nmxc_collector_{key}"), metrics_prefix)?,
+            );
+
+            match Collector::start_streaming::<NmxcCollector, _>(
+                endpoint_arc.clone(),
+                bmc.clone(),
+                NmxcCollectorConfig {
+                    nmxc_config: nmxc_cfg.clone(),
+                },
+                data_sink,
+                StreamingCollectorStartContext {
+                    backoff_config: BackoffConfig {
+                        initial: nmxc_cfg.initial_backoff,
+                        max: nmxc_cfg.max_backoff,
+                    },
+                    collector_registry,
+                },
+                |_| true,
+            ) {
+                Ok(handle) => {
+                    ctx.collectors
+                        .insert(CollectorKind::Nmxc, key.clone().into(), handle);
+
+                    tracing::info!(
+                        endpoint_key = %key,
+                        total_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
+                        "Started NMX-C streaming collection for switch endpoint"
+                    );
+                }
+
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        endpoint_key = %key,
+                        "Could not start NMX-C collector for switch"
+                    );
+                }
+            }
+        } else {
+            tracing::warn!(
+                endpoint_key = %key,
+                "NMX-C streaming collector requires a data sink, skipping"
+            );
+        }
+    }
+
     if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(rest_cfg) = &nvue_cfg.rest
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
@@ -560,7 +632,7 @@ mod tests {
     use crate::collectors::DowngradeReason;
     use crate::config::{
         AutoModeConfig, Config, Configurable, LogsCollectorConfig, NvueCollectorConfig,
-        NvueGnmiConfig, PeriodicLogConfig,
+        NvueGnmiConfig, PeriodicLogConfig, TracingSinkConfig,
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
@@ -608,9 +680,21 @@ mod tests {
         ))
     }
 
+    /// Builds switch metadata using primary state as the default NMX-C desired-state flag.
     fn switch_metadata_with_role(
         endpoint_role: SwitchEndpointRole,
         is_primary: bool,
+        nmxt_enabled: bool,
+        serial: &str,
+    ) -> EndpointMetadata {
+        switch_metadata_with_nmxc(endpoint_role, is_primary, is_primary, nmxt_enabled, serial)
+    }
+
+    /// Builds switch metadata with separate NMX-C and NMX-T desired-state flags.
+    fn switch_metadata_with_nmxc(
+        endpoint_role: SwitchEndpointRole,
+        is_primary: bool,
+        nmxc_enabled: bool,
         nmxt_enabled: bool,
         serial: &str,
     ) -> EndpointMetadata {
@@ -621,6 +705,7 @@ mod tests {
             tray_index: None,
             endpoint_role,
             is_primary,
+            nmxc_enabled,
             nmxt_enabled,
         })
     }
@@ -640,6 +725,24 @@ mod tests {
             nvlink_domain_uuid: None,
             driver_version: None,
         })
+    }
+
+    /// Builds config with only the NMX-C collector enabled.
+    fn nmxc_only_config(log_event_sink_enabled: bool) -> Config {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nmxc = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Disabled;
+
+        if log_event_sink_enabled {
+            config.sinks.tracing = Configurable::Enabled(TracingSinkConfig::default());
+        }
+
+        config
     }
 
     #[test]
@@ -674,6 +777,7 @@ mod tests {
         config.collectors.firmware = Configurable::Enabled(Default::default());
         config.collectors.leak_detector = Configurable::Enabled(Default::default());
         config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nmxc = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
 
         let mut ctx = context_with_config(config, "test_switch_generic_redfish_gate");
@@ -705,6 +809,9 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
+
+        config.collectors.nmxc = Configurable::Enabled(Default::default());
+
         config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
             rest: Configurable::Enabled(Default::default()),
             gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
@@ -727,6 +834,7 @@ mod tests {
 
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0);
     }
@@ -739,6 +847,8 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nmxc = Configurable::Disabled;
+
         config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
             rest: Configurable::Enabled(Default::default()),
             gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
@@ -761,8 +871,155 @@ mod tests {
 
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 1);
+    }
+
+    #[tokio::test]
+    /// Verifies NMX-C collection starts for a primary switch host when globally enabled.
+    async fn test_switch_host_starts_nmxc_collector_when_enabled() {
+        let mut ctx = context_with_config(nmxc_only_config(true), "test_switch_host_nmxc_enabled");
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 12),
+            "55:66:77:88:99:ef",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                false,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_host_nmxc_enabled",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 1);
+    }
+
+    #[tokio::test]
+    /// Verifies NMX-C collection does not start on secondary switch hosts.
+    async fn test_switch_host_skips_nmxc_collector_for_secondary_switch() {
+        let mut ctx =
+            context_with_config(nmxc_only_config(true), "test_switch_host_nmxc_secondary");
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 14),
+            "55:66:77:88:99:f1",
+            Some(switch_metadata_with_nmxc(
+                SwitchEndpointRole::Host,
+                false,
+                true,
+                false,
+                "switch-host-secondary",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_host_nmxc_secondary",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
+    }
+
+    #[tokio::test]
+    /// Verifies NMX-C collection honors the per-switch desired-state flag.
+    async fn test_switch_host_skips_nmxc_collector_when_desired_config_disabled() {
+        let mut ctx = context_with_config(
+            nmxc_only_config(true),
+            "test_switch_host_nmxc_config_disabled",
+        );
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 15),
+            "55:66:77:88:99:f2",
+            Some(switch_metadata_with_nmxc(
+                SwitchEndpointRole::Host,
+                true,
+                false,
+                false,
+                "switch-host-nmxc-disabled",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_host_nmxc_config_disabled",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
+    }
+
+    #[tokio::test]
+    async fn test_switch_host_skips_nmxc_without_data_sink() {
+        let mut ctx = context_with_config(
+            nmxc_only_config(true),
+            "test_switch_host_nmxc_requires_sink",
+        );
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 13),
+            "55:66:77:88:99:f0",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                false,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            None,
+            "test_switch_host_nmxc_requires_sink",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
+    }
+
+    #[tokio::test]
+    /// Verifies NMX-C collection skips Prometheus-only or health-report-only sink configs.
+    async fn test_switch_host_skips_nmxc_without_log_event_sink() {
+        let mut ctx = context_with_config(
+            nmxc_only_config(false),
+            "test_switch_host_nmxc_requires_log_sink",
+        );
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 16),
+            "55:66:77:88:99:f3",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                false,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_host_nmxc_requires_log_sink",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
     }
 
     #[tokio::test]
@@ -773,6 +1030,7 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nmxc = Configurable::Disabled;
         config.collectors.nvue = Configurable::Enabled(Default::default());
 
         let mut ctx = context_with_config(config, "test_switch_host_nmxt_endpoint_disabled");
@@ -791,6 +1049,7 @@ mod tests {
             .expect("spawn should succeed");
 
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 1);
     }
 
@@ -802,6 +1061,7 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nmxc = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
 
         let mut ctx = context_with_config(config, "test_switch_host_collectors_global_disabled");
@@ -820,6 +1080,7 @@ mod tests {
             .expect("spawn should succeed");
 
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
     }
 
@@ -831,6 +1092,7 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nmxc = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
 
         let mut ctx = context_with_config(config, "test_machine_sse_logs_collector");
@@ -897,6 +1159,8 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nmxc = Configurable::Disabled;
+
         config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
             rest: Configurable::Enabled(Default::default()),
             gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
@@ -929,6 +1193,8 @@ mod tests {
             1,
             "NMX-T must still start — it doesn't depend on BMC credentials"
         );
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
     }
 
     #[tokio::test]
@@ -939,6 +1205,7 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nmxc = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
 
         let mut ctx = context_with_config(config, "test_disabled_collectors");
@@ -954,6 +1221,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0)
     }

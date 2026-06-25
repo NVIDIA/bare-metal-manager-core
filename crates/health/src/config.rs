@@ -165,6 +165,8 @@ pub struct StaticSwitchEndpoint {
     #[serde(default)]
     pub is_primary: bool,
     #[serde(default)]
+    pub nmxc_enabled: Option<bool>,
+    #[serde(default)]
     pub nmxt_enabled: Option<bool>,
 }
 
@@ -269,6 +271,11 @@ impl Default for SinksConfig {
 }
 
 impl SinksConfig {
+    /// Returns true when at least one enabled sink consumes log events.
+    pub fn includes_log_events(&self) -> bool {
+        self.tracing.is_enabled() || self.log_file.is_enabled() || self.otlp.is_enabled()
+    }
+
     /// Returns true when at least one diagnostic-capable sink opts in.
     pub fn includes_log_diagnostics(&self) -> bool {
         self.tracing
@@ -537,6 +544,9 @@ pub struct CollectorsConfig {
     /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
     pub nmxt: Configurable<NmxtCollectorConfig>,
 
+    /// NMX-C streaming collector configuration.
+    pub nmxc: Configurable<NmxcCollectorConfig>,
+
     /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
     pub nvue: Configurable<NvueCollectorConfig>,
 }
@@ -551,6 +561,7 @@ impl Default for CollectorsConfig {
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+            nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
         }
     }
@@ -944,6 +955,112 @@ impl Default for NmxtCollectorConfig {
     }
 }
 
+const DEFAULT_NMX_C_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_NMX_C_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Configuration for streaming NMX-C controller notifications from switch hosts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NmxcCollectorConfig {
+    /// NMX-C gRPC port on switch host endpoints.
+    pub grpc_port: u16,
+
+    /// `gateway_id` value sent in NMX-C requests.
+    pub gateway_id: String,
+
+    /// Whether NMX-C should notify this client about changes caused by this gateway.
+    pub notify_on_self_change: bool,
+
+    /// Heartbeat rate value sent to `Subscribe`; NMX-C uses it to send `DomainStateInfo`.
+    pub heartbeat_rate: u32,
+
+    /// Optional TCP connect timeout for the switch-host NMX-C gRPC endpoint.
+    #[serde(with = "humantime_serde::option", default)]
+    pub connect_timeout: Option<Duration>,
+
+    /// Optional timeout for NMX-C Hello, Subscribe, and initial Subscribe acknowledgement.
+    #[serde(with = "humantime_serde::option", default)]
+    pub rpc_timeout: Option<Duration>,
+
+    /// Initial retry backoff after a streaming connection failure.
+    #[serde(with = "humantime_serde")]
+    pub initial_backoff: Duration,
+
+    /// Maximum retry backoff after repeated streaming connection failures.
+    #[serde(with = "humantime_serde")]
+    pub max_backoff: Duration,
+}
+
+impl Default for NmxcCollectorConfig {
+    fn default() -> Self {
+        Self {
+            grpc_port: 9370,
+            gateway_id: "hw-health".to_string(),
+            notify_on_self_change: false,
+            heartbeat_rate: 30,
+            connect_timeout: None,
+            rpc_timeout: None,
+            initial_backoff: Duration::from_secs(1),
+            max_backoff: Duration::from_secs(30),
+        }
+    }
+}
+
+impl NmxcCollectorConfig {
+    /// Returns the configured NMX-C connect timeout, or the default when unset.
+    pub(crate) fn connect_timeout(&self) -> Duration {
+        self.connect_timeout
+            .unwrap_or(DEFAULT_NMX_C_CONNECT_TIMEOUT)
+    }
+
+    /// Returns the configured NMX-C RPC timeout, or the default when unset.
+    pub(crate) fn rpc_timeout(&self) -> Duration {
+        self.rpc_timeout.unwrap_or(DEFAULT_NMX_C_RPC_TIMEOUT)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.grpc_port == 0 {
+            return Err("[collectors.nmxc].grpc_port must be greater than 0".to_string());
+        }
+
+        if self.gateway_id.trim().is_empty() {
+            return Err("[collectors.nmxc].gateway_id must not be empty".to_string());
+        }
+
+        if self.heartbeat_rate == 0 {
+            return Err("[collectors.nmxc].heartbeat_rate must be greater than 0".to_string());
+        }
+
+        if self
+            .connect_timeout
+            .is_some_and(|timeout| timeout.is_zero())
+        {
+            return Err("[collectors.nmxc].connect_timeout must be greater than 0".to_string());
+        }
+
+        if self.rpc_timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err("[collectors.nmxc].rpc_timeout must be greater than 0".to_string());
+        }
+
+        if self.initial_backoff.is_zero() {
+            return Err("[collectors.nmxc].initial_backoff must be greater than 0".to_string());
+        }
+
+        if self.max_backoff.is_zero() {
+            return Err("[collectors.nmxc].max_backoff must be greater than 0".to_string());
+        }
+
+        if self.max_backoff < self.initial_backoff {
+            return Err(
+                "[collectors.nmxc].max_backoff must be greater than or equal to initial_backoff"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueCollectorConfig {
@@ -1203,6 +1320,10 @@ impl Config {
             logs.validate()?;
         }
 
+        if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
+            nmxc.validate()?;
+        }
+
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
             tonic::transport::Channel::from_shared(otlp.endpoint.clone())
                 .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
@@ -1273,6 +1394,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
@@ -1324,6 +1447,7 @@ mod tests {
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
@@ -1471,6 +1595,7 @@ cache_size = 50
         assert!(!config.collectors.firmware.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.logs.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
 
         config.validate().expect("config should be valid");
@@ -1603,6 +1728,43 @@ username = "root"
         config.collectors.logs = Configurable::Disabled;
         assert!(config.validate().is_ok());
 
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            grpc_port: 0,
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            gateway_id: " ".to_string(),
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            heartbeat_rate: 0,
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            max_backoff: Duration::from_millis(500),
+            initial_backoff: Duration::from_secs(1),
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig::default());
+
+        assert!(config.validate().is_ok());
+
+        config.collectors.nmxc = Configurable::Disabled;
+
+        assert!(config.validate().is_ok());
+
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
             endpoint: "not a valid uri\n".to_string(),
             ..OtlpSinkConfig::default()
@@ -1691,6 +1853,42 @@ username = "root"
         }
     }
 
+    /// Verifies log-only collectors run only when a sink consumes log events.
+    #[test]
+    fn test_sinks_config_includes_log_events() {
+        let cases = [
+            ("default", SinksConfig::default(), false),
+            (
+                "tracing",
+                SinksConfig {
+                    tracing: Configurable::Enabled(TracingSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "log-file",
+                SinksConfig {
+                    log_file: Configurable::Enabled(LogFileSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "otlp",
+                SinksConfig {
+                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+        ];
+
+        for (name, sinks, expected) in cases {
+            assert_eq!(sinks.includes_log_events(), expected, "{name}");
+        }
+    }
+
     #[test]
     fn test_load_defaults() {
         let config = Config::load(None).expect("should load defaults");
@@ -1701,6 +1899,7 @@ username = "root"
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(!config.collectors.nvue.is_enabled());
         if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert!(health_report.skip_empty_reports);
@@ -1742,6 +1941,101 @@ skip_empty_reports = false
             assert!(rest.paths.sdn_partitions_enabled);
             assert!(rest.paths.interfaces_enabled);
         }
+    }
+
+    #[test]
+    fn test_nmxc_config_defaults() {
+        let defaults = NmxcCollectorConfig::default();
+
+        assert_eq!(defaults.grpc_port, 9370);
+        assert_eq!(defaults.gateway_id, "hw-health");
+        assert!(!defaults.notify_on_self_change);
+        assert_eq!(defaults.heartbeat_rate, 30);
+        assert_eq!(defaults.connect_timeout, None);
+        assert_eq!(defaults.rpc_timeout, None);
+        assert_eq!(defaults.connect_timeout(), Duration::from_secs(10));
+        assert_eq!(defaults.rpc_timeout(), Duration::from_secs(10));
+        assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
+        assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_nmxc_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxc]
+grpc_port = 9602
+gateway_id = "health-service"
+notify_on_self_change = true
+heartbeat_rate = 15
+connect_timeout = "3s"
+rpc_timeout = "4s"
+initial_backoff = "2s"
+max_backoff = "20s"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nmxc config");
+
+        if let Configurable::Enabled(ref nmxc) = config.collectors.nmxc {
+            assert_eq!(nmxc.grpc_port, 9602);
+            assert_eq!(nmxc.gateway_id, "health-service");
+            assert!(nmxc.notify_on_self_change);
+            assert_eq!(nmxc.heartbeat_rate, 15);
+            assert_eq!(nmxc.connect_timeout, Some(Duration::from_secs(3)));
+            assert_eq!(nmxc.rpc_timeout, Some(Duration::from_secs(4)));
+            assert_eq!(nmxc.connect_timeout(), Duration::from_secs(3));
+            assert_eq!(nmxc.rpc_timeout(), Duration::from_secs(4));
+            assert_eq!(nmxc.initial_backoff, Duration::from_secs(2));
+            assert_eq!(nmxc.max_backoff, Duration::from_secs(20));
+        } else {
+            panic!("nmxc config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_nmxc_transport_config_validation() {
+        value_scenarios!(
+            run = |config: NmxcCollectorConfig| config.validate().is_ok();
+
+            "NMX-C transport validation" {
+                NmxcCollectorConfig::default() => true,
+
+                NmxcCollectorConfig {
+                    connect_timeout: Some(Duration::ZERO),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    rpc_timeout: Some(Duration::ZERO),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    initial_backoff: Duration::ZERO,
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    max_backoff: Duration::ZERO,
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    initial_backoff: Duration::from_secs(30),
+                    max_backoff: Duration::from_secs(1),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+            }
+        );
     }
 
     #[test]
@@ -2144,11 +2438,12 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(switch.is_primary);
+        assert_eq!(switch.nmxc_enabled, None);
         assert_eq!(switch.nmxt_enabled, None);
     }
 
     #[test]
-    fn test_static_switch_host_accepts_nmxt_override() {
+    fn test_static_switch_host_accepts_nmx_collector_overrides() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -2158,7 +2453,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:77"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxt_enabled = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true }
 "#;
 
         let config: Config = Figment::new()
@@ -2174,6 +2469,7 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(!switch.is_primary);
+        assert_eq!(switch.nmxc_enabled, Some(true));
         assert_eq!(switch.nmxt_enabled, Some(true));
     }
 
