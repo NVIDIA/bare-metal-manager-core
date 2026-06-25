@@ -199,6 +199,17 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
     .await
 }
 
+pub async fn dell_poweredge_r760_bluefield4_bmc(dpu: DpuMachineInfo) -> TestBmcHandle {
+    let machine_info = MachineInfo::Dpu(dpu);
+    test_bmc(machine_router(
+        &machine_info,
+        Arc::new(NoopCallbacks),
+        "test-dpu-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn generic_ami_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::GenericAmi),

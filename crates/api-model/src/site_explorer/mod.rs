@@ -929,17 +929,32 @@ impl EndpointExplorationReport {
         }
     }
 
+    fn machine_id_serial_number(&self) -> Option<&str> {
+        self.systems
+            .first()
+            .and_then(|system| system.serial_number.as_deref().map(str::trim))
+            .filter(|sn| !sn.is_empty())
+            .or_else(|| {
+                self.is_dpu().then(|| {
+                    // BF4 reports no system serial in Redfish. The stable product serial is
+                    // on the Bluefield_BMC chassis; use that explicit chassis ID instead of
+                    // depending on chassis collection order or unrelated component serials.
+                    self.chassis
+                        .iter()
+                        .find(|chassis| chassis.id == "Bluefield_BMC")
+                        .and_then(|chassis| chassis.serial_number.as_deref().map(str::trim))
+                        .filter(|serial| !serial.trim().is_empty())
+                })?
+            })
+    }
+
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
     pub fn generate_machine_id(
         &mut self,
         force_predicted_host: bool,
     ) -> ModelResult<Option<&MachineId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
+        if let Some(serial_number) = self.machine_id_serial_number() {
             let vendor = self
                 .systems
                 .first()
