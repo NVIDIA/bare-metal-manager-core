@@ -23,7 +23,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::{is_locally_administered_mac, sanitized_mac};
@@ -234,6 +234,27 @@ pub struct Endpoint<'a> {
     last_explored: Option<&'a ExploredEndpoint>,
     pub(crate) expected: Option<&'a ExpectedEntity>,
     pause_ingestion_and_poweron: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EndpointExplorationStepDurations {
+    permit_wait: Duration,
+    work_lock_acquire: Duration,
+    redfish_explore: Duration,
+    failure_context_load: Option<Duration>,
+    report_enrich: Option<Duration>,
+}
+
+enum EndpointExplorationTaskResult<'a> {
+    Attempted {
+        endpoint: Endpoint<'a>,
+        result: Result<EndpointExplorationReport, EndpointExplorationError>,
+        exploration_duration: Duration,
+        steps: EndpointExplorationStepDurations,
+    },
+    WorkLockSkipped {
+        steps: EndpointExplorationStepDurations,
+    },
 }
 
 impl Display for Endpoint<'_> {
@@ -1712,6 +1733,7 @@ impl SiteExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<ExploredEndpointIndex> {
+        let load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
 
         let underlay_segments =
@@ -1735,6 +1757,22 @@ impl SiteExplorer {
         let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
         txn.commit().await?;
+        metrics.record_phase_latency("update_explored_endpoints_load", load_start.elapsed());
+
+        let explored_endpoint_count = explored_endpoints.len();
+        let expected_switch_count = expected_switches.len();
+        let expected_machine_count = expected_machines.len();
+        let expected_power_shelf_count = expected_power_shelves.len();
+        metrics.record_update_explored_endpoints_count(
+            "explored_endpoints_loaded",
+            explored_endpoint_count,
+        );
+        metrics.record_update_explored_endpoints_count("expected_switches", expected_switch_count);
+        metrics.record_update_explored_endpoints_count("expected_machines", expected_machine_count);
+        metrics.record_update_explored_endpoints_count(
+            "expected_power_shelves",
+            expected_power_shelf_count,
+        );
 
         // Create a map of sku_id -> device_type for quick lookup
         let sku_device_types: HashMap<String, Option<String>> = skus
@@ -1748,6 +1786,7 @@ impl SiteExplorer {
         // path that materializes static reservations for IPs that don't reach
         // `discover_dhcp` (devices on the static-assignments segment, devices not yet powered
         // on, etc.), and a belt-and-suspenders for the in-network case too.
+        let preallocate_start = Instant::now();
         for expected_machine in &expected_machines {
             let device_type = expected_machine
                 .data
@@ -1841,6 +1880,10 @@ impl SiteExplorer {
                 .await;
             }
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_preallocate",
+            preallocate_start.elapsed(),
+        );
 
         let expected_count = expected_machines.len();
 
@@ -1855,9 +1898,16 @@ impl SiteExplorer {
         // Get all underlay interfaces from the database, which includes interfaces
         // which have come from both DHCP and/or static assignments. Fetched here, after the
         // preallocate loops above, so we see any freshly preallocated rows from this iteration.
+        let interface_load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
         txn.commit().await?;
+        metrics.record_phase_latency(
+            "update_explored_endpoints_interface_load",
+            interface_load_start.elapsed(),
+        );
+
+        let build_index_start = Instant::now();
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
@@ -1865,6 +1915,11 @@ impl SiteExplorer {
                     && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
+        let underlay_interface_count = underlay_interfaces.len();
+        metrics.record_update_explored_endpoints_count(
+            "underlay_interfaces",
+            underlay_interface_count,
+        );
 
         // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
         let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
@@ -1872,10 +1927,15 @@ impl SiteExplorer {
             .with_expected_switches(expected_switches)
             .with_expected_power_shelves(expected_power_shelves)
             .build();
+        metrics.record_phase_latency(
+            "update_explored_endpoints_build_index",
+            build_index_start.elapsed(),
+        );
 
         // If a previously explored endpoint is not part of `MachineInterfaces` anymore,
         // we can delete knowledge about it. Otherwise we might try to refresh the
         // information about the endpoint
+        let plan_start = Instant::now();
         let mut delete_endpoints = Vec::new();
         let mut priority_update_endpoints = Vec::new();
         let mut update_endpoints = Vec::with_capacity(index.explored_endpoints().len());
@@ -1897,18 +1957,39 @@ impl SiteExplorer {
                 }
             }
         }
+        metrics.record_update_explored_endpoints_count(
+            "priority_update_candidates",
+            priority_update_endpoints.len(),
+        );
+        metrics.record_update_explored_endpoints_count(
+            "routine_update_candidates",
+            update_endpoints.len(),
+        );
+        metrics.record_update_explored_endpoints_count(
+            "stale_delete_candidates",
+            delete_endpoints.len(),
+        );
 
         // The unknown endpoints can quickly be cleaned up
+        let delete_stale_start = Instant::now();
         if !delete_endpoints.is_empty() {
             let mut txn = self.txn_begin().await?;
             db::explored_endpoints::delete_many(&mut txn, &delete_endpoints).await?;
             txn.commit().await?;
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_delete_stale",
+            delete_stale_start.elapsed(),
+        );
 
         // If there is a MachineInterface and no previously discovered information,
         // we need to detect it. This includes both regular machines, PowerShelves
         // and Switches.
         let unexplored_endpoints = index.get_unexplored_endpoints();
+        metrics.record_update_explored_endpoints_count(
+            "unexplored_candidates",
+            unexplored_endpoints.len(),
+        );
 
         // Now that we gathered the candidates for exploration, let's decide what
         // we are actually going to explore. The config limits the amount of explorations
@@ -1935,6 +2016,7 @@ impl SiteExplorer {
         }
 
         let routine_start = explore_endpoint_data.len();
+        metrics.record_update_explored_endpoints_count("selected_priority_updates", routine_start);
 
         // Next priority are all endpoints that we've never looked at
         let remaining_explore_endpoints = num_explore_endpoints;
@@ -1952,6 +2034,8 @@ impl SiteExplorer {
                 expected: index.matched_expected(address),
             });
         }
+        let selected_unexplored = explore_endpoint_data.len() - routine_start;
+        metrics.record_update_explored_endpoints_count("selected_unexplored", selected_unexplored);
 
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
         let remaining_explore_endpoints =
@@ -1974,6 +2058,13 @@ impl SiteExplorer {
                 });
             }
         }
+        metrics.record_update_explored_endpoints_count(
+            "selected_routine_updates",
+            explore_endpoint_data.len() - routine_start - selected_unexplored,
+        );
+        metrics
+            .record_update_explored_endpoints_count("selected_total", explore_endpoint_data.len());
+        metrics.record_phase_latency("update_explored_endpoints_plan", plan_start.elapsed());
 
         let task_set = FuturesUnordered::new();
         let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(
@@ -1986,6 +2077,7 @@ impl SiteExplorer {
             expected_count - index.all_matched_expected_machines().len();
         let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
 
+        let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
@@ -1998,29 +2090,37 @@ impl SiteExplorer {
 
             task_set.push(
                 async move {
-                    let start = std::time::Instant::now();
+                    let start = Instant::now();
+                    let mut steps = EndpointExplorationStepDurations::default();
 
                     // Acquire a permit which will block more than `concurrent_explorations`
                     // tasks from running.
                     // Note that assigning the permit to a named variable is necessary
                     // to make it live until the end of the scope. Using `_` would
                     // immediately dispose the permit.
+                    let permit_wait_start = Instant::now();
                     let _permit = concurrency_limiter
                         .acquire()
                         .await
                         .expect("Semaphore can't be closed");
+                    steps.permit_wait = permit_wait_start.elapsed();
 
                     // If the endpoint is locked, we skip exploration.
                     let work_key = endpoint_exploration_work_key(endpoint.address);
+                    let work_lock_acquire_start = Instant::now();
                     let _work_lock = match work_lock_manager_handle.try_acquire_lock(work_key).await
                     {
-                        Ok(work_lock) => work_lock,
+                        Ok(work_lock) => {
+                            steps.work_lock_acquire = work_lock_acquire_start.elapsed();
+                            work_lock
+                        }
                         Err(AcquireLockError::WorkAlreadyLocked(_)) => {
+                            steps.work_lock_acquire = work_lock_acquire_start.elapsed();
                             tracing::info!(
                                 address = %endpoint.address,
                                 "Skipping periodic endpoint exploration; adhoc refresh already in progress"
                             );
-                            return Ok(None);
+                            return Ok(EndpointExplorationTaskResult::WorkLockSkipped { steps });
                         }
                         Err(e) => {
                             return Err(SiteExplorerError::internal(format!(
@@ -2030,6 +2130,7 @@ impl SiteExplorer {
                         }
                     };
 
+                    let redfish_explore_start = Instant::now();
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
@@ -2039,9 +2140,11 @@ impl SiteExplorer {
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
+                    steps.redfish_explore = redfish_explore_start.elapsed();
 
                     if let Err(error) = &result {
                         // For logging purposes
+                        let failure_context_load_start = Instant::now();
                         let machine_state = match get_machine_state_by_bmc_ip(
                             &database_connection,
                             &endpoint.address.to_string(),
@@ -2051,14 +2154,22 @@ impl SiteExplorer {
                             Ok(state) if !state.is_empty() => format!(" (state: {state})"),
                             _ => String::new(),
                         };
+                        steps.failure_context_load = Some(failure_context_load_start.elapsed());
                         tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
                     }
 
                     if let Ok(report) = &mut result {
+                        let report_enrich_start = Instant::now();
                         enrich_endpoint_exploration_report(report, &fw_config_snapshot);
+                        steps.report_enrich = Some(report_enrich_start.elapsed());
                     }
 
-                    Ok(Some((endpoint, result, start.elapsed())))
+                    Ok(EndpointExplorationTaskResult::Attempted {
+                        endpoint,
+                        result,
+                        exploration_duration: start.elapsed(),
+                        steps,
+                    })
                 }
                     .in_current_span(),
             );
@@ -2075,13 +2186,54 @@ impl SiteExplorer {
             .await
             .into_iter()
             .collect::<SiteExplorerResult<Vec<_>>>()?;
+        metrics.record_phase_latency("update_explored_endpoints_probe", probe_start.elapsed());
+        let mut work_lock_skipped = 0;
+        for exploration_result in &exploration_results {
+            let steps = match exploration_result {
+                EndpointExplorationTaskResult::Attempted { steps, .. } => steps,
+                EndpointExplorationTaskResult::WorkLockSkipped { steps } => {
+                    work_lock_skipped += 1;
+                    steps
+                }
+            };
+
+            metrics.record_endpoint_exploration_step_latency("permit_wait", steps.permit_wait);
+            metrics.record_endpoint_exploration_step_latency(
+                "work_lock_acquire",
+                steps.work_lock_acquire,
+            );
+            metrics
+                .record_endpoint_exploration_step_latency("redfish_explore", steps.redfish_explore);
+            if let Some(duration) = steps.failure_context_load {
+                metrics.record_endpoint_exploration_step_latency("failure_context_load", duration);
+            }
+            if let Some(duration) = steps.report_enrich {
+                metrics.record_endpoint_exploration_step_latency("report_enrich", duration);
+            }
+        }
+        metrics.record_update_explored_endpoints_count("work_lock_skipped", work_lock_skipped);
 
         // All subtasks finished. We now update the database
+        let persist_start = Instant::now();
         let mut txn = self.txn_begin().await?;
 
         let mut redfish_errors = Vec::new();
+        let mut inserted_endpoints = 0;
+        let mut updated_endpoint_reports = 0;
+        let mut updated_endpoint_errors = 0;
+        let mut firmware_version_updates = 0;
 
-        for (endpoint, result, exploration_duration) in exploration_results.into_iter().flatten() {
+        for exploration_result in exploration_results {
+            let EndpointExplorationTaskResult::Attempted {
+                endpoint,
+                result,
+                exploration_duration,
+                ..
+            } = exploration_result
+            else {
+                continue;
+            };
+
             let address = endpoint.address;
             let mut redfish_error = None;
 
@@ -2126,6 +2278,7 @@ impl SiteExplorer {
                         uefi_version,
                     )
                     .await?;
+                    firmware_version_updates += 1;
                 }
             }
 
@@ -2151,6 +2304,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            updated_endpoint_reports += 1;
                         }
                         Err(e) => {
                             // If an endpoint can not be explored we don't delete the known information, since it's
@@ -2163,6 +2317,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            updated_endpoint_errors += 1;
                         }
                     }
                 }
@@ -2184,6 +2339,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            inserted_endpoints += 1;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
@@ -2197,6 +2353,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            inserted_endpoints += 1;
                         }
                     }
 
@@ -2221,12 +2378,33 @@ impl SiteExplorer {
         }
 
         txn.commit().await?;
+        metrics.record_phase_latency("update_explored_endpoints_persist", persist_start.elapsed());
+        metrics.record_update_explored_endpoints_count("inserted_endpoints", inserted_endpoints);
+        metrics.record_update_explored_endpoints_count(
+            "updated_endpoint_reports",
+            updated_endpoint_reports,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "updated_endpoint_errors",
+            updated_endpoint_errors,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "firmware_version_updates",
+            firmware_version_updates,
+        );
+        metrics
+            .record_update_explored_endpoints_count("redfish_remediations", redfish_errors.len());
 
         // We handle redfish errors after committing the transaction, to avoid holding the
         // transaction while issuing expensive redfish calls.
+        let remediate_start = Instant::now();
         for (e, endpoint) in redfish_errors {
             self.handle_redfish_error(&endpoint, metrics, &e).await;
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_remediate",
+            remediate_start.elapsed(),
+        );
 
         Ok(index)
     }
