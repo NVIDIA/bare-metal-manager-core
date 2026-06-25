@@ -609,7 +609,14 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 		Offset:  pageRequest.Offset,
 		OrderBy: pageRequest.OrderBy,
 	}
-	includeRelations := vpcPeeringIncludeRelationsForTenantIDs(qIncludeRelations)
+	includeRelations := qIncludeRelations
+	if len(filterInput.VpcIDs) > 0 || len(filterInput.PeerTenantIDs) > 0 {
+		for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName} {
+			if !slices.Contains(includeRelations, relation) {
+				includeRelations = append(includeRelations, relation)
+			}
+		}
+	}
 	vpcPeerings, total, err := vpcPeeringDAO.GetAll(ctx, nil, filterInput, vpcPeeringPageInput, includeRelations)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving VPC Peerings from DB")
@@ -708,8 +715,7 @@ func (gvph GetVpcPeeringHandler) Handle(c echo.Context) error {
 
 	// Get VPC Peering from DB by ID
 	vpcPeeringDAO := cdbm.NewVpcPeeringDAO(gvph.dbSession)
-	includeRelations := vpcPeeringIncludeRelationsForTenantIDs(qIncludeRelations)
-	vpcPeering, err := vpcPeeringDAO.GetByID(ctx, nil, peeringUUID, includeRelations)
+	vpcPeering, err := vpcPeeringDAO.GetByID(ctx, nil, peeringUUID, qIncludeRelations)
 	if err != nil {
 		if err == cdb.ErrDoesNotExist {
 			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Could not find VPC Peering with ID: %s", peeringUUID.String()), nil)
@@ -996,16 +1002,4 @@ func (dvph DeleteVpcPeeringHandler) Handle(c echo.Context) error {
 	logger.Info().Msg("finishing API handler")
 
 	return c.NoContent(http.StatusNoContent)
-}
-
-// vpcPeeringIncludeRelationsForTenantIDs ensures Vpc1 and Vpc2 are loaded so
-// vpc1TenantId and vpc2TenantId can be populated in the API response.
-func vpcPeeringIncludeRelationsForTenantIDs(includeRelations []string) []string {
-	relations := slices.Clone(includeRelations)
-	for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName} {
-		if !slices.Contains(relations, relation) {
-			relations = append(relations, relation)
-		}
-	}
-	return relations
 }
