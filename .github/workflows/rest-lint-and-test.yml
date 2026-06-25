@@ -179,38 +179,17 @@ jobs:
 
       - name: Install buf and protoc plugins
         run: |
-          go install github.com/bufbuild/buf/cmd/buf@latest
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
       - name: Regenerate protobuf code
         run: |
-          cd workflow-schema && buf generate
-          cd flow && buf generate
+          make core-proto
+          make -C flow gen-nicoapi-pb
 
       - name: Check for uncommitted changes
-        run: |
-          UNTRACKED=$(git ls-files --others --exclude-standard)
-
-          MEANINGFUL_DIFF=$(git diff --unified=0 | grep '^[+-]' | grep -v '^[+-][+-][+-]' | grep -v '^[+-]//.*protoc-gen-go' | grep -v '^[+-]//.*protoc v' || true)
-
-          if [ -z "$MEANINGFUL_DIFF" ] && [ -z "$UNTRACKED" ]; then
-            echo "✓ Protobuf generated code is up to date."
-          else
-            echo "::error::Protobuf generated code is out of date. Please run 'make core-protogen' and 'make flow-protogen' and commit the results."
-            echo ""
-            echo "Changed files:"
-            git status --porcelain
-            echo ""
-            echo "Diff:"
-            git -P diff
-            if [ -n "$UNTRACKED" ]; then
-              echo ""
-              echo "Untracked files:"
-              echo "$UNTRACKED"
-            fi
-            exit 1
-          fi
+        run: bash ../scripts/check-repo-clean.sh "REST protobuf generation"
 
   test:
     name: Test (${{ matrix.module }})
