@@ -650,13 +650,16 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 		Offset:  pageRequest.Offset,
 		OrderBy: pageRequest.OrderBy,
 	}
-	includeRelations := qIncludeRelations
-	for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName} {
-		if !slices.Contains(includeRelations, relation) {
-			includeRelations = append(includeRelations, relation)
+
+	// If VPC ID or peer tenant ID is specified, include the VPC and tenant relations
+	if len(vpcIDStrs) > 0 || len(peerTenantIDStrs) > 0 {
+		for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName} {
+			if !slices.Contains(qIncludeRelations, relation) {
+				qIncludeRelations = append(qIncludeRelations, relation)
+			}
 		}
 	}
-	vpcPeerings, total, err := vpcPeeringDAO.GetAll(ctx, nil, filterInput, vpcPeeringPageInput, includeRelations)
+	vpcPeerings, total, err := vpcPeeringDAO.GetAll(ctx, nil, filterInput, vpcPeeringPageInput, qIncludeRelations)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving VPC Peerings from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC Peerings, DB error", nil)

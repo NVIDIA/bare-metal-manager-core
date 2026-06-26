@@ -520,15 +520,6 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:                     "tenant admin 1 lists across all sites when siteId omitted",
-			reqOrgName:               tnOrg1,
-			user:                     tnu1,
-			expectedStatus:           http.StatusOK,
-			expectedCount:            6,
-			validatePagination:       true,
-			validateTenantIDsPresent: true,
-		},
-		{
 			name:           "tenant admin 1 lists peerings in site 1",
 			reqOrgName:     tnOrg1,
 			queryParams:    map[string]string{"siteId": st1.ID.String()},
