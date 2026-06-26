@@ -86,13 +86,50 @@ stable.
 ## Trust anchors
 
 Device-certificate chains are verified against the NVIDIA BlueField device root CA(s) stored
-in the `dpu_device_ca_certs` table — the DPU analog of `tpm_ca_certs`. These are expected to
-be seeded at site creation. Until at least one matching root is present, every chain fails
-verification (`NoTrustedRoot`), which in `best_effort` mode means DPUs simply keep their
-legacy id, and in `required` mode means new-DPU discovery fails.
+in the `dpu_device_ca_certs` table — the DPU analog of `tpm_ca_certs`. Seed them with the
+admin CLI as a Day-0 / site-setup step, the same way TPM CA certs are loaded:
 
-> Seeding tooling is tracked with the epic; the table mirrors `tpm_ca_certs`
-> (`ca_cert_der`, validity, subject).
+```bash
+# Add a device root CA (DER/CER/PEM accepted)
+nico-admin-cli dpu-device-ca add --filename /path/to/bluefield-device-root.pem
+# List configured roots (with id, validity, subject)
+nico-admin-cli dpu-device-ca show
+# Remove one by id
+nico-admin-cli dpu-device-ca delete --ca-id 42
+```
+
+Until at least one matching root is present, every chain fails verification
+(`NoTrustedRoot`) — in `best_effort` mode DPUs keep their legacy id, in `required` mode
+new-DPU discovery fails.
+
+## Trust model — read before seeding a non-NVIDIA CA
+
+**Verification trusts exactly the roots you seed, and nothing else.** A chain is accepted if
+it is well-formed and chains to *any* root in `dpu_device_ca_certs`. There is **no built-in
+NVIDIA-specific pinning** (name constraints / policy OIDs are not enforced today), so the
+entire trust decision is *which* CAs you add.
+
+This matters because the BlueField IRoT lets the **DPU owner re-provision the CA** that the
+device certificate chains to:
+
+- **Seed only the NVIDIA factory device root (recommended).** Only genuine,
+  factory-provisioned device identities verify; a DPU presenting an owner-provisioned
+  certificate (chaining to some other CA) is rejected with `NoTrustedRoot`. This is the
+  posture that makes the device-rooted id a real hardware root of trust.
+- **Seed an owner / site CA only if *you* control that CA key.** Doing so means you trust
+  whoever holds the key to assert DPU identities: anyone who can sign with it can mint a
+  certificate for an arbitrary serial and thereby obtain an arbitrary `machine_id`. If the DPU
+  owner controls the CA and is not trusted by the site operator, seeding it **forfeits** the
+  hardware-identity guarantee.
+
+Rule of thumb: in a single-owner site (the operator owns the DPUs) either posture is fine;
+where DPU owners are distinct from and untrusted by the operator, seed **only** the NVIDIA
+factory root.
+
+> **Operational note:** a DPU's device-rooted `machine_id` is derived from its device
+> certificate, so re-provisioning the IRoT certificate changes the id and the DPU is seen as a
+> new machine on its next discovery. (DPUs already enrolled under a legacy serial-derived id
+> are unaffected — see [Backward compatibility](#backward-compatibility).)
 
 ---
 
