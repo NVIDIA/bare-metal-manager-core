@@ -45,18 +45,17 @@ pub struct MachineValidationManager {
 impl MachineValidationManager {
     pub fn new(
         database_connection: sqlx::PgPool,
-        config: MachineValidationConfig,
+        mut config: MachineValidationConfig,
         meter: opentelemetry::metrics::Meter,
     ) -> Self {
-        let configured_stale_run_timeout = config.stale_run_timeout;
-        let config = config.with_minimum_stale_run_timeout();
-        if config.stale_run_timeout != configured_stale_run_timeout {
+        if config.stale_run_timeout < MachineValidationConfig::MIN_STALE_RUN_TIMEOUT {
             tracing::warn!(
-                configured_stale_run_timeout_seconds = configured_stale_run_timeout.as_secs(),
+                configured_stale_run_timeout_seconds = config.stale_run_timeout.as_secs(),
                 minimum_stale_run_timeout_seconds =
                     MachineValidationConfig::MIN_STALE_RUN_TIMEOUT.as_secs(),
                 "machine validation stale_run_timeout is below minimum; using minimum"
             );
+            config.stale_run_timeout = MachineValidationConfig::MIN_STALE_RUN_TIMEOUT;
         }
 
         let hold_period = config
@@ -399,7 +398,7 @@ async fn reconcile_stale_validation(
     record_failed_validation_side_effects(
         txn,
         &validation,
-        error_message,
+        error_message.clone(),
         "StaleMachineValidationRun",
     )
     .await?;
@@ -407,6 +406,7 @@ async fn reconcile_stale_validation(
     tracing::warn!(
         validation_id = %validation.id,
         machine_id = %validation.machine_id,
+        error = %error_message,
         "reconciled stale machine validation run"
     );
 
