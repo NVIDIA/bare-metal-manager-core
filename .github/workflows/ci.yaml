@@ -994,7 +994,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required: Buf needs the history to compare against main
+          fetch-depth: 0 # Required to compute the merge-base against main
 
       - name: Install Buf CLI
         run: |
@@ -1004,8 +1004,18 @@ jobs:
 
       - name: Check for Breaking Changes
         run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          MERGE_BASE="$(git merge-base HEAD origin/main)"
+          BASE_PROTO_DIR="$(mktemp -d)"
+          trap 'rm -rf "${BASE_PROTO_DIR}"' EXIT
+
+          echo "Comparing protobuf changes against merge-base ${MERGE_BASE}"
+          git archive "${MERGE_BASE}" crates/rpc/proto | tar -x -C "${BASE_PROTO_DIR}"
+
           buf breaking crates/rpc/proto \
-            --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
+            --against "${BASE_PROTO_DIR}/crates/rpc/proto" \
             --error-format=github-actions
 
   lint-police:
