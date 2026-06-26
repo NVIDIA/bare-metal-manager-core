@@ -498,8 +498,16 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
         "NVMe cleanup completed"
     );
 
+    if !errors.is_empty() && success_count == 0 {
+        return Err(CarbideClientError::GenericError(format!(
+            "all NVMe device(s) failed cleanup:\n{}",
+            errors.join("\n")
+        )));
+    }
     if !errors.is_empty() {
-        return Err(CarbideClientError::GenericError(errors.join("\n")));
+        // a dead/failed drive must not fail the whole machine; the OS install targets a
+        // healthy drive. Extends the per-format tolerance from #2820 to the cleanup result.
+        tracing::warn!(success_count, failed = errors.len(), "some NVMe devices failed cleanup but at least one succeeded; continuing");
     }
 
     Ok(())
