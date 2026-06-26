@@ -365,6 +365,13 @@ fn down_blame_to_state(raw: &str) -> &'static str {
     }
 }
 
+fn required_port_num(sample_labels: &HashMap<String, String>) -> Option<&str> {
+    sample_labels
+        .get("Port_Number")
+        .map(String::as_str)
+        .filter(|port_num| !port_num.is_empty())
+}
+
 /// Test-only; production iterates `NMXT_LABEL_MAP` directly in `build_labels`.
 #[cfg(test)]
 fn lookup_nmxt_label(key: &str) -> Option<&'static NmxtLabel> {
@@ -588,11 +595,10 @@ impl NmxtCollector {
                 .get("Module_Temperature")
                 .and_then(|raw| cable_temp_to_celsius(raw))
             {
-                let port_num = sample_labels
-                    .get("Port_Number")
-                    .cloned()
-                    .unwrap_or_default();
-                if cable_temp_ports.insert(port_num.clone()) {
+                let Some(port_num) = required_port_num(&sample_labels) else {
+                    continue;
+                };
+                if cable_temp_ports.insert(port_num.to_string()) {
                     let labels = self.build_labels(&switch_ip, &sample_labels);
                     self.emit_event(CollectorEvent::Metric(
                         MetricSample {
@@ -612,11 +618,10 @@ impl NmxtCollector {
             // `down_blame` is a closed enum riding as a label; emit it as a per-port StateSet
             // (one 0/1 series per state) before the family check, once per port.
             if let Some(raw) = sample_labels.get("down_blame") {
-                let port_num = sample_labels
-                    .get("Port_Number")
-                    .cloned()
-                    .unwrap_or_default();
-                if down_blame_ports.insert(port_num.clone()) {
+                let Some(port_num) = required_port_num(&sample_labels) else {
+                    continue;
+                };
+                if down_blame_ports.insert(port_num.to_string()) {
                     let current = down_blame_to_state(raw);
                     for state in DOWN_BLAME_STATES {
                         let mut labels = self.build_labels(&switch_ip, &sample_labels);
@@ -644,15 +649,14 @@ impl NmxtCollector {
             let (metric_type, unit) = (metric.metric_type, metric.unit);
 
             // Port number anchors the per-series key.
-            let port_num = sample_labels
-                .get("Port_Number")
-                .cloned()
-                .unwrap_or_default();
+            let Some(port_num) = required_port_num(&sample_labels) else {
+                continue;
+            };
 
             let mut metric_key = String::with_capacity(metric_type.len() + 1 + port_num.len());
             metric_key.push_str(metric_type);
             metric_key.push(':');
-            metric_key.push_str(&port_num);
+            metric_key.push_str(port_num);
 
             let labels = self.build_labels(&switch_ip, &sample_labels);
 
@@ -725,6 +729,20 @@ Link_Down{Port_Number="1"} 5
 
         let samples = parse_prometheus_metrics(body);
         assert_eq!(samples.len(), 4);
+    }
+
+    #[test]
+    fn test_required_port_num_requires_present_non_empty_label() {
+        let missing = HashMap::new();
+        assert_eq!(required_port_num(&missing), None);
+
+        let mut empty = HashMap::new();
+        empty.insert("Port_Number".to_string(), String::new());
+        assert_eq!(required_port_num(&empty), None);
+
+        let mut present = HashMap::new();
+        present.insert("Port_Number".to_string(), "11".to_string());
+        assert_eq!(required_port_num(&present), Some("11"));
     }
 
     /// Live NMX-T `lid` series from the Stage-0 GB200 scrape (`nmxt-prometheus.txt`).
@@ -1005,12 +1023,10 @@ Link_Down{Port_Number="1"} 5
         for line in lines {
             let sample = parse_prometheus_line(line).expect("parse line");
             if let Some(raw) = sample.labels.get("down_blame") {
-                let port_num = sample
-                    .labels
-                    .get("Port_Number")
-                    .cloned()
-                    .unwrap_or_default();
-                if down_blame_ports.insert(port_num.clone()) {
+                let Some(port_num) = required_port_num(&sample.labels) else {
+                    continue;
+                };
+                if down_blame_ports.insert(port_num.to_string()) {
                     let current = down_blame_to_state(raw);
                     for state in DOWN_BLAME_STATES {
                         let mut labels = collector.build_labels(&switch_ip, &sample.labels);
@@ -1122,12 +1138,10 @@ Link_Down{Port_Number="1"} 5
                 .get("Module_Temperature")
                 .and_then(|raw| cable_temp_to_celsius(raw))
             {
-                let port_num = sample
-                    .labels
-                    .get("Port_Number")
-                    .cloned()
-                    .unwrap_or_default();
-                if cable_temp_ports.insert(port_num.clone()) {
+                let Some(port_num) = required_port_num(&sample.labels) else {
+                    continue;
+                };
+                if cable_temp_ports.insert(port_num.to_string()) {
                     let labels = collector.build_labels(&switch_ip, &sample.labels);
                     collector.emit_event(CollectorEvent::Metric(
                         MetricSample {
