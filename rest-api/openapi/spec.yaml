@@ -2668,6 +2668,7 @@ paths:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -2756,6 +2757,7 @@ paths:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -14669,6 +14671,61 @@ components:
           type: string
           format: uuid
           description: ID of the Site where the peering exists
+    PeerTenant:
+      title: PeerTenant
+      type: object
+      description: Summary of a tenant involved in a VPC peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the Tenant
+        org:
+          type: string
+          readOnly: true
+          description: Name of the org this tenant belongs to
+        orgDisplayName:
+          type:
+            - string
+            - 'null'
+          readOnly: true
+          description: Display name of the org the Tenant belongs to
+    VpcSummary:
+      title: VpcSummary
+      type: object
+      description: Summary of a VPC involved in a VPC peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the VPC
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the VPC
+        controllerVpcId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          readOnly: true
+          description: Legacy attribute, contains the same value as ID
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ETHERNET_VIRTUALIZER
+            - FNN
+            - FLAT
+          description: Network virtualization type of the VPC
+        status:
+          $ref: '#/components/schemas/VpcStatus'
+          readOnly: true
+          description: Status of the VPC
     VpcPeering:
       title: VpcPeering
       type: object
@@ -14684,26 +14741,55 @@ components:
           format: uuid
           readOnly: true
           description: ID of the first VPC in the peering
+        vpc1:
+          $ref: '#/components/schemas/VpcSummary'
+          readOnly: true
+          description: Summary of the first VPC in the peering. Populated when the Vpc1 relation is loaded.
         vpc1TenantId:
           type: string
           format: uuid
           readOnly: true
-          description: ID of the tenant that owns vpc1
+          description: ID of the tenant that owns vpc1. Populated when the Vpc1 relation is loaded and the tenant is resolved.
+        vpc1Tenant:
+          $ref: '#/components/schemas/PeerTenant'
+          readOnly: true
+          description: Summary of the tenant that owns vpc1. Populated when the Vpc1 relation is loaded and the tenant is resolved.
         vpc2Id:
           type: string
           format: uuid
           readOnly: true
           description: ID of the second VPC in the peering
+        vpc2:
+          $ref: '#/components/schemas/VpcSummary'
+          readOnly: true
+          description: Summary of the second VPC in the peering. Populated when the Vpc2 relation is loaded.
         vpc2TenantId:
           type: string
           format: uuid
           readOnly: true
-          description: ID of the tenant that owns vpc2
+          description: ID of the tenant that owns vpc2. Populated when the Vpc2 relation is loaded and the tenant is resolved.
+        vpc2Tenant:
+          $ref: '#/components/schemas/PeerTenant'
+          readOnly: true
+          description: Summary of the tenant that owns vpc2. Populated when the Vpc2 relation is loaded and the tenant is resolved.
         siteId:
           type: string
           format: uuid
           readOnly: true
           description: ID of the Site where the peering exists
+        site:
+          $ref: '#/components/schemas/SiteSummary'
+          readOnly: true
+          description: Summary of the Site where the peering exists. Populated when the Site relation is loaded.
+        tenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant that created the VPC peering. Populated for tenant-created peerings when the Tenant relation is loaded.
+        tenant:
+          $ref: '#/components/schemas/PeerTenant'
+          readOnly: true
+          description: Summary of the tenant that created the VPC peering. Populated for tenant-created peerings when the Tenant relation is loaded.
         isMultiTenant:
           type: boolean
           readOnly: true

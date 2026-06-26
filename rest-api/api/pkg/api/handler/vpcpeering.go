@@ -395,7 +395,7 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Update API model with best-known status.
-	apiVpcPeering := model.NewAPIVpcPeering(*vpcPeering)
+	apiVpcPeering := model.NewAPIVpcPeering(*vpcPeering, nil)
 	apiVpcPeering.Status = status
 
 	logger.Info().Msg("finishing API handler")
@@ -653,7 +653,7 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 
 	// If VPC ID or peer tenant ID is specified, include the VPC and tenant relations
 	if len(vpcIDStrs) > 0 || len(peerTenantIDStrs) > 0 {
-		for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName} {
+		for _, relation := range []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName, cdbm.TenantRelationName} {
 			if !slices.Contains(qIncludeRelations, relation) {
 				qIncludeRelations = append(qIncludeRelations, relation)
 			}
@@ -665,10 +665,32 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC Peerings, DB error", nil)
 	}
 
+	dbMappedPeeringTenants := make(map[uuid.UUID]cdbm.Tenant)
+	vpcPeeringTenantIDs := []uuid.UUID{}
+	for _, vpcPeering := range vpcPeerings {
+		if vpcPeering.Vpc1 != nil {
+			vpcPeeringTenantIDs = append(vpcPeeringTenantIDs, vpcPeering.Vpc1.TenantID)
+		}
+		if vpcPeering.Vpc2 != nil {
+			vpcPeeringTenantIDs = append(vpcPeeringTenantIDs, vpcPeering.Vpc2.TenantID)
+		}
+	}
+	if len(vpcPeeringTenantIDs) > 0 {
+		tenantDAO := cdbm.NewTenantDAO(gavph.dbSession)
+		tenants, _, err := tenantDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{TenantIDs: vpcPeeringTenantIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Tenants from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenants, DB error", nil)
+		}
+		for _, tenant := range tenants {
+			dbMappedPeeringTenants[tenant.ID] = tenant
+		}
+	}
+
 	// Build API response
 	apiVpcPeerings := make([]model.APIVpcPeering, len(vpcPeerings))
 	for i, vpcPeering := range vpcPeerings {
-		apiVpcPeerings[i] = model.NewAPIVpcPeering(vpcPeering)
+		apiVpcPeerings[i] = model.NewAPIVpcPeering(vpcPeering, dbMappedPeeringTenants)
 	}
 
 	// Create pagination response header
@@ -808,7 +830,7 @@ func (gvph GetVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Convert to API model
-	apiVpcPeering := model.NewAPIVpcPeering(*vpcPeering)
+	apiVpcPeering := model.NewAPIVpcPeering(*vpcPeering, nil)
 
 	logger.Info().Msg("finishing API handler")
 

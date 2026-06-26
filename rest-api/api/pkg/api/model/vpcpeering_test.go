@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
@@ -155,9 +156,27 @@ func TestNewAPIVpcPeering(t *testing.T) {
 			Name:     "vpc-2",
 			Status:   cdbm.VpcStatusReady,
 		},
+		TenantID: &vpc1TenantID,
+		Tenant: &cdbm.Tenant{
+			ID:             vpc1TenantID,
+			Org:            "test-org",
+			OrgDisplayName: util.GetPtr("Org Display name"),
+		},
 	}
 
-	api := NewAPIVpcPeering(dbVpcPeering)
+	dbMappedPeeringTenants := map[uuid.UUID]cdbm.Tenant{
+		vpc1TenantID: {
+			ID:             vpc1TenantID,
+			Org:            "test-org",
+			OrgDisplayName: util.GetPtr("Org Display name"),
+		},
+		vpc2TenantID: {
+			ID:             vpc2TenantID,
+			Org:            "test-org",
+			OrgDisplayName: util.GetPtr("Org Display name"),
+		},
+	}
+	api := NewAPIVpcPeering(dbVpcPeering, dbMappedPeeringTenants)
 
 	assert.Equal(t, dbVpcPeering.ID.String(), api.ID)
 	assert.Equal(t, dbVpcPeering.Vpc1ID.String(), api.Vpc1ID)
@@ -167,10 +186,12 @@ func TestNewAPIVpcPeering(t *testing.T) {
 	assert.Equal(t, dbVpcPeering.Status, api.Status)
 	assert.Equal(t, dbVpcPeering.Created, api.Created)
 	assert.Equal(t, dbVpcPeering.Updated, api.Updated)
-	require.NotNil(t, api.Vpc1TenantId)
-	assert.Equal(t, vpc1TenantID.String(), *api.Vpc1TenantId)
-	require.NotNil(t, api.Vpc2TenantId)
-	assert.Equal(t, vpc2TenantID.String(), *api.Vpc2TenantId)
+	require.NotNil(t, api.Vpc1Tenant)
+	assert.Equal(t, vpc1TenantID.String(), api.Vpc1Tenant.ID)
+	require.NotNil(t, api.Vpc2Tenant)
+	assert.Equal(t, vpc2TenantID.String(), api.Vpc2Tenant.ID)
+	require.NotNil(t, api.Tenant)
+	assert.Equal(t, dbVpcPeering.TenantID.String(), api.Tenant.ID)
 }
 
 func TestNewAPIVpcPeeringSummary(t *testing.T) {

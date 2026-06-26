@@ -9,7 +9,9 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+	"github.com/google/uuid"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -71,6 +73,25 @@ func (vpcr *APIVpcPeeringCreateRequest) ToProto(vp *cdbm.VpcPeering) *cwssaws.Vp
 	}
 }
 
+// APIPeerTenant represents a summary of a tenant that owns a VPC
+type APIPeerTenant struct {
+	// ID of the Tenant
+	ID string `json:"id"`
+	// Org contains the name of the org this tenant belongs to
+	Org string `json:"org"`
+	// OrgDisplayName contains the display name of the org the Tenant belongs to
+	OrgDisplayName *string `json:"orgDisplayName"`
+}
+
+// NewAPIPeerTenant creates a new APIPeerTenant from a database Tenant model
+func NewAPIPeerTenant(dbTenant *cdbm.Tenant) *APIPeerTenant {
+	return &APIPeerTenant{
+		ID:             dbTenant.ID.String(),
+		Org:            dbTenant.Org,
+		OrgDisplayName: dbTenant.OrgDisplayName,
+	}
+}
+
 // APIVpcPeering represents a VPC peering connection
 type APIVpcPeering struct {
 	// ID is the unique UUID v4 identifier of the VPC peering in NICo Cloud
@@ -81,16 +102,24 @@ type APIVpcPeering struct {
 	Vpc1 *APIVpcSummary `json:"vpc1,omitempty"`
 	// Vpc1TenantId is the ID of the tenant that owns vpc1
 	Vpc1TenantId *string `json:"vpc1TenantId,omitempty"`
+	// Vpc1Tenant is the summary of the tenant that owns vpc1
+	Vpc1Tenant *APIPeerTenant `json:"vpc1Tenant,omitempty"`
 	// Vpc2ID is the ID of the second VPC in the peering
 	Vpc2ID string `json:"vpc2Id"`
 	// Vpc2 is the summary of the second VPC in the peering
 	Vpc2 *APIVpcSummary `json:"vpc2,omitempty"`
-	// Vpc2TenantId is the ID of the tenant that owns vpc2
+	// Vpc1TenantId is the ID of the tenant that owns vpc1
 	Vpc2TenantId *string `json:"vpc2TenantId,omitempty"`
+	// Vpc2Tenant is the summary of the tenant that owns vpc2
+	Vpc2Tenant *APIPeerTenant `json:"vpc2Tenant,omitempty"`
 	// SiteID is the ID of the Site where the peering exists
 	SiteID string `json:"siteId"`
 	// Site is the summary of the site
 	Site *APISiteSummary `json:"site,omitempty"`
+	// TenantID is the ID of the tenant that owns the VPC peering
+	TenantID *string `json:"tenantId,omitempty"`
+	// Tenant is the summary of the tenant that owns the VPC peering
+	Tenant *APIPeerTenant `json:"tenant,omitempty"`
 	// IsMultiTenant indicates if this is a multi-tenant peering
 	IsMultiTenant bool `json:"isMultiTenant"`
 	// Status is the status of the VPC peering
@@ -102,7 +131,7 @@ type APIVpcPeering struct {
 }
 
 // NewAPIVpcPeering creates a new APIVpcPeering from a database VPC peering model
-func NewAPIVpcPeering(dbVpcPeering cdbm.VpcPeering) APIVpcPeering {
+func NewAPIVpcPeering(dbVpcPeering cdbm.VpcPeering, dbMappedPeeringTenants map[uuid.UUID]cdbm.Tenant) APIVpcPeering {
 	apiVpcPeering := APIVpcPeering{
 		ID:            dbVpcPeering.ID.String(),
 		Vpc1ID:        dbVpcPeering.Vpc1ID.String(),
@@ -117,18 +146,27 @@ func NewAPIVpcPeering(dbVpcPeering cdbm.VpcPeering) APIVpcPeering {
 	// Expand relations if available.
 	if dbVpcPeering.Vpc1 != nil {
 		apiVpcPeering.Vpc1 = NewAPIVpcSummary(dbVpcPeering.Vpc1)
-		tenantID := dbVpcPeering.Vpc1.TenantID.String()
-		apiVpcPeering.Vpc1TenantId = &tenantID
+		tenant, ok := dbMappedPeeringTenants[dbVpcPeering.Vpc1.TenantID]
+		if ok {
+			apiVpcPeering.Vpc1TenantId = util.GetUUIDPtrToStrPtr(&dbVpcPeering.Vpc1.TenantID)
+			apiVpcPeering.Vpc1Tenant = NewAPIPeerTenant(&tenant)
+		}
 	}
 	if dbVpcPeering.Vpc2 != nil {
 		apiVpcPeering.Vpc2 = NewAPIVpcSummary(dbVpcPeering.Vpc2)
-		tenantID := dbVpcPeering.Vpc2.TenantID.String()
-		apiVpcPeering.Vpc2TenantId = &tenantID
+		tenant, ok := dbMappedPeeringTenants[dbVpcPeering.Vpc2.TenantID]
+		if ok {
+			apiVpcPeering.Vpc2TenantId = util.GetUUIDPtrToStrPtr(&dbVpcPeering.Vpc2.TenantID)
+			apiVpcPeering.Vpc2Tenant = NewAPIPeerTenant(&tenant)
+		}
 	}
 	if dbVpcPeering.Site != nil {
 		apiVpcPeering.Site = NewAPISiteSummary(dbVpcPeering.Site)
 	}
-
+	if dbVpcPeering.Tenant != nil {
+		apiVpcPeering.TenantID = util.GetUUIDPtrToStrPtr(dbVpcPeering.TenantID)
+		apiVpcPeering.Tenant = NewAPIPeerTenant(dbVpcPeering.Tenant)
+	}
 	return apiVpcPeering
 }
 
