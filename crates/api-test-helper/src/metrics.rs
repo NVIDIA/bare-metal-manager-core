@@ -70,7 +70,7 @@ pub fn collect_metric_infos(metrics_endpoints: &[SocketAddr]) -> eyre::Result<Ve
         }
     }
 
-    let mut infos: Vec<MetricInfo> = metric_infos
+    let infos: Vec<MetricInfo> = metric_infos
         .into_iter()
         .map(|(name, (ty, help))| MetricInfo {
             name,

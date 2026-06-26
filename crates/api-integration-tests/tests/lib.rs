@@ -213,14 +213,16 @@ async fn test_integration() -> eyre::Result<()> {
 }
 
 fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
-    let infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    let mut infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    retain_existing_core_metric_infos(&mut infos);
+
     // Delete everything with "alt_metric_" prefix
     let mut infos: Vec<_> = infos
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
-    retain_existing_core_metric_infos(&mut infos);
 
+    // Sort metrics for consistency
     infos.sort_by(|e1, e2| e1.name.cmp(&e2.name));
 
     let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
