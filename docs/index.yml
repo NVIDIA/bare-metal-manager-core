@@ -137,6 +137,8 @@ navigation:
           path: configuration/org-permissions.md
         - page: Machine Identity
           path: configuration/machine_identity.md
+        - page: DPU Device-Identity Attestation
+          path: configuration/dpu_device_attestation.md
         - page: Host Naming
           path: configuration/host-naming.md
 

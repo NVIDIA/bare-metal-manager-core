@@ -43,6 +43,16 @@ hardware_health_reports = "MonitorOnly"
 enabled = true
 create_machines = true
 
+[dpu_device_attestation]
+# Use the BlueField IRoT device certificate (fetched from the DPU BMC over Redfish)
+# to assign a hardware-rooted machine_id for DPUs.
+#   disabled    - DPUs keep the legacy serial-derived id (default).
+#   best_effort - device-rooted id when the cert verifies; otherwise fall back to legacy.
+#   required    - a new DPU must present a verifiable device identity, else discovery fails.
+# Requires DPF (BMC access), site-explorer pre-ingestion, and seeded device root CAs.
+# See docs/configuration/dpu_device_attestation.md.
+mode = "disabled"
+
 [firmware_global]
 autoupdate = true
 
