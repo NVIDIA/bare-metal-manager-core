@@ -905,7 +905,7 @@ func (ush UpdateSubnetHandler) Handle(c echo.Context) error {
 	// get status details for the response — best-effort, the PATCH has already
 	// committed so a transient read failure here must not surface as 500.
 	sdDAO := cdbm.NewStatusDetailDAO(ush.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+	ssds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{subnet.ID.String()}}, paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 	if err != nil {
 		logger.Warn().Err(err).Msg("error retrieving Status Details for subnet after update commit")
 		ssds = nil

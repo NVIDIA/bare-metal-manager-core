@@ -1154,7 +1154,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 
 		// Get Instance Type status details
 		var serr error
-		ssds, _, serr = sdDAO.GetAllByEntityID(ctx, tx, it.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		ssds, _, serr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{it.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving Status Details for Instance Type from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve status history for Instance Type", nil)

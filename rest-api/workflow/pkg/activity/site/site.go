@@ -966,12 +966,14 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 				return derr
 			}
 
-			if _, derr = statusDetailDAO.CreateFromParams(
+			if _, derr = statusDetailDAO.Create(
 				ctx,
 				tx,
-				createdIPBlock.ID.String(),
-				cdbm.IPBlockStatusReady,
-				cloudutils.GetPtr(siteFabricIPBlockReadyMsg),
+				cdbm.StatusDetailCreateInput{
+					EntityID: createdIPBlock.ID.String(),
+					Status:   cdbm.IPBlockStatusReady,
+					Message:  cloudutils.GetPtr(siteFabricIPBlockReadyMsg),
+				},
 			); derr != nil {
 				logger.Error().Err(derr).Msg("error creating Site fabric IPBlock StatusDetail in DB")
 				return derr

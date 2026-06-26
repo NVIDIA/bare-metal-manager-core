@@ -724,7 +724,7 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details for the response
-		ssds, _, derr = sdDAO.GetAllByEntityID(ctx, tx, uta.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		ssds, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uta.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for TenantAccount from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)

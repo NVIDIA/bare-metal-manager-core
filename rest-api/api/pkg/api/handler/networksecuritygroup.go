@@ -1172,7 +1172,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details
-		statusDetails, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		statusDetails, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for NetworkSecurityGroup from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Network Security Group", nil)

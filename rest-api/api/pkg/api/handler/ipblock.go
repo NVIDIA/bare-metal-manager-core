@@ -1011,7 +1011,7 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 
 		sdDAO := cdbm.NewStatusDetailDAO(uipbh.dbSession)
 		var sderr error
-		ssds, _, sderr = sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		ssds, _, sderr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if sderr != nil {
 			logger.Error().Err(sderr).Msg("error retrieving Status Details for IPBlock from DB")
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for IPBlock", nil)

@@ -697,7 +697,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 			statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
 			for _, vpc := range tt.readyStatusDetailVpcs {
-				statusDetails, _, err := statusDetailDAO.GetAllByEntityID(ctx, nil, vpc.ID.String(), cdbp.PageInput{})
+				statusDetails, _, err := statusDetailDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{vpc.ID.String()}}, cdbp.PageInput{})
 				require.NoError(t, err)
 				require.Len(t, statusDetails, 1)
 				assert.Equal(t, cdbm.VpcStatusReady, statusDetails[0].Status)

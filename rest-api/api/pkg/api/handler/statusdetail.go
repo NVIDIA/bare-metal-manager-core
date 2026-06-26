@@ -36,7 +36,7 @@ func handleEntityStatusDetails(ctx context.Context, echoCtx echo.Context, dbSess
 
 	// Get status details
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-	dbSds, total, serr := sdDAO.GetAllByEntityIDs(ctx, nil, []string{entityID}, cdbp.PageInput{Offset: pageRequest.Offset, Limit: pageRequest.Limit, OrderBy: pageRequest.OrderBy})
+	dbSds, total, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{entityID}}, cdbp.PageInput{Offset: pageRequest.Offset, Limit: pageRequest.Limit, OrderBy: pageRequest.OrderBy})
 	if serr != nil {
 		logger.Error().Err(serr).Msg("error retrieving Status Details")
 		return nil, cerr.NewAPIErrorResponse(echoCtx, http.StatusInternalServerError, "Failed to retrieve Status Details", nil)

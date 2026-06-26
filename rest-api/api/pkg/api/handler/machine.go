@@ -1821,7 +1821,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 
 		// Even if IsMissingOnSite is true, we want to make sure it's been missing for a little while
 		statusDAO := cdbm.NewStatusDetailDAO(umh.dbSession)
-		statuses, _, derr := statusDAO.GetAllByEntityID(ctx, tx, machine.ID, cdbp.PageInput{Limit: cutil.GetPtr(1)})
+		statuses, _, derr := statusDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{machine.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(1)})
 
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error while retrieving StatusDetail for Machine")

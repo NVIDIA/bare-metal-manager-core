@@ -1161,7 +1161,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		retssds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uos.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for os from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Operating System", nil)

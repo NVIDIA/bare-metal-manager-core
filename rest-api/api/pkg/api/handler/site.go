@@ -531,7 +531,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 
 		// Get status details (inside the tx for read-your-writes consistency
 		// with the StatusDetail created above)
-		details, _, derr := sdDAO.GetAllByEntityID(ctx, tx, siteID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		details, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{siteID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Site from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Site", nil)

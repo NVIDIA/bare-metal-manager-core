@@ -43,6 +43,10 @@ type StatusDetailUpdateInput struct {
 	Message        *string
 }
 
+type StatusDetailFilterInput struct {
+	EntityIDs []string
+}
+
 const (
 	// StatusDetailRelationName is the relation name for the StatusDetail model
 	StatusDetailRelationName = "StatusDetail"
@@ -72,9 +76,7 @@ func (sd *StatusDetail) BeforeAppendModel(ctx context.Context, query bun.Query) 
 // StatusDetailDAO is the data access interface for StatusDetail
 type StatusDetailDAO interface {
 	//
-	GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, page paginator.PageInput) ([]StatusDetail, int, error)
-	//
-	GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, page paginator.PageInput) ([]StatusDetail, int, error)
+	GetAll(ctx context.Context, tx *db.Tx, filter StatusDetailFilterInput, page paginator.PageInput) ([]StatusDetail, int, error)
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID) (*StatusDetail, error)
 	//
@@ -116,57 +118,21 @@ func (sdd StatusDetailSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UU
 	return sd, nil
 }
 
-// GetAllByEntityID returns status details for the given entity ID
-func (sdd StatusDetailSQLDAO) GetAllByEntityID(ctx context.Context, tx *db.Tx, entityID string, page paginator.PageInput) ([]StatusDetail, int, error) {
+// GetAll returns status details for the given set of entity IDs
+func (sdd StatusDetailSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter StatusDetailFilterInput, page paginator.PageInput) ([]StatusDetail, int, error) {
 	// Create a child span and set the attributes for current request
-	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetAllByEntityID")
-	if sdDAOSpan != nil {
-		defer sdDAOSpan.End()
-
-		sdd.tracerSpan.SetAttribute(sdDAOSpan, "entityID", entityID)
-	}
-
-	sds := []StatusDetail{}
-
-	query := db.GetIDB(tx, sdd.dbSession).NewSelect().Model(&sds).Where("entity_id = ?", entityID)
-
-	// StatusDetail has a default order by of created desc
-	normalizedOrderBy := &paginator.OrderBy{
-		Field: "created",
-		Order: paginator.OrderDescending,
-	}
-	if page.OrderBy != nil {
-		normalizedOrderBy = page.OrderBy
-	}
-
-	paginator, err := paginator.NewPaginator(ctx, query, page.Offset, page.Limit, normalizedOrderBy, StatusDetailOrderByFields)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	err = paginator.Query.Limit(paginator.Limit).Offset(paginator.Offset).Scan(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return sds, paginator.Total, nil
-}
-
-// GetAllByEntityIDs returns status details for the given set of entity IDs
-func (sdd StatusDetailSQLDAO) GetAllByEntityIDs(ctx context.Context, tx *db.Tx, entityIDs []string, page paginator.PageInput) ([]StatusDetail, int, error) {
-	// Create a child span and set the attributes for current request
-	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetAllByEntityIDs")
+	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetAll")
 	if sdDAOSpan != nil {
 		defer sdDAOSpan.End()
 	}
 
 	sds := []StatusDetail{}
 
-	if len(entityIDs) == 0 {
+	if len(filter.EntityIDs) == 0 {
 		return sds, 0, nil
 	}
 
-	query := db.GetIDB(tx, sdd.dbSession).NewSelect().Model(&sds).Where("entity_id IN (?)", bun.In(entityIDs))
+	query := db.GetIDB(tx, sdd.dbSession).NewSelect().Model(&sds).Where("entity_id IN (?)", bun.In(filter.EntityIDs))
 
 	// StatusDetail has a default order by of created desc
 	normalizedOrderBy := &paginator.OrderBy{
@@ -290,6 +256,7 @@ func (sdd StatusDetailSQLDAO) GetRecentByEntityIDs(ctx context.Context, tx *db.T
 	ctx, sdDAOSpan := sdd.tracerSpan.CreateChildInCurrentContext(ctx, "StatusDetailDAO.GetRecentByEntityIDs")
 	if sdDAOSpan != nil {
 		defer sdDAOSpan.End()
+
 	}
 
 	sds := []StatusDetail{}

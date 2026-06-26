@@ -818,7 +818,7 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 
 		// Preparing response
 		// Retrieve SSH Key Group status details
-		dbskgsd, _, derr = sdDAO.GetAllByEntityID(ctx, tx, skg.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
+		dbskgsd, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{skg.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for SSH Key Group from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for SSH Key Group, DB error", nil)
@@ -872,7 +872,7 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 			}
 
 			// Refresh status details so the response includes the row we just inserted.
-			dbskgsd, _, derr = sdDAO.GetAllByEntityID(ctx, tx, skg.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
+			dbskgsd, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{skg.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Status Details for SSH Key Group from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for SSH Key Group, DB error", nil)

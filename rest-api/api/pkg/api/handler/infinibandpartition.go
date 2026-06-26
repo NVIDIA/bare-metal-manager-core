@@ -864,7 +864,7 @@ func (uibph UpdateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update InfiniBand Partition workflow")
 
 		// get status details for the response
-		curSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uipb.ID.String(), paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		curSSDs, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uipb.ID.String()}}, paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for InfiniBand Partition from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for InfiniBand Partition", nil)

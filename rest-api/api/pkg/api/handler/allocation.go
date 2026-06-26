@@ -1101,7 +1101,7 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(uah.dbSession)
-		retSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, a.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		retSsds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{a.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Allocation from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Allocation", nil)

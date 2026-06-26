@@ -126,7 +126,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
 			}
 		} else {
-			latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, vpcPrefix.ID.String(), cdbp.PageInput{Limit: cwutil.GetPtr(1)})
+			latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{vpcPrefix.ID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for VPC Prefix")
 			} else if len(latestsd) == 0 || latestsd[0].Message == nil || *latestsd[0].Message != statusMessage {

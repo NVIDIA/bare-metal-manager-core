@@ -2084,7 +2084,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					assert.True(t, ui.IsMissingOnSite)
 					assert.Equal(t, cdbm.InstanceStatusError, ui.Status)
 
-					sds, _, err := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), cdbp.PageInput{})
+					sds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{instance.ID.String()}}, cdbp.PageInput{})
 					assert.Nil(t, err)
 					assert.Equal(t, 1, len(sds), instance.Name)
 				} else {
@@ -2116,7 +2116,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 
 			for _, instance := range tc.unchangedInstances {
 				// Check that no new status detail has been created for Instance
-				sds, _, err := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), cdbp.PageInput{})
+				sds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{instance.ID.String()}}, cdbp.PageInput{})
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(sds))
 			}

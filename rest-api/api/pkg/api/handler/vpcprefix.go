@@ -854,7 +854,7 @@ func (ush UpdateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		fetchedSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		fetchedSSDs, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC prefix from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for VPC prefix", nil)

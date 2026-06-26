@@ -1200,7 +1200,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.Equal(t, um2.IsUsableByTenant, false)
 
 				// Machine 3 should have only 1 status detail (Error)
-				_, m3sdCount, serr := sdDAO.GetAllByEntityID(tt.args.ctx, nil, m3.ID, cdbp.PageInput{})
+				_, m3sdCount, serr := sdDAO.GetAll(tt.args.ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{m3.ID}}, cdbp.PageInput{})
 				assert.Nil(t, serr)
 				assert.Equal(t, 1, m3sdCount)
 			}

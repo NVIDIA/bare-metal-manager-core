@@ -693,7 +693,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 // IsSSHKeyGroupCreated is helper function to get if sshkeygroup created or not
 func (mskg ManageSSHKeyGroup) IsSSHKeyGroupCreatedOnSite(ctx context.Context, tx *cdb.Tx, sshKeyGroupSiteAssociationID uuid.UUID) (*bool, error) {
 	sdDAO := cdbm.NewStatusDetailDAO(mskg.dbSession)
-	skgsds, _, err := sdDAO.GetAllByEntityID(ctx, tx, sshKeyGroupSiteAssociationID.String(), cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)})
+	skgsds, _, err := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{sshKeyGroupSiteAssociationID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)})
 	if err != nil {
 		return nil, err
 	}
