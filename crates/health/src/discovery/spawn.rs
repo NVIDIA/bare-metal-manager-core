@@ -223,6 +223,7 @@ fn spawn_generic_redfish_collectors(
                     state_file_path,
                     service_refresh_interval: pcfg.state_refresh_interval,
                     data_sink,
+                    include_diagnostics: ctx.logs_include_diagnostics,
                 },
                 CollectorStartContext {
                     limiter: ctx.limiter.clone(),
@@ -239,7 +240,9 @@ fn spawn_generic_redfish_collectors(
                     Some(Collector::start_streaming::<SseLogCollector<BmcClient>, _>(
                         endpoint_arc.clone(),
                         bmc.clone(),
-                        SseLogCollectorConfig,
+                        SseLogCollectorConfig {
+                            include_diagnostics: ctx.logs_include_diagnostics,
+                        },
                         data_sink,
                         StreamingCollectorStartContext {
                             backoff_config: sse_backoff_config(),
@@ -273,7 +276,9 @@ fn spawn_generic_redfish_collectors(
                     Some(Collector::start_streaming::<SseLogCollector<BmcClient>, _>(
                         endpoint_arc.clone(),
                         bmc.clone(),
-                        SseLogCollectorConfig,
+                        SseLogCollectorConfig {
+                            include_diagnostics: ctx.logs_include_diagnostics,
+                        },
                         data_sink,
                         StreamingCollectorStartContext {
                             backoff_config: sse_backoff_config(),

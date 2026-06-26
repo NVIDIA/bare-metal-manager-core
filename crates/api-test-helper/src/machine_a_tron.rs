@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bmc_mock::mac_address_pool::MacAddressPool;
 use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
@@ -41,6 +42,7 @@ pub async fn run_local(
     additional_api_urls: Vec<String>,
     repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
+    mac_address_pool: Arc<Mutex<MacAddressPool>>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
@@ -87,6 +89,7 @@ pub async fn run_local(
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,
+        mac_address_pool,
     });
 
     let mat = MachineATron::new(app_context.clone());

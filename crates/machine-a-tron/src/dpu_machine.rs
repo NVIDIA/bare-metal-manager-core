@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
     BmcCommand, DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, SetSystemPowerResult,
     SystemPowerControl,
@@ -80,6 +81,7 @@ impl DpuMachine {
         };
         let state_machine = MachineStateMachine::from_persisted(
             PersistedMachine::Dpu(persisted_dpu_machine),
+            MachineInfo::Dpu(dpu_info.clone()),
             config,
             app_context.clone(),
             bmc_control_tx,
@@ -112,6 +114,7 @@ impl DpuMachine {
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
+        mac_addr_pool: &mut MacAddressPool,
         host_dhcp_request_rx: Option<
             mpsc::UnboundedReceiver<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>,
         >,
@@ -129,6 +132,7 @@ impl DpuMachine {
 
         let dpu_info = DpuMachineInfo::new(
             hw_type,
+            mac_addr_pool,
             DpuSettings {
                 nic_mode: config.dpus_in_nic_mode,
                 firmware_versions: firmware_versions.into(),

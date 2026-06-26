@@ -27,6 +27,7 @@ use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
 };
+use bmc_mock::test_support::TEST_MAC_POOL;
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
 use futures::FutureExt;
@@ -916,6 +917,8 @@ where
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,
+        hw_mac_address_ranges: None,
+        mac_address_pool: None,
     };
 
     let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(
@@ -923,6 +926,7 @@ where
         additional_api_urls,
         &test_env.root_dir,
         Some(bmc_mock_registry.clone()),
+        TEST_MAC_POOL.clone(),
     )
     .await
     .unwrap();

@@ -599,3 +599,14 @@ fn fill_fake_dpu_info(hardware_info: &mut DiscoveryInfo) {
         switches: vec![],
     });
 }
+
+/// Return Some(s) if s is not empty, otherwise None. Used to avoid repetition
+/// when dealing with gRPC-sourced fields that use an empty string to indicate
+/// an absent value.
+pub fn get_non_empty_str<S>(s: &S) -> Option<&str>
+where
+    S: AsRef<str>,
+{
+    let s = s.as_ref();
+    if s.is_empty() { None } else { Some(s) }
+}

@@ -172,6 +172,7 @@ nico-dhcp:
       # renewTimer: 900
       # rebindTimer: 1800
       # validLifetime: 3600
+      # declineProbationPeriod: 900
       # hookLibraryPath: /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so
       # additionalHooksLibraries: []
       # loggers:

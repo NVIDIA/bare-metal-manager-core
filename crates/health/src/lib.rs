@@ -44,8 +44,8 @@ use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSou
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
-    EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
-    RackLeakProcessor,
+    BmcIntrusionEventProcessor, EventProcessingPipeline, EventProcessor, HealthReportProcessor,
+    LeakEventProcessor, RackLeakProcessor,
 };
 use crate::sharding::ShardManager;
 use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
@@ -167,8 +167,8 @@ fn build_data_sink(
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
     let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
 
-    if let Configurable::Enabled(_) = &config.sinks.tracing {
-        sinks.push(Arc::new(TracingSink));
+    if let Configurable::Enabled(sink_cfg) = &config.sinks.tracing {
+        sinks.push(Arc::new(TracingSink::new(sink_cfg)));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
@@ -185,6 +185,10 @@ fn build_data_sink(
         || config.processors.leak_detection.is_enabled()
     {
         processors.push(Arc::new(HealthReportProcessor::new()));
+    }
+
+    if config.sinks.health_report.is_enabled() {
+        processors.push(Arc::new(BmcIntrusionEventProcessor::new()));
     }
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {

@@ -24,10 +24,15 @@ use std::process::Command;
 use std::sync::Arc;
 
 use axum::Router;
-use bmc_mock::{
-    BmcCommand, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, ListenerOrAddress,
-    MachineInfo, MockPowerState, SetSystemPowerError, SystemPowerControl,
+use bmc_mock::mac_address_pool::{
+    Config as MacAddressConfig, MacAddressPool, PoolConfig as MacAddressPoolConfig,
+    RangesConfig as MacAddressRangesConfig,
 };
+use bmc_mock::{
+    BmcCommand, Callbacks, DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo,
+    ListenerOrAddress, MachineInfo, MockPowerState, SetSystemPowerError, SystemPowerControl,
+};
+use mac_address::MacAddress;
 use tar_router::TarGzOption;
 use tokio::sync::{RwLock, mpsc};
 use tracing::info;
@@ -155,16 +160,31 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
 fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
     let callbacks = Arc::new(ChannelCallbacks::new(command_channel));
-    bmc_mock::machine_router(
-        &MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            vec![DpuMachineInfo::default(), DpuMachineInfo::default()],
-        )),
-        callbacks,
-        String::default(),
-        false,
-    )
-    .0
+    let mut pool = MacAddressPool::new(MacAddressConfig {
+        pool: Some(
+            MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16)
+                .expect("Must be constructed with these parameters"),
+        ),
+        ranges: Some(
+            MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16, 8)
+                .expect("Must be constructed with these parameters"),
+        ),
+    });
+
+    let hw_type = HostHardwareType::WiwynnGB200Nvl;
+    let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(1);
+    let mac_range = pool
+        .allocate_range_config()
+        .expect("MAC address pool should be allocated");
+    let machine_info = MachineInfo::Host(HostMachineInfo::new(
+        HostHardwareType::WiwynnGB200Nvl,
+        (0..ndpu)
+            .map(|_| DpuMachineInfo::new(hw_type, &mut pool, DpuSettings::default()))
+            .collect(),
+        &mut pool,
+        mac_range,
+    ));
+    bmc_mock::machine_router(&machine_info, callbacks, String::default(), false).0
 }
 
 #[derive(Debug)]

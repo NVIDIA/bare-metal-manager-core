@@ -140,6 +140,13 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           load: true
+          # The Dockerfile builder is FROM --platform=$BUILDPLATFORM and cross-compiles via
+          # GOARCH=$TARGETARCH. On a NATIVE single-platform build BuildKit does not inject the
+          # automatic TARGETARCH, so it falls back to the Dockerfile default (amd64) and the
+          # arm64 leg cross-compiles to amd64 even on an arm64 runner. Set it explicitly.
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
@@ -166,7 +173,8 @@ jobs:
           sbom-artifact-name: sbom-${{ inputs.service_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Extract ${{ matrix.arch }} binary and verify architecture
-        if: inputs.push_enabled == true
+        # No push_enabled gate: the build step loads the image, so this guard also runs on PRs
+        # and catches an arch mismatch before merge — not only on main.
         run: |
           set -euo pipefail
           mkdir -p artifacts
@@ -190,7 +198,7 @@ jobs:
 
       - name: Upload binary artifact with semantic version
         if: inputs.push_enabled == true
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -202,7 +210,7 @@ jobs:
 
       - name: Upload binary artifact with latest tag
         if: inputs.is_main_branch == 'true' && inputs.push_enabled == true
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
           display-name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -271,7 +279,7 @@ jobs:
             | gzip > "artifacts/${{ inputs.service_name }}-${{ steps.docker-tags.outputs.artifact_version }}.tar.gz"
 
       - name: Upload Docker image artifact with semantic version
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image
@@ -283,7 +291,7 @@ jobs:
 
       - name: Upload Docker image artifact with latest tag
         if: inputs.is_main_branch == 'true'
-        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@47c68bf27edde19d1acece9b7721b4a1a0044dfa
+        uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
           display-name: ${{ inputs.service_name }}-image

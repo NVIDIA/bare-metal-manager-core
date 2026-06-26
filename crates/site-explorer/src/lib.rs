@@ -76,7 +76,7 @@ pub use machine_creator::MachineCreator;
 pub mod explored_endpoint_index;
 mod managed_host;
 use db::ObjectColumnFilter;
-use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
+use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
 use model::DpuModel;
 use model::expected_machine::DpuMode;
@@ -252,14 +252,6 @@ impl<'a> Endpoint<'a> {
 }
 
 pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
-
-/// Work-lock key for a single endpoint exploration.
-///
-/// Both the site-explorer loop (`update_explored_endpoints`) and the adhoc
-/// `RefreshEndpointReport` handler acquire this key before probing Redfish.
-pub fn endpoint_exploration_work_key(bmc_ip: IpAddr) -> String {
-    format!("SiteExplorer::endpoint_exploration::{bmc_ip}")
-}
 
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
@@ -1994,7 +1986,6 @@ impl SiteExplorer {
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
             let fw_config_snapshot = fw_config_snapshot.clone();
             let database_connection = self.database_connection.clone();
-            let work_lock_manager_handle = self.work_lock_manager_handle.clone();
 
             task_set.push(
                 async move {
@@ -2009,26 +2000,6 @@ impl SiteExplorer {
                         .acquire()
                         .await
                         .expect("Semaphore can't be closed");
-
-                    // If the endpoint is locked, we skip exploration.
-                    let work_key = endpoint_exploration_work_key(endpoint.address);
-                    let _work_lock = match work_lock_manager_handle.try_acquire_lock(work_key).await
-                    {
-                        Ok(work_lock) => work_lock,
-                        Err(AcquireLockError::WorkAlreadyLocked(_)) => {
-                            tracing::info!(
-                                address = %endpoint.address,
-                                "Skipping periodic endpoint exploration; adhoc refresh already in progress"
-                            );
-                            return Ok(None);
-                        }
-                        Err(e) => {
-                            return Err(SiteExplorerError::internal(format!(
-                                "Failed to acquire per-endpoint work lock for {}: {e}",
-                                endpoint.address
-                            )));
-                        }
-                    };
 
                     let mut result = endpoint_explorer
                         .explore_endpoint(

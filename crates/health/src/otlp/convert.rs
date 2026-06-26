@@ -192,7 +192,7 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
     }
 }
 
-/// groups a batch of events by endpoint and builds an ExportLogsServiceRequest with only logs
+/// Builds an OTLP log export request grouped by endpoint.
 pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportLogsServiceRequest {
     let observed_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -231,8 +231,10 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
     ExportLogsServiceRequest { resource_logs }
 }
 
-/// group metric samples by endpoint and build an ExportMetricsServiceRequest.
-/// every sample maps to an OTLP `Gauge` point; Sum/Histogram is a follow-up.
+/// Builds an OTLP metric export request grouped by endpoint.
+///
+/// Every sample maps to an OTLP `Gauge` point; Sum and Histogram mapping can
+/// be added when the health metric model exposes those temporality choices.
 pub fn build_metrics_export_request(
     batch: &[(EventContext, MetricSample)],
 ) -> ExportMetricsServiceRequest {
@@ -531,6 +533,7 @@ mod tests {
             body: "something happened".to_string(),
             severity: "WARNING".to_string(),
             attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
+            diagnostic_record: None,
         }));
 
         let request = build_export_request(&[(ctx, log)]);
@@ -540,6 +543,53 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].severity_text, "WARNING");
         assert_eq!(records[0].severity_number, SeverityNumber::Warn as i32);
+    }
+
+    /// Verifies OTLP conversion preserves an already-emitted diagnostic log.
+    #[test]
+    fn diagnostic_log_event_preserves_diagnostic_body_and_attributes() {
+        let ctx = test_context();
+        let body = concat!(
+            r#"{"message":"parent message","#,
+            r#""diagnostic_data":"opaque-base64-payload","#,
+            r#""diagnostic_attributes":["#,
+            r#"{"key":"redfish.diagnostic_data.type","value":"cper"},"#,
+            r#"{"key":"redfish.parent.log_entry_id","value":"42"}]}"#
+        );
+
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: body.to_string(),
+            severity: "WARN".to_string(),
+            attributes: vec![
+                (
+                    Cow::Borrowed("redfish.diagnostic_data.type"),
+                    "cper".to_string(),
+                ),
+                (
+                    Cow::Borrowed("redfish.parent.log_entry_id"),
+                    "42".to_string(),
+                ),
+            ],
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(ctx, log)]);
+
+        let records = &request.resource_logs[0].scope_logs[0].log_records;
+        let record = &records[0];
+
+        assert_eq!(
+            record.body.as_ref().and_then(|body| body.value.as_ref()),
+            Some(&any_value::Value::StringValue(body.to_string()))
+        );
+        assert_eq!(
+            attr_value(&record.attributes, "redfish.diagnostic_data.type"),
+            Some("cper")
+        );
+        assert_eq!(
+            attr_value(&record.attributes, "redfish.parent.log_entry_id"),
+            Some("42")
+        );
     }
 
     #[test]
@@ -602,6 +652,7 @@ mod tests {
                     body: "x".to_string(),
                     severity: "INFO".to_string(),
                     attributes: vec![],
+                    diagnostic_record: None,
                 })),
             )
         };

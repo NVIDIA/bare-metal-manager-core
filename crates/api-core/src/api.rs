@@ -1364,6 +1364,13 @@ impl Forge for Api {
         crate::handlers::boot_override::clear(self, request).await
     }
 
+    async fn get_machine_boot_interfaces(
+        &self,
+        request: Request<rpc::GetMachineBootInterfacesRequest>,
+    ) -> Result<Response<rpc::GetMachineBootInterfacesResponse>, Status> {
+        crate::handlers::machine_boot_interfaces::get_machine_boot_interfaces(self, request).await
+    }
+
     async fn get_network_topology(
         &self,
         request: Request<rpc::NetworkTopologyRequest>,

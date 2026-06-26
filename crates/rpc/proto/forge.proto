@@ -379,6 +379,12 @@ service Forge {
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(common.MachineInterfaceId) returns (google.protobuf.Empty);
 
+  // Gather one machine's boot-interface view from every store that records it
+  // (owned interface rows, predictions, the explored endpoint default, and the
+  // retained post-deletion pairs), plus the effective boot interface the
+  // system would select. Read-only; built for troubleshooting and verification.
+  rpc GetMachineBootInterfaces(GetMachineBootInterfacesRequest) returns (GetMachineBootInterfacesResponse);
+
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
   rpc FindNetworkDevicesByDeviceIds(NetworkDeviceIdList) returns (NetworkTopologyData);
@@ -8745,4 +8751,80 @@ message ReWrapSecretsResponse {
   // routing config after the walk. Zero means every
   // unrouted KEK can be retired.
   uint64 stale_remaining = 3;
+}
+
+// ---------------------------------------------------------------------------
+// GetMachineBootInterfaces: one machine's boot-interface view, gathered from
+// every store that records it. Each store gets its own purpose-built report
+// message that explicitly carries `boot_interface_id` -- the regular
+// `MachineInterface` message drops it, so these are separate report types.
+// ---------------------------------------------------------------------------
+
+message GetMachineBootInterfacesRequest {
+  common.MachineId machine_id = 1;
+}
+
+// A `machine_interfaces` row's boot interface: the authoritative store for an
+// owned machine. `primary_interface` is the designation `pick_boot_interface`
+// keys on.
+message MachineInterfaceBootInterface {
+  string mac_address = 1;
+  bool primary_interface = 2;
+  // Vendor-named Redfish EthernetInterface.Id, absent until site-explorer has
+  // captured it for this MAC.
+  optional string boot_interface_id = 3;
+  // Segment type of the row, when one is known (denormalized from the segment).
+  optional string network_segment_type = 4;
+}
+
+// A `predicted_machine_interfaces` row's boot interface: the candidate a host
+// offers in the window before its first DHCP lease creates an owned row.
+message PredictedBootInterface {
+  string mac_address = 1;
+  bool primary_interface = 2;
+  optional string boot_interface_id = 3;
+  // The predicted/expected segment type carried on the prediction.
+  optional string network_segment_type = 4;
+}
+
+// An `explored_endpoints` row's boot interface: site-explorer's per-cycle
+// automatic pick for a BMC endpoint, used only for endpoints no machine owns.
+message ExploredBootInterface {
+  // BMC endpoint address this explored default was recorded against.
+  string address = 1;
+  optional string boot_interface_mac = 2;
+  optional string boot_interface_id = 3;
+}
+
+// A `retained_boot_interfaces` row: the last-known boot pair preserved past
+// interface deletion, keyed by MAC. `recorded_at` is included so the view can
+// show stale records (ones aged past the retention window).
+message RetainedBootInterface {
+  string mac_address = 1;
+  string boot_interface_id = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+message GetMachineBootInterfacesResponse {
+  common.MachineId machine_id = 1;
+
+  // Boot interfaces from the four stores.
+  repeated MachineInterfaceBootInterface machine_interfaces = 2;
+  repeated PredictedBootInterface predicted_interfaces = 3;
+  repeated ExploredBootInterface explored_endpoints = 4;
+  repeated RetainedBootInterface retained_interfaces = 5;
+
+  // The boot interface MAC the system would select for this machine right now,
+  // applying `pick_boot_interface` to the owned `machine_interfaces` rows.
+  // Absent when there is no owned candidate yet.
+  optional string effective_boot_interface_mac = 6;
+  // The fully-populated effective boot interface id (MAC + Redfish id), when
+  // the selected row has its interface id captured. Absent otherwise.
+  optional string effective_boot_interface_id = 7;
+
+  // True when the stores do not all agree on the boot MAC -- a signal worth a
+  // closer look during troubleshooting (e.g. the explored default points at a
+  // different NIC than the effective owned pick, or a predicted primary
+  // disagrees). See the handler for the exact comparison.
+  bool divergent = 8;
 }
