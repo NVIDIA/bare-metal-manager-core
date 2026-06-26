@@ -59,6 +59,7 @@ mod domain;
 mod dpa;
 mod dpf;
 mod dpu;
+mod dpu_device_ca;
 mod dpu_remediation;
 mod errors;
 mod expected_machines;
@@ -237,6 +238,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Domain(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Dpa(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Dpu(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::DpuDeviceCa(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::DpuRemediation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedMachine(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExpectedPowerShelf(cmd) => cmd.dispatch(ctx).await?,

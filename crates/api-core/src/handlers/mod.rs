@@ -32,6 +32,7 @@ pub mod domain;
 pub mod dpa;
 pub mod dpf;
 pub mod dpu;
+pub mod dpu_device_ca;
 pub mod dpu_device_identity;
 pub mod dpu_remediation;
 pub mod expected_machine;

@@ -35,6 +35,7 @@ hardware:
   - mlx
   - scout-stream
   - tpm-ca
+  - dpu-device-ca
   - sku
   - inventory
   - set

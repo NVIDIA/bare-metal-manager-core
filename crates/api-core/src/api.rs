@@ -2386,6 +2386,27 @@ impl Forge for Api {
         crate::handlers::tpm_ca::tpm_delete_ca_cert(self, request).await
     }
 
+    async fn dpu_add_device_ca_cert(
+        &self,
+        request: Request<rpc::DpuDeviceCaCert>,
+    ) -> Result<Response<rpc::DpuDeviceCaAddedStatus>, Status> {
+        crate::handlers::dpu_device_ca::dpu_add_device_ca_cert(self, request).await
+    }
+
+    async fn dpu_show_device_ca_certs(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::DpuDeviceCaCertDetailCollection>, Status> {
+        crate::handlers::dpu_device_ca::dpu_show_device_ca_certs(self, &request).await
+    }
+
+    async fn dpu_delete_device_ca_cert(
+        &self,
+        request: Request<rpc::DpuDeviceCaCertId>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::dpu_device_ca::dpu_delete_device_ca_cert(self, request).await
+    }
+
     async fn remove_machine_validation_external_config(
         &self,
         request: Request<rpc::RemoveMachineValidationExternalConfigRequest>,

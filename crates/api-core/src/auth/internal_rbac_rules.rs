@@ -514,6 +514,9 @@ impl InternalRBACRules {
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmDeleteCaCert", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DpuAddDeviceCaCert", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DpuShowDeviceCaCerts", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DpuDeleteDeviceCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RedfishListActions", vec![ForgeAdminCLI]);
         x.perm("RedfishCreateAction", vec![ForgeAdminCLI]);
         x.perm("RedfishApproveAction", vec![ForgeAdminCLI]);

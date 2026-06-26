@@ -700,6 +700,11 @@ service Forge {
   rpc TpmShowUnmatchedEkCerts(google.protobuf.Empty) returns (TpmEkCertStatusCollection);
   rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
 
+  // DPU device CA certs Management (NVIDIA BlueField IRoT device-identity roots)
+  rpc DpuAddDeviceCaCert(DpuDeviceCaCert) returns (DpuDeviceCaAddedStatus);
+  rpc DpuShowDeviceCaCerts(google.protobuf.Empty) returns (DpuDeviceCaCertDetailCollection);
+  rpc DpuDeleteDeviceCaCert(DpuDeviceCaCertId) returns (google.protobuf.Empty);
+
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
   rpc RedfishListActions(RedfishListActionsRequest) returns (RedfishListActionsResponse);
   rpc RedfishCreateAction(RedfishCreateActionRequest) returns (RedfishCreateActionResponse);
@@ -1273,6 +1278,30 @@ message TpmCaCertDetail{
 
 message TpmCaCertDetailCollection{
   repeated TpmCaCertDetail tpm_ca_cert_details = 1;
+}
+
+message DpuDeviceCaCert{
+  // NVIDIA BlueField device root CA cert in DER encoding
+  bytes ca_cert = 1;
+}
+
+message DpuDeviceCaCertId{
+  int32 ca_cert_id = 1;
+}
+
+message DpuDeviceCaAddedStatus{
+  DpuDeviceCaCertId id = 1;
+}
+
+message DpuDeviceCaCertDetail{
+  int32 ca_cert_id = 1;
+  string not_valid_before = 2;
+  string not_valid_after = 3;
+  string ca_cert_subject = 4;
+}
+
+message DpuDeviceCaCertDetailCollection{
+  repeated DpuDeviceCaCertDetail dpu_device_ca_cert_details = 1;
 }
 
 message AttestKeyBindChallenge{

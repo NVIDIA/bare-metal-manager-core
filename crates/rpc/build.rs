@@ -633,6 +633,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "TpmCaCertId",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute(
+            "DpuDeviceCaCertDetail",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "DpuDeviceCaCertDetailCollection",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "DpuDeviceCaAddedStatus",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "DpuDeviceCaCertId",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .type_attribute("MachineValidationState", "#[derive(serde::Serialize)]")
         .type_attribute("MachineValidationCompleted", "#[derive(serde::Serialize)]")
         .type_attribute("MachineValidationInProgress", "#[derive(serde::Serialize)]")
