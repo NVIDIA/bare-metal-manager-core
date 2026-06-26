@@ -291,16 +291,16 @@ impl ExploredEndpoint {
         versions
     }
 
-    pub fn is_bluefield_model(&self) -> bool {
+    pub fn has_bluefield_part_number(&self) -> bool {
         self.report.chassis.iter().any(|chassis| {
             chassis
                 .part_number
                 .as_ref()
-                .is_some_and(|p| is_bluefield_model(p.trim()))
+                .is_some_and(|p| is_bluefield_part_number(p.trim()))
                 || chassis.network_adapters.iter().any(|n| {
                     n.part_number
                         .as_ref()
-                        .is_some_and(|p| is_bluefield_model(p.trim()))
+                        .is_some_and(|p| is_bluefield_part_number(p.trim()))
                 })
         })
     }
@@ -538,13 +538,13 @@ pub struct PCIeDevice {
 impl PCIeDevice {
     // is_bluefield returns whether the device is a Bluefield
     pub fn is_bluefield(&self) -> bool {
-        let Some(model) = &self.part_number else {
-            // TODO: maybe model this as an enum that has "Indeterminable" if there's no model
+        let Some(part_number) = &self.part_number else {
+            // TODO: maybe model this as an enum that has "Indeterminable" if there's no part number
             // but for now it's 'technically' true
             return false;
         };
 
-        is_bluefield_model(model)
+        is_bluefield_part_number(part_number)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -789,6 +789,19 @@ impl EndpointExplorationReport {
         } else {
             None
         }
+    }
+
+    pub fn dpu_part_number(&self) -> Option<&str> {
+        if !self.is_dpu() {
+            return None;
+        }
+
+        self.chassis
+            .iter()
+            .find(|chassis| chassis.id == "Card1")
+            .and_then(|chassis| chassis.part_number.as_deref())
+            .map(str::trim)
+            .filter(|part_number| !part_number.is_empty())
     }
 
     /// Return `true` if the explored endpoint is a DPU
@@ -1549,40 +1562,41 @@ impl Display for NicMode {
     }
 }
 
-// returns true if the model is for a Bluefield-3 DPU
-pub fn is_bf3_dpu(model: &str) -> bool {
-    let normalized_model = model.to_lowercase();
+// returns true if the part number is for a Bluefield-3 DPU
+pub fn is_bf3_dpu_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.trim().to_lowercase();
     // prefix matching for BlueField-3 DPUs (https://docs.nvidia.com/networking/display/bf3dpu)
-    normalized_model.starts_with("900-9d3b6")
+    normalized_part_number.starts_with("900-9d3b6")
     // looks like Lenovo ThinkSystem SR675 V3s will report the part number of NVIDIA BlueField-3 VPI QSFP112 2P 200G PCIe Gen5 x16 as SN37B36732
     // https://windows-server.lenovo.com/repo/2024_05/html/SR675V3_7D9Q_7D9R-Windows_Server_2019.html
-    ||  normalized_model.starts_with("sn37b36732")
+    ||  normalized_part_number == "sn37b36732"
 }
 
-// returns true if the model is for a Bluefield-3 SuperNIC
-pub fn is_bf3_supernic(model: &str) -> bool {
-    let normalized_model = model.to_lowercase();
+// returns true if the part number is for a Bluefield-3 SuperNIC
+pub fn is_bf3_supernic_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.trim().to_lowercase();
     // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
-    normalized_model.starts_with("900-9d3b4") || normalized_model.starts_with("900-9d3d4")
+    normalized_part_number.starts_with("900-9d3b4")
+        || normalized_part_number.starts_with("900-9d3d4")
 }
 
-// returns true if the model is for a Bluefield-2
-pub fn is_bf2_dpu(model: &str) -> bool {
-    let normalized_model = model.to_lowercase();
+// returns true if the part number is for a Bluefield-2
+pub fn is_bf2_dpu_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.trim().to_lowercase();
     // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
-    normalized_model.starts_with("mbf2")
+    normalized_part_number.starts_with("mbf2")
 }
-// is_bluefield_model returns true if the passed in string is a bluefield model
-pub fn is_bluefield_model(model: &str) -> bool {
-    let normalized_model = model.to_lowercase();
+// returns true if the passed in string is a BlueField part number
+pub fn is_bluefield_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.trim().to_lowercase();
 
-    normalized_model.contains("bluefield")
-        || is_bf3_dpu(&normalized_model)
+    normalized_part_number.contains("bluefield")
+        || is_bf3_dpu_part_number(&normalized_part_number)
         // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
-        || is_bf3_supernic(&normalized_model)
+        || is_bf3_supernic_part_number(&normalized_part_number)
         // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
         // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
-        || is_bf2_dpu(&normalized_model)
+        || is_bf2_dpu_part_number(&normalized_part_number)
 }
 
 /// The kind of BlueField/Mellanox device, classified from its Redfish part number.
@@ -1611,20 +1625,20 @@ impl MlxDeviceKind {
     /// [`MlxDeviceKind::Unknown`] for a BlueField whose part number matches no
     /// known prefix (or is absent).
     pub fn from_part_number(part_number: Option<&str>) -> Self {
-        let Some(model) = part_number else {
+        let Some(part_number) = part_number else {
             return Self::Unknown;
         };
-        let model = model.trim().to_lowercase();
-        // `is_bf3_supernic` deliberately groups `900-9d3b4` and `900-9d3d4`; here
+        let part_number = part_number.trim().to_lowercase();
+        // `is_bf3_supernic_part_number` deliberately groups `900-9d3b4` and `900-9d3d4`; here
         // we split them, because a NIC-mode DPU (`b4`) and a native SuperNIC
         // (`d4`) are exactly what an operator needs told apart.
-        if model.starts_with("900-9d3b6") || model.starts_with("sn37b36732") {
+        if part_number.starts_with("900-9d3b6") || part_number == "sn37b36732" {
             Self::Bf3DpuMode
-        } else if model.starts_with("900-9d3b4") {
+        } else if part_number.starts_with("900-9d3b4") {
             Self::Bf3NicMode
-        } else if model.starts_with("900-9d3d4") {
+        } else if part_number.starts_with("900-9d3d4") {
             Self::Bf3SuperNic
-        } else if model.starts_with("mbf2") {
+        } else if part_number.starts_with("mbf2") {
             Self::Bf2Dpu
         } else {
             Self::Unknown
@@ -1840,6 +1854,42 @@ mod explored_mlx_device_tests {
         }
     }
 
+    fn dpu_report_with_card1_part_number(part_number: Option<&str>) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "Card1".to_string(),
+                model: Some("BlueField-3 DPU".to_string()),
+                part_number: part_number.map(str::to_string),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn dpu_part_number_reads_card1_part_number() {
+        assert_eq!(
+            dpu_report_with_card1_part_number(Some("900-9D3B6-00CV-AA0")).dpu_part_number(),
+            Some("900-9D3B6-00CV-AA0")
+        );
+        assert_eq!(
+            dpu_report_with_card1_part_number(Some("900-9D3B6-00CV-AA0   ")).dpu_part_number(),
+            Some("900-9D3B6-00CV-AA0")
+        );
+        assert_eq!(
+            dpu_report_with_card1_part_number(None).dpu_part_number(),
+            None
+        );
+        assert_eq!(
+            dpu_report_with_card1_part_number(Some("   ")).dpu_part_number(),
+            None
+        );
+    }
+
     #[test]
     fn classifies_bluefield_kind_by_part_number() {
         struct Case {
@@ -1874,6 +1924,16 @@ mod explored_mlx_device_tests {
                 expected: MlxDeviceKind::Bf3DpuMode,
             },
             Case {
+                name: "lenovo-branded bf3 dpu with trailing spaces",
+                part_number: Some("SN37B36732   "),
+                expected: MlxDeviceKind::Bf3DpuMode,
+            },
+            Case {
+                name: "serial-like lenovo prefix",
+                part_number: Some("SN37B36732XYZ"),
+                expected: MlxDeviceKind::Unknown,
+            },
+            Case {
                 name: "bluefield without a known prefix",
                 part_number: Some("NVIDIA BlueField mystery board"),
                 expected: MlxDeviceKind::Unknown,
@@ -1892,6 +1952,8 @@ mod explored_mlx_device_tests {
                 case.name
             );
         }
+        assert!(is_bf3_dpu_part_number(" SN37B36732 "));
+        assert!(!is_bf3_dpu_part_number("SN37B36732XYZ"));
     }
 
     #[test]

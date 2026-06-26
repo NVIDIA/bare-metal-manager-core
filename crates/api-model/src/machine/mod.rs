@@ -2908,7 +2908,7 @@ pub fn dpf_based_dpu_provisioning_possible(
         dpu.hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
-            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
+            .map(|dpu_data| crate::site_explorer::is_bf2_dpu_part_number(&dpu_data.part_number))
             .unwrap_or(false)
     }) {
         tracing::info!(

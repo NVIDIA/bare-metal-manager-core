@@ -52,7 +52,8 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
-    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    PowerState, PreingestionState, Service, is_bf3_dpu_part_number, is_bf3_supernic_part_number,
+    is_bluefield_part_number,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -1150,7 +1151,7 @@ impl SiteExplorer {
 
             // Resolve the operator-declared DPU mode for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
-            // below -- operator override wins over BF3 model heuristics)
+            // below -- operator override wins over BF3 part-number heuristics)
             // and the post-match attach decision (NicMode/NoDpu hosts emit
             // a bare managed host regardless of what matched).
             let host_dpu_mode = effective_mode(&ep.address);
@@ -1214,7 +1215,7 @@ impl SiteExplorer {
                         .part_number
                         .as_deref()
                         .map(str::trim)
-                        .is_some_and(is_bluefield_model);
+                        .is_some_and(is_bluefield_part_number);
                     let chassis_has_serial = chassis
                         .serial_number
                         .as_deref()
@@ -1270,18 +1271,13 @@ impl SiteExplorer {
                 {
                     for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
-                            // Enforce the host's declared DPU mode on a fallback-serial
-                            // match the same way the host-reported path does, rather than
-                            // trusting it as already-configured. A DPU still in the wrong
-                            // mode gets a `set_nic_mode` here and has to wait for the host
-                            // reset to apply it; without this, a DPU-mode BlueField on a
-                            // `NicMode` host would be attached and then dropped to zero-DPU
-                            // (the `NicMode` arm further down), leaving the database reading
-                            // "NIC-mode host" while the hardware stayed in DPU mode.
+                            // Fallback matching has only the expected serial and the
+                            // discovered DPU BMC report; pass the DPU's own part number
+                            // for the legacy BF3 heuristic.
                             let mode_check = Some(
                                 self.check_and_configure_dpu_mode(
                                     &dpu_ep,
-                                    dpu_ep.report.model().unwrap_or_default(),
+                                    dpu_ep.report.dpu_part_number(),
                                     host_dpu_mode,
                                     metrics,
                                 )
@@ -1603,7 +1599,10 @@ impl SiteExplorer {
     ) {
         // Count every DPU the host reports, independent of whether we've
         // discovered its BMC yet.
-        if part_number.map(str::trim).is_some_and(is_bluefield_model) {
+        if part_number
+            .map(str::trim)
+            .is_some_and(is_bluefield_part_number)
+        {
             exploration.reported_total += 1;
         }
 
@@ -1619,18 +1618,10 @@ impl SiteExplorer {
 
         // Resolve the DPU's mode against what the host declared. This is the only
         // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
-        let mode_check = match part_number {
-            Some(model) => Some(
-                self.check_and_configure_dpu_mode(
-                    dpu_ep,
-                    model.to_string(),
-                    host_dpu_mode,
-                    metrics,
-                )
+        let mode_check = Some(
+            self.check_and_configure_dpu_mode(dpu_ep, part_number, host_dpu_mode, metrics)
                 .await,
-            ),
-            None => None,
-        };
+        );
 
         match classify_matched_dpu(dpu_ep, host_ep, mode_check) {
             DiscoveredDpu::RunningAsDpu(dpu) => exploration.running_as_dpu.push(dpu),
@@ -3100,13 +3091,13 @@ impl SiteExplorer {
     ///    DPU but operator said no DPU" gets surfaced as a health alert;
     ///    we don't try to reconfigure in that case.
     /// 3. Otherwise (operator default `DpuMode::DpuMode`), fall back to
-    ///    the existing BF3 SuperNIC / BF3 DPU model-based heuristic for
+    ///    the existing BF3 SuperNIC / BF3 DPU part-number heuristic for
     ///    backward compat: BF3 SuperNIC → NIC mode, BF3 DPU → DPU mode,
     ///    BF2 / unknown → no-op.
     async fn check_and_configure_dpu_mode(
         &self,
         dpu_ep: &ExploredEndpoint,
-        dpu_model: String,
+        dpu_part_number: Option<&str>,
         host_dpu_mode: DpuMode,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<bool> {
@@ -3117,15 +3108,19 @@ impl SiteExplorer {
             DpuMode::NicMode => Some(NicMode::Nic),
             DpuMode::NoDpu => None,
             DpuMode::DpuMode => {
-                // Preserve existing BF3-model heuristics when the operator
-                // hasn't explicitly chosen a mode.
-                if is_bf3_supernic(&dpu_model) {
-                    Some(NicMode::Nic)
-                } else if is_bf3_dpu(&dpu_model) {
-                    Some(NicMode::Dpu)
-                } else {
-                    None
-                }
+                // Preserve existing BF3 part-number heuristics when the operator
+                // hasn't explicitly chosen a mode. Missing part numbers only
+                // disable this heuristic fallback; explicit modes above do not
+                // require a part number.
+                dpu_part_number.and_then(|dpu_part_number| {
+                    if is_bf3_supernic_part_number(dpu_part_number) {
+                        Some(NicMode::Nic)
+                    } else if is_bf3_dpu_part_number(dpu_part_number) {
+                        Some(NicMode::Dpu)
+                    } else {
+                        None
+                    }
+                })
             }
         };
 
@@ -3138,7 +3133,7 @@ impl SiteExplorer {
             Some(observed) => {
                 tracing::warn!(
                     address = %dpu_ep.address,
-                    model = %dpu_model,
+                    part_number = ?dpu_part_number,
                     %observed,
                     ?target_nic_mode,
                     ?host_dpu_mode,
@@ -3517,8 +3512,8 @@ enum DiscoveredDpu {
 ///
 /// The only IO (`check_and_configure_dpu_mode`, which may issue a
 /// `set_nic_mode`) happens in the caller, which passes its result in as
-/// `mode_check` (`None` when the device reported no model to check). Keeping the
-/// decision here makes it unit-testable without a Redfish mock.
+/// `mode_check` (`None` when the caller deliberately skipped the mode check).
+/// Keeping the decision here makes it unit-testable without a Redfish mock.
 fn classify_matched_dpu(
     dpu_ep: &ExploredEndpoint,
     host_ep: &ExploredEndpoint,
@@ -3527,7 +3522,7 @@ fn classify_matched_dpu(
     match mode_check {
         Some(Ok(false)) => return DiscoveredDpu::NeedsReconfig,
         Some(Err(err)) => return DiscoveredDpu::ModeCheckFailed(err),
-        // Mode already correct, or there was no model to check.
+        // Mode already correct, or the caller skipped the mode check.
         Some(Ok(true)) | None => {}
     }
 
@@ -3780,7 +3775,7 @@ mod tests {
             classify_matched_dpu(&dpu, &host, Some(Ok(true))),
             DiscoveredDpu::RunningAsDpu(_)
         ));
-        // No model to check (`None`) behaves the same.
+        // A skipped mode check (`None`) behaves the same.
         assert!(matches!(
             classify_matched_dpu(&dpu, &host, None),
             DiscoveredDpu::RunningAsDpu(_)
