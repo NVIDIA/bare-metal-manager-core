@@ -60,9 +60,9 @@ use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    ethernet_virtualization, extension_services, get_non_empty_str, hbn, health,
-    instance_metadata_endpoint, lldp, machine_inventory_updater, managed_files, mtu, netlink, nvue,
-    periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
+    ethernet_virtualization, extension_services, hbn, health, instance_metadata_endpoint, lldp,
+    machine_inventory_updater, managed_files, mtu, netlink, nvue, periodic_config_fetcher,
+    pretty_cmd, sysfs, upgrade,
 };
 
 // Main loop when running in daemon mode
@@ -379,7 +379,6 @@ pub async fn setup_and_run(
         extension_service_manager,
         nvue_context,
         dhcp_interface_translation_mode,
-        current_network_version: CurrentNetworkVersion::default(),
     };
 
     main_loop.run().await
@@ -413,44 +412,11 @@ struct MainLoop {
     extension_service_manager: extension_services::ExtensionServiceManager,
     nvue_context: Option<NvueClientContext>,
     dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
-    current_network_version: CurrentNetworkVersion,
 }
 
 struct IterationResult {
     stop_agent: bool,
     loop_period: std::time::Duration,
-}
-
-/// `CurrentNetworkVersion` tracks the versions we last successfully applied,
-/// mostly so we can avoid hitting the HBN update methods more frequently than
-/// needed.
-#[derive(Debug, Default)]
-struct CurrentNetworkVersion {
-    managed_host_config_version: Option<String>,
-    instance_network_config_version: Option<String>,
-}
-
-impl CurrentNetworkVersion {
-    pub fn matches_versions_from(
-        &self,
-        conf: impl AsRef<ManagedHostNetworkConfigResponse>,
-    ) -> bool {
-        let conf = conf.as_ref();
-        let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
-        let instance_network_config_version =
-            get_non_empty_str(&conf.instance_network_config_version);
-
-        self.managed_host_config_version.as_deref() == managed_host_config_version
-            && self.instance_network_config_version.as_deref() == instance_network_config_version
-    }
-
-    pub fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
-        let conf = conf.as_ref();
-        self.managed_host_config_version =
-            get_non_empty_str(&conf.managed_host_config_version).map(String::from);
-        self.instance_network_config_version =
-            get_non_empty_str(&conf.instance_network_config_version).map(String::from);
-    }
 }
 
 /// Returns the last DHCP request timestamps for all known host interfaces.
@@ -656,14 +622,7 @@ impl MainLoop {
                     )
                     .await;
 
-                    let update_result = if self.current_network_version.matches_versions_from(&conf)
-                    {
-                        tracing::debug!(
-                            "No configuration change, skipping HBN updates: {:?}",
-                            &self.current_network_version
-                        );
-                        Ok(false)
-                    } else {
+                    let update_result = {
                         if self.options.agent_platform_type.is_dpu_os()
                             && hbn_version >= self.fmds_minimum_hbn_version
                         {
@@ -753,7 +712,6 @@ impl MainLoop {
                     };
                     match joined_result {
                         Ok(has_changed) => {
-                            self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
@@ -877,7 +835,13 @@ impl MainLoop {
                             hbn_root: &self.agent_config.hbn.root_dir,
                             host_routes: &tenant_peers,
                             has_changed_configs,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                            // Default to 1: a dual-homed DPU stays usable on a single uplink, so
+                            // losing one redundant link degrades gracefully instead of fencing the
+                            // DPU. Requiring all links by default defeats uplink failover/HA — a
+                            // single dead redundant uplink would block instance provisioning
+                            // (DPU held unhealthy at Assigned/WaitingForNetworkConfig). Operators
+                            // can set min_dpu_functioning_links higher for stricter health.
+                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(1),
                             route_servers: &conf.route_servers,
                             hbn_device_names: self.hbn_device_names.clone(),
                             include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
