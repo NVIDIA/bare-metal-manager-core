@@ -14,27 +14,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use carbide_secrets::credentials::{CredentialManager, CredentialReader};
+use carbide_kms_provider::{
+    DEFAULT_TRANSIT_MOUNT, IntegratedKmsProvider, KmsBackend, MultiKmsProvider, TransitKmsProvider,
+};
+use carbide_secrets::credentials::{CredentialManager, CredentialReader, CredentialWriter};
 use carbide_secrets::{
-    CredentialConfig, MemoryCredentialStore, VaultConfig, create_credential_manager_from,
-    create_vault_client,
+    CredentialConfig, ForgeVaultClient, MemoryCredentialStore, VaultConfig,
+    create_credential_manager_from, create_vault_client,
 };
 use carbide_utils::HostPortPair;
 use eyre::WrapErr;
+use sqlx::PgPool;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
 
-use crate::cfg::file::CarbideConfig;
+use crate::cfg::file::{
+    CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
+};
 use crate::listener::AdminUiRoutesBuilder;
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
+use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
 
 /// Vault machine PKI URI SANs must match `[auth.trust]` when site auth config is present.
@@ -187,59 +195,160 @@ pub async fn run(
 
     let vault_config = vault_config_for_site(&credential_config.vault, &carbide_config);
 
-    let certificate_provider = create_vault_client(&vault_config, metrics.meter.clone())?;
+    // One vault client serves every vault role below. PKI certificates stay
+    // on vault no matter which credential backend is configured.
+    let vault_client = create_vault_client(&vault_config, metrics.meter.clone())?;
+    let certificate_provider = vault_client.clone();
 
-    // Pick a credential store based on CARBIDE_CREDENTIAL_STORE (default: "vault").
-    // Set to "memory" to use an in-memory store with no persistence or shared state between
-    // processes. This is only suitable for development and testing.
-    let credential_store: Arc<dyn CredentialManager> = match std::env::var(
-        "CARBIDE_CREDENTIAL_STORE",
-    )
-    .as_deref()
-    .unwrap_or("vault")
-    {
-        "vault" => create_vault_client(&vault_config, metrics.meter.clone())?,
-        "memory" => Arc::new(MemoryCredentialStore::default()),
-        other => {
-            return Err(eyre::eyre!(
-                "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
-            ));
-        }
-    };
+    let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
 
-    // Build credential reader chain. The idea is this chain
-    // can be flexible, to allow us to introduce an ordered
-    // list of readers, which we build on-demand based on
-    // configuration.
-    let mut readers: Vec<Box<dyn CredentialReader>> = Vec::new();
-
-    // If EnvCredentials are enabled, then add that
-    // to our chained credentials reader. It's expected
-    // that this comes first if configured.
-    if credential_config.env.enabled() {
-        readers.push(Box::new(
+    // Build the local-override readers (env, file); each is consulted only when
+    // its [credentials.*] section is enabled. The backends (postgres,
+    // vault) and the writer are chosen below.
+    let env_reader: Option<Box<dyn CredentialReader>> = if credential_config.env.enabled() {
+        Some(Box::new(
             carbide_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
-        ));
-    }
-
-    // Next, if FileCredentials are enabled, then
-    // add those in as well. We expect these *after*
-    // EnvCredentials.
-    if credential_config.file.enabled() {
-        readers.push(Box::new(
+        ))
+    } else {
+        None
+    };
+    let file_reader: Option<Box<dyn CredentialReader>> = if credential_config.file.enabled() {
+        Some(Box::new(
             carbide_secrets::local_credentials::FileCredentialsWatcher::new(
                 credential_config.file.clone(),
             )
             .await?,
-        ));
-    }
+        ))
+    } else {
+        None
+    };
+    // The local overrides that ended up enabled, in order -- always tried
+    // ahead of the backends.
+    let local_overrides: Vec<Box<dyn CredentialReader>> =
+        [env_reader, file_reader].into_iter().flatten().collect();
 
-    // Last, we tack on the credential store to the end.
-    readers.push(Box::new(credential_store.clone()));
+    // With a [secrets] section, the credential chain and write target come from
+    // `backends`/`writer` -- defaulting to env -> file -> vault writing to vault,
+    // so the section alone changes nothing. The one-time vault import is
+    // independent: it runs iff `import_from` is set. Without the section, the
+    // store comes from CARBIDE_CREDENTIAL_STORE: vault (the default), or an
+    // in-memory store for development and testing.
+    let (credential_manager, secrets_context): (
+        Arc<dyn CredentialManager>,
+        Option<SecretsContext>,
+    ) = if let Some(ref secrets_config) = carbide_config.secrets {
+        // Reject a nonsensical backends list before anything with side effects
+        // runs (KMS task setup, the one-time vault import): a config error
+        // should fail the boot cleanly, not after a partial, hard-to-undo
+        // import that has already written the completion marker.
+        crate::secrets::validate_backends(&secrets_config.backends)?;
 
-    // And now we create our new composite credential manager
-    // from the list of readers we just built, plus the credential store as writer.
-    let credential_manager = create_credential_manager_from(credential_store, readers);
+        let routing = SecretRouting::from_config(&secrets_config.routing)
+            .map_err(eyre::Report::new)
+            .wrap_err("secrets routing configuration")?;
+        let kms = build_kms_backend(
+            secrets_config,
+            &vault_config,
+            &routing,
+            &mut join_set,
+            &cancel_token,
+        )?;
+
+        let pg_mgr = Arc::new(
+            crate::secrets::PostgresCredentialManager::new(
+                db_pool.clone(),
+                routing.clone(),
+                kms.clone(),
+            )
+            .with_metrics(crate::secrets::SecretsMetrics::new(&metrics.meter)),
+        );
+        tracing::info!(
+            active_provider = %secrets_config.kms.active,
+            backends = ?secrets_config.backends,
+            writer = ?secrets_config.writer,
+            "Postgres secrets backend configured"
+        );
+        // New writes all go to `writer`, but reads take the first backend in
+        // `backends` that holds the path -- first-match-wins, evaluated per path.
+        // So unless `writer` is the highest-priority backend, a write can be
+        // shadowed: if a higher-priority backend also holds that path, reads keep
+        // returning its value and never reach the writer's. E.g. with
+        // backends = [vault, postgres] and writer = postgres, a path that exists
+        // in both reads vault's value until vault's copy of that path is
+        // removed (a read-after-write gap). The same gap exists when `writer`
+        // is not in `backends` at all. Both reduce to "writer isn't the top
+        // backend." We allow it -- a deliberate shadow-write is a valid, if
+        // advanced, setup -- but warn so an accidental one is visible.
+        let writer_is_top_backend = secrets_config.backends.first() == Some(&secrets_config.writer);
+        if !writer_is_top_backend {
+            tracing::warn!(
+                writer = ?secrets_config.writer,
+                backends = ?secrets_config.backends,
+                "secrets writer's backend is not the highest-priority backend: a write to a path a \
+                 higher-priority backend also holds is shadowed on read until that copy is removed \
+                 (read-after-write gap)"
+            );
+        }
+
+        // A one-time bulk import from vault, only when the operator asks for
+        // one. Independent of backends/writer.
+        if secrets_config.import_from == Some(ImportSource::Vault) {
+            import_vault_secrets_once(
+                &db_pool,
+                secrets_config,
+                &routing,
+                kms.as_ref(),
+                &vault_client,
+            )
+            .await?;
+        }
+
+        // Read order: the always-first local overrides, then the configured
+        // backends in the operator's chosen order (first match wins). The write
+        // target is the single backend `writer` names. (`backends` was
+        // validated at the top of this branch, before any side effects.)
+        let backend_readers =
+            secrets_config
+                .backends
+                .iter()
+                .map(|backend| -> Box<dyn CredentialReader> {
+                    match backend {
+                        CredentialBackend::Postgres => Box::new(pg_mgr.clone()),
+                        CredentialBackend::Vault => Box::new(vault_client.clone()),
+                    }
+                });
+        let chain: Vec<Box<dyn CredentialReader>> =
+            local_overrides.into_iter().chain(backend_readers).collect();
+        let writer: Arc<dyn CredentialWriter> = match secrets_config.writer {
+            CredentialBackend::Vault => vault_client.clone(),
+            CredentialBackend::Postgres => pg_mgr.clone(),
+        };
+        (
+            create_credential_manager_from(writer, chain),
+            Some(SecretsContext { routing, kms }),
+        )
+    } else {
+        let store: Arc<dyn CredentialManager> = match std::env::var("CARBIDE_CREDENTIAL_STORE")
+            .as_deref()
+            .unwrap_or("vault")
+        {
+            "vault" => vault_client.clone(),
+            "memory" => Arc::new(MemoryCredentialStore::default()),
+            other => {
+                return Err(eyre::eyre!(
+                    "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+                ));
+            }
+        };
+        // env -> file -> the configured store; nothing from [secrets] applies.
+        let chain: Vec<Box<dyn CredentialReader>> = local_overrides
+            .into_iter()
+            .chain(std::iter::once(
+                Box::new(store.clone()) as Box<dyn CredentialReader>
+            ))
+            .collect();
+        (create_credential_manager_from(store, chain), None)
+    };
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
@@ -310,6 +419,8 @@ pub async fn run(
         nv_redfish_pool,
         credential_manager,
         certificate_provider,
+        db_pool,
+        secrets_context,
         admin_ui_routes_builder,
         cancel_token,
         ready_channel,
@@ -321,4 +432,232 @@ pub async fn run(
     join_set.join_all().await;
 
     Ok(())
+}
+
+/// Build the KMS stack from the `[secrets.kms]` config: construct every
+/// named provider, check the routed KEKs against them, and combine them so
+/// the active provider wraps DEKs for new writes while any provider can
+/// unwrap rows recorded with its kek_ids.
+fn build_kms_backend(
+    secrets_config: &SecretsConfig,
+    vault_config: &VaultConfig,
+    routing: &SecretRouting,
+    join_set: &mut JoinSet<()>,
+    cancel_token: &CancellationToken,
+) -> eyre::Result<Arc<dyn KmsBackend>> {
+    // BTreeMap so the provider list below has a stable order -- with
+    // duplicate kek_ids rejected, order never decides which provider
+    // unwraps, but stable beats arbitrary if that invariant ever slips.
+    let mut built: BTreeMap<String, Arc<dyn KmsBackend>> = BTreeMap::new();
+
+    for (name, provider_config) in &secrets_config.kms.providers {
+        let provider: Arc<dyn KmsBackend> = match provider_config {
+            ProviderConfig::Integrated { keys } => Arc::new(
+                IntegratedKmsProvider::from_config(keys)
+                    .map_err(eyre::Report::new)
+                    .wrap_err_with(|| format!("KMS provider {name:?} key configuration"))?,
+            ),
+            ProviderConfig::Transit {
+                keys,
+                transit_mount,
+            } => {
+                // The same address, CA trust, and timeout ForgeVaultClient
+                // connects with -- a bare vaultrs client only trusts public
+                // roots and fails TLS against a site-CA-signed vault.
+                let vault_settings =
+                    carbide_secrets::create_raw_vault_client_settings(vault_config).wrap_err(
+                        "building the Transit KMS vault client (Transit requires a static \
+                         VAULT_TOKEN; the Kubernetes service-account login flow is not \
+                         supported for Transit yet)",
+                    )?;
+                let vault_client = Arc::new(
+                    vaultrs::client::VaultClient::new(vault_settings)
+                        .map_err(|e| eyre::eyre!("vault client: {e}"))?,
+                );
+                let transit_provider = TransitKmsProvider::new(
+                    vault_client,
+                    transit_mount
+                        .as_deref()
+                        .unwrap_or(DEFAULT_TRANSIT_MOUNT)
+                        .to_string(),
+                    keys.clone(),
+                );
+                join_set
+                    .build_task()
+                    .name("transit_kms_token_renewal")
+                    .spawn(transit_provider.run_token_renewal(cancel_token.clone()))?;
+                Arc::new(transit_provider)
+            }
+        };
+        tracing::info!(name = %name, "initialized KMS provider");
+        built.insert(name.clone(), provider);
+    }
+
+    let active = built
+        .get(&secrets_config.kms.active)
+        .ok_or_else(|| {
+            eyre::eyre!(
+                "active KMS provider {:?} not found; configured providers: {:?}",
+                secrets_config.kms.active,
+                built.keys().collect::<Vec<_>>()
+            )
+        })?
+        .clone();
+
+    // Check the config against itself now, while a mismatch is a config
+    // mistake. Found at runtime instead, a missing key is a write failure
+    // on whichever credential first routes to it, and a duplicated key
+    // makes unwraps depend on provider order.
+    //
+    // Every routed KEK must exist in the active provider, because all new
+    // DEK wraps go through it. And no KEK may exist in two providers --
+    // checked across every configured KEK, not just the routed ones,
+    // because rows wrapped by a rotated-out KEK still unwrap through
+    // whichever provider has it.
+    for (prefix, kek_id) in routing.routes() {
+        if !active.can_decrypt_kek(kek_id) {
+            return Err(eyre::eyre!(
+                "routing assigns {kek_id:?} (prefix {prefix:?}), but the active KMS \
+                 provider {:?} does not have that key",
+                secrets_config.kms.active
+            ));
+        }
+    }
+    let mut kek_owners: BTreeMap<String, Vec<&String>> = BTreeMap::new();
+    for (name, provider) in &built {
+        // Dedup within a provider first: a transit key list can repeat a
+        // name, and that is harmless, not "two providers".
+        let mut kek_ids = provider.kek_ids();
+        kek_ids.sort();
+        kek_ids.dedup();
+        for kek_id in kek_ids {
+            kek_owners.entry(kek_id).or_default().push(name);
+        }
+    }
+    for (kek_id, owners) in &kek_owners {
+        if owners.len() > 1 {
+            return Err(eyre::eyre!(
+                "kek_id {kek_id:?} exists in more than one KMS provider \
+                 ({owners:?}); unwraps would be ambiguous"
+            ));
+        }
+    }
+
+    let providers: Vec<Arc<dyn KmsBackend>> = built.into_values().collect();
+    Ok(Arc::new(MultiKmsProvider::new(active, providers)))
+}
+
+/// Run the one-time vault import, skipping if the completion marker is
+/// already written. The caller gates this on `import_from` (a fresh site
+/// simply omits it), so by the time we are here an import is wanted.
+///
+/// The import either completes before this process serves traffic, or the
+/// process does not start: enumeration is strict (any vault list or read
+/// failure aborts the boot), and an empty enumeration aborts too, because
+/// an empty vault on a site configured to import from it is far more
+/// likely a vault problem than a truly empty vault. A genuinely fresh
+/// site simply omits `import_from`. Keeping it strict gives a clean,
+/// all-or-nothing bulk copy with no half-imported state to reason about.
+///
+/// This is orthogonal to the reader chain and writer: an import seeds
+/// Postgres with vault's secrets, but the read order and write target stay
+/// exactly as `backends` / `writer` set them -- importing changes neither.
+///
+/// Rolling upgrades still need care once writes move to Postgres: a replica
+/// running an older config can write rotated credentials to its own writer,
+/// where they are stranded. Site-explorer credential rotation is the writer
+/// to worry about; keep it disabled until the whole fleet runs a consistent
+/// config.
+async fn import_vault_secrets_once(
+    db_pool: &PgPool,
+    secrets_config: &SecretsConfig,
+    routing: &SecretRouting,
+    kms: &dyn KmsBackend,
+    vault_client: &ForgeVaultClient,
+) -> eyre::Result<()> {
+    if is_import_complete(db_pool).await? {
+        tracing::info!("Vault import already completed");
+        return Ok(());
+    }
+
+    // Several replicas can boot against the same empty database at once.
+    // The marker path's advisory lock lets one of them import while the
+    // rest wait here, re-check the marker, and move on. It is a session
+    // lock on a dedicated connection rather than a transaction-scoped one:
+    // the import awaits Vault enumeration and pool-backed writes, and
+    // holding a transaction across those would trip `txn_held_across_await`
+    // and, under concurrent startup, risk waiters starving the pool the
+    // importer itself needs. Detaching the connection guarantees the lock
+    // releases when it drops, including on an early error return.
+    let mut lock_conn = db_pool
+        .acquire()
+        .await
+        .wrap_err("acquire vault import lock connection")?
+        .detach();
+    db::secrets::lock_path_session(&mut lock_conn, crate::secrets::VAULT_IMPORT_MARKER_PATH)
+        .await
+        .map_err(eyre::Report::new)
+        .wrap_err("acquire vault import lock")?;
+
+    if is_import_complete(db_pool).await? {
+        tracing::info!("Vault import completed by another replica");
+        return Ok(());
+    }
+
+    // Strict enumeration: any list or read failure aborts the boot rather
+    // than importing a subset and recording it as complete. The marker is
+    // permanent, so a partial import here would be silent credential loss.
+    let vault_secrets = vault_client
+        .get_secrets_strict()
+        .await
+        .map_err(eyre::Report::from)
+        .wrap_err("enumerate vault secrets for import")?;
+
+    if vault_secrets.is_empty() {
+        return Err(eyre::eyre!(
+            "vault enumeration returned no secrets; refusing to record an import from an \
+             empty vault. If this site really has no vault secrets, remove import_from \
+             from the [secrets] config; otherwise fix vault and restart"
+        ));
+    }
+
+    tracing::info!(
+        count = vault_secrets.len(),
+        approach = ?secrets_config.import_approach,
+        "Importing secrets from vault"
+    );
+
+    let result = crate::secrets::import_secrets(
+        db_pool,
+        routing,
+        kms,
+        &vault_secrets,
+        secrets_config.import_approach,
+    )
+    .await
+    .map_err(eyre::Report::new)
+    .wrap_err("vault secret import")?;
+
+    tracing::info!(
+        imported = result.imported,
+        skipped = result.skipped,
+        "Vault secret import completed"
+    );
+
+    crate::secrets::mark_vault_import_complete(db_pool, routing, kms)
+        .await
+        .map_err(eyre::Report::new)
+        .wrap_err("mark vault import complete")?;
+    tracing::info!("Vault import marked complete");
+
+    // lock_conn drops here, closing the connection and releasing the
+    // session advisory lock.
+    Ok(())
+}
+
+async fn is_import_complete(db_pool: &PgPool) -> eyre::Result<bool> {
+    crate::secrets::is_vault_import_complete(db_pool)
+        .await
+        .map_err(eyre::Report::new)
+        .wrap_err("check vault import status")
 }

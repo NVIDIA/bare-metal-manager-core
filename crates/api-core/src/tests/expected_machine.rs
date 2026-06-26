@@ -2107,6 +2107,7 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-FIXEDIP-001".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(fixed_ip.into()),
@@ -2173,6 +2174,7 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DHCP-001".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(fixed_ip.into()),
@@ -2295,6 +2297,7 @@ async fn test_dhcp_discover_preallocates_host_nic_fixed_ip_for_unknown_mac(
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-RECOVERY-002".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(fixed_ip.into()),
@@ -2467,6 +2470,7 @@ async fn test_dhcp_honors_primary_host_nic(
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-PRIMARY-001".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: primary_mac.to_string(),
                 nic_type: Some("onboard".into()),
                 fixed_ip: None,
@@ -2530,6 +2534,7 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
             chassis_serial_number: "EM-PRIMARY-002".into(),
             host_nics: vec![
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: primary_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2538,6 +2543,7 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
                     primary: Some(true),
                 },
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: other_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2596,6 +2602,7 @@ async fn test_add_rejects_multiple_primary_host_nics(
             chassis_serial_number: "EM-DUPLICATE-PRIMARY-001".into(),
             host_nics: vec![
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: mac_a.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2604,6 +2611,7 @@ async fn test_add_rejects_multiple_primary_host_nics(
                     primary: Some(true),
                 },
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: mac_b.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2647,6 +2655,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
             chassis_serial_number: "EM-PRIMARY-003".into(),
             host_nics: vec![
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: primary_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2655,6 +2664,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
                     primary: Some(true),
                 },
                 rpc::forge::ExpectedHostNic {
+                    network_segment_type: None,
                     mac_address: other_mac.to_string(),
                     nic_type: Some("onboard".into()),
                     fixed_ip: None,
@@ -2866,6 +2876,7 @@ async fn test_create_missing_from_preallocates_interfaces(
             serial_number: "EM-JSON-SEED-001".into(),
             bmc_ip_address: Some(bmc_ip),
             host_nics: vec![model::expected_machine::ExpectedHostNic {
+                network_segment_type: None,
                 mac_address: nic_mac,
                 nic_type: Some("onboard".into()),
                 fixed_ip: Some(host_ip),

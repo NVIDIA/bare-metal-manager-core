@@ -359,6 +359,80 @@ async fn test_predicted_live_boot_interface_id_outranks_retained_at_promotion(
     Ok(())
 }
 
+/// A zero-DPU host with no declared primary recovers its primary (boot)
+/// interface from the boot pair preserved across `--delete-interfaces` in
+/// `retained_boot_interfaces`. This is the DPU->NIC flip re-registration case:
+/// the operator patches `dpu_mode = nic_mode` and force-deletes, declaring no
+/// primary, and the host comes back with no managed DPU -- so neither the
+/// declared-primary nor the DPU-host-PF path names a primary. Without the
+/// retained fallback the re-ingested host would come up with no primary at all,
+/// leaving the machine-controller no boot target to set a boot order from.
+#[sqlx_test]
+async fn test_zero_dpu_recovers_primary_from_retained_boot_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = init(pool).await;
+    let mock_host = zero_dpu_host();
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    register_zero_dpu_expected_machine(&env, &mock_host).await?;
+
+    // The host's boot interface was retained by a prior `--delete-interfaces`,
+    // keyed by its MAC. Assert the precondition this test turns on: the
+    // registered machine declares no primary, so the retained fallback -- not
+    // the declared-primary path -- is what settles the boot interface below.
+    let mut txn = env.pool.begin().await?;
+    let registered =
+        db::expected_machine::find_by_bmc_mac_address(&mut *txn, mock_host.bmc_mac_address)
+            .await?
+            .expect("registered zero-DPU expected machine");
+    assert!(
+        registered.data.declared_primary_mac().is_none(),
+        "test precondition: no declared primary, so the retained fallback is the path under test",
+    );
+    db::retained_boot_interface::upsert(txn.as_mut(), inband_mac, "NIC.Embedded.1-1-1").await?;
+    txn.commit().await?;
+
+    let host_bmc_response = env
+        .api()
+        .discover_dhcp(
+            rpc::forge::DhcpDiscovery::builder(
+                mock_host.bmc_mac_address,
+                env.underlay_segment.relay_address,
+            )
+            .vendor_string("SomeVendor")
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let host_bmc_ip = host_bmc_response.address.parse()?;
+
+    env.site_explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[])?
+            .into_endpoints(),
+    );
+    env.site_explorer.run_single_iteration().await?;
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    env.site_explorer.run_single_iteration().await?;
+
+    // The predicted interface for the retained boot MAC is flagged primary, so
+    // the controller has a boot target before the host's first DHCP.
+    let mut txn = env.pool.begin().await?;
+    let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+        .await?
+        .expect("zero-DPU ingest should mint a predicted interface for the host NIC");
+    assert!(
+        predicted.primary_interface,
+        "a zero-DPU host with no declared primary should recover its primary from \
+         retained_boot_interfaces, so the controller has a boot target",
+    );
+    txn.rollback().await?;
+
+    Ok(())
+}
+
 /// If a static preallocation creates the machine_interfaces row while a
 /// prediction is still pending (an ExpectedMachine `fixed_ip` recorded in
 /// between), the prediction's live-report id still outranks the retained

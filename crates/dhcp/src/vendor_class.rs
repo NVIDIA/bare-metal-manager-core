@@ -157,6 +157,9 @@ impl VendorClass {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases, value_scenarios};
+
     use super::*;
 
     impl VendorClass {
@@ -173,86 +176,183 @@ mod tests {
         }
     }
 
-    #[test]
-    fn it_is_pxe_capable() {
-        let vc: VendorClass = "PXEClient:Arch:00007:UNDI:003000".parse().unwrap();
-        assert!(!vc.is_netboot());
-
-        let vc: VendorClass = "iDRAC".parse().unwrap();
-        assert!(!vc.is_netboot());
-
-        let vc: VendorClass = "PXEClient".parse().unwrap();
-        assert!(!vc.is_netboot());
+    /// The full boot-relevant classification a parsed vendor class resolves to:
+    /// architecture (`arm`/`x64`), whether it asks for HTTP `netboot`, and whether
+    /// it is a `modern` (netboot ARM-UEFI) client.
+    #[derive(Debug, PartialEq)]
+    struct Classification {
+        arm: bool,
+        x64: bool,
+        netboot: bool,
+        modern: bool,
     }
 
-    #[test]
-    fn is_it_arm_non_uefi() {
-        let vc: VendorClass = "nvidia-bluefield-dpu aarch64".parse().unwrap();
-        assert!(vc.arm());
-
-        let vc: VendorClass = "BF2Client".parse().unwrap();
-        assert!(vc.arm());
+    impl Classification {
+        fn of(vc: &VendorClass) -> Self {
+            Self {
+                arm: vc.arm(),
+                x64: vc.x64(),
+                netboot: vc.is_netboot(),
+                modern: vc.is_it_modern(),
+            }
+        }
     }
 
+    /// Every vendor-class string we recognize, pinned to its full classification.
+    /// One row per input -- a `PXEClient` x64 UEFI, an OS-form `aarch64` DPU, an
+    /// `HTTPClient` netboot, a bare BMC id -- so a parse covers all four predicates
+    /// at once instead of one assertion apiece.
     #[test]
-    fn is_it_arm() {
-        let vc: VendorClass = "PXEClient:Arch:00011:UNDI:003000".parse().unwrap();
-        assert!(vc.arm());
+    fn classifies_each_vendor_class() {
+        check_cases(
+            [
+                Case {
+                    scenario: "x64 UEFI PXEClient",
+                    input: "PXEClient:Arch:00007:UNDI:003000",
+                    expect: Yields(Classification {
+                        arm: false,
+                        x64: true,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "Dell iDRAC BMC (x64)",
+                    input: "iDRAC",
+                    expect: Yields(Classification {
+                        arm: false,
+                        x64: true,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "bare PXEClient iPXE response (arm)",
+                    input: "PXEClient",
+                    expect: Yields(Classification {
+                        arm: true,
+                        x64: false,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "OS-form aarch64 DPU",
+                    input: "nvidia-bluefield-dpu aarch64",
+                    expect: Yields(Classification {
+                        arm: true,
+                        x64: false,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "legacy BF2 card",
+                    input: "BF2Client",
+                    expect: Yields(Classification {
+                        arm: true,
+                        x64: false,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "ARM UEFI PXEClient (not netboot)",
+                    input: "PXEClient:Arch:00011:UNDI:003000",
+                    expect: Yields(Classification {
+                        arm: true,
+                        x64: false,
+                        netboot: false,
+                        modern: false,
+                    }),
+                },
+                Case {
+                    scenario: "ARM UEFI HTTPClient is modern netboot",
+                    input: "HTTPClient:Arch:00011:UNDI:003000",
+                    expect: Yields(Classification {
+                        arm: true,
+                        x64: false,
+                        netboot: true,
+                        modern: true,
+                    }),
+                },
+                Case {
+                    scenario: "x64 HTTPClient netboots but is not modern",
+                    input: "HTTPClient:Arch:00016:UNDI:003001",
+                    expect: Yields(Classification {
+                        arm: false,
+                        x64: true,
+                        netboot: true,
+                        modern: false,
+                    }),
+                },
+            ],
+            |input| {
+                input
+                    .parse::<VendorClass>()
+                    .map(|vc| Classification::of(&vc))
+                    .map_err(|_| "parse failed")
+            },
+        );
     }
 
+    /// The human-readable `VendorClass` `Display`: `"<arch> (<netboot|basic>)"`.
     #[test]
-    fn is_it_not_modern() {
-        let vc: VendorClass = "PXEClient:Arch:00007:UNDI:003000".parse().unwrap();
-        assert!(!vc.is_it_modern());
+    fn formats_vendor_class_display() {
+        value_scenarios!(run = |input: &str| input.parse::<VendorClass>().unwrap().to_string();
+            "basic (non-netboot) clients" {
+                "NothingClient:Arch:00011:UNDI:X" => "ARM 64-bit UEFI (basic)".to_string(),
+                "NVIDIA/BF/OOB" => "ARM 64-bit UEFI (basic)".to_string(),
+                "NVIDIA/BF/BMC" => "ARM 64-bit UEFI (basic)".to_string(),
+                "PXEClient:Arch:00000:UNDI:003000" => "x86 BIOS (basic)".to_string(),
+            }
+
+            "netboot clients" {
+                "HTTPClient:Arch:00011:UNDI:003000" => "ARM 64-bit UEFI (netboot)".to_string(),
+            }
+        );
     }
 
+    /// `MachineArchitecture::from_str` maps DHCP option-93 architecture codes (base
+    /// 10, as the long vendor class spells them) to an architecture. It never errors
+    /// -- an unrecognized or non-numeric code resolves to `Unknown` so we still vend
+    /// an address. Exercised directly here rather than only through `VendorClass`.
     #[test]
-    fn is_it_modern() {
-        let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
-        assert!(vc.is_it_modern());
+    fn maps_architecture_codes() {
+        value_scenarios!(run = |input: &str| MachineArchitecture::from_str(input).unwrap();
+            "x86 BIOS" {
+                "00000" => MachineArchitecture::BiosX86,
+            }
+
+            "x64 UEFI" {
+                "00007" => MachineArchitecture::EfiX64,
+                "00016" => MachineArchitecture::EfiX64,
+            }
+
+            "ARM 64-bit" {
+                "00011" => MachineArchitecture::Arm64,
+                "00019" => MachineArchitecture::Arm64,
+                "aarch64" => MachineArchitecture::Arm64,
+            }
+
+            "unknown" {
+                "00042" => MachineArchitecture::Unknown,
+                "not-a-number" => MachineArchitecture::Unknown,
+            }
+        );
     }
 
+    /// The `MachineArchitecture` `Display` strings, which the `VendorClass` `Display`
+    /// is built from.
     #[test]
-    fn it_is_netboot_capable() {
-        let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
-        assert!(vc.is_netboot());
-    }
-
-    #[test]
-    fn it_is_netboot_and_not_arm() {
-        let vc: VendorClass = "HTTPClient:Arch:00016:UNDI:003001".parse().unwrap();
-        assert!(vc.is_netboot());
-        assert!(vc.x64());
-    }
-
-    #[test]
-    fn it_handles_basic_for_all_clients() {
-        let vc: Result<VendorClass, VendorClassParseError> =
-            "NothingClient:Arch:00011:UNDI:X".parse();
-        assert_eq!(vc.unwrap().to_string(), "ARM 64-bit UEFI (basic)");
-    }
-
-    #[test]
-    fn it_formats_the_parser_armuefi_netboot() {
-        let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
-        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (netboot)");
-    }
-
-    #[test]
-    fn it_detects_nvidia_bf_oob_as_arm() {
-        let vc: VendorClass = "NVIDIA/BF/OOB".parse().unwrap();
-        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (basic)");
-    }
-
-    #[test]
-    fn it_detects_nvidia_bf_bmc_as_arm() {
-        let vc: VendorClass = "NVIDIA/BF/BMC".parse().unwrap();
-        assert_eq!(vc.to_string(), "ARM 64-bit UEFI (basic)");
-    }
-
-    #[test]
-    fn it_formats_the_parser_legacypxe() {
-        let vc: VendorClass = "PXEClient:Arch:00000:UNDI:003000".parse().unwrap();
-        assert_eq!(vc.to_string(), "x86 BIOS (basic)");
+    fn formats_architecture_display() {
+        value_scenarios!(run = |arch: MachineArchitecture| arch.to_string();
+            "architecture labels" {
+                MachineArchitecture::Arm64 => "ARM 64-bit UEFI".to_string(),
+                MachineArchitecture::EfiX64 => "x64 UEFI".to_string(),
+                MachineArchitecture::BiosX86 => "x86 BIOS".to_string(),
+                MachineArchitecture::Unknown => "Unknown".to_string(),
+            }
+        );
     }
 }

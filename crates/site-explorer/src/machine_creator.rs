@@ -246,6 +246,16 @@ impl MachineCreator {
             }
         }
 
+        // Own a declared integrated boot NIC so a DpuMode host can boot from it
+        // while its DPUs stay managed: the NIC becomes the host's HostInband
+        // primary and the DPU admin links go dormant in the reconcile below.
+        // Only for hosts with explored DPUs -- a zero-DPU host's NICs (including
+        // a declared primary) are already owned by `create_zero_dpu_machine`.
+        if !managed_host.explored_host.dpus.is_empty() {
+            self.own_declared_host_boot_nic(&mut txn, &host_machine_id, report, machine_data)
+                .await?;
+        }
+
         // Normalize host admin address ownership after all DPU-backed host
         // interfaces have been attached and primary flags are final.
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
@@ -425,12 +435,38 @@ impl MachineCreator {
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
+        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // when set, otherwise the boot interface preserved across `--delete-interfaces`
+        // in `retained_boot_interfaces`. The retained fallback lets a host with no
+        // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
+        // with a settled boot interface, so the controller has a boot target to
+        // provision from instead of parking with no primary at all.
         let declared_primary = machine_data.and_then(|data| data.declared_primary_mac());
+        let primary_mac = match declared_primary {
+            Some(declared) => Some(declared),
+            None => {
+                let mut recovered = None;
+                for mac_address in &mac_addresses {
+                    if db::retained_boot_interface::find_by_mac(
+                        &mut *txn,
+                        *mac_address,
+                        self.config.retained_boot_interface_window,
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        recovered = Some(*mac_address);
+                        break;
+                    }
+                }
+                recovered
+            }
+        };
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
-            let is_declared_primary = declared_primary == Some(mac_address);
+            let is_primary = primary_mac == Some(mac_address);
             if let Some(machine_interface) =
                 db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
@@ -457,10 +493,10 @@ impl MachineCreator {
                     // Reconcile its primary flag to the declaration before adopting it: an anonymous
                     // DHCP row defaults to primary=true, so without this two pre-ingestion leases
                     // would both arrive primary and collide on association.
-                    if machine_interface.primary_interface != is_declared_primary {
+                    if machine_interface.primary_interface != is_primary {
                         db::machine_interface::set_primary_interface(
                             &machine_interface.id,
-                            is_declared_primary,
+                            is_primary,
                             txn,
                         )
                         .await?;
@@ -492,7 +528,7 @@ impl MachineCreator {
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
                         boot_interface_id,
-                        primary_interface: is_declared_primary,
+                        primary_interface: is_primary,
                     },
                     txn,
                 )
@@ -501,6 +537,108 @@ impl MachineCreator {
         }
 
         Ok(Some(*machine_id))
+    }
+
+    /// Owns a declared integrated (non-DPU) host NIC as a DpuMode host's
+    /// HostInband boot interface, so a host with managed DPUs can still boot from
+    /// an integrated NIC. The NIC carries `primary` into `machine_interfaces` on
+    /// its first DHCP; the DPUs stay explored and linked, and their admin links
+    /// go dormant in `reconcile_admin_addresses_for_host` once this NIC is the
+    /// primary.
+    ///
+    /// Mirrors the host-NIC ownership in `create_zero_dpu_machine`, but for the
+    /// one declared NIC reached from the DpuMode path. No-op when nothing is
+    /// declared, or when the declared NIC is already owned (e.g. a declared DPU
+    /// host-PF, which `attach_dpu_to_host` already owns).
+    async fn own_declared_host_boot_nic(
+        &self,
+        txn: &mut PgConnection,
+        host_machine_id: &MachineId,
+        report: &EndpointExplorationReport,
+        machine_data: Option<&ExpectedMachineData>,
+    ) -> SiteExplorerResult<()> {
+        let Some(declared_mac) = machine_data.and_then(|data| data.declared_primary_mac()) else {
+            return Ok(());
+        };
+
+        if let Some(existing) = db::machine_interface::find_by_mac_address(&mut *txn, declared_mac)
+            .await?
+            .into_iter()
+            .next()
+        {
+            if let Some(existing_machine_id) = existing.machine_id {
+                // Owned by THIS host already (e.g. a declared DPU host-PF): its
+                // primary flag is settled by the DPU attach / promotion paths.
+                // Owned by a DIFFERENT machine: the declaration names a MAC that
+                // already belongs elsewhere -- surface it rather than silently
+                // dropping the declared boot NIC (mirrors create_zero_dpu_machine).
+                if existing_machine_id != *host_machine_id {
+                    return Err(SiteExplorerError::AlreadyFoundError {
+                        kind: "MachineInterface",
+                        id: declared_mac.to_string(),
+                    });
+                }
+                return Ok(());
+            }
+            // The integrated NIC leased before ingestion: adopt its anonymous row
+            // as the host's sole primary, demoting the interim DPU primary so the
+            // two never collide on `one_primary_interface_per_machine`.
+            db::machine_interface::demote_primary_interfaces_for_machine(host_machine_id, txn)
+                .await?;
+            if !existing.primary_interface {
+                db::machine_interface::set_primary_interface(&existing.id, true, txn).await?;
+            }
+            db::machine_interface::associate_interface_with_machine(
+                &existing.id,
+                MachineInterfaceAssociation::Machine(*host_machine_id),
+                txn,
+            )
+            .await?;
+            tracing::info!(
+                %declared_mac, %host_machine_id,
+                "Adopted declared integrated boot NIC as the DpuMode host's primary",
+            );
+            return Ok(());
+        }
+
+        // A prediction may already exist from a prior ingestion of this host --
+        // don't mint a second one. One owned by a different machine is the same
+        // contradiction as the machine_interface case above, so surface it rather
+        // than silently dropping the declaration.
+        if let Some(existing_prediction) =
+            db::predicted_machine_interface::find_by_mac_address(&mut *txn, declared_mac).await?
+        {
+            if existing_prediction.machine_id != *host_machine_id {
+                return Err(SiteExplorerError::AlreadyFoundError {
+                    kind: "PredictedMachineInterface",
+                    id: declared_mac.to_string(),
+                });
+            }
+            return Ok(());
+        }
+
+        // Not yet leased: mint a HostInband prediction carrying primary, so the
+        // NIC is adopted and made primary on its first DHCP (the promotion demotes
+        // the interim DPU primary).
+        let boot_interface_id = report
+            .find_interface_id_for_mac(declared_mac)
+            .map(|id| id.to_string());
+        db::predicted_machine_interface::create(
+            NewPredictedMachineInterface {
+                machine_id: host_machine_id,
+                mac_address: declared_mac,
+                expected_network_segment_type: NetworkSegmentType::HostInband,
+                boot_interface_id,
+                primary_interface: true,
+            },
+            txn,
+        )
+        .await?;
+        tracing::info!(
+            %declared_mac, %host_machine_id,
+            "Minted HostInband boot-NIC prediction for DpuMode host's declared integrated primary",
+        );
+        Ok(())
     }
 
     // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.

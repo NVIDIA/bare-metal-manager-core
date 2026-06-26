@@ -650,6 +650,27 @@ func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *cwssaws.Instanc
 	}
 }
 
+func TestBuildInstanceNetworkConfig(t *testing.T) {
+	controllerVpcID := uuid.New()
+	interfaceConfigs := []*cwssaws.InstanceInterfaceConfig{
+		{
+			NetworkSegmentId: &cwssaws.NetworkSegmentId{Value: uuid.NewString()},
+		},
+	}
+
+	explicitNetwork := buildInstanceNetworkConfig(false, interfaceConfigs, nil)
+	require.False(t, explicitNetwork.Auto)
+	assert.Equal(t, interfaceConfigs, explicitNetwork.Interfaces)
+	assert.Nil(t, explicitNetwork.AutoConfig)
+
+	autoNetwork := buildInstanceNetworkConfig(true, interfaceConfigs, &controllerVpcID)
+	require.True(t, autoNetwork.Auto)
+	assert.Empty(t, autoNetwork.Interfaces)
+	require.NotNil(t, autoNetwork.AutoConfig)
+	require.NotNil(t, autoNetwork.AutoConfig.VpcId)
+	assert.Equal(t, controllerVpcID.String(), autoNetwork.AutoConfig.VpcId.Value)
+}
+
 func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 	ctx := context.Background()
@@ -9707,7 +9728,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			if tt.args.respCode != http.StatusAccepted {
 				return
 			}
-			assert.Contains(t, rec.Body.String(), "Deletion request was accepted")
+			assertDeletionAcceptedResponse(t, rec.Body.Bytes())
 
 			// Verify Instance in terminating state
 			insDAO := cdbm.NewInstanceDAO(dbSession)

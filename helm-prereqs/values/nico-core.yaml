@@ -174,7 +174,7 @@ nico-api:
       [ib_config]
       enabled = false   # EXAMPLE - replace false with true to enable IB
 
-      # Then uncomment the following ib_fabrics.default lines,
+      # To enable InfiniBand, set enabled=true, then uncomment the following ib_fabrics.default lines,
       # replace the example endpoint with your UFM VIP address, and configure
       # a start-end PKey range. For sharded sites, ensure the range does not
       # overlap any other shard.
@@ -211,10 +211,10 @@ nico-api:
       vpc_vni = 61325 # Replace 61325 with the VNI that will be used for the admin VPC
 
       #
-      # There are several fnn.routing_profiles defined below.  
+      # There are several fnn.routing_profiles defined below.
       # Replace 4266030000 with the datcenter_asn
       #
-      # Also, in the import and export route-targets, replace the example VNIs with the actual VNIs that will be used at the site for those purposes and then uncomment. 
+      # Also, in the import and export route-targets, replace the example VNIs with the actual VNIs that will be used at the site for those purposes and then uncomment.
 
       # The routing profile assigned to a tenant controls which routes are imported into that tenant's VRF and how routes from that tenant are tagged on export.  The routing profiles are defined with some default route-target imports and exports, but these will likely need to be customized for each site based on the RTs that are used at that site.
       [fnn.routing_profiles.INTERNAL]
@@ -308,7 +308,7 @@ nico-api:
       #
       [pools.external-vpc-vni]
       type = "integer"
-      # Change 51008 and 51011 to the actual VNI values. 
+      # Change 51008 and 51011 to the actual VNI values.
       ranges = [
         { start = "51008", end = "51011" },
       ]

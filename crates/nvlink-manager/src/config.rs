@@ -47,11 +47,82 @@ pub struct NvLinkConfig {
     pub nmx_c_tls_authority: Option<String>,
     /// Set to true if NMX-C doesn't adhere to security requirements. Defaults to false.
     pub allow_insecure: bool,
+
+    /// Optional monitoring for NMX-C server certificate propagation.
+    #[serde(default)]
+    pub nmx_c_certificate_rotation: NmxCCertificateRotationConfig,
 }
 
 impl NvLinkConfig {
     pub const fn default_monitor_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct NmxCCertificateRotationConfig {
+    /// Enables NMX-C server certificate propagation checks.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// How often carbide checks whether the desired certificate is running on NMX-C.
+    #[serde(
+        default = "NmxCCertificateRotationConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+
+    /// Warn before the desired mounted certificate reaches expiry.
+    #[serde(
+        default = "NmxCCertificateRotationConfig::default_expiry_warning_window",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub expiry_warning_window: std::time::Duration,
+
+    /// Per-operation timeout for NMX-C server certificate probes.
+    #[serde(
+        default = "NmxCCertificateRotationConfig::default_probe_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub probe_timeout: std::time::Duration,
+
+    /// PEM file path: desired NMX-C server certificate.
+    #[serde(default)]
+    pub server_cert_path: Option<String>,
+
+    /// PEM file path template for per-switch NMX-C server certificates.
+    /// Supports the `{rack_id}` placeholder.
+    #[serde(default)]
+    pub server_cert_path_template: Option<String>,
+}
+
+impl NmxCCertificateRotationConfig {
+    pub const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60 * 60)
+    }
+
+    pub const fn default_expiry_warning_window() -> std::time::Duration {
+        std::time::Duration::from_secs(7 * 24 * 60 * 60)
+    }
+
+    pub const fn default_probe_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(10)
+    }
+}
+
+impl Default for NmxCCertificateRotationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            run_interval: Self::default_run_interval(),
+            expiry_warning_window: Self::default_expiry_warning_window(),
+            probe_timeout: Self::default_probe_timeout(),
+            server_cert_path: None,
+            server_cert_path_template: None,
+        }
     }
 }
 
@@ -65,6 +136,7 @@ impl Default for NvLinkConfig {
             nmx_c_tls_client_key_path: None,
             nmx_c_tls_authority: None,
             allow_insecure: false,
+            nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
         }
     }
 }
@@ -89,6 +161,7 @@ mod test {
                 nmx_c_tls_client_key_path: None,
                 nmx_c_tls_authority: None,
                 allow_insecure: true,
+                nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
             }
         );
     }

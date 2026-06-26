@@ -39,7 +39,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::NvLinkManager;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -259,7 +259,9 @@ pub fn create_ipmi_tool(
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
-async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Result<PgPool> {
+pub(crate) async fn create_and_connect_postgres_pool(
+    config: &CarbideConfig,
+) -> eyre::Result<PgPool> {
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -294,6 +296,8 @@ pub async fn start_api(
     shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
+    db_pool: PgPool,
+    secrets_context: Option<crate::secrets::SecretsContext>,
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
@@ -303,8 +307,6 @@ pub async fn start_api(
         &carbide_config,
         dynamic_settings.bmc_proxy.clone(),
     );
-
-    let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     let work_lock_manager_handle = work_lock_manager::start(
         join_set,
@@ -390,6 +392,10 @@ pub async fn start_api(
         // lockdown key without operator action. No-op once seeded or if the BMC
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
+
+        // Initial credential-rotation bookkeeping is backfilled by the
+        // `*_credential_rotation_backfill` data migration (see its header for the
+        // ordering invariants), not seeded here.
     };
 
     let common_pools =
@@ -469,6 +475,7 @@ pub async fn start_api(
             .rotate_switch_nvos_credentials
             .clone(),
         carbide_config.site_explorer.explore_mode,
+        db_pool.clone(),
     );
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
@@ -605,6 +612,7 @@ pub async fn start_api(
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
         bms_client: std::sync::OnceLock::new(),
+        secrets_context,
     });
 
     if carbide_config.listen_only {
@@ -1375,7 +1383,7 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvlPartitionMonitor::new(
+    NvLinkManager::new(
         db_pool.clone(),
         api_service.nmxc_client_pool.clone(),
         meter.clone(),
@@ -1529,6 +1537,7 @@ mod tests {
 
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+    use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     fn carbide_with_networks(
         networks: Option<HashMap<String, NetworkDefinition>>,
@@ -1984,7 +1993,7 @@ mod tests {
     fn initial_objects_vpcs_only_succeeds() {
         let cfg = carbide_with_vpcs(None);
         let def = vpc_definition(
-            Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93"),
+            Some(FIXTURE_TENANT_ORG_ID),
             VpcVirtualizationType::Flat,
             None,
         );
@@ -2015,7 +2024,7 @@ mod tests {
     fn disjoint_union_returns_all_vpcs() {
         let legacy_def = vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None);
         let initial_def = vpc_definition(
-            Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93"),
+            Some(FIXTURE_TENANT_ORG_ID),
             VpcVirtualizationType::Flat,
             None,
         );

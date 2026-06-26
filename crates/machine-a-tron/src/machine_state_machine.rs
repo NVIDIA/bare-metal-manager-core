@@ -23,9 +23,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostMachineInfo,
-    HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
-    SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
+    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -57,8 +57,6 @@ pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 /// receive PXE instructions, etc.)
 pub struct MachineStateMachine {
     pub live_state: Arc<RwLock<LiveState>>,
-    pub machine_dhcp_id: Uuid,
-    pub bmc_dhcp_id: Uuid,
     pub mat_host_id: Uuid,
     pub installed_os: OsImage,
 
@@ -211,37 +209,17 @@ pub enum PersistedMachine {
 impl MachineStateMachine {
     pub fn from_persisted(
         persisted_machine: PersistedMachine,
+        machine_info: MachineInfo,
         config: Arc<MachineConfig>,
         app_context: Arc<MachineATronContext>,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         dpu_dhcp_relay: Option<DpuDhcpRelay>,
         mat_host_id: Uuid,
     ) -> MachineStateMachine {
-        let (initial_os_image, tpm_ek_certificate, bmc_dhcp_id, machine_dhcp_id, machine_info) =
-            match persisted_machine {
-                PersistedMachine::Host(h) => (
-                    h.installed_os,
-                    h.tpm_ek_certificate,
-                    h.bmc_dhcp_id,
-                    h.machine_dhcp_id,
-                    MachineInfo::Host(HostMachineInfo {
-                        hw_type: h.hw_type.unwrap_or_default(),
-                        bmc_mac_address: h.bmc_mac_address,
-                        serial: h.serial,
-                        dpus: h.dpus.into_iter().map(Into::into).collect(),
-                        non_dpu_mac_address: h.non_dpu_mac_address,
-                        nvos_mac_addresses: h.nvos_mac_addresses,
-                        switch_serial_number: h.switch_serial_number,
-                    }),
-                ),
-                PersistedMachine::Dpu(d) => (
-                    d.installed_os,
-                    None,
-                    d.bmc_dhcp_id,
-                    d.machine_dhcp_id,
-                    MachineInfo::Dpu(d.into()),
-                ),
-            };
+        let (initial_os_image, tpm_ek_certificate) = match persisted_machine {
+            PersistedMachine::Host(h) => (h.installed_os, h.tpm_ek_certificate),
+            PersistedMachine::Dpu(d) => (d.installed_os, None),
+        };
         let (fsm, actions) = MachineFsm::init(true, Self::is_bmc_only(&machine_info, &config));
         MachineStateMachine {
             fsm,
@@ -260,10 +238,8 @@ impl MachineStateMachine {
                 tpm_ek_certificate,
                 ..Default::default()
             })),
-            bmc_dhcp_id,
             machine_info,
             bmc_command_channel,
-            machine_dhcp_id,
             config,
             app_context,
             dpu_dhcp_relay,
@@ -298,11 +274,9 @@ impl MachineStateMachine {
             machine_on_deadline: None,
             agent_polling_deadline: None,
             power_cycle_deadline: None,
-            bmc_dhcp_id: Uuid::new_v4(),
             installed_os: OsImage::default(),
             machine_info,
             bmc_command_channel,
-            machine_dhcp_id: Uuid::new_v4(),
             config,
             app_context,
             dpu_dhcp_relay,
@@ -933,7 +907,7 @@ impl MachineStateMachine {
         ip_address: Ipv4Addr,
     ) -> Result<(Option<Arc<BmcMockWrapperHandle>>, BmcState), MachineStateError> {
         let mut bmc_mock = BmcMockWrapper::new(
-            self.machine_info.clone(),
+            &self.machine_info,
             self.app_context.clone(),
             Arc::new(LiveStateCallbacks::new(
                 self.live_state.clone(),

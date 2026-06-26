@@ -37,8 +37,8 @@
 #                          preloaded, or use existing imagePullSecrets.
 #   REGISTRY_PULL_USERNAME Username for generated pull secrets.
 #                          Default: $oauthtoken
-#   NICO_SITE_UUID          Stable REST site UUID. Used only when REST is
-#                          deployed. Default is a dev placeholder.
+#   NICO_SITE_UUID          REST site UUID. Used only when REST is deployed.
+#                          If unset, setup generates a random UUID each run.
 #   NICO_MANAGE_DEFAULT_STORAGE_CLASS
 #                          Whether setup annotates local-path as the default
 #                          StorageClass. Default: true.
@@ -629,13 +629,82 @@ _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/t
     --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
     --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
     --tls-server-name interservice.server.temporal.local"
-kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n cloud --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
-kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n site --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+_wait_for_temporal() {
+    local _output=""
+
+    echo "Waiting for Temporal frontend and admin tools..."
+    kubectl rollout status deploy/temporal-frontend -n temporal --timeout=120s
+    kubectl rollout status deploy/temporal-admintools -n temporal --timeout=120s
+
+    for _i in $(seq 1 24); do
+        if _output="$(kubectl exec -n temporal deploy/temporal-admintools -- \
+            sh -c "temporal operator namespace list --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>&1)"; then
+            echo "Temporal frontend ready"
+            return
+        fi
+        echo "  Waiting for Temporal API (${_i}/24)..."
+        sleep 5
+    done
+
+    echo "ERROR: Temporal frontend is not ready for namespace operations" >&2
+    echo "${_output}" >&2
+    exit 1
+}
+
+_create_temporal_namespace() {
+    local _namespace="$1"
+    local _output
+
+    if _output="$(kubectl exec -n temporal deploy/temporal-admintools -- \
+        sh -c "temporal operator namespace create -n \"\$1\" --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" \
+        sh "${_namespace}" 2>&1)"; then
+        echo "Temporal namespace ${_namespace} ready"
+        return
+    fi
+
+    if printf "%s" "${_output}" | grep -qi "already exists"; then
+        echo "Temporal namespace ${_namespace} already exists"
+        return
+    fi
+
+    echo "ERROR: failed to create Temporal namespace ${_namespace}" >&2
+    echo "${_output}" >&2
+    exit 1
+}
+
+_verify_temporal_namespaces() {
+    local _output
+    local _missing=()
+    local _namespace
+
+    if ! _output="$(kubectl exec -n temporal deploy/temporal-admintools -- \
+        sh -c "temporal operator namespace list --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>&1)"; then
+        echo "ERROR: failed to list Temporal namespaces" >&2
+        echo "${_output}" >&2
+        exit 1
+    fi
+
+    for _namespace in "$@"; do
+        if ! printf "%s" "${_output}" | grep -Eq "(^|[^[:alnum:]_-])${_namespace}([^[:alnum:]_-]|$)"; then
+            _missing+=("${_namespace}")
+        fi
+    done
+
+    if [[ ${#_missing[@]} -gt 0 ]]; then
+        echo "ERROR: missing Temporal namespace(s): ${_missing[*]}" >&2
+        echo "${_output}" >&2
+        exit 1
+    fi
+
+    echo "Verified Temporal namespaces: $*"
+}
+
+_wait_for_temporal
+_create_temporal_namespace cloud
+_create_temporal_namespace site
 # flow Temporal namespace — required by NICo Flow workers; pod panics on startup if absent.
-kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n flow --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+_create_temporal_namespace flow
+_verify_temporal_namespaces cloud site flow
 echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
@@ -710,8 +779,13 @@ fi
 # All of this is wired via --set flags so nico-rest.yaml stays registry-agnostic.
 NICO_SITE_AGENT_CHART="${NICO_REST_HELM_DIR}/nico-rest-site-agent"
 
-# Stable placeholder UUID for this site (must be a valid UUID).
-NICO_SITE_UUID="${NICO_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"
+if [[ -z "${NICO_SITE_UUID:-}" ]]; then
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: NICO_SITE_UUID is unset and python3 is not available" >&2
+        exit 1
+    fi
+    NICO_SITE_UUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+fi
 
 NICO_SITE_AGENT_ARGS=(
     --namespace nico-rest
@@ -762,8 +836,8 @@ _TEMPORAL_TLS="--tls-cert-path /var/secrets/temporal/certs/server-interservice/t
     --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
     --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
     --tls-server-name interservice.server.temporal.local"
-kubectl exec -n temporal deploy/temporal-admintools -- \
-    sh -c "temporal operator namespace create -n '${NICO_SITE_UUID}' --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
+_create_temporal_namespace "${NICO_SITE_UUID}"
+_verify_temporal_namespaces "${NICO_SITE_UUID}"
 echo "Temporal namespace ready"
 
 # FLOW_GRPC_ENABLED toggles the site-agent's Flow gRPC client (see
@@ -796,7 +870,7 @@ _CONNECTED=false
 for _i in $(seq 1 24); do
     _POD="$(kubectl get pods -n nico-rest \
         -l "app.kubernetes.io/name=nico-rest-site-agent" \
-        -o name 2>/dev/null | head -1)"
+        -o name 2>/dev/null | head -1 || true)"
     if [ -n "${_POD}" ] && \
        kubectl logs -n nico-rest "${_POD}" --since=5m 2>/dev/null \
            | grep -q "NicoClient: successfully connected to server"; then

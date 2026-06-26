@@ -899,12 +899,14 @@ func TestDpuExtensionServiceSQLDAO_Delete(t *testing.T) {
 	tests := []struct {
 		desc               string
 		desID              uuid.UUID
+		checkSoftDelete    bool
 		wantErr            bool
 		verifyChildSpanner bool
 	}{
 		{
 			desc:               "can delete existing object success",
 			desID:              dessExp[1].ID,
+			checkSoftDelete:    true,
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
@@ -927,6 +929,12 @@ func TestDpuExtensionServiceSQLDAO_Delete(t *testing.T) {
 
 			err = dbSession.DB.NewSelect().Model(&res).Where("des.id = ?", tc.desID).Scan(ctx)
 			assert.ErrorIs(t, err, sql.ErrNoRows)
+
+			if tc.checkSoftDelete {
+				err = dbSession.DB.NewSelect().Model(&res).Where("des.id = ?", tc.desID).WhereAllWithDeleted().Scan(ctx)
+				assert.NoError(t, err)
+				assert.NotNil(t, res.Deleted)
+			}
 
 			if tc.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)

@@ -144,29 +144,16 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
 #[crate::sqlx_test]
 async fn test_delete(pool: sqlx::PgPool) -> () {
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
+    let mut txn = pool.begin().await.unwrap();
     let shelves = create_expected_power_shelves(&mut txn).await;
-    let power_shelf = &shelves[0];
-
-    assert_eq!(power_shelf.serial_number, "PS-SN-001");
-
-    db::expected_power_shelf::delete_by_mac(&mut txn, power_shelf.bmc_mac_address)
-        .await
-        .expect("Error deleting expected_power_shelf");
-
+    let mac = shelves[0].bmc_mac_address;
     txn.commit().await.expect("Failed to commit transaction");
-    let mut txn = pool
-        .begin()
-        .await
-        .expect("unable to create transaction on database pool");
 
-    assert!(
-        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
-            .await
-            .unwrap()
-            .is_none()
+    crate::test_support::expected_host::assert_delete_by_mac_removes_row(
+        &pool,
+        mac,
+        async |txn, mac| db::expected_power_shelf::delete_by_mac(txn, mac).await,
+        async |txn, mac| db::expected_power_shelf::find_by_bmc_mac_address(txn, mac).await,
     )
+    .await;
 }

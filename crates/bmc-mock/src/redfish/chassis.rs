@@ -195,6 +195,10 @@ impl ChassisState {
             .iter()
             .find(|c| c.config.id.as_ref() == chassis_id)
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SingleChassisState> {
+        self.chassis.iter()
+    }
 }
 
 pub struct SingleChassisState {

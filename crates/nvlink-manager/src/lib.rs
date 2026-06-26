@@ -21,6 +21,7 @@ mod errors;
 mod metrics;
 pub mod nmx_c_endpoint;
 pub mod nvlink;
+mod switch_cert_monitor;
 
 use std::io;
 use std::sync::Arc;
@@ -55,6 +56,8 @@ use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnap
 use model::nvl_logical_partition::LogicalPartition;
 use model::nvl_partition::{NvlPartition, NvlPartitionName};
 use sqlx::PgPool;
+#[cfg(feature = "test-support")]
+pub use switch_cert_monitor::{SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -156,7 +159,8 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 }
 
-/// Populates missing `machines.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
+/// Populates missing `machines.nvlink_info` entries, nil `domain_uuid`, or empty `chassis_serial`
+/// using NMX-C hello.
 fn populate_machine_nvlink_info_if_needed(
     machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -169,7 +173,13 @@ fn populate_machine_nvlink_info_if_needed(
         let existing = machine_nvlink_info
             .get(machine_id)
             .and_then(|info| info.as_ref());
-        if existing.is_some_and(|info| info.domain_uuid != NvLinkDomainId::nil()) {
+        let needs_update = match existing {
+            None => true,
+            Some(info) => {
+                info.domain_uuid == NvLinkDomainId::nil() || info.chassis_serial.trim().is_empty()
+            }
+        };
+        if !needs_update {
             continue;
         }
 
@@ -877,6 +887,66 @@ pub struct NvlPartitionMonitor {
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
+}
+
+pub struct NvLinkManager {
+    db_pool: PgPool,
+    nmxc_client_pool: Arc<dyn NmxcPool>,
+    meter: opentelemetry::metrics::Meter,
+    config: NvLinkConfig,
+    host_health: HostHealthConfig,
+    work_lock_manager_handle: WorkLockManagerHandle,
+}
+
+impl NvLinkManager {
+    pub fn new(
+        db_pool: PgPool,
+        nmxc_client_pool: Arc<dyn NmxcPool>,
+        meter: opentelemetry::metrics::Meter,
+        config: NvLinkConfig,
+        host_health: HostHealthConfig,
+        work_lock_manager_handle: WorkLockManagerHandle,
+    ) -> Self {
+        Self {
+            db_pool,
+            nmxc_client_pool,
+            meter,
+            config,
+            host_health,
+            work_lock_manager_handle,
+        }
+    }
+
+    pub fn start(
+        self,
+        join_set: &mut JoinSet<()>,
+        cancel_token: CancellationToken,
+    ) -> io::Result<()> {
+        NvlPartitionMonitor::new(
+            self.db_pool.clone(),
+            self.nmxc_client_pool,
+            self.meter.clone(),
+            self.config.clone(),
+            self.host_health,
+            self.work_lock_manager_handle.clone(),
+        )
+        .start(join_set, cancel_token.clone())?;
+
+        if self.config.nmx_c_certificate_rotation.enabled {
+            let switch_cert_monitor = switch_cert_monitor::SwitchCertificateMonitor::new(
+                self.db_pool,
+                self.meter,
+                self.config,
+                self.work_lock_manager_handle,
+            );
+            join_set
+                .build_task()
+                .name("nmx-c-switch-cert-monitor")
+                .spawn(async move { switch_cert_monitor.run(cancel_token).await })?;
+        }
+
+        Ok(())
+    }
 }
 
 struct CheckPartitionsInput {

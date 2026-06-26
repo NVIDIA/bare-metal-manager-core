@@ -1316,7 +1316,7 @@ async fn get_device_lockdown_key(
                 }
             })?;
 
-    let lockdown_key = crate::dpa::lockdown::build_supernic_lockdown_key(
+    let lockdown = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         dpa_interface.id,
         &*api.credential_manager,
@@ -1328,5 +1328,5 @@ async fn get_device_lockdown_key(
         ),
     })?;
 
-    Ok(lockdown_key)
+    Ok(lockdown.key)
 }

@@ -152,6 +152,32 @@ pub async fn find_by_ips(
         .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
 }
 
+/// Fetches explored DPU endpoints whose reported system serial number is in
+/// `serials`. Resolves the host-to-DPU serial join for a page of hosts without
+/// loading every explored endpoint. Constrained to DPU reports
+/// (`Systems[0].Id == "Bluefield"`) so a host endpoint with a coincidentally
+/// matching serial is not pulled in.
+///
+/// `exploration_report` is the constantly-rewritten site-exploration blob, so we
+/// deliberately do not index this JSON path: DPU-endpoint cardinality per site is
+/// low and this serves an occasional admin query, so a scoped scan beats taxing
+/// the exploration write path with an expression index.
+pub async fn find_by_dpu_serial_numbers(
+    db: impl DbReader<'_>,
+    serials: Vec<String>,
+) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints \
+                 WHERE exploration_report->'Systems'->0->>'SerialNumber' = ANY($1) \
+                 AND exploration_report->'Systems'->0->>'Id' = 'Bluefield'";
+
+    sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(serials)
+        .fetch_all(db)
+        .await
+        .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+        .map_err(|e| DatabaseError::new("explored_endpoints::find_by_dpu_serial_numbers", e))
+}
+
 /// find_all returns all explored endpoints that site explorer has been able to probe
 pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
     let query = "SELECT * FROM explored_endpoints";

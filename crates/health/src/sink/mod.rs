@@ -33,9 +33,9 @@ mod tracing;
 
 pub use composite::CompositeDataSink;
 pub use events::{
-    Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
-    SensorThresholdContext,
+    Classification, CollectorEvent, DiagnosticLogRecord, EventContext, FirmwareInfo, HealthReport,
+    HealthReportAlert, HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe,
+    ReportSource, SensorThresholdContext,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
@@ -65,8 +65,8 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::{
-        CollectorEvent, CompositeDataSink, DataSink, EventContext, LogRecord, MetricSample,
-        PrometheusSink,
+        CollectorEvent, CompositeDataSink, DataSink, DiagnosticLogRecord, EventContext, LogRecord,
+        MetricSample, PrometheusSink,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
@@ -173,6 +173,10 @@ mod tests {
                 body: "ignored by prometheus sink".to_string(),
                 severity: "INFO".to_string(),
                 attributes: Vec::new(),
+                diagnostic_record: Some(DiagnosticLogRecord {
+                    body: "also ignored by prometheus sink".to_string(),
+                    attributes: Vec::new(),
+                }),
             }
             .into(),
         );

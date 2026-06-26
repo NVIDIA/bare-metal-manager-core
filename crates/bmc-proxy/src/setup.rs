@@ -89,7 +89,6 @@ pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::value_scenarios;
-    use tracing_subscriber::prelude::*;
 
     use super::*;
 

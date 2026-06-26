@@ -17,7 +17,6 @@
 
 use ::rpc::forge as rpc;
 use base64::prelude::*;
-use carbide_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
 use tonic::Request;
 
@@ -386,51 +385,9 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test()]
-async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-
-    // create vector of IDs with more than max allowed
-    // it does not matter if these are real or not, since we are testing an error back for passing more than max
-    let end_index: u32 = env.config.max_find_by_ids + 1;
-    let instance_ids: Vec<InstanceId> = (1..=end_index)
-        .map(|_| uuid::Uuid::new_v4().into())
-        .collect();
-
-    let request = tonic::Request::new(rpc::InstancesByIdsRequest { instance_ids });
-
-    let response = env.api.find_instances_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        format!(
-            "no more than {} IDs can be accepted",
-            env.config.max_find_by_ids
-        )
-    );
-}
-
-#[crate::sqlx_test()]
-async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let request = tonic::Request::new(rpc::InstancesByIdsRequest::default());
-
-    let response = env.api.find_instances_by_ids(request).await;
-    // validate
-    assert!(
-        response.is_err(),
-        "expected an error when passing no machine IDs"
-    );
-    assert_eq!(
-        response.err().unwrap().message(),
-        "at least one ID must be provided",
-    );
-}
+// The empty-list and over-max guards for `find_instances_by_ids` are shared
+// API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.
 
 #[crate::sqlx_test]
 async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {

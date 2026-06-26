@@ -86,6 +86,44 @@ async fn lookup_records_by_qname(
     Ok(result)
 }
 
+/// Resolve a reverse-DNS (PTR) query. The qname is an address in `in-addr.arpa` /
+/// `ip6.arpa` form, so we parse it back to an `IpAddr` and look the holding
+/// interface up by address (rather than matching a per-row arpa string in a view).
+/// An unparseable name, or one no interface holds, yields no records.
+async fn lookup_ptr_record(
+    txn: impl DbReader<'_>,
+    query_name: &str,
+) -> Result<Vec<DnsResourceRecordReply>, tonic::Status> {
+    tracing::debug!(qname = %query_name, "looking up PTR record");
+
+    let qname_with_dot = if !query_name.ends_with('.') {
+        format!("{}.", query_name)
+    } else {
+        query_name.to_string()
+    };
+
+    let Some(address) = db::dns::arpa_qname_to_ip(&qname_with_dot) else {
+        return Ok(vec![]);
+    };
+
+    let result = resource_record::find_ptr_record(txn, address)
+        .await
+        .map_err(CarbideError::from)?
+        .into_iter()
+        .map(|record| DnsResourceRecordReply {
+            qtype: DnsResourceRecordType::PTR.to_string(),
+            qname: qname_with_dot.clone(),
+            ttl: record.ttl as u32,
+            content: record.ptr_content,
+            domain_id: Some(record.domain_id.to_string()),
+            scope_mask: None,
+            auth: None,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(result)
+}
+
 pub async fn get_all_domains(
     api: &Api,
     _request: Request<protos::dns::GetAllDomainsRequest>,
@@ -186,6 +224,10 @@ pub async fn lookup_record(
             let normalized = db::dns::normalize_domain(&qname);
             let record = lookup_soa_record(&api.database_connection, &normalized).await?;
             vec![record]
+        }
+        DnsResourceRecordType::PTR => {
+            // Reverse DNS: parse the arpa qname back to an address and look up by it.
+            lookup_ptr_record(&api.database_connection, &qname).await?
         }
         _ => {
             // For all other types (A, AAAA, MX, CNAME, etc.):

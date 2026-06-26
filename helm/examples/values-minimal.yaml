@@ -25,9 +25,31 @@ nico-api:
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
-      # Site-specific overrides for nico-api-config.toml
-      # At minimum, configure DHCP servers and route servers for your site:
-      # dhcp_servers=["nico-dhcp.nico-system.svc.cluster.local:67"]
+      dhcp_servers = ["nico-dhcp.nico-system.svc.cluster.local:67"]
+      # route_servers = ["FRR_ROUTING_0_EXTERNAL_IP"]
+      enable_route_servers = true
+      initial_domain_name = "site.example.com"
+      sitename = "site"
+      attestation_enabled = false
+      bypass_rbac = true  # set false in production
+
+      # Resource pools are required — nico-api exits at startup without them.
+      # Adjust ranges to match your site's address plan.
+      [pools.lo-ip]
+      type = "ipv4"
+      ranges = [{ start = "10.0.0.0", end = "10.0.1.0" }]
+
+      [pools.vlan-id]
+      type = "integer"
+      ranges = [{ start = "100", end = "501" }]
+
+      [pools.vni]
+      type = "integer"
+      ranges = [{ start = "1024500", end = "1024800" }]
+
+      [pools.vpc-vni]
+      type = "integer"
+      ranges = [{ start = "0", end = "100" }]
 
 ## nico-dhcp: Configure subnets and IPs for your environment
 nico-dhcp:

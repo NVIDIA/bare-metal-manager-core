@@ -166,6 +166,10 @@ make kind-down              # tear down cluster
 
 ## Coding Conventions
 
+Follow the shared [Engineering Guidelines](../CONTRIBUTING.md#engineering-guidelines)
+for scope control, reuse-before-new-code, evidence-backed assumptions, and
+verification expectations.
+
 - Follow standard Go conventions; `go fmt` is enforced in CI.
 - Linting uses `golangci-lint` (v2 config in `.golangci.yml`) with most
   linters enabled, plus `revive` (config in `.revive.toml`).
@@ -177,12 +181,24 @@ make kind-down              # tear down cluster
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
   endpoints are added or modified.
+- PUT endpoints that create or replace a resource should use
+  `CreateOrUpdate` naming consistently across handlers, summaries,
+  operation IDs, and generated SDK methods.
+- When a JSON request body exists, put IDs such as `siteId` in that body
+  and validate them on the DTO; use query parameters for filters/read-only
+  selectors.
+- Successful PUT responses should echo accepted non-secret fields, while
+  passwords and other credentials are never returned. Keep OpenAPI
+  descriptions focused on the REST contract rather than internal gRPC
+  implementation details.
+- API-layer enum-like request constants exposed through JSON use CapitalCase
+  values, for example `SiteWideRoot` and `BMCRoot`.
 
 ### Prefer range-based iteration over C-style `for` loops
 
-The module is on Go 1.25, so reach for range-based iteration before the
-three-clause `for i := 0; i < n; i++` / `i--` form. Go 1.22 range-over-integer
-and Go 1.23 range-over-function iterators (`slices.Backward`, `slices.All`,
+The module is on Go 1.25.11, so reach for range-based iteration before the
+three-clause `for i := 0; i < n; i++` / `i--` form. Range-over-integer and
+range-over-function iterators (`slices.Backward`, `slices.All`,
 `slices.Values`, `maps.Keys`, `maps.Values`, …) drop the manual index
 bookkeeping that the older form makes a reader re-derive to trust.
 

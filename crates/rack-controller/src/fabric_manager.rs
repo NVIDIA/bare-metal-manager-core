@@ -327,6 +327,8 @@ pub(super) async fn persist_primary_switch(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     fn switch(node_id: &str) -> FirmwareUpgradeDeviceInfo {
@@ -401,83 +403,108 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn fabric_manager_status_from_entry_returns_running_when_configured() {
-        let entry = rms::ScaleUpFabricServiceStatusEntry {
-            status_json:
-                r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","reason":"","status":"ok"}"#
-                    .to_string(),
-            error_message: String::new(),
-        };
+    fn entry(status_json: &str, error_message: &str) -> rms::ScaleUpFabricServiceStatusEntry {
+        rms::ScaleUpFabricServiceStatusEntry {
+            status_json: status_json.to_string(),
+            error_message: error_message.to_string(),
+        }
+    }
 
+    /// The full derived status plus its product-facing display string, so a
+    /// table row asserts both the parsed fields and the "running"/"not_running"
+    /// outcome the caller acts on.
+    #[derive(Debug, PartialEq)]
+    struct Observed {
+        status: FabricManagerStatus,
+        display: &'static str,
+    }
+
+    fn observe(entry: rms::ScaleUpFabricServiceStatusEntry) -> Observed {
         let status = fabric_manager_status_from_entry("sw-1", &entry);
+        let display = status.display_status();
+        Observed { status, display }
+    }
 
-        assert_eq!(status.fabric_manager_state, FabricManagerState::Ok);
-        assert_eq!(
-            status.addition_info.as_deref(),
-            Some("CONTROL_PLANE_STATE_CONFIGURED")
+    #[test]
+    fn test_fabric_manager_status_from_entry() {
+        check_values(
+            [
+                Check {
+                    scenario: "ok with control-plane configured -> running",
+                    input: entry(
+                        r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","reason":"","status":"ok"}"#,
+                        "",
+                    ),
+                    expect: Observed {
+                        status: FabricManagerStatus {
+                            fabric_manager_state: FabricManagerState::Ok,
+                            addition_info: Some("CONTROL_PLANE_STATE_CONFIGURED".to_string()),
+                            reason: Some(String::new()),
+                            error_message: None,
+                        },
+                        display: "running",
+                    },
+                },
+                Check {
+                    scenario: "not ok -> not_running",
+                    input: entry(
+                        r#"{"addition-info":"","reason":"stopped by user","status":"not ok"}"#,
+                        "",
+                    ),
+                    expect: Observed {
+                        status: FabricManagerStatus {
+                            fabric_manager_state: FabricManagerState::NotOk,
+                            addition_info: Some(String::new()),
+                            reason: Some("stopped by user".to_string()),
+                            error_message: None,
+                        },
+                        display: "not_running",
+                    },
+                },
+                Check {
+                    scenario: "empty status json -> unknown, not_running",
+                    input: entry("", ""),
+                    expect: Observed {
+                        status: FabricManagerStatus {
+                            fabric_manager_state: FabricManagerState::Unknown,
+                            addition_info: None,
+                            reason: None,
+                            error_message: None,
+                        },
+                        display: "not_running",
+                    },
+                },
+                Check {
+                    scenario: "error message surfaces -> unknown, not_running",
+                    input: entry(
+                        r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","status":"ok"}"#,
+                        "nmx-controller not started",
+                    ),
+                    expect: Observed {
+                        status: FabricManagerStatus {
+                            fabric_manager_state: FabricManagerState::Unknown,
+                            addition_info: None,
+                            reason: None,
+                            error_message: Some("nmx-controller not started".to_string()),
+                        },
+                        display: "not_running",
+                    },
+                },
+                Check {
+                    scenario: "malformed json -> unknown, not_running",
+                    input: entry("{not-json", ""),
+                    expect: Observed {
+                        status: FabricManagerStatus {
+                            fabric_manager_state: FabricManagerState::Unknown,
+                            addition_info: None,
+                            reason: None,
+                            error_message: None,
+                        },
+                        display: "not_running",
+                    },
+                },
+            ],
+            observe,
         );
-        assert_eq!(status.reason.as_deref(), Some(""));
-        assert_eq!(status.display_status(), "running");
-    }
-
-    #[test]
-    fn fabric_manager_status_from_entry_returns_not_running_for_not_ok() {
-        let entry = rms::ScaleUpFabricServiceStatusEntry {
-            status_json: r#"{"addition-info":"","reason":"stopped by user","status":"not ok"}"#
-                .to_string(),
-            error_message: String::new(),
-        };
-
-        let status = fabric_manager_status_from_entry("sw-1", &entry);
-
-        assert_eq!(status.fabric_manager_state, FabricManagerState::NotOk);
-        assert_eq!(status.addition_info.as_deref(), Some(""));
-        assert_eq!(status.reason.as_deref(), Some("stopped by user"));
-        assert_eq!(status.display_status(), "not_running");
-    }
-
-    #[test]
-    fn fabric_manager_status_from_entry_returns_not_running_for_empty_status_json() {
-        let entry = rms::ScaleUpFabricServiceStatusEntry {
-            status_json: String::new(),
-            error_message: String::new(),
-        };
-
-        let status = fabric_manager_status_from_entry("sw-1", &entry);
-
-        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
-        assert_eq!(status.display_status(), "not_running");
-    }
-
-    #[test]
-    fn fabric_manager_status_from_entry_returns_not_running_for_error_message() {
-        let entry = rms::ScaleUpFabricServiceStatusEntry {
-            status_json: r#"{"addition-info":"CONTROL_PLANE_STATE_CONFIGURED","status":"ok"}"#
-                .to_string(),
-            error_message: "nmx-controller not started".to_string(),
-        };
-
-        let status = fabric_manager_status_from_entry("sw-1", &entry);
-
-        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
-        assert_eq!(
-            status.error_message.as_deref(),
-            Some("nmx-controller not started")
-        );
-        assert_eq!(status.display_status(), "not_running");
-    }
-
-    #[test]
-    fn fabric_manager_status_from_entry_returns_not_running_for_malformed_json() {
-        let entry = rms::ScaleUpFabricServiceStatusEntry {
-            status_json: "{not-json".to_string(),
-            error_message: String::new(),
-        };
-
-        let status = fabric_manager_status_from_entry("sw-1", &entry);
-
-        assert_eq!(status.fabric_manager_state, FabricManagerState::Unknown);
-        assert_eq!(status.display_status(), "not_running");
     }
 }

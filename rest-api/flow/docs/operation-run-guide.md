@@ -120,28 +120,18 @@ false, a successful phase pauses with `PHASE_GATE` and waits for
 `ResumeOperationRun`. When true, the dispatcher advances automatically as long
 as safety gates are not tripped.
 
-### Target Scope Composition
+### Target Scope
 
 `OperationRunTargetScope` controls how candidate scope is built before applying
 the selector.
 
-Sources can come from:
-
-- embedded operation `target_spec`
-- materialized targets from previous operation runs
-
-Each source can be inclusive or exclusive:
-
-- `exclude_target_spec`
-- `exclude_operation_run_targets`
-
-If both `target_spec` and previous-run targets are inclusive,
-`inclusive_scope_composition` controls how they combine:
-
-- `INTERSECT`: target must be in both sources.
-- `UNION`: target can be in either source.
-
-Exclusion sources are always subtracted after inclusive scope composition.
+The embedded operation `target_spec`, when present, is the inclusive base scope.
+If `target_spec` is omitted, the planner uses the default qualified/applicable
+scope. `default_scope_component_filter` can restrict that default scope to
+specific component types or component UUIDs, such as "all compute trays in all
+qualified racks"; that field is only valid when `target_spec` is omitted.
+`exclude_operation_run_ids` then removes materialized targets from prior
+operation runs from that base scope before selector application.
 
 ### Operation Template
 
@@ -166,4 +156,85 @@ counts: completed, failed, terminated, skipped.
 
 `OperationRunTarget` represents a materialized rack execution target. It tracks
 rack ID, sequence index, phase index, optional child task ID, target status,
-message, optional component filter, and timestamps.
+message, the resolved `components_by_type` execution set, and timestamps. The
+target output uses resolved components grouped by type rather than a
+`ComponentFilter`, because target rows are materialized execution state instead
+of unresolved selection criteria.
+
+## Execution Planning
+
+Phase 2 adds planning helpers under `internal/operationrun/manager/planner`.
+The planner does not submit tasks and does not query inventory directly.
+Instead, it depends on a `TargetLookup` interface for primitive target reads
+from default scope, explicit target specs, and prior runs. The planner owns
+when those sources are used, scope composition, selection, ordering, phase
+assignment, and conversion into deterministic `OperationRunTarget` rows.
+
+The planning flow is:
+
+1. Resolve the embedded operation `target_spec` as the base scope when present.
+   Otherwise, resolve the default qualified scope.
+2. Resolve targets from `exclude_operation_run_ids`, when present, and subtract
+   them from the base scope.
+3. Apply `PercentageSelector` using a stored selector seed.
+4. Apply `OrderingPolicy`; the first implementation supports random ordering.
+5. Assign `sequence_index` and `phase_index` from the selected order and phase
+   policy while converting rack execution targets into operation-run target
+   rows.
+
+This staged lookup matters for both correctness and memory use. An explicitly
+specified but empty `target_spec` remains an empty candidate scope instead of
+falling back to all qualified racks. Prior operation-run targets are resolved
+only when `exclude_operation_run_ids` is present, then subtracted from the base
+scope.
+
+The first implementation models each `operation.RackExecutionTarget` as a
+rack-scoped execution unit with a concrete resolved component set. Caller-facing
+filters are resolved before planning; planner set operations subtract component
+UUIDs rather than unresolved filter expressions. Target rows persist this
+resolved map as `components_by_type`, matching the shape used by task
+attributes when tasks are submitted.
+
+`operation.RackExecutionTarget` intentionally lives in the shared `operation`
+package, even though operation runs are the first consumer. Task schedule scope
+resolution already produces the same resolved shape, and a follow-on PR should
+refactor task schedules to use `operation.RackExecutionTarget` before
+converting to `TaskScheduleScope` rows. Keeping the type next to `TargetSpec`
+now avoids moving the shared resolved-target model again as operation-run
+dispatching and other management models start to consume it.
+
+`CreateOperationRun` plans targets for all phases in one pass: the selected and
+ordered targets are persisted once, then later phase execution reads the
+already materialized rows. Code that needs one phase should filter the
+materialized targets by `phase_index` instead of re-planning a phase
+independently.
+
+Physical-location ordering is intentionally rejected by the planner for now,
+even though the API branch exists. That keeps the first execution path narrow
+while preserving the contract shape needed for later location-aware rollouts.
+
+Planner configuration includes `MaxCandidateScopeTargets`, a memory guard for
+target lookup. The planner passes this limit to `TargetLookup` as
+`TargetLookupOptions`; lookup implementations should enforce it while querying
+by fetching at most `limit + 1` rows and returning a clear error if the source
+scope is too large. This prevents default-scope or prior-run lookups from
+building oversized in-memory target lists before selection can run.
+
+## Manager Layer
+
+`internal/operationrun/manager` is the intended access point for service code
+and future dispatcher code that needs to manage operation runs. The root
+`operationrun` package owns domain/configuration types; `manager/planner`
+builds deterministic target plans; `manager/store` owns persistence.
+
+`Manager.Create` accepts an `OperationRun` and orchestrates creation: it asks
+the planner to build the deterministic target plan, rejects empty plans, and
+persists the run plus all planned targets in one store transaction. The stored
+selector, options, and operation template are decoded and validated inside the
+planner path as candidate resolution, selection, ordering, and phase assignment
+need each part of the configuration.
+
+Read paths are thin manager delegations for now. Stats calculation,
+`TargetLookup` implementation, dispatcher lifecycle changes, and
+pause/resume/cancel state transitions should be added behind this manager
+boundary instead of having service code reach into planner or store directly.

@@ -1605,6 +1605,6 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 
 	// Create response
 	logger.Info().Msg("finishing API handler")
-	return c.String(http.StatusAccepted, "Deletion request was accepted")
+	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 
 }

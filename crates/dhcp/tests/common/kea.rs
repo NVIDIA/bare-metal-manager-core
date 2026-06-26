@@ -361,6 +361,7 @@ impl Kea {
             "renew-timer": 900,
             "rebind-timer": 1800,
             "valid-lifetime": 3600,
+            "decline-probation-period": 900,
             "hooks-libraries": [
                 {
                         "library": hook_lib,

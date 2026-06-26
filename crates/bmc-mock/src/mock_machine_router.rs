@@ -62,7 +62,7 @@ impl AddRoutes for Router<BmcState> {
 /// Return an axum::Router that mocks various redfish calls to match
 /// the provided MachineInfo.
 pub fn machine_router(
-    machine_info: MachineInfo,
+    machine_info: &MachineInfo,
     callbacks: Arc<dyn Callbacks>,
     mat_host_id: String,
     redfish_auth: bool,
@@ -82,11 +82,12 @@ pub fn machine_router(
         .add_routes(crate::redfish::manager::add_routes)
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
+        .add_routes(crate::redfish::telemetry_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
         .add_routes(crate::redfish::session_service::add_routes)
         .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
         .add_routes(crate::ipmi::add_routes);
-    let router = match &machine_info {
+    let router = match machine_info {
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
         }

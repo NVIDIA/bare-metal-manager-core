@@ -62,6 +62,7 @@ pub struct TestApiBuilder {
     metric_emitter: Option<ApiMetricsEmitter>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
+    secrets_context: Option<crate::secrets::SecretsContext>,
 }
 
 impl TestApiBuilder {
@@ -84,6 +85,7 @@ impl TestApiBuilder {
             metric_emitter: None,
             ib_fabric_manager: None,
             component_manager: None,
+            secrets_context: None,
         }
     }
 
@@ -150,6 +152,17 @@ impl TestApiBuilder {
         }
     }
 
+    /// Build a secrets-backed `Api` so handler tests can exercise the
+    /// Postgres secrets / re-wrap path. Left `None` by default, which keeps
+    /// the secrets RPCs returning "not configured" as in production without
+    /// a `[secrets]` section.
+    pub fn with_secrets_context(self, secrets_context: crate::secrets::SecretsContext) -> Self {
+        Self {
+            secrets_context: Some(secrets_context),
+            ..self
+        }
+    }
+
     pub fn with_component_manager(
         self,
         component_manager: Arc<component_manager::component_manager::ComponentManager>,
@@ -204,6 +217,7 @@ impl TestApiBuilder {
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             SiteExplorerExploreMode::NvRedfish,
+            self.db_pool.clone(),
         );
 
         let metric_emitter = self.metric_emitter.unwrap_or_else(|| {
@@ -251,6 +265,7 @@ impl TestApiBuilder {
             component_manager: self.component_manager.map(|cm| (*cm).clone()),
             bmc_session_manager,
             bms_client: std::sync::OnceLock::new(),
+            secrets_context: self.secrets_context,
         }
     }
 }

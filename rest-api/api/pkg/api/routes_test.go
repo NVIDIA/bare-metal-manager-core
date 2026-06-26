@@ -35,6 +35,7 @@ func TestNewAPIRoutes(t *testing.T) {
 
 	routeCount := map[string]int{
 		"metadata":                  1,
+		"credential":                1,
 		"service-account":           1,
 		"infrastructure-provider":   4,
 		"tenant":                    4,
@@ -107,6 +108,9 @@ func TestNewAPIRoutes(t *testing.T) {
 			for _, route := range got {
 				assert.Contains(t, route.Path, "/org/:orgName/"+cfg.GetAPIName())
 			}
+
+			bmcCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/bmc"
+			assertRouteExists(t, got, http.MethodPut, bmcCredentialPath)
 
 			expectedMachineBatchPath := "/org/:orgName/" + cfg.GetAPIName() + "/expected-machine/batch"
 			assertRouteExists(t, got, http.MethodPost, expectedMachineBatchPath)

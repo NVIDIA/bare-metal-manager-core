@@ -23,13 +23,12 @@ use carbide_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
-use smbioslib::SMBiosSystemInformation;
 use tracing::Instrument;
 
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
-use crate::{CarbideClientResult, IN_QEMU_VM};
+use crate::{CarbideClientResult, IN_QEMU_VM, platform};
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
     let name = match efivar::efi::Variable::from_str(
@@ -1093,22 +1092,9 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     Ok(cleanup_result)
 }
 
-fn is_host() -> bool {
-    match smbioslib::table_load_from_device() {
-        Ok(data) => data.any(|sys_info: SMBiosSystemInformation| {
-            !sys_info
-                .product_name()
-                .to_string()
-                .to_lowercase()
-                .contains("bluefield")
-        }),
-        Err(_err) => true,
-    }
-}
-
 pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClientResult<()> {
     tracing::info!("full deprovision starts.");
-    if !is_host() {
+    if !platform::is_host() {
         tracing::info!("full deprovision skipped, we are not running on a host.");
         // do not send API cleanup_machine_completed
         return Ok(());
@@ -1122,7 +1108,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
 }
 
 pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
-    if !is_host() {
+    if !platform::is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());
     }
