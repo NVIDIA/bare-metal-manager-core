@@ -2100,12 +2100,16 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     assert_eq!(instance.status().tenant(), rpc::TenantState::Provisioning);
 
     // Phone home to transition to the ready state
+    let mut phone_home_req = tonic::Request::new(rpc::forge::InstancePhoneHomeLastContactRequest {
+        instance_id: Some(tinstance.id),
+    });
+    let mut auth_context = crate::auth::AuthContext::default();
+    auth_context
+        .principals
+        .push(carbide_authn::middleware::Principal::SpiffeMachineIdentifier(mh.id.to_string()));
+    phone_home_req.extensions_mut().insert(auth_context);
     env.api
-        .update_instance_phone_home_last_contact(tonic::Request::new(
-            rpc::forge::InstancePhoneHomeLastContactRequest {
-                instance_id: Some(tinstance.id),
-            },
-        ))
+        .update_instance_phone_home_last_contact(phone_home_req)
         .await
         .unwrap();
 
