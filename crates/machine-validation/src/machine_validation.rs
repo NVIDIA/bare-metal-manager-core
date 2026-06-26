@@ -27,6 +27,7 @@ use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tracing::{error, info, trace};
 
 use crate::{
@@ -37,6 +38,67 @@ use crate::{
 };
 pub const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 pub const DEFAULT_TIMEOUT: u64 = 3600;
+
+// The API manager clamps heartbeat-based stale reconciliation to at least three missed beats, so
+// low stale_run_timeout config values cannot fail healthy runs between these heartbeat updates.
+const MACHINE_VALIDATION_HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30);
+
+struct MachineValidationExecution {
+    result: rpc::forge::MachineValidationResult,
+    heartbeat: Option<MachineValidationHeartbeatGuard>,
+}
+
+impl MachineValidationExecution {
+    fn without_heartbeat(result: rpc::forge::MachineValidationResult) -> Self {
+        Self {
+            result,
+            heartbeat: None,
+        }
+    }
+
+    fn with_heartbeat(
+        result: rpc::forge::MachineValidationResult,
+        heartbeat: MachineValidationHeartbeatGuard,
+    ) -> Self {
+        Self {
+            result,
+            heartbeat: Some(heartbeat),
+        }
+    }
+}
+
+struct MachineValidationHeartbeatGuard {
+    task: Option<JoinHandle<()>>,
+}
+
+impl MachineValidationHeartbeatGuard {
+    fn new(task: JoinHandle<()>) -> Self {
+        Self { task: Some(task) }
+    }
+
+    async fn stop(mut self) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
+
+        task.abort();
+        match task.await {
+            Ok(()) => {}
+            Err(e) if e.is_cancelled() => {}
+            Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+            Err(e) => error!(error = %e, "machine validation heartbeat task failed"),
+        }
+    }
+}
+
+impl Drop for MachineValidationHeartbeatGuard {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
+        }
+    }
+}
 
 impl MachineValidation {
     pub(crate) async fn get_container_auth_config(self) -> Result<(), MachineValidationError> {
@@ -124,6 +186,64 @@ impl MachineValidation {
                 )
             })?;
         Ok(())
+    }
+
+    pub(crate) async fn heartbeat_machine_validation_run(
+        self,
+        validation_id: MachineValidationId,
+        test_id: Option<String>,
+    ) -> Result<bool, MachineValidationError> {
+        let mut client = self.create_forge_client().await?;
+        let response = client
+            .heartbeat_machine_validation_run(tonic::Request::new(
+                rpc::forge::MachineValidationHeartbeatRequest {
+                    validation_id: Some(validation_id),
+                    target: test_id
+                        .map(rpc::forge::machine_validation_heartbeat_request::Target::TestId),
+                },
+            ))
+            .await
+            .map_err(|e| {
+                MachineValidationError::ApiClient(
+                    "heartbeat_machine_validation_run".to_owned(),
+                    e.to_string(),
+                )
+            })?
+            .into_inner();
+        Ok(response.accepted)
+    }
+
+    fn spawn_machine_validation_heartbeat(
+        self,
+        validation_id: MachineValidationId,
+        test_id: String,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(MACHINE_VALIDATION_HEARTBEAT_INTERVAL);
+            loop {
+                interval.tick().await;
+                match self
+                    .clone()
+                    .heartbeat_machine_validation_run(validation_id, Some(test_id.clone()))
+                    .await
+                {
+                    Ok(true) => {
+                        trace!(%validation_id, test_id = %test_id, "sent machine validation heartbeat")
+                    }
+                    Ok(false) => {
+                        error!(
+                            %validation_id,
+                            test_id = %test_id,
+                            "machine validation heartbeat was rejected because run or attempt is no longer active"
+                        );
+                        return;
+                    }
+                    Err(e) => {
+                        error!(%validation_id, test_id = %test_id, error = %e, "failed to send machine validation heartbeat")
+                    }
+                }
+            }
+        })
     }
 
     pub(crate) async fn get_machine_validation_tests(
@@ -228,7 +348,7 @@ impl MachineValidation {
         test: &rpc::forge::MachineValidationTest,
         in_context: String,
         validation_id: MachineValidationId,
-    ) -> Option<rpc::forge::MachineValidationResult> {
+    ) -> MachineValidationExecution {
         let mut mc_result = rpc::forge::MachineValidationResult {
             test_id: Some(test.test_id.clone()),
             name: test.name.clone(),
@@ -239,9 +359,48 @@ impl MachineValidation {
             validation_id: Some(validation_id),
             ..rpc::forge::MachineValidationResult::default()
         };
+        match self
+            .clone()
+            .heartbeat_machine_validation_run(validation_id, Some(test.test_id.clone()))
+            .await
+        {
+            Ok(true) => trace!(
+                %validation_id,
+                test_id = %test.test_id,
+                "sent initial machine validation heartbeat"
+            ),
+            Ok(false) => {
+                let now = Utc::now();
+                error!(
+                    %validation_id,
+                    test_id = %test.test_id,
+                    "initial machine validation heartbeat was rejected"
+                );
+                mc_result.start_time = Some(now.into());
+                mc_result.end_time = Some(now.into());
+                mc_result.std_err = "Machine validation heartbeat was rejected because run or attempt is no longer active".to_owned();
+                mc_result.std_out = "Skipped: Machine validation heartbeat was rejected".to_owned();
+                mc_result.exit_code = 0;
+                return MachineValidationExecution::without_heartbeat(mc_result);
+            }
+            Err(e) => error!(
+                %validation_id,
+                test_id = %test.test_id,
+                error = %e,
+                "failed to send initial machine validation heartbeat"
+            ),
+        }
+        let heartbeat = MachineValidationHeartbeatGuard::new(
+            self.clone()
+                .spawn_machine_validation_heartbeat(validation_id, test.test_id.clone()),
+        );
         if test.external_config_file.is_some() {
             let file_name = test.external_config_file.clone().unwrap_or_default();
-            match self.get_external_config(file_name.clone(), None).await {
+            match self
+                .clone()
+                .get_external_config(file_name.clone(), None)
+                .await
+            {
                 Ok(()) => trace!("Fetched {} config", file_name),
                 Err(e) => {
                     mc_result.start_time = Some(Utc::now().into());
@@ -249,7 +408,7 @@ impl MachineValidation {
                     mc_result.std_err = format!("Error {e}");
                     mc_result.std_out = format!("Skipped: Error {e}");
                     mc_result.exit_code = 0;
-                    return Some(mc_result);
+                    return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                 }
             }
         }
@@ -275,7 +434,7 @@ impl MachineValidation {
                         mc_result.std_err = result.stderr;
                         mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                         mc_result.exit_code = 0;
-                        return Some(mc_result);
+                        return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                     }
                 }
                 Err(e) => {
@@ -284,7 +443,7 @@ impl MachineValidation {
                     mc_result.std_err = e.to_string();
                     mc_result.std_out = "Skipped : Pre condition failed".to_owned();
                     mc_result.exit_code = 0;
-                    return Some(mc_result);
+                    return MachineValidationExecution::with_heartbeat(mc_result, heartbeat);
                 }
             }
         }
@@ -329,7 +488,7 @@ impl MachineValidation {
             Err(_) => error!("Failed to create file"),
         }
 
-        match TokioCmd::new("sh")
+        let command_result = TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(test.timeout.unwrap_or(7200).try_into().unwrap())
             .env("CONTEXT".to_owned(), in_context.clone())
@@ -339,8 +498,9 @@ impl MachineValidation {
             )
             .env("MACHINE_ID".to_owned(), machine_id.to_string())
             .output_with_timeout()
-            .await
-        {
+            .await;
+
+        let result = match command_result {
             Ok(result) => {
                 let mut stdout_str = result.stdout;
                 let mut stderr_str = result.stderr;
@@ -380,7 +540,7 @@ impl MachineValidation {
                     stdout_str
                 };
                 mc_result.exit_code = result.exit_code;
-                Some(mc_result)
+                mc_result
             }
             Err(e) => {
                 mc_result.start_time = Some(Utc::now().into());
@@ -388,9 +548,11 @@ impl MachineValidation {
                 mc_result.std_err = e.to_string();
                 mc_result.std_out = e.to_string();
                 mc_result.exit_code = -1;
-                Some(mc_result)
+                mc_result
             }
-        }
+        };
+
+        MachineValidationExecution::with_heartbeat(result, heartbeat)
     }
 
     pub(crate) async fn update_machine_validation_run(
@@ -435,7 +597,7 @@ impl MachineValidation {
                 {
                     continue;
                 }
-                let result = self
+                let execution = self
                     .clone()
                     .execute_machinevalidation_command(
                         machine_id,
@@ -444,7 +606,12 @@ impl MachineValidation {
                         validation_id,
                     )
                     .await;
-                match self.clone().persist(result).await {
+                let MachineValidationExecution { result, heartbeat } = execution;
+                let persist_result = self.clone().persist(Some(result)).await;
+                if let Some(heartbeat) = heartbeat {
+                    heartbeat.stop().await;
+                }
+                match persist_result {
                     Ok(_) => info!("Successfully sent to api server - {}", test.name),
                     Err(e) => error!("{}", e.to_string()),
                 }

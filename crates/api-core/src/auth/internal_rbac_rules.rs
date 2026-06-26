@@ -270,6 +270,7 @@ impl InternalRBACRules {
             "GetSiteExplorationReport",
             vec![ForgeAdminCLI, Machineatron],
         );
+        x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
@@ -499,6 +500,7 @@ impl InternalRBACRules {
             "GetMachineValidationAttempt",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);

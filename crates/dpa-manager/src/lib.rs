@@ -44,6 +44,9 @@ pub mod config;
 pub mod errors;
 mod metrics;
 
+#[cfg(test)]
+pub(crate) use carbide_macros::sqlx_test;
+
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
     pub(crate) dpa_info: Arc<DpaInfo>,

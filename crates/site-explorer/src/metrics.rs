@@ -125,8 +125,12 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations_expected_machines_missing_overall_count: usize,
     /// The time it took to explore endpoints
     pub endpoint_exploration_duration: Vec<Duration>,
+    /// Duration of each step inside endpoint exploration attempts.
+    pub endpoint_exploration_step_latency: Vec<(&'static str, Duration)>,
     /// Duration of each major Site Explorer iteration phase.
     pub site_explorer_phase_latency: Vec<(&'static str, Duration)>,
+    /// Counts from the update_explored_endpoints phase in the last run.
+    pub update_explored_endpoints_counts: HashMap<&'static str, usize>,
     /// Total amount of managedhosts that has been identified via Site Exploration
     pub exploration_identified_managed_hosts: usize,
     /// The amount of Machine pairs (Host + DPU) that have been created by Site Explorer
@@ -157,6 +161,8 @@ pub struct SiteExplorationMetrics {
     /// These are issues that prevent a host from being paired with its dpu(s)
     /// and require manual intervention.
     pub host_dpu_pairing_blockers: HashMap<String, usize>,
+    /// Generic category for the latest whole-run failure. `None` means success.
+    pub run_failure_category: Option<String>,
     /// Total count of DPU NIC-mode migration signals by kind. These track the
     /// flip-and-reset flow that drives a DPU into the mode its host's
     /// `dpu_mode` declares (mismatch found, `set_nic_mode` issued, reset
@@ -184,7 +190,9 @@ impl SiteExplorationMetrics {
             endpoint_explorations_identified_managed_hosts_overall_count: HashMap::new(),
             endpoint_explorations_expected_machines_missing_overall_count: 0,
             endpoint_exploration_duration: Vec::new(),
+            endpoint_exploration_step_latency: Vec::new(),
             site_explorer_phase_latency: Vec::new(),
+            update_explored_endpoints_counts: HashMap::new(),
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
             create_machines_latency: None,
@@ -197,21 +205,9 @@ impl SiteExplorationMetrics {
             endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
             host_dpu_pairing_blockers: HashMap::new(),
+            run_failure_category: None,
             dpu_migration_signals: HashMap::new(),
         }
-    }
-
-    fn increment_endpoint_explorations_failures(&mut self, failure_type: String) {
-        *self
-            .endpoint_explorations_failures_by_type
-            .entry(failure_type)
-            .or_default() += 1;
-    }
-
-    pub fn increment_credential_missing(&mut self, credential_key: &str) {
-        self.increment_endpoint_explorations_failures(format!(
-            "credentials_missing_{credential_key}"
-        ))
     }
 
     pub fn increment_endpoint_explorations_failures_overall_count(&mut self, failure_type: String) {
@@ -288,6 +284,19 @@ impl SiteExplorationMetrics {
         self.site_explorer_phase_latency.push((phase, duration));
     }
 
+    pub fn record_endpoint_exploration_step_latency(
+        &mut self,
+        step: &'static str,
+        duration: Duration,
+    ) {
+        self.endpoint_exploration_step_latency
+            .push((step, duration));
+    }
+
+    pub fn record_update_explored_endpoints_count(&mut self, kind: &'static str, count: usize) {
+        self.update_explored_endpoints_counts.insert(kind, count);
+    }
+
     /// Increment the count of DPU NIC-mode migration signals by kind.
     pub fn increment_dpu_migration_signal(&mut self, signal: DpuMigrationSignal) {
         *self
@@ -300,6 +309,7 @@ impl SiteExplorationMetrics {
 /// Instruments that are used by the Site Explorer
 pub struct SiteExplorerInstruments {
     pub endpoint_exploration_duration: Histogram<f64>,
+    pub endpoint_exploration_step_latency: Histogram<f64>,
     pub site_explorer_iteration_latency: Histogram<f64>,
     pub site_explorer_phase_latency: Histogram<f64>,
     pub site_explorer_create_machines_latency: Histogram<f64>,
@@ -321,6 +331,33 @@ impl SiteExplorerInstruments {
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.endpoint_explorations as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_last_run_status")
+                .with_description("The status of the latest Site Explorer run")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        let (status, failure_category) = metrics
+                            .run_failure_category
+                            .as_deref()
+                            .map_or(("success", "none"), |category| ("failed", category));
+                        observer.observe(
+                            1,
+                            &[
+                                attrs,
+                                &[
+                                    KeyValue::new("status", status),
+                                    KeyValue::new("failure_category", failure_category.to_string()),
+                                ],
+                            ]
+                            .concat(),
+                        );
                     })
                 })
                 .build();
@@ -513,6 +550,12 @@ impl SiteExplorerInstruments {
             .with_unit("ms")
             .build();
 
+        let endpoint_exploration_step_latency = meter
+            .f64_histogram("carbide_endpoint_exploration_step_latency")
+            .with_description("The time it took to perform one endpoint exploration step")
+            .with_unit("ms")
+            .build();
+
         let site_explorer_iteration_latency = meter
             .f64_histogram("carbide_site_explorer_iteration_latency")
             .with_description("The time it took to perform one site explorer iteration")
@@ -542,6 +585,24 @@ impl SiteExplorerInstruments {
                             metrics.exploration_identified_managed_hosts as u64,
                             attrs,
                         );
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_update_explored_endpoints_count")
+                .with_description("Counts from the last update_explored_endpoints phase by kind")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        for (kind, &count) in metrics.update_explored_endpoints_counts.iter() {
+                            observer.observe(
+                                count as u64,
+                                &[attrs, &[KeyValue::new("kind", *kind)]].concat(),
+                            );
+                        }
                     })
                 })
                 .build();
@@ -746,6 +807,7 @@ impl SiteExplorerInstruments {
 
         SiteExplorerInstruments {
             endpoint_exploration_duration,
+            endpoint_exploration_step_latency,
             site_explorer_iteration_latency,
             site_explorer_phase_latency,
             site_explorer_create_machines_latency,
@@ -781,6 +843,13 @@ impl SiteExplorerInstruments {
         for duration in metrics.endpoint_exploration_duration.iter() {
             self.endpoint_exploration_duration
                 .record(duration.as_secs_f64() * 1000.0, &[]);
+        }
+
+        for (step, duration) in metrics.endpoint_exploration_step_latency.iter() {
+            self.endpoint_exploration_step_latency.record(
+                duration.as_secs_f64() * 1000.0,
+                &[KeyValue::new("step", *step)],
+            );
         }
 
         for (phase, duration) in metrics.site_explorer_phase_latency.iter() {
@@ -849,6 +918,7 @@ impl MetricHolder {
         self.instruments.emit_latency_metrics(&metrics);
         // We don't need to store the latency metrics anymore
         metrics.endpoint_exploration_duration.clear();
+        metrics.endpoint_exploration_step_latency.clear();
         metrics.site_explorer_phase_latency.clear();
         // And store the remaining metrics
         self.last_iteration_metrics.update(metrics);

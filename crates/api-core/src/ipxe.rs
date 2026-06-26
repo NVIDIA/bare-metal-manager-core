@@ -353,8 +353,8 @@ exit ||
             // use:
             // - If we don't have an exploration report for this MAC address, don't PXE boot at all
             // - If it's X86 and we have an exploration report, assume it's a Host.
-            // - If it's ARM and we have an exploration report, check if the report is a bluefield
-            //   model.
+            // - If it's ARM and we have an exploration report, check if the report has a
+            //   BlueField part number.
             let Some(endpoint) =
                 db::explored_endpoints::find_by_mac_address(&mut *txn, interface.mac_address)
                     .await?
@@ -370,7 +370,7 @@ exit ||
             let (machine_type, console) = match target.arch {
                 rpc::MachineArchitecture::X86 => (MachineType::PredictedHost, console),
                 rpc::MachineArchitecture::Arm => {
-                    if endpoint.is_bluefield_model() {
+                    if endpoint.has_bluefield_part_number() {
                         (MachineType::Dpu, console)
                     } else {
                         (MachineType::PredictedHost, "ttyAMA0")

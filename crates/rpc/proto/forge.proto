@@ -281,6 +281,8 @@ service Forge {
   // Gets the latest Site Exploration report
   // DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
+  // Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+  rpc GetSiteExplorerLastRun(google.protobuf.Empty) returns (site_explorer.SiteExplorerLastRunResponse);
   // Clear the last known error for the BMC
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
   // IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -625,6 +627,9 @@ service Forge {
 
   // Machine-Validation attempt detail
   rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
+
+  // Machine-Validation run and active attempt heartbeat
+  rpc HeartbeatMachineValidationRun(MachineValidationHeartbeatRequest) returns (MachineValidationHeartbeatResponse);
 
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
@@ -6089,6 +6094,7 @@ message MachineValidationRun {
   optional string context = 6;
   MachineValidationStatus status = 7;
   google.protobuf.Duration duration_to_complete = 8;
+  google.protobuf.Timestamp last_heartbeat_at = 9;
 
 }
 
@@ -6329,6 +6335,19 @@ message MachineValidationAttempt {
   google.protobuf.Timestamp last_heartbeat_at = 13;
   optional string stdout_summary = 14;
   optional string stderr_summary = 15;
+}
+
+message MachineValidationHeartbeatRequest {
+  common.MachineValidationId validation_id = 1;
+  oneof target {
+    common.UUID run_item_id = 2;
+    common.UUID attempt_id = 3;
+    string test_id = 4;
+  }
+}
+
+message MachineValidationHeartbeatResponse {
+  bool accepted = 1;
 }
 
 message IsBmcInManagedHostResponse {
