@@ -215,6 +215,7 @@ carbide-version = { path = "../version" }
 carbide-api-model = { path = "../api-model", default-features = false, features = [
   "test-support",
 ] }
+carbide-firmware = { path = "../firmware", features = ["test-support"] }
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
 carbide-machine-controller = { path = "../machine-controller", features = [
   "test-support",

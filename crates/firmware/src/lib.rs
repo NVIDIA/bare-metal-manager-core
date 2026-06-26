@@ -24,5 +24,8 @@ pub mod defaults;
 
 pub mod downloader;
 
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
 pub use config::{FirmwareConfig, FirmwareConfigSnapshot};
 pub use downloader::FirmwareDownloader;

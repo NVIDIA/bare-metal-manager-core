@@ -11,6 +11,7 @@ name = "carbide_firmware"
 
 [features]
 default = []
+test-support = ["dep:temp-dir", "dep:regex"]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
@@ -21,12 +22,13 @@ eyre = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
 md5 = { workspace = true }
+regex = { workspace = true, optional = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
+temp-dir = { workspace = true, optional = true }
 tokio = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
-
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
