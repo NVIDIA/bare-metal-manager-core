@@ -665,7 +665,7 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC Peerings, DB error", nil)
 	}
 
-	dbMappedPeeringTenants := make(map[uuid.UUID]cdbm.Tenant)
+	dbMappedPeeringTenants := make(map[uuid.UUID]*cdbm.Tenant)
 	vpcPeeringTenantIDs := []uuid.UUID{}
 	for _, vpcPeering := range vpcPeerings {
 		if vpcPeering.Vpc1 != nil {
@@ -683,7 +683,7 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenants, DB error", nil)
 		}
 		for _, tenant := range tenants {
-			dbMappedPeeringTenants[tenant.ID] = tenant
+			dbMappedPeeringTenants[tenant.ID] = &tenant
 		}
 	}
 

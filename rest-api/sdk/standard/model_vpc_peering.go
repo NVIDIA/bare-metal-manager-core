@@ -27,28 +27,20 @@ type VpcPeering struct {
 	Id *string `json:"id,omitempty"`
 	// ID of the first VPC in the peering
 	Vpc1Id *string `json:"vpc1Id,omitempty"`
-	// Summary of the first VPC in the peering. Populated when the Vpc1 relation is loaded.
-	Vpc1 *VpcSummary `json:"vpc1,omitempty"`
-	// ID of the tenant that owns vpc1. Populated when the Vpc1 relation is loaded and the tenant is resolved.
-	Vpc1TenantId *string `json:"vpc1TenantId,omitempty"`
-	// Summary of the tenant that owns vpc1. Populated when the Vpc1 relation is loaded and the tenant is resolved.
-	Vpc1Tenant *PeerTenant `json:"vpc1Tenant,omitempty"`
+	// Summary of the first VPC in the peering.
+	Vpc1 *VpcPeeringVpcSummary `json:"vpc1,omitempty"`
 	// ID of the second VPC in the peering
 	Vpc2Id *string `json:"vpc2Id,omitempty"`
-	// Summary of the second VPC in the peering. Populated when the Vpc2 relation is loaded.
-	Vpc2 *VpcSummary `json:"vpc2,omitempty"`
-	// ID of the tenant that owns vpc2. Populated when the Vpc2 relation is loaded and the tenant is resolved.
-	Vpc2TenantId *string `json:"vpc2TenantId,omitempty"`
-	// Summary of the tenant that owns vpc2. Populated when the Vpc2 relation is loaded and the tenant is resolved.
-	Vpc2Tenant *PeerTenant `json:"vpc2Tenant,omitempty"`
+	// Summary of the second VPC in the peering.
+	Vpc2 *VpcPeeringVpcSummary `json:"vpc2,omitempty"`
 	// ID of the Site where the peering exists
 	SiteId *string `json:"siteId,omitempty"`
-	// Summary of the Site where the peering exists. Populated when the Site relation is loaded.
+	// Summary of the Site where the peering exists.
 	Site *SiteSummary `json:"site,omitempty"`
-	// ID of the tenant that created the VPC peering. Populated for tenant-created peerings when the Tenant relation is loaded.
+	// ID of the tenant that created the VPC peering.
 	TenantId *string `json:"tenantId,omitempty"`
-	// Summary of the tenant that created the VPC peering. Populated for tenant-created peerings when the Tenant relation is loaded.
-	Tenant *PeerTenant `json:"tenant,omitempty"`
+	// Summary of the tenant that created the VPC peering.
+	Tenant *TenantSummary `json:"tenant,omitempty"`
 	// Indicates if this is a multi-tenant peering (VPCs from different tenants)
 	IsMultiTenant *bool `json:"isMultiTenant,omitempty"`
 	// Status of the VPC peering
@@ -141,9 +133,9 @@ func (o *VpcPeering) SetVpc1Id(v string) {
 }
 
 // GetVpc1 returns the Vpc1 field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc1() VpcSummary {
+func (o *VpcPeering) GetVpc1() VpcPeeringVpcSummary {
 	if o == nil || IsNil(o.Vpc1) {
-		var ret VpcSummary
+		var ret VpcPeeringVpcSummary
 		return ret
 	}
 	return *o.Vpc1
@@ -151,7 +143,7 @@ func (o *VpcPeering) GetVpc1() VpcSummary {
 
 // GetVpc1Ok returns a tuple with the Vpc1 field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc1Ok() (*VpcSummary, bool) {
+func (o *VpcPeering) GetVpc1Ok() (*VpcPeeringVpcSummary, bool) {
 	if o == nil || IsNil(o.Vpc1) {
 		return nil, false
 	}
@@ -167,73 +159,9 @@ func (o *VpcPeering) HasVpc1() bool {
 	return false
 }
 
-// SetVpc1 gets a reference to the given VpcSummary and assigns it to the Vpc1 field.
-func (o *VpcPeering) SetVpc1(v VpcSummary) {
+// SetVpc1 gets a reference to the given VpcPeeringVpcSummary and assigns it to the Vpc1 field.
+func (o *VpcPeering) SetVpc1(v VpcPeeringVpcSummary) {
 	o.Vpc1 = &v
-}
-
-// GetVpc1TenantId returns the Vpc1TenantId field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc1TenantId() string {
-	if o == nil || IsNil(o.Vpc1TenantId) {
-		var ret string
-		return ret
-	}
-	return *o.Vpc1TenantId
-}
-
-// GetVpc1TenantIdOk returns a tuple with the Vpc1TenantId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc1TenantIdOk() (*string, bool) {
-	if o == nil || IsNil(o.Vpc1TenantId) {
-		return nil, false
-	}
-	return o.Vpc1TenantId, true
-}
-
-// HasVpc1TenantId returns a boolean if a field has been set.
-func (o *VpcPeering) HasVpc1TenantId() bool {
-	if o != nil && !IsNil(o.Vpc1TenantId) {
-		return true
-	}
-
-	return false
-}
-
-// SetVpc1TenantId gets a reference to the given string and assigns it to the Vpc1TenantId field.
-func (o *VpcPeering) SetVpc1TenantId(v string) {
-	o.Vpc1TenantId = &v
-}
-
-// GetVpc1Tenant returns the Vpc1Tenant field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc1Tenant() PeerTenant {
-	if o == nil || IsNil(o.Vpc1Tenant) {
-		var ret PeerTenant
-		return ret
-	}
-	return *o.Vpc1Tenant
-}
-
-// GetVpc1TenantOk returns a tuple with the Vpc1Tenant field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc1TenantOk() (*PeerTenant, bool) {
-	if o == nil || IsNil(o.Vpc1Tenant) {
-		return nil, false
-	}
-	return o.Vpc1Tenant, true
-}
-
-// HasVpc1Tenant returns a boolean if a field has been set.
-func (o *VpcPeering) HasVpc1Tenant() bool {
-	if o != nil && !IsNil(o.Vpc1Tenant) {
-		return true
-	}
-
-	return false
-}
-
-// SetVpc1Tenant gets a reference to the given PeerTenant and assigns it to the Vpc1Tenant field.
-func (o *VpcPeering) SetVpc1Tenant(v PeerTenant) {
-	o.Vpc1Tenant = &v
 }
 
 // GetVpc2Id returns the Vpc2Id field value if set, zero value otherwise.
@@ -269,9 +197,9 @@ func (o *VpcPeering) SetVpc2Id(v string) {
 }
 
 // GetVpc2 returns the Vpc2 field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc2() VpcSummary {
+func (o *VpcPeering) GetVpc2() VpcPeeringVpcSummary {
 	if o == nil || IsNil(o.Vpc2) {
-		var ret VpcSummary
+		var ret VpcPeeringVpcSummary
 		return ret
 	}
 	return *o.Vpc2
@@ -279,7 +207,7 @@ func (o *VpcPeering) GetVpc2() VpcSummary {
 
 // GetVpc2Ok returns a tuple with the Vpc2 field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc2Ok() (*VpcSummary, bool) {
+func (o *VpcPeering) GetVpc2Ok() (*VpcPeeringVpcSummary, bool) {
 	if o == nil || IsNil(o.Vpc2) {
 		return nil, false
 	}
@@ -295,73 +223,9 @@ func (o *VpcPeering) HasVpc2() bool {
 	return false
 }
 
-// SetVpc2 gets a reference to the given VpcSummary and assigns it to the Vpc2 field.
-func (o *VpcPeering) SetVpc2(v VpcSummary) {
+// SetVpc2 gets a reference to the given VpcPeeringVpcSummary and assigns it to the Vpc2 field.
+func (o *VpcPeering) SetVpc2(v VpcPeeringVpcSummary) {
 	o.Vpc2 = &v
-}
-
-// GetVpc2TenantId returns the Vpc2TenantId field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc2TenantId() string {
-	if o == nil || IsNil(o.Vpc2TenantId) {
-		var ret string
-		return ret
-	}
-	return *o.Vpc2TenantId
-}
-
-// GetVpc2TenantIdOk returns a tuple with the Vpc2TenantId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc2TenantIdOk() (*string, bool) {
-	if o == nil || IsNil(o.Vpc2TenantId) {
-		return nil, false
-	}
-	return o.Vpc2TenantId, true
-}
-
-// HasVpc2TenantId returns a boolean if a field has been set.
-func (o *VpcPeering) HasVpc2TenantId() bool {
-	if o != nil && !IsNil(o.Vpc2TenantId) {
-		return true
-	}
-
-	return false
-}
-
-// SetVpc2TenantId gets a reference to the given string and assigns it to the Vpc2TenantId field.
-func (o *VpcPeering) SetVpc2TenantId(v string) {
-	o.Vpc2TenantId = &v
-}
-
-// GetVpc2Tenant returns the Vpc2Tenant field value if set, zero value otherwise.
-func (o *VpcPeering) GetVpc2Tenant() PeerTenant {
-	if o == nil || IsNil(o.Vpc2Tenant) {
-		var ret PeerTenant
-		return ret
-	}
-	return *o.Vpc2Tenant
-}
-
-// GetVpc2TenantOk returns a tuple with the Vpc2Tenant field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VpcPeering) GetVpc2TenantOk() (*PeerTenant, bool) {
-	if o == nil || IsNil(o.Vpc2Tenant) {
-		return nil, false
-	}
-	return o.Vpc2Tenant, true
-}
-
-// HasVpc2Tenant returns a boolean if a field has been set.
-func (o *VpcPeering) HasVpc2Tenant() bool {
-	if o != nil && !IsNil(o.Vpc2Tenant) {
-		return true
-	}
-
-	return false
-}
-
-// SetVpc2Tenant gets a reference to the given PeerTenant and assigns it to the Vpc2Tenant field.
-func (o *VpcPeering) SetVpc2Tenant(v PeerTenant) {
-	o.Vpc2Tenant = &v
 }
 
 // GetSiteId returns the SiteId field value if set, zero value otherwise.
@@ -461,9 +325,9 @@ func (o *VpcPeering) SetTenantId(v string) {
 }
 
 // GetTenant returns the Tenant field value if set, zero value otherwise.
-func (o *VpcPeering) GetTenant() PeerTenant {
+func (o *VpcPeering) GetTenant() TenantSummary {
 	if o == nil || IsNil(o.Tenant) {
-		var ret PeerTenant
+		var ret TenantSummary
 		return ret
 	}
 	return *o.Tenant
@@ -471,7 +335,7 @@ func (o *VpcPeering) GetTenant() PeerTenant {
 
 // GetTenantOk returns a tuple with the Tenant field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *VpcPeering) GetTenantOk() (*PeerTenant, bool) {
+func (o *VpcPeering) GetTenantOk() (*TenantSummary, bool) {
 	if o == nil || IsNil(o.Tenant) {
 		return nil, false
 	}
@@ -487,8 +351,8 @@ func (o *VpcPeering) HasTenant() bool {
 	return false
 }
 
-// SetTenant gets a reference to the given PeerTenant and assigns it to the Tenant field.
-func (o *VpcPeering) SetTenant(v PeerTenant) {
+// SetTenant gets a reference to the given TenantSummary and assigns it to the Tenant field.
+func (o *VpcPeering) SetTenant(v TenantSummary) {
 	o.Tenant = &v
 }
 
@@ -639,23 +503,11 @@ func (o VpcPeering) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Vpc1) {
 		toSerialize["vpc1"] = o.Vpc1
 	}
-	if !IsNil(o.Vpc1TenantId) {
-		toSerialize["vpc1TenantId"] = o.Vpc1TenantId
-	}
-	if !IsNil(o.Vpc1Tenant) {
-		toSerialize["vpc1Tenant"] = o.Vpc1Tenant
-	}
 	if !IsNil(o.Vpc2Id) {
 		toSerialize["vpc2Id"] = o.Vpc2Id
 	}
 	if !IsNil(o.Vpc2) {
 		toSerialize["vpc2"] = o.Vpc2
-	}
-	if !IsNil(o.Vpc2TenantId) {
-		toSerialize["vpc2TenantId"] = o.Vpc2TenantId
-	}
-	if !IsNil(o.Vpc2Tenant) {
-		toSerialize["vpc2Tenant"] = o.Vpc2Tenant
 	}
 	if !IsNil(o.SiteId) {
 		toSerialize["siteId"] = o.SiteId

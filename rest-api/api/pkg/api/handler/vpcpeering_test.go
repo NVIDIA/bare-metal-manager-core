@@ -764,16 +764,16 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 				}
 				if tt.validateTenantIDsPresent {
 					for _, peering := range list {
-						require.NotNil(t, peering.Vpc1TenantId)
-						require.NotNil(t, peering.Vpc2TenantId)
+						require.NotNil(t, peering.Vpc1.Tenant.ID)
+						require.NotNil(t, peering.Vpc2.Tenant.ID)
 					}
 				}
 				if tt.validateTenantIDs {
 					require.NotEmpty(t, list)
 					for _, peering := range list {
-						require.NotNil(t, peering.Vpc1TenantId)
-						require.NotNil(t, peering.Vpc2TenantId)
-						tenantIDs := []string{*peering.Vpc1TenantId, *peering.Vpc2TenantId}
+						require.NotNil(t, peering.Vpc1.Tenant.ID)
+						require.NotNil(t, peering.Vpc2.Tenant.ID)
+						tenantIDs := []string{peering.Vpc1.TenantID, peering.Vpc2.TenantID}
 						assert.Contains(t, tenantIDs, tn1.ID.String())
 						assert.Contains(t, tenantIDs, tn2.ID.String())
 					}
@@ -781,11 +781,11 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 				if len(tt.requirePeerTenantIDs) > 0 {
 					matchedPeerTenantIDs := make(map[uuid.UUID]bool, len(tt.requirePeerTenantIDs))
 					for _, peering := range list {
-						require.NotNil(t, peering.Vpc1TenantId)
-						require.NotNil(t, peering.Vpc2TenantId)
+						require.NotNil(t, peering.Vpc1.Tenant.ID)
+						require.NotNil(t, peering.Vpc2.Tenant.ID)
 						for _, tenantID := range tt.requirePeerTenantIDs {
 							tenantIDStr := tenantID.String()
-							if *peering.Vpc1TenantId == tenantIDStr || *peering.Vpc2TenantId == tenantIDStr {
+							if peering.Vpc1.Tenant.ID == tenantIDStr || peering.Vpc2.Tenant.ID == tenantIDStr {
 								matchedPeerTenantIDs[tenantID] = true
 							}
 						}
