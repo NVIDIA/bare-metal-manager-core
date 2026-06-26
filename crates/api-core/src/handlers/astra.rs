@@ -79,11 +79,13 @@ pub(crate) async fn get_astra_config(
 
     let mut astra_attachments = Vec::new();
 
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::Internal {
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| CarbideError::Internal {
             message: format!("Failed to begin transaction: {e}"),
-        }
-    })?;
+        })?;
 
     let subnet_ip = api
         .runtime_config
@@ -219,13 +221,13 @@ pub(crate) async fn process_astra_config_status(
 
     txn.commit().await?;
 
-    let mut txn = match api.database_connection.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("process_astra_config_status: Unable to start txn: {:#?}", e);
-            return Ok(());
-        }
-    };
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to begin transaction: {e}"),
+        })?;
 
     let mut machine_observations = Vec::new();
 
