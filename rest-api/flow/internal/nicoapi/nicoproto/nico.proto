@@ -3315,12 +3315,26 @@ message Issue {
   string details = 3; // Additional context about the issue
 }
 
+// Records who initiated an instance delete in the cloud API layer.
+message DeleteInitiatedBy {
+  string org = 1;
+  string org_display_name = 2;
+  string user_id = 3;
+  string tenant_id = 4;
+}
+
+message DeleteAttribution {
+  DeleteInitiatedBy initiated_by = 1;
+}
+
 message InstanceReleaseRequest {
   common.InstanceId id = 1;
   // Optional issue information if tenant is reporting a problem
   optional Issue issue = 2;
   // Optional flag indicating the call is from repair tenant (default: false)
   optional bool is_repair_tenant = 3;
+  // Optional cloud-side attribution for who initiated the delete
+  optional DeleteAttribution delete_attribution = 4;
 }
 
 message InstanceReleaseResult {
