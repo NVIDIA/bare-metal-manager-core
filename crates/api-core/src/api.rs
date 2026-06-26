@@ -2843,7 +2843,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_device_report(self, request).await
+        crate::handlers::svpc::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
@@ -2852,7 +2852,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
+        crate::handlers::svpc::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(

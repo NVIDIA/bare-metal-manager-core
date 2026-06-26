@@ -88,6 +88,7 @@ async fn update_network_status_observation(
             last_dhcp_requests: vec![],
             dpu_extension_service_version: Some("V1-T1".to_string()),
             dpu_extension_services: vec![],
+            astra_config_status: None,
         }))
         .await
         .unwrap();

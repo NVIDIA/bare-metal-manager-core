@@ -44,6 +44,7 @@ enum ReconcileAction {
 }
 
 impl SvpcInterfaceHandler {
+    // Given an iterator, return the first item if there is only one, otherwise return an error.
     fn at_most_one<I: Iterator>(mut iter: I, ctx: &str) -> DpaManagerResult<Option<I::Item>> {
         let first = iter.next();
         if first.is_some() && iter.next().is_some() {
@@ -55,6 +56,7 @@ impl SvpcInterfaceHandler {
         Ok(first)
     }
 
+    // Given an SPX Partitioin ID, find the DPA VNI associated with it.
     async fn get_partition_vni(
         monitor: &mut DpaMonitor,
         partition_id: SpxPartitionId,
@@ -93,6 +95,8 @@ impl SvpcInterfaceHandler {
         let instance_version = instance.spx_config_version;
         let nic_version = dpa_interface.network_config.version.to_string();
 
+        // We expect to find only one configured attachment for the MAC address of this DPA interface
+        // TODO: This has to be changed when we support multiple VFs per NIC
         let configured = Self::at_most_one(
             instance
                 .config
@@ -103,6 +107,8 @@ impl SvpcInterfaceHandler {
             "reconcile_assigned_state configured attachments",
         )?;
 
+        // We expect to find only one observation for the MAC address of this DPA interface
+        // TODO: This has to be changed when we support multiple VFs per NIC
         let observed = Self::at_most_one(
             machine
                 .spx_status_observation

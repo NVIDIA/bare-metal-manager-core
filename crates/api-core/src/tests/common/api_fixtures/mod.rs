@@ -2263,6 +2263,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .instance
             .map(|instance| instance.dpu_extension_service_version),
         dpu_extension_services,
+        astra_config_status: None,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

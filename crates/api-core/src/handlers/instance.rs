@@ -36,6 +36,7 @@ use health_report::{
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
+use model::dpa_interface::DpaSearchConfig;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -1819,7 +1820,12 @@ pub async fn update_instance_spx_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
-    let dpa_interfaces = db::dpa_interface::find_by_machine_id(txn.as_mut(), mid).await?;
+    let dpa_search_config = DpaSearchConfig {
+        only_svpc: false,
+        only_astra: false,
+    };
+    let dpa_interfaces =
+        db::dpa_interface::find_by_machine_id(txn.as_mut(), mid, dpa_search_config).await?;
 
     mh_snapshot.dpa_interface_snapshots = dpa_interfaces;
 
