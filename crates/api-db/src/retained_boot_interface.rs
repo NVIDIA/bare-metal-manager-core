@@ -37,9 +37,22 @@
 //! Migrations consume their records within minutes either way.
 
 use mac_address::MacAddress;
-use sqlx::PgConnection;
+use sqlx::{FromRow, PgConnection};
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
+
+/// One raw `retained_boot_interfaces` row: the preserved boot interface id for
+/// a MAC and when it was recorded, returned verbatim with no retention-window
+/// filtering. Built for the boot-interface troubleshooting view, which wants to
+/// surface stale records too -- the window-filtered [`find_by_mac`] and the
+/// consuming `take_by_mac` would hide or remove them.
+#[derive(Debug, Clone, FromRow)]
+pub struct RetainedBootInterfaceRecord {
+    pub mac_address: MacAddress,
+    pub boot_interface_id: String,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+}
 
 /// Record the boot interface pair for a MAC, overwriting any prior record
 /// (the newest observation wins).
@@ -77,6 +90,29 @@ pub async fn find_by_mac(
         .bind(mac_address)
         .bind(window.map(|w| w.num_seconds()))
         .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Fetch the full retained records for a set of MACs without consuming them
+/// and without any retention-window filtering -- every matching row, including
+/// ones aged past the configured window, is returned with its `recorded_at`.
+///
+/// This is the troubleshooting read: where [`find_by_mac`] answers "would this
+/// MAC's pair still apply?" (window-filtered, value only), this answers "what
+/// is actually on file for these MACs, fresh or stale?" so an operator can see
+/// a record that exists but has aged out. Production reuse flows must stay on
+/// the window-aware `take_by_mac`/`find_by_mac`.
+pub async fn find_records_by_macs(
+    db: impl DbReader<'_>,
+    mac_addresses: &[MacAddress],
+) -> Result<Vec<RetainedBootInterfaceRecord>, DatabaseError> {
+    let query = "SELECT mac_address, boot_interface_id, recorded_at \
+                 FROM retained_boot_interfaces WHERE mac_address = ANY($1) \
+                 ORDER BY mac_address";
+    sqlx::query_as(query)
+        .bind(mac_addresses)
+        .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }

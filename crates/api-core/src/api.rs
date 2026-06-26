@@ -1364,6 +1364,13 @@ impl Forge for Api {
         crate::handlers::boot_override::clear(self, request).await
     }
 
+    async fn get_machine_boot_interfaces(
+        &self,
+        request: Request<rpc::GetMachineBootInterfacesRequest>,
+    ) -> Result<Response<rpc::GetMachineBootInterfacesResponse>, Status> {
+        crate::handlers::machine_boot_interfaces::get_machine_boot_interfaces(self, request).await
+    }
+
     async fn get_network_topology(
         &self,
         request: Request<rpc::NetworkTopologyRequest>,
@@ -2297,6 +2304,13 @@ impl Forge for Api {
         request: Request<rpc::MachineValidationAttemptGetRequest>,
     ) -> Result<Response<rpc::MachineValidationAttempt>, Status> {
         crate::handlers::machine_validation::get_machine_validation_attempt(self, request).await
+    }
+
+    async fn heartbeat_machine_validation_run(
+        &self,
+        request: Request<rpc::MachineValidationHeartbeatRequest>,
+    ) -> Result<Response<rpc::MachineValidationHeartbeatResponse>, Status> {
+        crate::handlers::machine_validation::heartbeat_machine_validation_run(self, request).await
     }
 
     async fn admin_power_control(

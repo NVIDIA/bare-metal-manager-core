@@ -167,8 +167,8 @@ fn build_data_sink(
     let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
     let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
 
-    if let Configurable::Enabled(_) = &config.sinks.tracing {
-        sinks.push(Arc::new(TracingSink));
+    if let Configurable::Enabled(sink_cfg) = &config.sinks.tracing {
+        sinks.push(Arc::new(TracingSink::new(sink_cfg)));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {

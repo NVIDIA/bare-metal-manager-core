@@ -223,6 +223,8 @@ pub struct DiscoveryLoopContext {
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
+    /// Whether log collectors should attach diagnostic payload carriers.
+    pub(crate) logs_include_diagnostics: bool,
 }
 
 impl DiscoveryLoopContext {
@@ -268,6 +270,7 @@ impl DiscoveryLoopContext {
             nmxt_config: config.collectors.nmxt.clone(),
             nvue_config: config.collectors.nvue.clone(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
+            logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
         })
     }
 }

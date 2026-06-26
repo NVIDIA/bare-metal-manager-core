@@ -64,6 +64,25 @@ pub struct SecretsContext {
     pub kms: Arc<dyn KmsBackend>,
 }
 
+/// Reject a nonsensical `[secrets].backends` list at boot: empty (at least one
+/// backend is required -- the local-override readers alone can't be the whole
+/// credential source), or a backend named twice (dead after the first, by
+/// first-match-wins). The order of the backends is the operator's choice.
+pub fn validate_backends(backends: &[crate::cfg::file::CredentialBackend]) -> eyre::Result<()> {
+    if backends.is_empty() {
+        return Err(eyre::eyre!(
+            "[secrets].backends is empty; at least one backend (postgres or vault) is required"
+        ));
+    }
+    let unique: std::collections::HashSet<_> = backends.iter().collect();
+    if unique.len() != backends.len() {
+        return Err(eyre::eyre!(
+            "[secrets].backends names a backend more than once"
+        ));
+    }
+    Ok(())
+}
+
 /// The secret path that records vault import completion. It starts with a
 /// slash on purpose: real credential paths never do, so no `CredentialKey`
 /// can collide with it, and the kek-scoped journal queries exclude it.
@@ -452,3 +471,32 @@ impl CredentialWriter for PostgresCredentialManager {
 }
 
 impl CredentialManager for PostgresCredentialManager {}
+
+#[cfg(test)]
+mod backend_validation_tests {
+    use super::validate_backends;
+    use crate::cfg::file::CredentialBackend;
+
+    #[test]
+    fn accepts_any_order_of_distinct_backends() {
+        assert!(validate_backends(&[CredentialBackend::Vault]).is_ok());
+        assert!(validate_backends(&[CredentialBackend::Postgres]).is_ok());
+        assert!(
+            validate_backends(&[CredentialBackend::Postgres, CredentialBackend::Vault]).is_ok()
+        );
+        // Order is the operator's choice -- vault ahead of postgres is fine.
+        assert!(
+            validate_backends(&[CredentialBackend::Vault, CredentialBackend::Postgres]).is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_empty_backends() {
+        assert!(validate_backends(&[]).is_err());
+    }
+
+    #[test]
+    fn rejects_a_backend_named_twice() {
+        assert!(validate_backends(&[CredentialBackend::Vault, CredentialBackend::Vault]).is_err());
+    }
+}

@@ -78,6 +78,11 @@ fn default_true() -> bool {
     true
 }
 
+enum DpuType {
+    Bluefield3,
+    Bluefield4,
+}
+
 impl Default for DpuSettings {
     fn default() -> Self {
         Self {
@@ -122,7 +127,9 @@ impl DpuMachineInfo {
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
             | HostHardwareType::SupermicroGb300Nvl => hw::bluefield3::Mode::B3240ColdAisle,
-            HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
+            HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::NvidiaSwitchNd5200Ld
+            | HostHardwareType::DellPowerEdgeR760Bf4 => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
             }
         };
@@ -139,6 +146,75 @@ impl DpuMachineInfo {
                 erot: settings.firmware_versions.cec.clone().unwrap_or_default(),
                 dpu_nic: settings.firmware_versions.nic.clone().unwrap_or_default(),
             },
+        }
+    }
+
+    fn bluefield4(&self) -> hw::bluefield4::Bluefield4<'_> {
+        hw::bluefield4::Bluefield4 {
+            host_mac_address: self.host_mac_address,
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+        }
+    }
+
+    fn dpu_type(&self) -> DpuType {
+        match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750
+            | HostHardwareType::NvidiaDgxH100
+            | HostHardwareType::GenericAmi
+            | HostHardwareType::GenericSupermicro
+            | HostHardwareType::WiwynnGB200Nvl
+            | HostHardwareType::LenovoGB300Nvl
+            | HostHardwareType::NvidiaDgxGb300
+            | HostHardwareType::SupermicroGb300Nvl
+            | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::NvidiaSwitchNd5200Ld => DpuType::Bluefield3,
+            HostHardwareType::DellPowerEdgeR760Bf4 => DpuType::Bluefield4,
+        }
+    }
+
+    pub fn bmc_product(&self) -> Option<&'static str> {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => Some("BlueField-3 DPU"),
+            DpuType::Bluefield4 => Some("B4240"),
+        }
+    }
+
+    pub fn manager_config(&self) -> redfish::manager::Config {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => self.bluefield3().manager_config(),
+            DpuType::Bluefield4 => self.bluefield4().manager_config(),
+        }
+    }
+
+    pub fn system_config(
+        &self,
+        callbacks: Arc<dyn crate::Callbacks>,
+    ) -> redfish::computer_system::Config {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => self.bluefield3().system_config(callbacks),
+            DpuType::Bluefield4 => self.bluefield4().system_config(callbacks),
+        }
+    }
+
+    pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => self.bluefield3().chassis_config(),
+            DpuType::Bluefield4 => self.bluefield4().chassis_config(),
+        }
+    }
+
+    pub fn update_service_config(&self) -> UpdateServiceConfig {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => self.bluefield3().update_service_config(),
+            DpuType::Bluefield4 => self.bluefield4().update_service_config(),
+        }
+    }
+
+    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => self.bluefield3().discovery_info(),
+            DpuType::Bluefield4 => self.bluefield4().discovery_info(),
         }
     }
 }
@@ -192,7 +268,7 @@ impl HostMachineInfo {
 
     pub fn oem_state(&self) -> redfish::oem::State {
         match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => {
+            HostHardwareType::DellPowerEdgeR750 | HostHardwareType::DellPowerEdgeR760Bf4 => {
                 redfish::oem::State::DellIdrac(redfish::oem::dell::idrac::IdracState::default())
             }
             HostHardwareType::WiwynnGB200Nvl
@@ -209,7 +285,9 @@ impl HostMachineInfo {
 
     pub fn bmc_vendor(&self) -> redfish::oem::BmcVendor {
         match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => redfish::oem::BmcVendor::Dell,
+            HostHardwareType::DellPowerEdgeR750 | HostHardwareType::DellPowerEdgeR760Bf4 => {
+                redfish::oem::BmcVendor::Dell
+            }
             HostHardwareType::WiwynnGB200Nvl => redfish::oem::BmcVendor::Wiwynn,
             HostHardwareType::LenovoGB300Nvl => redfish::oem::BmcVendor::Ami,
             HostHardwareType::NvidiaDgxGb300 => {
@@ -229,6 +307,9 @@ impl HostMachineInfo {
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => None,
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                Some("Integrated Dell Remote Access Controller")
+            }
             HostHardwareType::WiwynnGB200Nvl => Some("GB200 NVL"),
             HostHardwareType::LenovoGB300Nvl => Some("AMI Redfish Server"),
             HostHardwareType::NvidiaDgxGb300 => Some("GB BMC"),
@@ -243,7 +324,9 @@ impl HostMachineInfo {
 
     pub fn bmc_redfish_version(&self) -> &'static str {
         match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => "1.18.0",
+            HostHardwareType::DellPowerEdgeR750 | HostHardwareType::DellPowerEdgeR760Bf4 => {
+                "1.18.0"
+            }
             HostHardwareType::WiwynnGB200Nvl => "1.17.0",
             HostHardwareType::LenovoGB300Nvl => "1.21.1",
             HostHardwareType::NvidiaDgxGb300 => "1.17.0",
@@ -259,6 +342,9 @@ impl HostMachineInfo {
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().manager_config(),
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                self.dell_poweredge_r760_bf4().manager_config()
+            }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().manager_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().manager_config(),
@@ -282,6 +368,9 @@ impl HostMachineInfo {
             HostHardwareType::DellPowerEdgeR750 => {
                 self.dell_poweredge_r750().system_config(callbacks)
             }
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                self.dell_poweredge_r760_bf4().system_config(callbacks)
+            }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().system_config(callbacks),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().system_config(callbacks),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().system_config(callbacks),
@@ -302,6 +391,9 @@ impl HostMachineInfo {
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().chassis_config(),
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                self.dell_poweredge_r760_bf4().chassis_config()
+            }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().chassis_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().chassis_config(),
@@ -321,6 +413,9 @@ impl HostMachineInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => {
                 self.dell_poweredge_r750().update_service_config()
+            }
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                self.dell_poweredge_r760_bf4().update_service_config()
             }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().update_service_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().update_service_config(),
@@ -342,6 +437,9 @@ impl HostMachineInfo {
     pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
+            HostHardwareType::DellPowerEdgeR760Bf4 => {
+                self.dell_poweredge_r760_bf4().discovery_info()
+            }
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
@@ -393,6 +491,19 @@ impl HostMachineInfo {
                 port_1: next_mac(),
                 port_2: next_mac(),
             },
+        }
+    }
+
+    fn dell_poweredge_r760_bf4(&self) -> hw::dell_poweredge_r760_bf4::DellPowerEdgeR760Bf4<'_> {
+        let mut dpus = self.dpus.iter();
+        hw::dell_poweredge_r760_bf4::DellPowerEdgeR760Bf4 {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+            bf4: dpus
+                .next()
+                .expect("BF4 dpu must present")
+                .bluefield4()
+                .host_nic(),
         }
     }
 
@@ -695,7 +806,7 @@ impl MachineInfo {
     pub fn manager_config(&self) -> redfish::manager::Config {
         match self {
             MachineInfo::Host(host) => host.manager_config(),
-            MachineInfo::Dpu(dpu) => dpu.bluefield3().manager_config(),
+            MachineInfo::Dpu(dpu) => dpu.manager_config(),
         }
     }
 
@@ -718,7 +829,7 @@ impl MachineInfo {
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self {
             MachineInfo::Host(h) => h.bmc_product(),
-            MachineInfo::Dpu(_) => Some("BlueField-3 DPU"),
+            MachineInfo::Dpu(d) => d.bmc_product(),
         }
     }
 
@@ -728,21 +839,21 @@ impl MachineInfo {
     ) -> redfish::computer_system::Config {
         match self {
             MachineInfo::Host(host) => host.system_config(callbacks),
-            MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(callbacks),
+            MachineInfo::Dpu(dpu) => dpu.system_config(callbacks),
         }
     }
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         match self {
             Self::Host(h) => h.chassis_config(),
-            Self::Dpu(dpu) => dpu.bluefield3().chassis_config(),
+            Self::Dpu(dpu) => dpu.chassis_config(),
         }
     }
 
     pub fn update_service_config(&self) -> UpdateServiceConfig {
         match self {
             Self::Host(h) => h.update_service_config(),
-            Self::Dpu(dpu) => dpu.bluefield3().update_service_config(),
+            Self::Dpu(dpu) => dpu.update_service_config(),
         }
     }
 
@@ -786,7 +897,7 @@ impl MachineInfo {
     pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
         match self {
             Self::Host(h) => h.discovery_info(),
-            Self::Dpu(dpu) => dpu.bluefield3().discovery_info(),
+            Self::Dpu(dpu) => dpu.discovery_info(),
         }
     }
 

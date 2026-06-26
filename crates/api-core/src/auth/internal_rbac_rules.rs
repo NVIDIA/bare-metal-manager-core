@@ -306,6 +306,7 @@ impl InternalRBACRules {
         x.perm("GetMachineBootOverride", vec![ForgeAdminCLI]);
         x.perm("SetMachineBootOverride", vec![ForgeAdminCLI]);
         x.perm("ClearMachineBootOverride", vec![ForgeAdminCLI]);
+        x.perm("GetMachineBootInterfaces", vec![ForgeAdminCLI]);
         x.perm("GetNetworkTopology", vec![ForgeAdminCLI]);
         x.perm("FindNetworkDevicesByDeviceIds", vec![ForgeAdminCLI]);
         x.perm("CreateCredential", vec![ForgeAdminCLI]);
@@ -498,6 +499,7 @@ impl InternalRBACRules {
             "GetMachineValidationAttempt",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);

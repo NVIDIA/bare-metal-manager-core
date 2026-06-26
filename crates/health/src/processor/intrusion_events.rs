@@ -202,6 +202,7 @@ mod tests {
             body: body.to_string(),
             severity: severity.to_string(),
             attributes,
+            diagnostic_record: None,
         }))
     }
 
