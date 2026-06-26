@@ -2654,7 +2654,7 @@ paths:
           in: query
           name: vpcId
           required: false
-          description: Optional filter by VPC ID involved in the peering as either vpc1 or vpc2.
+          description: Optional filter by VPC ID involved in the peering as either vpc1 or vpc2. Repeat the parameter to match multiple VPCs.
         - schema:
             type: string
             format: uuid

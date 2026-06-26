@@ -361,7 +361,7 @@ func (r ApiGetAllVpcPeeringRequest) Status(status string) ApiGetAllVpcPeeringReq
 	return r
 }
 
-// Optional filter by VPC ID involved in the peering as either vpc1 or vpc2.
+// Optional filter by VPC ID involved in the peering as either vpc1 or vpc2. Repeat the parameter to match multiple VPCs.
 func (r ApiGetAllVpcPeeringRequest) VpcId(vpcId string) ApiGetAllVpcPeeringRequest {
 	r.vpcId = &vpcId
 	return r
