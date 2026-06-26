@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use tonic::metadata::MetadataMap;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{Extensions, Request};
 
 use super::proto::g_nmi_client::GNmiClient as TonicGnmiClient;
@@ -141,19 +141,30 @@ impl GnmiClient {
                 ))
             })?;
 
+        // tonic 0.14 auto-injects a strict WebPKI/system-root TLS verifier when an
+        // Endpoint is built from an `https://` URI and layers its own TlsConnector
+        // over any custom connector (see tonic transport channel/service/connector.rs).
+        // That silently negated a hand-rolled hyper-rustls skip-verify connector and
+        // made tonic strictly reject the switch's self-signed NVOS gNMI cert (SAN does
+        // not cover the management IP). Use tonic's native custom-verifier hook so the
+        // skip-verify verifier is the one tonic actually applies. ClientTlsConfig::new()
+        // must NOT set any roots here (mixing roots + custom verifier is an error).
         let endpoint = Endpoint::from(uri)
+            .tls_config_with_verifier(
+                ClientTlsConfig::new(),
+                crate::collectors::nvue::tls::accept_any_cert_verifier(),
+            )
+            .map_err(|e| {
+                HealthError::GnmiError(format!(
+                    "switch {}: invalid gNMI TLS config: {e}",
+                    self.switch_id
+                ))
+            })?
             .connect_timeout(self.request_timeout)
             .timeout(self.request_timeout);
 
-        let tls_config = crate::collectors::nvue::tls::self_signed_tls_config();
-        let connector = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(tls_config)
-            .https_only()
-            .enable_http2()
-            .build();
-
         let channel = endpoint
-            .connect_with_connector(connector)
+            .connect()
             .await
             .map_err(|e| {
                 HealthError::GnmiError(format!(
