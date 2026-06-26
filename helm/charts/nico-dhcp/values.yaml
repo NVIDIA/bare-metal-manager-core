@@ -127,6 +127,7 @@ config:
     renewTimer: 900
     rebindTimer: 1800
     validLifetime: 3600
+    declineProbationPeriod: 900
 
     ## libdhcp hook parameters — these become the JSON object at
     ## Dhcp4.hooks-libraries[0].parameters and are read by the

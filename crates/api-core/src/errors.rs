@@ -293,6 +293,13 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::InvalidArgument(e) => InvalidArgument(e),
             DatabaseError::InvalidConfiguration(e) => InvalidConfiguration(e),
             DatabaseError::MissingArgument(e) => MissingArgument(e),
+            // A corrupted/absent site-wide rotation invariant is an internal
+            // state error, not a client-correctable one.
+            DatabaseError::MissingSitewideRotationTarget(credential_type) => Internal {
+                message: format!(
+                    "no site-wide rotation target for credential type: {credential_type:?}"
+                ),
+            },
             DatabaseError::NetworkParseError(e) => NetworkParseError(e),
             DatabaseError::NetworkSegmentDelete(e) => NetworkSegmentDelete(e),
             DatabaseError::NetworkSegmentDuplicateMacAddress(e) => {

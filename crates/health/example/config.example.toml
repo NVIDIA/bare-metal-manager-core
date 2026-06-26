@@ -73,11 +73,22 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
 [sinks.tracing]
 enabled = false
 
+# Include Redfish diagnostic payload fields in tracing output.
+# Payload bodies are forwarded opaquely and may be large. If every
+# diagnostic-capable sink leaves diagnostics off, collectors do not attach them.
+include_diagnostics = false
+
 [sinks.prometheus]
 enabled = true
 
 [sinks.log_file]
 enabled = false
+
+# Include Redfish diagnostic payload fields in JSONL output.
+# If every diagnostic-capable sink leaves diagnostics off, collectors do not
+# attach them.
+include_diagnostics = false
+
 output_dir = "/tmp/logs"
 max_file_size = 104857600 # 100MB
 max_backups = 5
@@ -85,6 +96,13 @@ max_backups = 5
 [sinks.otlp]
 enabled = false
 endpoint = "http://localhost:4317"
+
+# Include Redfish diagnostic payload fields in OTLP logs.
+# If every diagnostic-capable sink leaves diagnostics off, collectors do not
+# attach them. OTLP exports parent logs normally and keeps diagnostics as
+# latest-wins per endpoint while the drain is backed up.
+include_diagnostics = false
+
 batch_size = 512
 flush_interval = "2s"
 

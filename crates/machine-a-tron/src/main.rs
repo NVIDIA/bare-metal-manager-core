@@ -17,9 +17,13 @@
 use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bmc_mock::mac_address_pool::{
+    Config as MacAddressConfig, MacAddressPool, PoolConfig as MacAddressPoolConfig,
+    RangesConfig as MacAddressRangesConfig,
+};
 use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
@@ -27,6 +31,7 @@ use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
     get_client_cert_info, get_config_from_file, get_proxy_info, get_root_ca_path,
 };
+use mac_address::MacAddress;
 use machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
     MachineATronConfig, MachineATronContext, MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs,
@@ -137,6 +142,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
 
+    let mac_address_pool = MacAddressPool::new(MacAddressConfig {
+        pool: Some(
+            app_config
+                .mac_address_pool
+                .as_ref()
+                .map(|pool| MacAddressPoolConfig::new(pool.base, pool.host_bits))
+                .unwrap_or_else(|| {
+                    MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 24)
+                })?,
+        ),
+        ranges: Some(
+            app_config
+                .hw_mac_address_ranges
+                .as_ref()
+                .map(|config| {
+                    MacAddressRangesConfig::new(
+                        config.base,
+                        config.host_bits,
+                        config.range_host_bits,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8)
+                })?,
+        ),
+    });
+
     let app_context = Arc::new(MachineATronContext {
         app_config,
         forge_client_config,
@@ -145,6 +177,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         api_throttler,
         desired_firmware_versions,
         forge_api_client,
+        mac_address_pool: Mutex::new(mac_address_pool).into(),
     });
 
     let info = app_context.forge_api_client.version(false).await?;

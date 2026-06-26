@@ -4263,6 +4263,19 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::transition(next_state))
             }
             DpuInitState::WaitingForPlatformConfiguration => {
+                // A known BMC MAC is a hard precondition for setting the DPU UEFI
+                // password: it keys the dpu_uefi rotation bookkeeping recorded once
+                // uefi_setup succeeds below, so refuse to drive the device without
+                // it rather than discovering afterward that we cannot track it.
+                let dpu_bmc_mac =
+                    dpu_snapshot
+                        .bmc_info
+                        .mac
+                        .ok_or_else(|| StateHandlerError::MissingData {
+                            object_id: dpu_snapshot.id.to_string(),
+                            missing: "bmc_mac",
+                        })?;
+
                 let dpu_redfish_client = match ctx
                     .services
                     .create_redfish_client_from_machine(dpu_snapshot)
@@ -4384,7 +4397,27 @@ impl DpuMachineStateHandler {
                 let next_state = DpuInitState::PollingBiosSetup
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
-                Ok(StateHandlerOutcome::transition(next_state))
+                // The DPU's UEFI password is now the site-wide value (just set via
+                // uefi_setup above): record dpu_uefi convergence so the rotation
+                // engine tracks this DPU from ingestion onward (mirrors the
+                // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
+                // validated as a precondition at the top of this state. Committed
+                // with the state transition below.
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::credential_rotation::record_device_converged(
+                    &mut txn,
+                    dpu_bmc_mac,
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
+                )
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "record dpu_uefi credential rotation convergence failed: {}",
+                        e
+                    ))
+                })?;
+
+                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
             }
 
             DpuInitState::PollingBiosSetup => {
@@ -5300,6 +5333,19 @@ async fn handle_host_uefi_setup(
     state: &mut ManagedHostStateSnapshot,
     uefi_setup_info: UefiSetupInfo,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // A known BMC MAC is a hard precondition for driving UEFI setup: it keys the
+    // host_uefi rotation bookkeeping recorded once the password job completes, so
+    // refuse to touch the device if we cannot identify (and later track) it.
+    let host_bmc_mac =
+        state
+            .host_snapshot
+            .bmc_info
+            .mac
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: state.host_snapshot.id.to_string(),
+                missing: "bmc_mac",
+            })?;
+
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&state.host_snapshot)
@@ -5444,6 +5490,24 @@ async fn handle_host_uefi_setup(
                         e
                     ))
                 })?;
+
+            // The host's UEFI password is now the site-wide value: record it as
+            // converged to the current host_uefi target so the rotation engine
+            // tracks this host from ingestion onward (mirrors the backfill, which
+            // keys host UEFI by the host BMC MAC). The MAC was validated as a
+            // precondition at the top of this handler.
+            db::credential_rotation::record_device_converged(
+                &mut txn,
+                host_bmc_mac,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!(
+                    "record host_uefi credential rotation convergence failed: {}",
+                    e
+                ))
+            })?;
 
             Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
                 machine_state: MachineState::WaitingForLockdown {

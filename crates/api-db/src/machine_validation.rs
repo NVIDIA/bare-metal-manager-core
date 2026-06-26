@@ -150,9 +150,18 @@ pub async fn mark_stale_if_active(
         WHERE id=$1
         AND end_time IS NULL
         AND state IN ('Started', 'InProgress')
-        AND start_time
-            + (GREATEST(duration_to_complete, 0) * INTERVAL '1 second')
-            + ($3::bigint * INTERVAL '1 second') < $4
+        AND (
+            (
+                last_heartbeat_at IS NOT NULL
+                AND last_heartbeat_at + ($3::bigint * INTERVAL '1 second') < $4
+            )
+            OR (
+                last_heartbeat_at IS NULL
+                AND start_time
+                    + (GREATEST(duration_to_complete, 0) * INTERVAL '1 second')
+                    + ($3::bigint * INTERVAL '1 second') < $4
+            )
+        )
         RETURNING *";
     sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)

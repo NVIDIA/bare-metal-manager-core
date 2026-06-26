@@ -6,7 +6,10 @@ package site
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +20,7 @@ import (
 
 	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
@@ -834,4 +838,171 @@ func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc cli
 		tc:             tc,
 		cfg:            cfg,
 	}
+}
+
+const (
+	siteFabricIPBlockDescription = "Automatically created from Site fabric prefix"
+	siteFabricIPBlockNamePrefix  = "site-fabric"
+	siteFabricIPBlockReadyMsg    = "IP Block is ready for use"
+)
+
+// UpdateIPBlocksInDBFromFabricPrefixes creates Site-level DatacenterOnly IP
+// Blocks for the fabric prefixes reported by the Site as part of its Site
+// Config inventory. Existing root IP Blocks for the same provider, Site,
+// prefix, and prefix length are left untouched, so the activity is idempotent.
+func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, siteID uuid.UUID, siteFabricPrefixes []string) error {
+	logger := log.With().
+		Str("Activity", "UpdateIPBlocksInDBFromFabricPrefixes").
+		Str("SiteID", siteID.String()).
+		Logger()
+
+	logger.Info().Msg("starting activity")
+
+	siteDAO := cdbm.NewSiteDAO(mst.dbSession)
+	dbSite, err := siteDAO.GetByID(ctx, nil, siteID, nil, false)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Site from DB by ID")
+		return err
+	}
+
+	// Parse and de-duplicate the reported prefixes before opening the write
+	// transaction so an invalid prefix fails the activity without creating any
+	// IP Blocks.
+	seen := map[string]bool{}
+	prefixes := make([]netip.Prefix, 0, len(siteFabricPrefixes))
+	for _, cidr := range siteFabricPrefixes {
+		prefix, perr := netip.ParsePrefix(cidr)
+		if perr != nil {
+			logger.Error().Err(perr).Str("Prefix", cidr).Msg("failed to parse Site fabric prefix")
+			return fmt.Errorf("parse Site fabric prefix %q: %w", cidr, perr)
+		}
+		prefix = prefix.Masked()
+		if seen[prefix.String()] {
+			continue
+		}
+		seen[prefix.String()] = true
+		prefixes = append(prefixes, prefix)
+	}
+	if len(prefixes) == 0 {
+		logger.Info().Msg("no Site fabric prefixes reported")
+		return nil
+	}
+
+	ipBlockDAO := cdbm.NewIPBlockDAO(mst.dbSession)
+	statusDetailDAO := cdbm.NewStatusDetailDAO(mst.dbSession)
+
+	err = cdb.WithTx(ctx, mst.dbSession, func(tx *cdb.Tx) error {
+		if derr := tx.AcquireAdvisoryLock(ctx, siteFabricIPBlocksLockID(dbSite), false); derr != nil {
+			logger.Error().Err(derr).Msg("failed to acquire advisory lock for Site fabric IP Blocks")
+			return derr
+		}
+
+		ipamStorage := ipam.NewIpamStorage(mst.dbSession.DB, tx.GetBunTx())
+
+		for _, prefix := range prefixes {
+			address := prefix.Addr()
+			prefixAddr := address.String()
+			prefixLength := prefix.Bits()
+
+			_, existing, derr := ipBlockDAO.GetAll(
+				ctx,
+				tx,
+				cdbm.IPBlockFilterInput{
+					SiteIDs:        []uuid.UUID{dbSite.ID},
+					Prefixes:       []string{prefixAddr},
+					PrefixLengths:  []int{prefixLength},
+					RoutingTypes:   []string{cdbm.IPBlockRoutingTypeDatacenterOnly},
+					ExcludeDerived: true,
+				},
+				cdbp.PageInput{Limit: cloudutils.GetPtr(1)},
+				nil,
+			)
+			if derr != nil {
+				return derr
+			}
+			if existing > 0 {
+				continue
+			}
+
+			protocolVersion := cdbm.IPBlockProtocolVersionV4
+			name := fmt.Sprintf("%s-ipv4-%s-%d", siteFabricIPBlockNamePrefix, strings.ReplaceAll(prefixAddr, ".", "-"), prefixLength)
+			if !address.Is4() {
+				protocolVersion = cdbm.IPBlockProtocolVersionV6
+				octets := address.As16()
+				name = fmt.Sprintf("%s-ipv6-%s-%d", siteFabricIPBlockNamePrefix, hex.EncodeToString(octets[:]), prefixLength)
+			}
+
+			if _, derr = ipam.CreateIpamEntryForIPBlock(
+				ctx,
+				ipamStorage,
+				prefixAddr,
+				prefixLength,
+				cdbm.IPBlockRoutingTypeDatacenterOnly,
+				dbSite.InfrastructureProviderID.String(),
+				dbSite.ID.String(),
+			); derr != nil {
+				logger.Error().
+					Err(derr).
+					Str("Prefix", prefixAddr).
+					Int("PrefixLength", prefixLength).
+					Msg("error creating Site fabric IPAM prefix")
+				return derr
+			}
+
+			createdIPBlock, derr := ipBlockDAO.Create(ctx, tx, cdbm.IPBlockCreateInput{
+				Name:                     name,
+				Description:              cloudutils.GetPtr(siteFabricIPBlockDescription),
+				SiteID:                   dbSite.ID,
+				InfrastructureProviderID: dbSite.InfrastructureProviderID,
+				RoutingType:              cdbm.IPBlockRoutingTypeDatacenterOnly,
+				Prefix:                   prefixAddr,
+				PrefixLength:             prefixLength,
+				ProtocolVersion:          protocolVersion,
+				Status:                   cdbm.IPBlockStatusReady,
+				CreatedBy:                &dbSite.CreatedBy,
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error creating Site fabric IPBlock in DB")
+				return derr
+			}
+
+			if _, derr = statusDetailDAO.CreateFromParams(
+				ctx,
+				tx,
+				createdIPBlock.ID.String(),
+				cdbm.IPBlockStatusReady,
+				cloudutils.GetPtr(siteFabricIPBlockReadyMsg),
+			); derr != nil {
+				logger.Error().Err(derr).Msg("error creating Site fabric IPBlock StatusDetail in DB")
+				return derr
+			}
+
+			logger.Info().
+				Str("IPBlockID", createdIPBlock.ID.String()).
+				Str("Prefix", prefixAddr).
+				Int("PrefixLength", prefixLength).
+				Msg("created Site fabric IP Block")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	logger.Info().Msg("successfully completed activity")
+
+	return nil
+}
+
+// siteFabricIPBlocksLockID derives the advisory lock that serializes Site
+// fabric IP Block creation for a Site. It is shared with the activity's tests,
+// which acquire the same lock to exercise contention handling.
+func siteFabricIPBlocksLockID(dbSite *cdbm.Site) uint64 {
+	return cdb.GetAdvisoryLockIDFromString(fmt.Sprintf(
+		"site-fabric-ip-blocks:%s:%s:%s",
+		dbSite.InfrastructureProviderID.String(),
+		dbSite.ID.String(),
+		cdbm.IPBlockRoutingTypeDatacenterOnly,
+	))
 }

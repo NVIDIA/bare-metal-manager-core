@@ -16,6 +16,8 @@
  */
 
 pub(crate) mod auto;
+
+mod diagnostic;
 mod downgrade;
 mod periodic;
 mod sse;

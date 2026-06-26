@@ -19,6 +19,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
@@ -32,7 +33,7 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api_client::ApiClient;
-use crate::config::{MachineATronContext, MachineConfig, PersistedHostMachine};
+use crate::config::{self, MachineATronContext, MachineConfig, PersistedHostMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
@@ -65,6 +66,7 @@ impl HostMachine {
         machine_config_section: String,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
+        hw_mac_addr_pool: MacAddressPoolConfig,
     ) -> Self {
         let mat_id = persisted_host_machine.mat_id;
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
@@ -103,6 +105,7 @@ impl HostMachine {
             non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
             nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
             switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
+            hw_mac_addr_pool,
         };
         let dpus = dpu_machines
             .into_iter()
@@ -111,6 +114,7 @@ impl HostMachine {
 
         let state_machine = MachineStateMachine::from_persisted(
             PersistedMachine::Host(persisted_host_machine),
+            MachineInfo::Host(host_info.clone()),
             config,
             app_context.clone(),
             bmc_control_tx,
@@ -147,6 +151,8 @@ impl HostMachine {
         app_context: Arc<MachineATronContext>,
         machine_config_section: String,
         config: Arc<MachineConfig>,
+        mac_pool: &mut MacAddressPool,
+        hw_pool_config: MacAddressPoolConfig,
     ) -> Self {
         let mat_id = Uuid::new_v4();
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
@@ -167,6 +173,7 @@ impl HostMachine {
                     index,
                     app_context.clone(),
                     config.clone(),
+                    mac_pool,
                     if dpus_in_nic_mode {
                         None
                     } else {
@@ -178,6 +185,8 @@ impl HostMachine {
         let host_info = HostMachineInfo::new(
             config.hw_type,
             dpu_machines.iter().map(|d| d.dpu_info().clone()).collect(),
+            mac_pool,
+            hw_pool_config,
         );
         let dpus = dpu_machines
             .into_iter()
@@ -588,6 +597,10 @@ impl HostMachineHandle {
             observed_machine_id: live_state.observed_machine_id,
             installed_os: live_state.installed_os,
             tpm_ek_certificate: live_state.tpm_ek_certificate.clone(),
+            hw_mac_addr_pool: Some(config::MacAddressPoolConfig {
+                base: self.0.host_info.hw_mac_addr_pool.base(),
+                host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
+            }),
         }
     }
 

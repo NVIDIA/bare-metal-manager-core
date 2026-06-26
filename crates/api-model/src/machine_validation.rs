@@ -172,6 +172,7 @@ pub struct MachineValidation {
     pub context: Option<String>,
     pub status: Option<MachineValidationStatus>,
     pub duration_to_complete: i64,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
     // Columns for these exist, but are unused in rust code
     // pub description: Option<String>,
 }
@@ -198,6 +199,7 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
             filter: filter.map(|x| x.0),
             status: Some(status),
             duration_to_complete: row.try_get("duration_to_complete")?,
+            last_heartbeat_at: row.try_get("last_heartbeat_at")?,
             // description: row.try_get("description")?, // unused
         })
     }

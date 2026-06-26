@@ -18,6 +18,7 @@
 use carbide_uuid::machine_validation::{
     MachineValidationAttemptId, MachineValidationId, MachineValidationRunItemId,
 };
+use chrono::{DateTime, Utc};
 use model::machine_validation::{
     MachineValidationAttempt, MachineValidationAttemptState, MachineValidationResult,
     MachineValidationRunItem, MachineValidationRunItemState, MachineValidationTest,
@@ -32,6 +33,18 @@ const DEFAULT_TIMEOUT_SECONDS: i64 = 7200;
 // Retry-aware events will need to carry attempt identity before this can vary.
 const INITIAL_ATTEMPT_NUMBER: i32 = 1;
 const SUMMARY_LIMIT: usize = 4096;
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct StaleMachineValidationAttempt {
+    pub validation_id: MachineValidationId,
+    pub run_item_id: MachineValidationRunItemId,
+    pub attempt_id: MachineValidationAttemptId,
+    pub test_id: String,
+    pub display_name: String,
+    pub timeout_seconds: i64,
+    pub started_at: Option<DateTime<Utc>>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+}
 
 pub async fn materialize_run_plan(
     txn: &mut PgConnection,
@@ -209,6 +222,304 @@ pub async fn record_result(
     }
 
     Ok(first_terminal)
+}
+
+pub async fn record_heartbeat(
+    txn: &mut PgConnection,
+    validation_id: &MachineValidationId,
+    run_item_id: Option<&MachineValidationRunItemId>,
+    attempt_id: Option<&MachineValidationAttemptId>,
+    test_id: Option<&str>,
+    observed_at: DateTime<Utc>,
+) -> DatabaseResult<bool> {
+    let targets_run_item = run_item_id.is_some() || attempt_id.is_some() || test_id.is_some();
+    let Some(run_item_id) =
+        resolve_run_item_for_heartbeat(txn, validation_id, run_item_id, attempt_id, test_id)
+            .await?
+    else {
+        return if targets_run_item {
+            Ok(false)
+        } else {
+            update_run_heartbeat(txn, validation_id, observed_at).await
+        };
+    };
+
+    if !update_run_heartbeat(txn, validation_id, observed_at).await? {
+        return Ok(false);
+    }
+
+    if !update_run_item_heartbeat(txn, validation_id, &run_item_id, observed_at).await? {
+        return Ok(false);
+    }
+
+    update_attempt_heartbeat(txn, &run_item_id, attempt_id, observed_at).await
+}
+
+pub async fn find_stale_active_attempts(
+    txn: impl DbReader<'_>,
+    stale_run_timeout: std::time::Duration,
+    now: DateTime<Utc>,
+) -> DatabaseResult<Vec<StaleMachineValidationAttempt>> {
+    let stale_run_timeout_seconds = i64::try_from(stale_run_timeout.as_secs()).unwrap_or(i64::MAX);
+    const QUERY: &str = "
+        WITH active_attempts AS (
+            SELECT
+                run_item.run_id AS validation_id,
+                run_item.id AS run_item_id,
+                attempt.id AS attempt_id,
+                run_item.test_id,
+                run_item.display_name,
+                run_item.timeout_seconds,
+                attempt.started_at,
+                attempt.last_heartbeat_at,
+                COALESCE(
+                    attempt.last_heartbeat_at,
+                    attempt.started_at,
+                    run_item.last_heartbeat_at
+                ) AS heartbeat_reference
+            FROM machine_validation_attempts attempt
+            JOIN machine_validation_run_items run_item
+                ON run_item.id=attempt.run_item_id
+            JOIN machine_validation validation
+                ON validation.id=run_item.run_id
+            WHERE validation.end_time IS NULL
+                AND validation.state IN ('Started', 'InProgress')
+                AND run_item.state='Running'
+                AND attempt.state='Running'
+        )
+        SELECT
+            validation_id,
+            run_item_id,
+            attempt_id,
+            test_id,
+            display_name,
+            timeout_seconds,
+            started_at,
+            last_heartbeat_at
+        FROM active_attempts
+        WHERE (
+            heartbeat_reference IS NOT NULL
+            AND heartbeat_reference + ($1::bigint * INTERVAL '1 second') < $2
+        ) OR (
+            started_at IS NOT NULL
+            AND started_at
+                + (GREATEST(timeout_seconds, 0) * INTERVAL '1 second')
+                + ($1::bigint * INTERVAL '1 second') < $2
+        )
+        ORDER BY validation_id, run_item_id";
+
+    sqlx::query_as::<_, StaleMachineValidationAttempt>(QUERY)
+        .bind(stale_run_timeout_seconds)
+        .bind(now)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+pub async fn mark_attempt_stale_if_active(
+    txn: &mut PgConnection,
+    attempt_id: &MachineValidationAttemptId,
+    now: DateTime<Utc>,
+    failure_reason: &str,
+) -> DatabaseResult<Option<MachineValidationId>> {
+    const QUERY: &str = "
+        WITH updated_attempt AS (
+            UPDATE machine_validation_attempts
+            SET
+                state='Failed',
+                failure_classification='StaleHeartbeat',
+                ended_at=$2,
+                stderr_summary=COALESCE(stderr_summary, $3)
+            WHERE id=$1
+                AND state='Running'
+            RETURNING run_item_id
+        ),
+        updated_run_item AS (
+            UPDATE machine_validation_run_items
+            SET
+                state='Failed',
+                ended_at=$2,
+                failure_reason=$3
+            WHERE id=(SELECT run_item_id FROM updated_attempt)
+                AND state='Running'
+            RETURNING run_id
+        )
+        SELECT run_id FROM updated_run_item";
+
+    sqlx::query_scalar::<_, MachineValidationId>(QUERY)
+        .bind(attempt_id)
+        .bind(now)
+        .bind(truncate_summary(failure_reason).unwrap_or_default())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+async fn update_run_heartbeat(
+    txn: &mut PgConnection,
+    validation_id: &MachineValidationId,
+    observed_at: DateTime<Utc>,
+) -> DatabaseResult<bool> {
+    const QUERY: &str = "
+        UPDATE machine_validation
+        SET
+            last_heartbeat_at=$2,
+            state='InProgress'
+        WHERE id=$1
+            AND end_time IS NULL
+            AND state IN ('Started', 'InProgress')
+        RETURNING id";
+
+    let updated = sqlx::query_scalar::<_, MachineValidationId>(QUERY)
+        .bind(validation_id)
+        .bind(observed_at)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
+    Ok(updated.is_some())
+}
+
+async fn resolve_run_item_for_heartbeat(
+    txn: &mut PgConnection,
+    validation_id: &MachineValidationId,
+    run_item_id: Option<&MachineValidationRunItemId>,
+    attempt_id: Option<&MachineValidationAttemptId>,
+    test_id: Option<&str>,
+) -> DatabaseResult<Option<MachineValidationRunItemId>> {
+    if let Some(attempt_id) = attempt_id {
+        const QUERY: &str = "
+            SELECT run_item.id
+            FROM machine_validation_run_items run_item
+            JOIN machine_validation_attempts attempt
+                ON attempt.run_item_id=run_item.id
+            WHERE run_item.run_id=$1
+                AND attempt.id=$2";
+
+        return sqlx::query_scalar::<_, MachineValidationRunItemId>(QUERY)
+            .bind(validation_id)
+            .bind(attempt_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(QUERY, e));
+    }
+
+    if let Some(run_item_id) = run_item_id {
+        const QUERY: &str = "
+            SELECT id
+            FROM machine_validation_run_items
+            WHERE run_id=$1
+                AND id=$2";
+
+        return sqlx::query_scalar::<_, MachineValidationRunItemId>(QUERY)
+            .bind(validation_id)
+            .bind(run_item_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(QUERY, e));
+    }
+
+    if let Some(test_id) = test_id {
+        const QUERY: &str = "
+            SELECT id
+            FROM machine_validation_run_items
+            WHERE run_id=$1
+                AND test_id=$2";
+
+        return sqlx::query_scalar::<_, MachineValidationRunItemId>(QUERY)
+            .bind(validation_id)
+            .bind(test_id)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(QUERY, e));
+    }
+
+    Ok(None)
+}
+
+async fn update_run_item_heartbeat(
+    txn: &mut PgConnection,
+    validation_id: &MachineValidationId,
+    run_item_id: &MachineValidationRunItemId,
+    observed_at: DateTime<Utc>,
+) -> DatabaseResult<bool> {
+    const QUERY: &str = "
+        UPDATE machine_validation_run_items
+        SET
+            state='Running',
+            attempt=GREATEST(attempt, $3),
+            started_at=COALESCE(started_at, $4),
+            last_heartbeat_at=$4
+        WHERE id=$1
+            AND run_id=$2
+            AND state IN ('Pending', 'Running')
+        RETURNING id";
+
+    let updated = sqlx::query_scalar::<_, MachineValidationRunItemId>(QUERY)
+        .bind(run_item_id)
+        .bind(validation_id)
+        .bind(INITIAL_ATTEMPT_NUMBER)
+        .bind(observed_at)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
+    Ok(updated.is_some())
+}
+
+async fn update_attempt_heartbeat(
+    txn: &mut PgConnection,
+    run_item_id: &MachineValidationRunItemId,
+    attempt_id: Option<&MachineValidationAttemptId>,
+    observed_at: DateTime<Utc>,
+) -> DatabaseResult<bool> {
+    let updated = match attempt_id {
+        Some(attempt_id) => {
+            const QUERY: &str = "
+                UPDATE machine_validation_attempts
+                SET
+                    state='Running',
+                    started_at=COALESCE(started_at, $3),
+                    last_heartbeat_at=$3
+                WHERE run_item_id=$1
+                    AND id=$2
+                    AND state IN ('Pending', 'Running')
+                RETURNING id";
+
+            sqlx::query_scalar::<_, MachineValidationAttemptId>(QUERY)
+                .bind(run_item_id)
+                .bind(attempt_id)
+                .bind(observed_at)
+                .fetch_optional(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::query(QUERY, e))?
+        }
+        None => {
+            const QUERY: &str = "
+                WITH selected_attempt AS (
+                    SELECT id
+                    FROM machine_validation_attempts
+                    WHERE run_item_id=$1
+                    ORDER BY attempt_number DESC
+                    LIMIT 1
+                )
+                UPDATE machine_validation_attempts
+                SET
+                    state='Running',
+                    started_at=COALESCE(started_at, $2),
+                    last_heartbeat_at=$2
+                WHERE id=(SELECT id FROM selected_attempt)
+                    AND state IN ('Pending', 'Running')
+                RETURNING id";
+
+            sqlx::query_scalar::<_, MachineValidationAttemptId>(QUERY)
+                .bind(run_item_id)
+                .bind(observed_at)
+                .fetch_optional(&mut *txn)
+                .await
+                .map_err(|e| DatabaseError::query(QUERY, e))?
+        }
+    };
+
+    Ok(updated.is_some())
 }
 
 async fn upsert_run_item_from_test(

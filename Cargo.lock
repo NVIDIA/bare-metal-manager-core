@@ -1716,7 +1716,9 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-dpa",
+ "carbide-macros",
  "carbide-secrets",
+ "carbide-sqlx-testing",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -1724,6 +1726,7 @@ dependencies = [
  "duration-str",
  "eyre",
  "http",
+ "mac_address",
  "mqttea",
  "opentelemetry",
  "rand 0.10.1",
@@ -6561,7 +6564,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.14#cc4b4460801b3302a05f52e372d10d45b51ba420"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.16#211f6e8dcdf4fa59500e3308246a6bc21a24276e"
 dependencies = [
  "chrono",
  "clap",
@@ -7220,6 +7223,7 @@ name = "nico-admin-cli"
 version = "0.0.1"
 dependencies = [
  "bmc-vendor",
+ "carbide-api-model",
  "carbide-health-report",
  "carbide-libmlx",
  "carbide-libmlx-model",

@@ -28,6 +28,7 @@ chrono = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
 http = { workspace = true }
+mac_address = { workspace = true }
 mqttea = { path = "../mqttea" }
 opentelemetry = { workspace = true }
 serde = { workspace = true }
@@ -39,6 +40,10 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
+
+[dev-dependencies]
+carbide-macros = { path = "../macros" }
+carbide-sqlx-testing = { path = "../sqlx-testing" }
 
 [lints]
 workspace = true

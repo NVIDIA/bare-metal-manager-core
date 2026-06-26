@@ -87,12 +87,25 @@ pub struct MachineValidationTestConfig {
 }
 
 impl MachineValidationConfig {
+    /// Minimum allowed stale timeout.
+    ///
+    /// Scout sends machine validation heartbeats every 30 seconds. Keep the timeout above three
+    /// missed beats so a low configured value cannot fail healthy active runs between heartbeats.
+    pub const MIN_STALE_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
 
     const fn default_stale_run_timeout() -> std::time::Duration {
         std::time::Duration::from_secs(24 * 60 * 60)
+    }
+
+    pub fn with_minimum_stale_run_timeout(mut self) -> Self {
+        self.stale_run_timeout = self
+            .stale_run_timeout
+            .max(MachineValidationConfig::MIN_STALE_RUN_TIMEOUT);
+        self
     }
 }
 
@@ -105,5 +118,37 @@ impl Default for MachineValidationConfig {
             stale_run_timeout: Self::default_stale_run_timeout(),
             tests: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_minimum_stale_run_timeout_clamps_low_configured_values() {
+        let config = MachineValidationConfig {
+            stale_run_timeout: std::time::Duration::from_secs(1),
+            ..MachineValidationConfig::default()
+        }
+        .with_minimum_stale_run_timeout();
+
+        assert_eq!(
+            config.stale_run_timeout,
+            MachineValidationConfig::MIN_STALE_RUN_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn with_minimum_stale_run_timeout_preserves_safe_configured_values() {
+        let configured_timeout = MachineValidationConfig::MIN_STALE_RUN_TIMEOUT
+            .saturating_add(std::time::Duration::from_secs(1));
+        let config = MachineValidationConfig {
+            stale_run_timeout: configured_timeout,
+            ..MachineValidationConfig::default()
+        }
+        .with_minimum_stale_run_timeout();
+
+        assert_eq!(config.stale_run_timeout, configured_timeout);
     }
 }

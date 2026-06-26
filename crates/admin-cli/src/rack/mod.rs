@@ -22,6 +22,7 @@ mod maintenance;
 pub mod metadata;
 pub mod profile;
 mod show;
+mod state_history;
 
 #[cfg(test)]
 mod tests;
@@ -46,4 +47,6 @@ pub enum Cmd {
     Profile(profile::Args),
     #[clap(subcommand, about = "On-demand rack maintenance")]
     Maintenance(maintenance::Args),
+    #[clap(about = "Show rack state history")]
+    StateHistory(state_history::Args),
 }

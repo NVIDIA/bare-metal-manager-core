@@ -66,8 +66,8 @@ func (wflow *API) GetState() []string {
 	strs = append(strs, fmt.Sprintln("Temporal Connection Attempted: ", wt.State.ConnectionAttempted.Load()))
 	strs = append(strs, fmt.Sprintln("Temporal Connection Succeeded: ", wt.State.ConnectionSucc.Load()))
 	strs = append(strs, fmt.Sprintln("Temporal Status: ", computils.CompStatus(wt.State.HealthStatus.Load()).String()))
-	strs = append(strs, fmt.Sprintln("Temporal Last Error: ", *wt.State.Err))
-	strs = append(strs, fmt.Sprintln("Temporal Connection Time: ", wt.State.ConnectionTime))
+	strs = append(strs, fmt.Sprintln("Temporal Last Error: ", wt.State.Err()))
+	strs = append(strs, fmt.Sprintln("Temporal Connection Time: ", wt.State.ConnectionTime()))
 
 	return strs
 }

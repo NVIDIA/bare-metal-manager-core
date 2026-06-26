@@ -217,6 +217,7 @@ impl TestApiBuilder {
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             SiteExplorerExploreMode::NvRedfish,
+            self.db_pool.clone(),
         );
 
         let metric_emitter = self.metric_emitter.unwrap_or_else(|| {

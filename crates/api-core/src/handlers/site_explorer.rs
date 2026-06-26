@@ -19,9 +19,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
-use carbide_site_explorer::{endpoint_exploration_work_key, enrich_endpoint_exploration_report};
+use carbide_site_explorer::enrich_endpoint_exploration_report;
 use config_version::ConfigVersion;
-use db::work_lock_manager::AcquireLockError;
 use model::expected_entity::ExpectedEntity;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -151,26 +150,72 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
-pub(crate) async fn get_explored_mlx_devices(
+pub(crate) async fn find_explored_mlx_device_host_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+    request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
+) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceHostIdList>, Status> {
+    log_request_data(&request);
+
+    // The host BMC IPs whose Redfish PCIe inventory carries a BlueField device --
+    // the pages the client walks. DPU endpoints are excluded; they report no
+    // host-side inventory and would yield no devices.
+    let endpoints = db::explored_endpoints::find_all(&api.database_connection).await?;
+    let host_ids = endpoints
+        .iter()
+        .filter(|ep| !ep.report.is_dpu() && ep.report.has_bluefield_devices())
+        .map(|ep| ep.address.to_string())
+        .collect();
+
+    Ok(Response::new(
+        ::rpc::site_explorer::ExploredMlxDeviceHostIdList { host_ids },
+    ))
+}
+
+pub(crate) async fn find_explored_mlx_devices_by_ids(
+    api: &Api,
+    request: Request<::rpc::site_explorer::ExploredMlxDevicesByIdsRequest>,
 ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
     log_request_data(&request);
 
-    let host_filter = request
+    let ips: Vec<IpAddr> = request
         .into_inner()
-        .host_bmc_ip
-        .map(|ip| IpAddr::from_str(&ip))
-        .transpose()
+        .host_ids
+        .iter()
+        .map(|rs| IpAddr::from_str(rs))
+        .collect::<Result<Vec<IpAddr>, _>>()
         .map_err(CarbideError::AddressParseError)?;
 
-    // Load every explored endpoint: the projection reads each host's PCIe
-    // inventory, and the serial join needs the DPU endpoints alongside them.
-    let endpoints = db::explored_endpoints::find_all(&api.database_connection).await?;
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if ips.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if ips.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    // Load only the requested host reports, derive the BlueField device serials
+    // they hold, then fetch just the DPU endpoints those serials match -- rather
+    // than scanning every explored endpoint per page. The serial query is
+    // constrained to DPU reports, so a host with a coincidentally matching serial
+    // is not pulled in.
+    let mut endpoints = db::explored_endpoints::find_by_ips(&api.database_connection, ips).await?;
+    let serials: Vec<String> = endpoints
+        .iter()
+        .flat_map(|ep| ep.report.bluefield_device_serials())
+        .collect();
+    if !serials.is_empty() {
+        let dpus =
+            db::explored_endpoints::find_by_dpu_serial_numbers(&api.database_connection, serials)
+                .await?;
+        endpoints.extend(dpus);
+    }
 
     let devices = model::site_explorer::collect_explored_mlx_devices(&endpoints)
         .into_iter()
-        .filter(|device| host_filter.is_none_or(|ip| device.host_bmc_ip == ip))
         .map(::rpc::site_explorer::ExploredMlxDevice::from)
         .collect();
 
@@ -259,11 +304,20 @@ pub(crate) async fn re_explore_endpoint(
     Ok(Response::new(()))
 }
 
+// Short-circuited: adhoc endpoint refresh is temporarily disabled. The probe
+// path below is retained but unreachable until the feature is re-enabled.
+#[allow(unreachable_code, unused_variables)]
 pub(crate) async fn refresh_endpoint_report(
     api: &Api,
     request: Request<rpc::RefreshEndpointReportRequest>,
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpoint>, tonic::Status> {
     log_request_data(&request);
+
+    return Err(CarbideError::UnavailableError(
+        "Endpoint refresh is temporarily unavailable".to_string(),
+    )
+    .into());
+
     let req = request.into_inner();
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
@@ -306,39 +360,14 @@ pub(crate) async fn refresh_endpoint_report(
             .map(ExpectedEntity::PowerShelf)
     };
 
-    // Acquire the per-endpoint work lock before probing. If the periodic site-explorer
-    // loop (or another concurrent refresh) is already probing this endpoint, return an
-    // error immediately rather than running a redundant Redfish call.
-    let work_lock = match api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
-        .await
-    {
-        Ok(lock) => lock,
-        Err(AcquireLockError::WorkAlreadyLocked(_)) => {
-            return Err(CarbideError::AlreadyInProgress(format!(
-                "Endpoint refresh already in progress for {bmc_ip}"
-            ))
-            .into());
-        }
-        Err(e) => {
-            return Err(CarbideError::internal(format!(
-                "Failed to acquire endpoint work lock for {bmc_ip}: {e}"
-            ))
-            .into());
-        }
-    };
-
-    // Run the probe + persist on a detached tokio task that owns the work lock.
-    // Awaiting the JoinHandle preserves the synchronous UX. Even if the caller navigates
-    // away mid-fetch, the probe will still run to completion.
+    // Run the probe + persist on a detached tokio task. Awaiting the JoinHandle
+    // preserves the synchronous UX. Even if the caller navigates away mid-fetch,
+    // the probe will still run to completion.
     let endpoint_explorer = api.endpoint_explorer.clone();
     let database_connection = api.database_connection.clone();
     let runtime_config = api.runtime_config.clone();
 
     let join_handle = tokio::spawn(async move {
-        let _work_lock = work_lock;
-
         let start = std::time::Instant::now();
         let result = endpoint_explorer
             .explore_endpoint(

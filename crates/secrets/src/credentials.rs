@@ -261,19 +261,6 @@ pub enum BmcCredentialType {
     },
 }
 
-/// Versioned site-wide UEFI "rotate-TO" target a rotation writes and controllers
-/// read before copying into a device's per-device UEFI secret. Host and DPU UEFI
-/// each get their own target (under the shared `machines/uefi/` prefix); the MAC
-/// in the per-device path distinguishes the two, but the site targets are
-/// disambiguated by this `host`/`dpu` segment.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum UefiSiteTarget {
-    /// `machines/uefi/host/site/root/v{N}`
-    Host { version: u32 },
-    /// `machines/uefi/dpu/site/root/v{N}`
-    Dpu { version: u32 },
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum NicLockdownIkm {
     /// Site-wide SuperNIC lockdown IKM (input key material), versioned for
@@ -328,10 +315,21 @@ pub enum CredentialKey {
     NicLockdownIkm {
         credential_type: NicLockdownIkm,
     },
-    /// Versioned site-wide UEFI "rotate-TO" target (`machines/uefi/...`).
-    /// Admin/rotation-written only; not a loginable per-device credential.
-    UefiSiteTarget {
-        target: UefiSiteTarget,
+    /// Versioned site-wide host UEFI "rotate-TO" target
+    /// (`machines/all_hosts/site_default/uefi-metadata-items/auth/v{N}`). The
+    /// unversioned [`CredentialKey::HostUefi`] / [`CredentialType::SiteDefault`]
+    /// path stays as the current site target (= v0) used at ingestion /
+    /// set-from-factory; this variant addresses a specific rotation target
+    /// version. Admin/rotation-written only; not a loginable per-device
+    /// credential.
+    HostUefiSiteVersioned {
+        version: u32,
+    },
+    /// Versioned site-wide DPU UEFI "rotate-TO" target
+    /// (`machines/all_dpus/site_default/uefi-metadata-items/auth/v{N}`). See
+    /// [`CredentialKey::HostUefiSiteVersioned`].
+    DpuUefiSiteVersioned {
+        version: u32,
     },
     ExtensionService {
         service_id: String,
@@ -393,8 +391,6 @@ pub enum CredentialPrefix {
     UfmAuth,
     DpuUefi,
     HostUefi,
-    /// Per-device and versioned site-wide UEFI secrets (`machines/uefi/`).
-    Uefi,
     BmcCredentials,
     NicLockdownIkm,
     ExtensionService,
@@ -418,7 +414,6 @@ impl CredentialPrefix {
             Self::UfmAuth => "ufm/",
             Self::DpuUefi => "machines/all_dpus/",
             Self::HostUefi => "machines/all_hosts/",
-            Self::Uefi => "machines/uefi/",
             Self::BmcCredentials => "machines/bmc/",
             Self::NicLockdownIkm => "machines/nic_lockdown_ikm/",
             Self::ExtensionService => "machines/extension-services/",
@@ -441,7 +436,6 @@ impl CredentialPrefix {
             Self::UfmAuth,
             Self::DpuUefi,
             Self::HostUefi,
-            Self::Uefi,
             Self::BmcCredentials,
             Self::NicLockdownIkm,
             Self::ExtensionService,
@@ -469,7 +463,8 @@ impl CredentialKey {
             Self::HostUefi { .. } => CredentialPrefix::HostUefi,
             Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
             Self::NicLockdownIkm { .. } => CredentialPrefix::NicLockdownIkm,
-            Self::UefiSiteTarget { .. } => CredentialPrefix::Uefi,
+            Self::HostUefiSiteVersioned { .. } => CredentialPrefix::HostUefi,
+            Self::DpuUefiSiteVersioned { .. } => CredentialPrefix::DpuUefi,
             Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
             Self::NmxM { .. } => CredentialPrefix::NmxM,
             Self::SwitchNvosAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
@@ -553,14 +548,12 @@ impl CredentialKey {
                     Cow::from(format!("machines/nic_lockdown_ikm/site/root/v{version}"))
                 }
             },
-            CredentialKey::UefiSiteTarget { target } => match target {
-                UefiSiteTarget::Host { version } => {
-                    Cow::from(format!("machines/uefi/host/site/root/v{version}"))
-                }
-                UefiSiteTarget::Dpu { version } => {
-                    Cow::from(format!("machines/uefi/dpu/site/root/v{version}"))
-                }
-            },
+            CredentialKey::HostUefiSiteVersioned { version } => Cow::from(format!(
+                "machines/all_hosts/site_default/uefi-metadata-items/auth/v{version}"
+            )),
+            CredentialKey::DpuUefiSiteVersioned { version } => Cow::from(format!(
+                "machines/all_dpus/site_default/uefi-metadata-items/auth/v{version}"
+            )),
             CredentialKey::ExtensionService {
                 service_id,
                 version,
@@ -667,17 +660,21 @@ mod tests {
         };
         assert_eq!(bmc_alias.to_key_str(), "machines/bmc/site/root");
 
-        let host_uefi = CredentialKey::UefiSiteTarget {
-            target: UefiSiteTarget::Host { version: 0 },
-        };
-        assert_eq!(host_uefi.to_key_str(), "machines/uefi/host/site/root/v0");
-        assert_eq!(host_uefi.prefix(), CredentialPrefix::Uefi);
+        // Host/DPU UEFI rotation targets are versioned in place on the existing
+        // site_default path; the unversioned alias (= v0) is unchanged.
+        let host_uefi = CredentialKey::HostUefiSiteVersioned { version: 0 };
+        assert_eq!(
+            host_uefi.to_key_str(),
+            "machines/all_hosts/site_default/uefi-metadata-items/auth/v0"
+        );
+        assert_eq!(host_uefi.prefix(), CredentialPrefix::HostUefi);
 
-        let dpu_uefi = CredentialKey::UefiSiteTarget {
-            target: UefiSiteTarget::Dpu { version: 7 },
-        };
-        assert_eq!(dpu_uefi.to_key_str(), "machines/uefi/dpu/site/root/v7");
-        assert_eq!(dpu_uefi.prefix(), CredentialPrefix::Uefi);
+        let dpu_uefi = CredentialKey::DpuUefiSiteVersioned { version: 7 };
+        assert_eq!(
+            dpu_uefi.to_key_str(),
+            "machines/all_dpus/site_default/uefi-metadata-items/auth/v7"
+        );
+        assert_eq!(dpu_uefi.prefix(), CredentialPrefix::DpuUefi);
 
         let nvos = CredentialKey::SwitchNvosSiteAdmin { version: 2 };
         assert_eq!(nvos.to_key_str(), "switch_nvos/site/admin/v2");
@@ -938,20 +935,16 @@ mod tests {
                 Check {
                     scenario: "host uefi site target",
                     input: Row {
-                        key: CredentialKey::UefiSiteTarget {
-                            target: UefiSiteTarget::Host { version: 0 },
-                        },
-                        expected_prefix: "machines/uefi/",
+                        key: CredentialKey::HostUefiSiteVersioned { version: 0 },
+                        expected_prefix: "machines/all_hosts/",
                     },
                     expect: PathChecks::all_hold(),
                 },
                 Check {
                     scenario: "dpu uefi site target",
                     input: Row {
-                        key: CredentialKey::UefiSiteTarget {
-                            target: UefiSiteTarget::Dpu { version: 0 },
-                        },
-                        expected_prefix: "machines/uefi/",
+                        key: CredentialKey::DpuUefiSiteVersioned { version: 0 },
+                        expected_prefix: "machines/all_dpus/",
                     },
                     expect: PathChecks::all_hold(),
                 },
@@ -1087,12 +1080,8 @@ mod tests {
             CredentialKey::NicLockdownIkm {
                 credential_type: NicLockdownIkm::SiteWide { version: 0 },
             },
-            CredentialKey::UefiSiteTarget {
-                target: UefiSiteTarget::Host { version: 0 },
-            },
-            CredentialKey::UefiSiteTarget {
-                target: UefiSiteTarget::Dpu { version: 0 },
-            },
+            CredentialKey::HostUefiSiteVersioned { version: 0 },
+            CredentialKey::DpuUefiSiteVersioned { version: 0 },
             CredentialKey::ExtensionService {
                 service_id: "s".to_string(),
                 version: "v".to_string(),
@@ -1130,6 +1119,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 17);
+        assert_eq!(all.len(), 16);
     }
 }
