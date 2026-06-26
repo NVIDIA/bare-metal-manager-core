@@ -312,9 +312,14 @@ pub(crate) async fn process_astra_config_status(
 
         // Iterate through the dpa_interfaces and find the one that matches the mac_address in the current obs
         // Create local variable dpa_interface based on the matching mac_address found. If no match is found, continue to the next obs.
-        let Some(dpa_interface) = dpa_interfaces.iter().find(|dpa_interface| {
-            dpa_interface.mac_address == MacAddress::from_str(&obs.mac_address).unwrap()
-        }) else {
+        let Ok(obs_mac) = MacAddress::from_str(&obs.mac_address) else {
+            tracing::error!(mac_address = %obs.mac_address, "failed to parse MAC from Astra observation, skipping");
+            continue;
+        };
+        let Some(dpa_interface) = dpa_interfaces
+            .iter()
+            .find(|dpa_interface| dpa_interface.mac_address == obs_mac)
+        else {
             tracing::info!(
                 "DPA interface {:#?} is not found in host {:#?}",
                 obs.mac_address,
@@ -347,6 +352,10 @@ pub(crate) async fn process_astra_config_status(
         &machine_observation,
     )
     .await?;
+
+    txn.commit().await.map_err(|e| CarbideError::Internal {
+        message: format!("Failed to commit transaction: {e}"),
+    })?;
 
     Ok(())
 }
