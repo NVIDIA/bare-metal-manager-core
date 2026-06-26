@@ -20,16 +20,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
-use carbide_site_explorer::endpoint_exploration_work_key;
 use common::api_fixtures::TestEnv;
 use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
-use model::site_explorer::{
-    Chassis, EndpointExplorationError, EndpointExplorationReport, ExploredEndpoint,
-};
+use model::site_explorer::{Chassis, EndpointExplorationReport};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -728,87 +725,13 @@ async fn host_bmc_ip(
     Ok(bmc_ip)
 }
 
-async fn explored_endpoint(
-    env: &TestEnv,
-    bmc_ip: IpAddr,
-) -> Result<ExploredEndpoint, Box<dyn std::error::Error>> {
-    let mut txn = env.pool.begin().await?;
-    let endpoint = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
-        .await?
-        .into_iter()
-        .next()
-        .unwrap();
-    txn.commit().await?;
-    Ok(endpoint)
-}
-
-fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
-    env.endpoint_explorer
-        .explore_endpoint_calls
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|ip| **ip == bmc_ip)
-        .count()
-}
-
 #[sqlx_test]
-async fn test_refresh_endpoint_report_bumps_report_version(
+async fn test_refresh_endpoint_report_is_unavailable(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
-
-    env.api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: bmc_ip.to_string(),
-        }))
-        .await?;
-
-    let refreshed = explored_endpoint(&env, bmc_ip).await?;
-    assert!(
-        refreshed.report_version.version_nr() > initial_version.version_nr(),
-        "refresh should bump report version from {} to a newer version, got {}",
-        initial_version.version_nr(),
-        refreshed.report_version.version_nr()
-    );
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let err = env
-        .api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: "99.99.99.99".to_string(),
-        }))
-        .await
-        .unwrap_err();
-
-    assert_eq!(err.code(), tonic::Code::NotFound);
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let mh = common::api_fixtures::create_managed_host(&env).await;
-    let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let _endpoint_lock = env
-        .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
-        .await?;
 
     let err = env
         .api
@@ -818,134 +741,7 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
         .await
         .unwrap_err();
 
-    assert_eq!(err.code(), tonic::Code::AlreadyExists);
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let mh = common::api_fixtures::create_managed_host(&env).await;
-    let bmc_ip = host_bmc_ip(&env, &mh).await?;
-
-    env.api
-        .re_explore_endpoint(Request::new(rpc::forge::ReExploreEndpointRequest {
-            ip_address: bmc_ip.to_string(),
-            if_version_match: None,
-        }))
-        .await?;
-
-    let calls_before = endpoint_explore_call_count(&env, bmc_ip);
-    let _endpoint_lock = env
-        .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
-        .await?;
-
-    env.run_site_explorer_iteration().await;
-
-    assert_eq!(
-        endpoint_explore_call_count(&env, bmc_ip),
-        calls_before,
-        "periodic site explorer probe should be skipped while refresh lock is held"
-    );
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let mh = common::api_fixtures::create_managed_host(&env).await;
-    let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
-    env.endpoint_explorer.insert_endpoint_result(
-        bmc_ip,
-        Err(EndpointExplorationError::Unreachable {
-            details: Some("refresh failure".to_string()),
-        }),
-    );
-    env.api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: bmc_ip.to_string(),
-        }))
-        .await?;
-
-    let refreshed = explored_endpoint(&env, bmc_ip).await?;
-    assert!(
-        refreshed.report_version.version_nr() > initial_version.version_nr(),
-        "failed refresh should still bump report version"
-    );
-    assert!(
-        refreshed.report.last_exploration_error.is_some(),
-        "failed refresh should persist the exploration error"
-    );
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let mh = common::api_fixtures::create_managed_host(&env).await;
-    let bmc_ip = host_bmc_ip(&env, &mh).await?;
-
-    env.api
-        .re_explore_endpoint(Request::new(rpc::forge::ReExploreEndpointRequest {
-            ip_address: bmc_ip.to_string(),
-            if_version_match: None,
-        }))
-        .await?;
-    assert!(explored_endpoint(&env, bmc_ip).await?.exploration_requested);
-
-    env.api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: bmc_ip.to_string(),
-        }))
-        .await?;
-
-    assert!(
-        !explored_endpoint(&env, bmc_ip).await?.exploration_requested,
-        "refresh should clear the pending requested exploration so the endpoint is not immediately probed again as priority work"
-    );
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_refresh_endpoint_report_lock_is_per_endpoint(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let mh_a = common::api_fixtures::create_managed_host(&env).await;
-    let mh_b = common::api_fixtures::create_managed_host(&env).await;
-    let bmc_ip_a = host_bmc_ip(&env, &mh_a).await?;
-    let bmc_ip_b = host_bmc_ip(&env, &mh_b).await?;
-    let initial_version_b = explored_endpoint(&env, bmc_ip_b).await?.report_version;
-    let _endpoint_lock = env
-        .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip_a))
-        .await?;
-
-    env.api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: bmc_ip_b.to_string(),
-        }))
-        .await?;
-
-    let refreshed_b = explored_endpoint(&env, bmc_ip_b).await?;
-    assert!(
-        refreshed_b.report_version.version_nr() > initial_version_b.version_nr(),
-        "lock for endpoint {bmc_ip_a} should not block refresh for endpoint {bmc_ip_b}"
-    );
+    assert_eq!(err.code(), tonic::Code::Unavailable);
 
     Ok(())
 }

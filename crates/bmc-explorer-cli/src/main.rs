@@ -110,6 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credential_provider.clone(),
         rotate_switch_nvos_credentials,
         mode,
+        // Standalone debug tool: no database, so rotation bookkeeping is skipped.
+        None,
     );
 
     let ip = args.bmc_ip.parse()?;

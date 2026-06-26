@@ -44,7 +44,7 @@ use crate::cfg::file::{
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
     TracingConfig, VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
-    default_bmc_session_lockout_threshold, default_max_find_by_ids,
+    default_bmc_session_lockout_threshold, default_max_find_by_ids, default_pxe_public_base_url,
 };
 
 pub fn get() -> CarbideConfig {
@@ -231,6 +231,7 @@ pub fn get() -> CarbideConfig {
         dpf: crate::cfg::file::DpfConfig::default(),
         x86_pxe_boot_url_override: None,
         arm_pxe_boot_url_override: None,
+        pxe_public_base_url: default_pxe_public_base_url(),
         set_http_boot_uri_for_vendors: vec![],
         external_api_url: None,
         external_pxe_url: None,

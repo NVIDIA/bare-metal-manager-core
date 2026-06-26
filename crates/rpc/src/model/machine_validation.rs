@@ -161,6 +161,7 @@ impl From<MachineValidation> for rpc::forge::MachineValidationRun {
             duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(
                 value.duration_to_complete.try_into().unwrap_or(0),
             ))),
+            last_heartbeat_at: value.last_heartbeat_at.map(Into::into),
         }
     }
 }

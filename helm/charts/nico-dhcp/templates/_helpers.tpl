@@ -142,6 +142,10 @@ controls the YAML→JSON name mapping.
 {{- $ld := default (dict) $k.leaseDatabase -}}
 {{- $subnets := default (list) $k.subnet4 -}}
 {{- $loggers := default (list) $k.loggers -}}
+{{- $declineProbationPeriod := 900 -}}
+{{- if hasKey $k "declineProbationPeriod" -}}
+{{- $declineProbationPeriod = $k.declineProbationPeriod -}}
+{{- end -}}
 {
   "Dhcp4": {
     "interfaces-config": {
@@ -157,7 +161,8 @@ controls the YAML→JSON name mapping.
     "renew-timer": {{ default 900 $k.renewTimer | toJson }},
     "rebind-timer": {{ default 1800 $k.rebindTimer | toJson }},
     "valid-lifetime": {{ default 3600 $k.validLifetime | toJson }},
-    {{- /*
+    "decline-probation-period": {{ $declineProbationPeriod | toJson }},
+    {{/*
       Hook parameters — write both nico-* and carbide-* keys with identical
       values so the kea hook library (crates/dhcp/src/kea/loader.cc still
       reads carbide-*) and any future nico-named build both find the value

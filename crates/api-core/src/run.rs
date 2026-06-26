@@ -34,7 +34,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
 
-use crate::cfg::file::{CarbideConfig, ImportSource, ProviderConfig, SecretsConfig};
+use crate::cfg::file::{
+    CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
+};
 use crate::listener::AdminUiRoutesBuilder;
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
@@ -200,55 +202,97 @@ pub async fn run(
 
     let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
 
-    // Build the credential reader chain. Lookups try each reader in order
-    // and the first answer wins.
-    let mut readers: Vec<Box<dyn CredentialReader>> = Vec::new();
-    if credential_config.env.enabled() {
-        readers.push(Box::new(
+    // Build the local-override readers (env, file); each is consulted only when
+    // its [credentials.*] section is enabled. The backends (postgres,
+    // vault) and the writer are chosen below.
+    let env_reader: Option<Box<dyn CredentialReader>> = if credential_config.env.enabled() {
+        Some(Box::new(
             carbide_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
-        ));
-    }
-    if credential_config.file.enabled() {
-        readers.push(Box::new(
+        ))
+    } else {
+        None
+    };
+    let file_reader: Option<Box<dyn CredentialReader>> = if credential_config.file.enabled() {
+        Some(Box::new(
             carbide_secrets::local_credentials::FileCredentialsWatcher::new(
                 credential_config.file.clone(),
             )
             .await?,
-        ));
-    }
+        ))
+    } else {
+        None
+    };
+    // The local overrides that ended up enabled, in order -- always tried
+    // ahead of the backends.
+    let local_overrides: Vec<Box<dyn CredentialReader>> =
+        [env_reader, file_reader].into_iter().flatten().collect();
 
-    // With a [secrets] section, Postgres is the whole credential backend:
-    // it answers reads, takes every write, and vault is not in the chain
-    // at all -- the strict one-time import below either completes or the
-    // process does not start. Without the section, the store comes from
-    // CARBIDE_CREDENTIAL_STORE: vault (the default), or an in-memory store
-    // suitable only for development and testing.
-    let (writer, secrets_context): (Arc<dyn CredentialWriter>, Option<SecretsContext>) =
-        if let Some(ref secrets_config) = carbide_config.secrets {
-            let routing = SecretRouting::from_config(&secrets_config.routing)
-                .map_err(eyre::Report::new)
-                .wrap_err("secrets routing configuration")?;
-            let kms = build_kms_backend(
-                secrets_config,
-                &vault_config,
-                &routing,
-                &mut join_set,
-                &cancel_token,
-            )?;
+    // With a [secrets] section, the credential chain and write target come from
+    // `backends`/`writer` -- defaulting to env -> file -> vault writing to vault,
+    // so the section alone changes nothing. The one-time vault import is
+    // independent: it runs iff `import_from` is set. Without the section, the
+    // store comes from CARBIDE_CREDENTIAL_STORE: vault (the default), or an
+    // in-memory store for development and testing.
+    let (credential_manager, secrets_context): (
+        Arc<dyn CredentialManager>,
+        Option<SecretsContext>,
+    ) = if let Some(ref secrets_config) = carbide_config.secrets {
+        // Reject a nonsensical backends list before anything with side effects
+        // runs (KMS task setup, the one-time vault import): a config error
+        // should fail the boot cleanly, not after a partial, hard-to-undo
+        // import that has already written the completion marker.
+        crate::secrets::validate_backends(&secrets_config.backends)?;
 
-            let pg_mgr = Arc::new(
-                crate::secrets::PostgresCredentialManager::new(
-                    db_pool.clone(),
-                    routing.clone(),
-                    kms.clone(),
-                )
-                .with_metrics(crate::secrets::SecretsMetrics::new(&metrics.meter)),
+        let routing = SecretRouting::from_config(&secrets_config.routing)
+            .map_err(eyre::Report::new)
+            .wrap_err("secrets routing configuration")?;
+        let kms = build_kms_backend(
+            secrets_config,
+            &vault_config,
+            &routing,
+            &mut join_set,
+            &cancel_token,
+        )?;
+
+        let pg_mgr = Arc::new(
+            crate::secrets::PostgresCredentialManager::new(
+                db_pool.clone(),
+                routing.clone(),
+                kms.clone(),
+            )
+            .with_metrics(crate::secrets::SecretsMetrics::new(&metrics.meter)),
+        );
+        tracing::info!(
+            active_provider = %secrets_config.kms.active,
+            backends = ?secrets_config.backends,
+            writer = ?secrets_config.writer,
+            "Postgres secrets backend configured"
+        );
+        // New writes all go to `writer`, but reads take the first backend in
+        // `backends` that holds the path -- first-match-wins, evaluated per path.
+        // So unless `writer` is the highest-priority backend, a write can be
+        // shadowed: if a higher-priority backend also holds that path, reads keep
+        // returning its value and never reach the writer's. E.g. with
+        // backends = [vault, postgres] and writer = postgres, a path that exists
+        // in both reads vault's value until vault's copy of that path is
+        // removed (a read-after-write gap). The same gap exists when `writer`
+        // is not in `backends` at all. Both reduce to "writer isn't the top
+        // backend." We allow it -- a deliberate shadow-write is a valid, if
+        // advanced, setup -- but warn so an accidental one is visible.
+        let writer_is_top_backend = secrets_config.backends.first() == Some(&secrets_config.writer);
+        if !writer_is_top_backend {
+            tracing::warn!(
+                writer = ?secrets_config.writer,
+                backends = ?secrets_config.backends,
+                "secrets writer's backend is not the highest-priority backend: a write to a path a \
+                 higher-priority backend also holds is shadowed on read until that copy is removed \
+                 (read-after-write gap)"
             );
-            tracing::info!(
-                active_provider = %secrets_config.kms.active,
-                "Postgres secrets backend configured"
-            );
+        }
 
+        // A one-time bulk import from vault, only when the operator asks for
+        // one. Independent of backends/writer.
+        if secrets_config.import_from == Some(ImportSource::Vault) {
             import_vault_secrets_once(
                 &db_pool,
                 secrets_config,
@@ -257,29 +301,54 @@ pub async fn run(
                 &vault_client,
             )
             .await?;
+        }
 
-            readers.push(Box::new(pg_mgr.clone()) as Box<dyn CredentialReader>);
-            (pg_mgr, Some(SecretsContext { routing, kms }))
-        } else {
-            let credential_store: Arc<dyn CredentialManager> = match std::env::var(
-                "CARBIDE_CREDENTIAL_STORE",
-            )
+        // Read order: the always-first local overrides, then the configured
+        // backends in the operator's chosen order (first match wins). The write
+        // target is the single backend `writer` names. (`backends` was
+        // validated at the top of this branch, before any side effects.)
+        let backend_readers =
+            secrets_config
+                .backends
+                .iter()
+                .map(|backend| -> Box<dyn CredentialReader> {
+                    match backend {
+                        CredentialBackend::Postgres => Box::new(pg_mgr.clone()),
+                        CredentialBackend::Vault => Box::new(vault_client.clone()),
+                    }
+                });
+        let chain: Vec<Box<dyn CredentialReader>> =
+            local_overrides.into_iter().chain(backend_readers).collect();
+        let writer: Arc<dyn CredentialWriter> = match secrets_config.writer {
+            CredentialBackend::Vault => vault_client.clone(),
+            CredentialBackend::Postgres => pg_mgr.clone(),
+        };
+        (
+            create_credential_manager_from(writer, chain),
+            Some(SecretsContext { routing, kms }),
+        )
+    } else {
+        let store: Arc<dyn CredentialManager> = match std::env::var("CARBIDE_CREDENTIAL_STORE")
             .as_deref()
             .unwrap_or("vault")
-            {
-                "vault" => vault_client.clone(),
-                "memory" => Arc::new(MemoryCredentialStore::default()),
-                other => {
-                    return Err(eyre::eyre!(
-                        "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
-                    ));
-                }
-            };
-            readers.push(Box::new(credential_store.clone()));
-            (credential_store, None)
+        {
+            "vault" => vault_client.clone(),
+            "memory" => Arc::new(MemoryCredentialStore::default()),
+            other => {
+                return Err(eyre::eyre!(
+                    "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+                ));
+            }
         };
-
-    let credential_manager = create_credential_manager_from(writer, readers);
+        // env -> file -> the configured store; nothing from [secrets] applies.
+        let chain: Vec<Box<dyn CredentialReader>> = local_overrides
+            .into_iter()
+            .chain(std::iter::once(
+                Box::new(store.clone()) as Box<dyn CredentialReader>
+            ))
+            .collect();
+        (create_credential_manager_from(store, chain), None)
+    };
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
@@ -478,23 +547,27 @@ fn build_kms_backend(
     Ok(Arc::new(MultiKmsProvider::new(active, providers)))
 }
 
-/// Run the one-time vault import if the config asks for one and the
-/// completion marker is not written yet.
+/// Run the one-time vault import, skipping if the completion marker is
+/// already written. The caller gates this on `import_from` (a fresh site
+/// simply omits it), so by the time we are here an import is wanted.
 ///
 /// The import either completes before this process serves traffic, or the
 /// process does not start: enumeration is strict (any vault list or read
 /// failure aborts the boot), and an empty enumeration aborts too, because
 /// an empty vault on a site configured to import from it is far more
 /// likely a vault problem than a truly empty vault. A genuinely fresh
-/// site simply omits `import_from`. Keeping it this absolute is what lets
-/// the credential chain exclude vault entirely whenever `[secrets]` is
-/// active -- there is no degraded half-migrated state to reason about.
+/// site simply omits `import_from`. Keeping it strict gives a clean,
+/// all-or-nothing bulk copy with no half-imported state to reason about.
 ///
-/// Rolling upgrades still need care: a replica running the old vault
-/// config can write credentials to vault after this import completes, and
-/// those writes are stranded there. Site-explorer credential rotation is
-/// the writer to worry about; keep it disabled until the whole fleet runs
-/// the `[secrets]` config.
+/// This is orthogonal to the reader chain and writer: an import seeds
+/// Postgres with vault's secrets, but the read order and write target stay
+/// exactly as `backends` / `writer` set them -- importing changes neither.
+///
+/// Rolling upgrades still need care once writes move to Postgres: a replica
+/// running an older config can write rotated credentials to its own writer,
+/// where they are stranded. Site-explorer credential rotation is the writer
+/// to worry about; keep it disabled until the whole fleet runs a consistent
+/// config.
 async fn import_vault_secrets_once(
     db_pool: &PgPool,
     secrets_config: &SecretsConfig,
@@ -502,10 +575,6 @@ async fn import_vault_secrets_once(
     kms: &dyn KmsBackend,
     vault_client: &ForgeVaultClient,
 ) -> eyre::Result<()> {
-    if secrets_config.import_from != Some(ImportSource::Vault) {
-        return Ok(());
-    }
-
     if is_import_complete(db_pool).await? {
         tracing::info!("Vault import already completed");
         return Ok(());

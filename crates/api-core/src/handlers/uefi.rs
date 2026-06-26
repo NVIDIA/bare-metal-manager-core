@@ -195,6 +195,16 @@ pub(crate) async fn set_host_uefi_password(
         CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
     })?;
 
+    // A known BMC MAC is a hard precondition for setting the UEFI password: it
+    // keys the host_uefi rotation bookkeeping recorded below, so reject the
+    // request up front rather than driving the device and only then discovering
+    // we cannot track its convergence.
+    let host_bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
+        CarbideError::InvalidArgument(
+            "Specified machine does not have a known BMC MAC address".into(),
+        )
+    })?;
+
     let bmc_access_info =
         db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
             .await?;
@@ -222,14 +232,38 @@ pub(crate) async fn set_host_uefi_password(
             tracing::error!(%e, "Failed to run uefi_setup call");
             CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
         })?;
-    api.with_txn(|txn| db::machine::update_bios_password_set_time(&machine_id, txn).boxed())
-        .await?
-        .map_err(|e| {
-            tracing::error!("Failed to update bios_password_set_time: {}", e);
-            CarbideError::Internal {
-                message: format!("Failed to update BIOS password timestamp: {e}"),
-            }
-        })?;
+    // uefi_setup returns a BMC job_id; the password change completes
+    // asynchronously on the device and we do not poll it here. We optimistically
+    // stamp bios_password_set_time and, in the same transaction, record host_uefi
+    // convergence (keyed by the host BMC MAC, mirroring the backfill) so the two
+    // always agree -- convergence rides along with the pre-existing marker. If
+    // the dispatched job ultimately fails on the BMC, both are inaccurate.
+    //
+    // TODO(credential-rotation): gate both the bios_password_set_time stamp and
+    // the host_uefi convergence record on confirmed job_id completion (poll the
+    // BMC job rather than trusting dispatch). Whatever confirms completion should
+    // perform both updates together -- convergence does not need its own separate
+    // write path or operator-facing API; it follows bios_password_set_time.
+    api.with_txn(|txn| {
+        async move {
+            db::machine::update_bios_password_set_time(&machine_id, txn).await?;
+            db::credential_rotation::record_device_converged(
+                txn,
+                host_bmc_mac,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            )
+            .await?;
+            Ok::<(), db::DatabaseError>(())
+        }
+        .boxed()
+    })
+    .await?
+    .map_err(|e| {
+        tracing::error!("Failed to update bios_password_set_time: {}", e);
+        CarbideError::Internal {
+            message: format!("Failed to update BIOS password timestamp: {e}"),
+        }
+    })?;
 
     Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
 }

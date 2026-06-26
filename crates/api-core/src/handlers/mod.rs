@@ -46,6 +46,7 @@ pub mod instance;
 pub mod instance_type;
 pub mod logical_partition;
 pub mod machine;
+pub mod machine_boot_interfaces;
 pub mod machine_discovery;
 pub mod machine_hardware_info;
 pub mod machine_identity;

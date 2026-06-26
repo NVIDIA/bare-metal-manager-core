@@ -159,7 +159,8 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 }
 
-/// Populates missing `machines.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
+/// Populates missing `machines.nvlink_info` entries, nil `domain_uuid`, or empty `chassis_serial`
+/// using NMX-C hello.
 fn populate_machine_nvlink_info_if_needed(
     machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -172,7 +173,13 @@ fn populate_machine_nvlink_info_if_needed(
         let existing = machine_nvlink_info
             .get(machine_id)
             .and_then(|info| info.as_ref());
-        if existing.is_some_and(|info| info.domain_uuid != NvLinkDomainId::nil()) {
+        let needs_update = match existing {
+            None => true,
+            Some(info) => {
+                info.domain_uuid == NvLinkDomainId::nil() || info.chassis_serial.trim().is_empty()
+            }
+        };
+        if !needs_update {
             continue;
         }
 

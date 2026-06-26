@@ -211,9 +211,12 @@ pub struct FirmwareFileArtifact {
     pub sha256: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct ScoutConfig {
-    pub script: FirmwareFileArtifact,
+    /// Legacy script metadata accepted for backwards-compatible config parsing.
+    /// Scout script selection is inferred from the PXE script registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<FirmwareFileArtifact>,
     pub execution_timeout_seconds: u32,
     pub artifact_download_timeout_seconds: u32,
 }

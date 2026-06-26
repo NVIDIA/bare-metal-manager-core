@@ -11,9 +11,6 @@ import (
 	"os"
 	"time"
 
-	"sync/atomic"
-	"unsafe"
-
 	"github.com/rs/zerolog"
 	zlogadapter "logur.dev/adapter/zerolog"
 	"logur.dev/logur"
@@ -48,14 +45,14 @@ func Orchestrator() {
 
 	// keep track how many events we've seen.
 	state.ConnectionAttempted.Inc()
-	state.ConnectionTime = time.Now().String()
+	state.SetConnectionTime(time.Now().String())
 
 	err := workflowOrchestrator()
 	if err != nil {
 		state.HealthStatus.Store(uint64(computils.CompUnhealthy))
-		tStr := err.Error()
-		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&state.Err)), unsafe.Pointer(&tStr))
-		log.Error().Msg(*state.Err)
+		errMsg := err.Error()
+		state.SetErr(errMsg)
+		log.Error().Msg(errMsg)
 	} else {
 		// keep track how many succeeded.
 		state.ConnectionSucc.Inc()

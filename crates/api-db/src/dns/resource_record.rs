@@ -130,13 +130,19 @@ impl<'r> FromRow<'r, PgRow> for DbPtrRecord {
     }
 }
 
-/// Find the PTR answers for an address: the FQDN(s) the forward shortname view
-/// publishes for whichever primary or BMC interface holds it. The `WHERE` matches
-/// `dns_records_shortname_combined`'s (primary or BMC), so a forward A/AAAA record
-/// and its PTR round-trip; the joins are otherwise narrower (no `dns_record_types`,
-/// since PTR's type is fixed) and the TTL uses `COALESCE(meta.ttl, 300)` to match
-/// the TTL the forward record is actually served with. The lookup is by `address`,
-/// so it rides the `machine_interface_addresses_address_idx` index rather than scanning.
+/// Find the PTR answers for an address: the FQDN(s) it resolves back to. Two
+/// sources, each mirroring its forward counterpart so a forward A/AAAA record and
+/// its PTR round-trip:
+/// - a machine interface that holds the address -- the `dns_records_shortname_combined`
+///   primary/BMC arm, with `COALESCE(meta.ttl, 300)` to match the forward TTL;
+/// - an overlay instance allocated the address -- read straight from the
+///   `dns_records_instance` forward view by IP, so forward and reverse share one
+///   definition; that view already carries the stored hostname and excludes
+///   `host_inband` (the host's own address, answered by the machine source).
+///
+/// Both look up by `address`, so the query rides the address indexes rather than
+/// scanning. The two arms are disjoint (an overlay address is never a machine
+/// interface address), so the `UNION` only ever merges an accidental exact match.
 pub async fn find_ptr_record(
     txn: impl DbReader<'_>,
     address: IpAddr,
@@ -151,7 +157,14 @@ pub async fn find_ptr_record(
     JOIN domains d ON d.id = mi.domain_id
     LEFT JOIN dns_record_metadata meta ON meta.id = mi.id
     WHERE mia.address = $1::inet
-      AND (mi.primary_interface = TRUE OR mi.interface_type = 'Bmc')"#;
+      AND (mi.primary_interface = TRUE OR mi.interface_type = 'Bmc')
+    UNION
+    SELECT
+        q_name AS ptr_content,
+        COALESCE(ttl, 300) AS ttl,
+        domain_id
+    FROM dns_records_instance
+    WHERE resource_record = $1::inet"#;
 
     sqlx::query_as::<_, DbPtrRecord>(query)
         .bind(address.to_string())
@@ -363,6 +376,86 @@ mod tests {
         assert!(
             records.is_empty(),
             "host_inband addresses are not published by the instance arm"
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn overlay_instance_addresses_resolve_reverse_ptr(pool: sqlx::PgPool) {
+        struct Case {
+            address: &'static str,
+            prefix: &'static str,
+            ptr: &'static str,
+        }
+        // One row per address family: the PTR answers with the instance's forward
+        // FQDN -- the reverse of #2408's A/AAAA record, so the two round-trip.
+        let cases = [
+            Case {
+                address: "10.1.2.3",
+                prefix: "10.1.2.0/24",
+                ptr: "10-1-2-3.tenant.example.com.",
+            },
+            Case {
+                address: "2001:db8:abcd::2",
+                prefix: "2001:db8:abcd::/64",
+                ptr: "2001-0db8-abcd-0000-0000-0000-0000-0002.tenant.example.com.",
+            },
+        ];
+
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) =
+            seed_instance_segment(txn.as_mut(), "tenant.example.com", "tenant").await;
+        for case in &cases {
+            add_address(
+                txn.as_mut(),
+                instance_id,
+                segment_id,
+                vpc_id,
+                case.address,
+                case.prefix,
+            )
+            .await;
+        }
+
+        for case in &cases {
+            let ptrs = super::find_ptr_record(
+                txn.as_mut(),
+                case.address.parse::<std::net::IpAddr>().unwrap(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(ptrs.len(), 1, "one PTR for {}", case.address);
+            assert_eq!(ptrs[0].ptr_content, case.ptr);
+            assert_eq!(ptrs[0].ttl, 300, "instance PTR uses the default TTL");
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn host_inband_instance_addresses_have_no_instance_ptr(pool: sqlx::PgPool) {
+        // A host_inband address is the host's own; its PTR comes from the machine
+        // source, not the instance arm. With no machine interface here there is no
+        // answer -- proving the instance arm excludes host_inband.
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) =
+            seed_instance_segment(txn.as_mut(), "host.example.com", "host_inband").await;
+        add_address(
+            txn.as_mut(),
+            instance_id,
+            segment_id,
+            vpc_id,
+            "10.9.9.9",
+            "10.9.9.0/24",
+        )
+        .await;
+
+        let ptrs = super::find_ptr_record(
+            txn.as_mut(),
+            "10.9.9.9".parse::<std::net::IpAddr>().unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            ptrs.is_empty(),
+            "host_inband addresses are not answered by the instance arm"
         );
     }
 }
