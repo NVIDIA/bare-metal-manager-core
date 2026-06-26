@@ -256,15 +256,15 @@ pub fn build_metrics_export_request(
         // promote switch identity onto the datapoint so dashboards filtering on
         // `switch_serial`/`switch_id` (underscore label form) match; these otherwise
         // only exist as OTLP *resource* attributes (`switch.serial`/`switch.id`).
-        if !attributes.iter().any(|attr| attr.key == "switch_serial") {
-            if let Some(serial) = context.switch_serial() {
-                attributes.push(kv("switch_serial", serial.to_string()));
-            }
+        if !attributes.iter().any(|attr| attr.key == "switch_serial")
+            && let Some(serial) = context.switch_serial()
+        {
+            attributes.push(kv("switch_serial", serial.to_string()));
         }
-        if !attributes.iter().any(|attr| attr.key == "switch_id") {
-            if let Some(switch_id) = context.switch_id() {
-                attributes.push(kv("switch_id", switch_id.to_string()));
-            }
+        if !attributes.iter().any(|attr| attr.key == "switch_id")
+            && let Some(switch_id) = context.switch_id()
+        {
+            attributes.push(kv("switch_id", switch_id.to_string()));
         }
 
         let data_point = NumberDataPoint {
@@ -804,6 +804,9 @@ mod tests {
         };
         let attrs = &gauge.data_points[0].attributes;
         assert_eq!(attr_value(attrs, "switch_serial"), Some("SN-SWITCH-001"));
-        assert_eq!(attr_value(attrs, "switch_id"), Some(switch_id_attr.as_str()));
+        assert_eq!(
+            attr_value(attrs, "switch_id"),
+            Some(switch_id_attr.as_str())
+        );
     }
 }
