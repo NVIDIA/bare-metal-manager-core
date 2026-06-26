@@ -1,9 +1,9 @@
 name: Stale PRs
 
 on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6am UTC
   workflow_dispatch: {}
-
-# Disabled: schedule removed to stop automatic stale close behavior
 
 permissions:
   contents: read
@@ -11,6 +11,9 @@ permissions:
 jobs:
   stale:
     name: Mark stale PRs
+    concurrency:
+      group: stale-prs
+      cancel-in-progress: false
     runs-on: linux-amd64-cpu4
     permissions:
       issues: write
