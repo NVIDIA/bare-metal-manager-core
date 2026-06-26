@@ -614,6 +614,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Canonical PXE base URL
+    #[serde(default = "default_pxe_public_base_url")]
+    pub pxe_public_base_url: String,
+
     /// Vendors for which the state controller should pin the UEFI HTTP boot
     /// URL on the BMC (via Redfish `HttpBootUri`) in addition to the existing
     /// DHCP option 67 path. Machines whose BMC vendor is NOT in this list
@@ -730,9 +734,9 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub tracing: TracingConfig,
 
-    /// Secrets backend configuration. When present, credentials live
-    /// encrypted in Postgres and vault leaves the credential chain
-    /// entirely; when absent, vault remains the credential store.
+    /// Secrets backend configuration. When present, the credential reader
+    /// chain and write target are operator-configured (defaulting to the same
+    /// env -> file -> vault behavior as when it is absent); see `SecretsConfig`.
     pub secrets: Option<SecretsConfig>,
 }
 
@@ -762,6 +766,7 @@ impl Default for TracingConfig {
 impl CarbideConfig {
     pub fn machine_state_handler_site_config(&self) -> MachineStateHandlerSiteConfig {
         MachineStateHandlerSiteConfig {
+            pxe_public_base_url: self.pxe_public_base_url.clone(),
             firmware_global: self.firmware_global.clone(),
             machine_state_controller: self.machine_state_controller.clone(),
             host_health: self.host_health,
@@ -846,24 +851,26 @@ pub enum BgpLeafSessionPassword {
     SiteWide,
 }
 
-/// Configures the Postgres secrets backend. When this section is present,
-/// credentials live encrypted in Postgres and vault is not in the
-/// credential chain at all -- the one-time import either completes before
-/// the process serves traffic, or the process does not start. Vault keeps
-/// serving PKI certificates either way.
+/// Configures the Postgres secrets backend and how credentials flow. When
+/// this section is present the reader chain and the write target come from
+/// `backends` / `writer` below; their defaults keep today's behavior
+/// (env -> file -> vault, writes to vault), so adding `[secrets]` does not
+/// change credential routing on its own. Operators choose which backends to
+/// read, in what order, and which one takes writes, by editing `backends`
+/// and `writer`. Vault keeps serving PKI certificates regardless of the
+/// chain.
 ///
-/// Enabling this on an existing site has two prerequisites that live
-/// outside this process:
+/// Two prerequisites live outside this process and matter once writes move
+/// to Postgres (`writer = "postgres"`) or vault leaves `backends`:
 ///
 /// - Services that read credentials from vault through their own chains
-///   (`bmc-proxy`, `dsx-exchange-consumer`) keep reading vault and will
-///   not see anything carbide-api writes to Postgres afterwards. They must
-///   be migrated or fed another way before credentials here change.
-/// - During a rolling upgrade, replicas still running the vault config
-///   keep writing rotated credentials to vault, where they are stranded
-///   once the import has completed. Keep autonomous credential writers
-///   (site-explorer credential rotation) disabled until the whole fleet
-///   runs this config.
+///   (`bmc-proxy`, `dsx-exchange-consumer`) will not see anything carbide-api
+///   writes to Postgres. They must be pointed at the same backend, or fed
+///   another way, before the credentials they read change.
+/// - During a rolling upgrade, replicas still on an older config keep writing
+///   rotated credentials to their own writer. Keep autonomous credential
+///   writers (site-explorer credential rotation) disabled until the whole
+///   fleet runs a consistent config.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecretsConfig {
@@ -884,9 +891,37 @@ pub struct SecretsConfig {
     /// ```
     pub routing: std::collections::HashMap<String, String>,
 
+    /// The credential *backend* read order, highest priority first (first match
+    /// wins). The local-override readers (env, file) are always tried ahead of
+    /// these, when their `[credentials.*]` section is enabled; this list only
+    /// orders the backends behind them. Order is the operator's choice -- list
+    /// the backends you want, in the priority you want. Defaults to `["vault"]`
+    /// -- with the local overrides, that is the env -> file -> vault chain.
+    ///
+    /// For example, to roll Postgres in gradually, walk this list:
+    ///
+    /// 1. `["vault"]` -- Postgres configured but not yet read.
+    /// 2. `["postgres", "vault"]` -- Postgres in front, vault as the safety net
+    ///    for anything Postgres misses.
+    /// 3. `["postgres"]` -- vault no longer read.
+    ///
+    /// An empty list, or a backend named twice, fails the boot.
+    #[serde(default = "default_secret_backends")]
+    pub backends: Vec<CredentialBackend>,
+
+    /// Where new credential writes go. Defaults to `vault`; set to `postgres`
+    /// to send new writes to the journal. Independent of `backends`: e.g.
+    /// `writer = "postgres"` while `postgres` is not in `backends` (reads still
+    /// served by vault) is a valid shadow-write -- it confirms writes land
+    /// before reads start trusting Postgres -- and only logs a warning.
+    #[serde(default)]
+    pub writer: CredentialBackend,
+
     /// A source backend to import secrets from at startup. Unset means a
     /// fresh site with nothing to import; unsupported values fail config
-    /// parsing rather than silently skipping the import.
+    /// parsing rather than silently skipping the import. Independent of
+    /// `backends`/`writer` -- importing from vault is orthogonal to where
+    /// reads and writes flow.
     pub import_from: Option<ImportSource>,
 
     /// How to treat secrets that already exist in Postgres during import.
@@ -900,6 +935,27 @@ pub struct SecretsConfig {
 #[serde(rename_all = "snake_case")]
 pub enum ImportSource {
     Vault,
+}
+
+/// A credential backend -- postgres or vault. Listed in `[secrets].backends` to
+/// order the backends behind the always-first local overrides (env, file;
+/// first match wins, see `ChainedCredentialReader`), and named by
+/// `[secrets].writer` to choose where new writes go.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CredentialBackend {
+    /// The Postgres secrets journal.
+    Postgres,
+    /// Vault/OpenBao KV. The default write target (today's behavior).
+    #[default]
+    Vault,
+}
+
+/// The default backend order (just vault). With the always-first env/file
+/// local overrides, this is the env -> file -> vault chain, so adding
+/// `[secrets]` changes nothing until an operator edits it.
+fn default_secret_backends() -> Vec<CredentialBackend> {
+    vec![CredentialBackend::Vault]
 }
 
 /// Configures the KMS backends that wrap DEKs. Several named providers can
@@ -2062,6 +2118,10 @@ pub fn default_max_network_security_group_size() -> u32 {
     200
 }
 
+pub fn default_pxe_public_base_url() -> String {
+    "http://carbide-pxe.forge:8080".to_string()
+}
+
 pub fn default_internet_l3_vni() -> u32 {
     // This is a number agreed upon between the Network
     // Infrastructure team and NICo that they will use to
@@ -2978,6 +3038,7 @@ mod tests {
             config.vpc_peering_policy_on_existing,
             Some(VpcPeeringPolicy::Mixed)
         );
+        assert_eq!(config.pxe_public_base_url, "http://pxe.example.com:8080");
         assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
@@ -4156,6 +4217,11 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             secrets.import_approach,
             crate::secrets::ImportApproach::MissingOnly
         );
+
+        // backends/writer were omitted above, so they default to vault-only
+        // (env/file are prepended separately) writing to vault.
+        assert_eq!(secrets.backends, vec![CredentialBackend::Vault]);
+        assert_eq!(secrets.writer, CredentialBackend::Vault);
     }
 
     // Verifies that a typo'd import source fails config parsing instead of
@@ -4184,6 +4250,96 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         "#;
 
         assert!(toml::from_str::<Wrapper>(toml_str).is_err());
+    }
+
+    // Verifies the backends list and writer parse from their enum values --
+    // one with Postgres in front of vault (writes to Postgres) and a
+    // postgres-only one (vault not read, writes to Postgres).
+    #[test]
+    fn secrets_config_parses_backends_and_writer() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            secrets: SecretsConfig,
+        }
+
+        let pg_first = r#"
+            [secrets]
+            backends = ["postgres", "vault"]
+            writer = "postgres"
+
+            [secrets.kms]
+            active = "local"
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "K" }
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+        let secrets = toml::from_str::<Wrapper>(pg_first)
+            .expect("parse pg-first")
+            .secrets;
+        assert_eq!(
+            secrets.backends,
+            vec![CredentialBackend::Postgres, CredentialBackend::Vault]
+        );
+        assert_eq!(secrets.writer, CredentialBackend::Postgres);
+
+        // Postgres-only reads, writes to postgres too. (The
+        // writer-defaults-to-vault case is covered by the deserialize test
+        // above, with vault still in backends -- pairing a postgres-only chain
+        // with a vault writer is the read-after-write gap run.rs warns about.)
+        let postgres_only = r#"
+            [secrets]
+            backends = ["postgres"]
+            writer = "postgres"
+
+            [secrets.kms]
+            active = "local"
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "K" }
+
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+        let secrets = toml::from_str::<Wrapper>(postgres_only)
+            .expect("parse postgres-only")
+            .secrets;
+        assert_eq!(secrets.backends, vec![CredentialBackend::Postgres]);
+        assert_eq!(secrets.writer, CredentialBackend::Postgres);
+    }
+
+    // Verifies a typo'd backend or writer value fails parsing rather than
+    // silently dropping a backend from the chain.
+    #[test]
+    fn secrets_config_rejects_unknown_backend() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[expect(dead_code)]
+            secrets: SecretsConfig,
+        }
+
+        let base_kms = r#"
+            [secrets.kms]
+            active = "local"
+            [secrets.kms.providers.local]
+            type = "integrated"
+            keys.default-key = { env = "K" }
+            [secrets.routing]
+            "/" = "default-key"
+        "#;
+
+        let bad_backend = format!("[secrets]\nbackends = [\"postgrez\"]\n{base_kms}");
+        assert!(toml::from_str::<Wrapper>(&bad_backend).is_err());
+
+        // env/file are local overrides, not backends -- they belong in
+        // [credentials.*], not [secrets].backends, so they're rejected here.
+        let env_as_backend = format!("[secrets]\nbackends = [\"env\"]\n{base_kms}");
+        assert!(toml::from_str::<Wrapper>(&env_as_backend).is_err());
+
+        let bad_writer = format!("[secrets]\nwriter = \"valt\"\n{base_kms}");
+        assert!(toml::from_str::<Wrapper>(&bad_writer).is_err());
     }
 
     // Verifies that a misspelled optional key in [secrets] -- here

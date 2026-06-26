@@ -87,6 +87,12 @@ pub struct MachineValidationTestConfig {
 }
 
 impl MachineValidationConfig {
+    /// Minimum allowed stale timeout.
+    ///
+    /// Scout sends machine validation heartbeats every 30 seconds. Keep the timeout above three
+    /// missed beats so a low configured value cannot fail healthy active runs between heartbeats.
+    pub const MIN_STALE_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }

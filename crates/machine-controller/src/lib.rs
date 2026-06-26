@@ -39,6 +39,7 @@ pub mod io;
 pub mod metrics;
 pub mod redfish;
 pub(crate) mod rpc;
+pub(crate) mod scout_firmware_scripts;
 pub mod write_ops;
 
 /// Fields of span that should be logged for each message.

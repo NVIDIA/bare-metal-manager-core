@@ -18,6 +18,7 @@ vpc_peering_policy = "exclusive"
 vpc_peering_policy_on_existing = "mixed"
 internet_l3_vni = 1337
 selected_profile = "powerefficiency"
+pxe_public_base_url = "http://pxe.example.com:8080"
 
 [tls]
 identity_pemfile_path = "/path/to/cert"

@@ -24,6 +24,7 @@ pub mod bmc_metadata;
 pub mod bmc_redfish_session;
 pub mod carbide_version;
 pub mod compute_allocation;
+pub mod credential_rotation;
 pub mod db_read;
 pub mod desired_firmware;
 pub mod dhcp_entry;
@@ -394,6 +395,8 @@ pub enum DatabaseError {
     MaxOneInterfaceAssociation,
     #[error("Fast-path allocation failed and can be retried")]
     TryAgain,
+    #[error("No site-wide rotation target for credential type: {0:?}")]
+    MissingSitewideRotationTarget(crate::credential_rotation::CredentialRotationType),
 }
 
 impl DatabaseError {

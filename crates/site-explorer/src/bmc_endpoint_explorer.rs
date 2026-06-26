@@ -35,6 +35,7 @@ use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
 };
+use sqlx::PgPool;
 
 use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
@@ -51,6 +52,12 @@ pub struct BmcEndpointExplorer {
     credential_client: CredentialClient,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
+    /// Used to record per-device BMC rotation convergence at the moment the
+    /// device is moved onto the site-wide BMC root (see
+    /// [`Self::set_bmc_root_credentials`]). `None` only for the standalone
+    /// `bmc-explorer-cli` debug tool, which runs against an in-memory credential
+    /// store and no database; in that case the rotation bookkeeping is skipped.
+    database_connection: Option<PgPool>,
 }
 
 impl BmcEndpointExplorer {
@@ -61,6 +68,7 @@ impl BmcEndpointExplorer {
         credential_manager: Arc<dyn CredentialManager>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
         mode: SiteExplorerExploreMode,
+        database_connection: Option<PgPool>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
@@ -68,6 +76,7 @@ impl BmcEndpointExplorer {
             credential_client: CredentialClient::new(credential_manager),
             rotate_switch_nvos_credentials,
             mode,
+            database_connection,
         }
     }
 
@@ -114,7 +123,34 @@ impl BmcEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         self.credential_client
             .set_bmc_root_credentials(bmc_mac_address, credentials)
+            .await?;
+
+        // The device is now on the site-wide BMC root (just changed on the
+        // hardware, or validated as already-set on reingest) and its per-device
+        // secret is in Vault. Record bmc convergence at the current site-wide
+        // target version so the rotation engine tracks every host, DPU, switch,
+        // and power shelf from the moment NICo owns its BMC password. Idempotent,
+        // so reexploration of an already-recorded device is a no-op. Skipped only
+        // by the no-database `bmc-explorer-cli` debug tool.
+        if let Some(database_connection) = &self.database_connection {
+            let record_err = |cause: String| EndpointExplorationError::SetCredentials {
+                key: format!("device_credential_rotation/bmc/{bmc_mac_address}"),
+                cause,
+            };
+            let mut txn = db::Transaction::begin(database_connection)
+                .await
+                .map_err(|e| record_err(e.to_string()))?;
+            db::credential_rotation::record_device_converged(
+                &mut txn,
+                bmc_mac_address,
+                db::credential_rotation::CredentialRotationType::Bmc,
+            )
             .await
+            .map_err(|e| record_err(e.to_string()))?;
+            txn.commit().await.map_err(|e| record_err(e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     pub async fn set_bmc_root_password(

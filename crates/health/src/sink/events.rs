@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
@@ -27,6 +28,7 @@ use health_report::{
     HealthReport as CarbideHealthReport, HealthReportConversionError,
 };
 use nv_redfish::resource::Health as BmcHealth;
+use serde::Serialize;
 
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
@@ -186,11 +188,115 @@ pub struct MetricSample {
     pub context: Option<SensorThresholdContext>,
 }
 
+/// Log event emitted by collectors and consumed by sinks.
 #[derive(Clone, Debug)]
 pub struct LogRecord {
+    /// Human-readable log message or emitted structured body.
     pub body: String,
+
+    /// Source-provided severity text.
     pub severity: String,
+
+    /// Sink-visible metadata used for filtering, grouping, and correlation.
     pub attributes: Vec<MetricLabel>,
+
+    /// Optional diagnostic payload carrier kept separate until a sink opts in.
+    pub diagnostic_record: Option<DiagnosticLogRecord>,
+}
+
+impl LogRecord {
+    /// Converts the collector-internal log record into the record a sink emits.
+    ///
+    /// Diagnostic payloads stay in a separate carrier until this boundary so
+    /// sinks can drop them by default. When diagnostics are enabled, the
+    /// opaque payload is embedded in the log body and diagnostic metadata is
+    /// retained as attributes for filtering and correlation.
+    /// Records without a diagnostic carrier are borrowed unchanged.
+    pub(crate) fn emitted_log_record(&self, include_diagnostics: bool) -> Cow<'_, Self> {
+        let Some(diagnostic_record) = &self.diagnostic_record else {
+            return Cow::Borrowed(self);
+        };
+
+        /// Serializes parent and diagnostic fields into an emitted log body.
+        fn diagnostic_body(
+            message: &str,
+            diagnostic_record: &DiagnosticLogRecord,
+        ) -> Option<String> {
+            let diagnostic_data = if diagnostic_record.body.is_empty() {
+                None
+            } else {
+                Some(diagnostic_record.body.as_str())
+            };
+
+            let diagnostic_attributes = diagnostic_record
+                .attributes
+                .iter()
+                .map(|(key, value)| DiagnosticLogBodyAttribute {
+                    key: key.as_ref(),
+                    value: value.as_str(),
+                })
+                .collect();
+
+            let body = DiagnosticLogBody {
+                message,
+                diagnostic_data,
+                diagnostic_attributes,
+            };
+
+            serde_json::to_string(&body).ok()
+        }
+
+        let mut body = self.body.clone();
+        let mut attributes = self.attributes.clone();
+
+        if include_diagnostics {
+            if let Some(diagnostic_body) = diagnostic_body(self.body.as_str(), diagnostic_record) {
+                body = diagnostic_body;
+            }
+
+            attributes.extend_from_slice(&diagnostic_record.attributes);
+        }
+
+        Cow::Owned(Self {
+            body,
+            severity: self.severity.clone(),
+            attributes,
+            diagnostic_record: None,
+        })
+    }
+}
+
+/// Diagnostic payload attached to a primary log record.
+///
+/// The payload body stays opaque. Sinks that opt in fold the parent message and
+/// diagnostic payload into emitted log bodies, while retaining Redfish metadata
+/// as attributes for filtering and correlation.
+#[derive(Clone, Debug)]
+pub struct DiagnosticLogRecord {
+    /// Opaque diagnostic payload body, such as base64-encoded CPER text.
+    pub body: String,
+
+    /// Redfish diagnostic metadata and parent correlation attributes.
+    pub attributes: Vec<MetricLabel>,
+}
+
+/// JSON body emitted when a sink folds diagnostics into a parent log record.
+#[derive(Serialize)]
+struct DiagnosticLogBody<'a> {
+    message: &'a str,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic_data: Option<&'a str>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    diagnostic_attributes: Vec<DiagnosticLogBodyAttribute<'a>>,
+}
+
+/// Diagnostic metadata entry embedded in an emitted diagnostic log body.
+#[derive(Serialize)]
+struct DiagnosticLogBodyAttribute<'a> {
+    key: &'a str,
+    value: &'a str,
 }
 
 #[derive(Clone, Debug)]

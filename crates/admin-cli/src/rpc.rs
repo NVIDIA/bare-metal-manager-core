@@ -133,6 +133,22 @@ impl ApiClient {
         Ok(machine_details)
     }
 
+    /// Gather one machine's boot-interface view across all four stores -- the
+    /// owned interface rows, predictions, the explored endpoint default, and
+    /// the retained post-deletion pairs -- plus the effective boot interface
+    /// and a divergence flag. Read-only.
+    pub async fn get_machine_boot_interfaces(
+        &self,
+        id: MachineId,
+    ) -> CarbideCliResult<rpc::GetMachineBootInterfacesResponse> {
+        Ok(self
+            .0
+            .get_machine_boot_interfaces(rpc::GetMachineBootInterfacesRequest {
+                machine_id: Some(id),
+            })
+            .await?)
+    }
+
     pub async fn get_all_machines(
         &self,
         request: rpc::MachineSearchConfig,

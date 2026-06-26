@@ -345,6 +345,7 @@ fn log_events_with_attrs(count: usize, unique_sensors: usize) -> Vec<CollectorEv
                         format!(r#"["{sensor}","3.96","-0.05"]"#),
                     ),
                 ],
+                diagnostic_record: None,
             }))
         })
         .collect()

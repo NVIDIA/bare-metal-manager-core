@@ -257,7 +257,7 @@ async fn build_unlock_command(
     machine_id: MachineId,
     pci_name: &str,
 ) -> CarbideResult<DpaCommand<'static>> {
-    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+    let lockdown = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
         &*api.credential_manager,
@@ -271,8 +271,10 @@ async fn build_unlock_command(
 
     tracing::info!(%machine_id, %pci_name, "Unlocking DPA");
 
+    // The unlock flow does not record convergence, so the derived IKM version is
+    // not persisted here.
     Ok(DpaCommand {
-        op: OpCode::Unlock { key },
+        op: OpCode::Unlock { key: lockdown.key },
     })
 }
 
@@ -414,7 +416,7 @@ async fn build_lock_command(
     machine_id: MachineId,
     pci_name: &str,
 ) -> CarbideResult<DpaCommand<'static>> {
-    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
+    let lockdown = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
         &*api.credential_manager,
@@ -426,9 +428,37 @@ async fn build_lock_command(
         ))
     })?;
 
-    tracing::info!(%machine_id, %pci_name, "Locking DPA");
+    // Stage the IKM version we are about to lock the card with as the in-flight
+    // rotation marker (`rotating_to_version`) on the card's lockdown_ikm row
+    // *before* issuing the lock command. dpa-manager's `handle_locking` promotes
+    // exactly this value to the convergence version when the card reports Locked
+    // -- never the (possibly advanced) site-wide target re-read at observation
+    // time. Staging first means we only ever issue a lock for a version we have
+    // already recorded our intent to use; if the write fails we surface the error
+    // and do not lock. The writer is idempotent across the per-cycle
+    // re-derivation while Locking.
+    let ikm_version = i32::try_from(lockdown.ikm_version).map_err(|e| CarbideError::Internal {
+        message: format!(
+            "lockdown IKM version {} does not fit in i32 for DPA {pci_name}: {e}",
+            lockdown.ikm_version
+        ),
+    })?;
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to stage lockdown IKM rotation for DPA {pci_name}: {e}"
+        ))
+    })?;
+    db::credential_rotation::mark_device_rotating_to_version(
+        &mut conn,
+        sn.mac_address,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+        ikm_version,
+    )
+    .await?;
+
+    tracing::info!(%machine_id, %pci_name, ikm_version = lockdown.ikm_version, "Locking DPA");
     Ok(DpaCommand {
-        op: OpCode::Lock { key },
+        op: OpCode::Lock { key: lockdown.key },
     })
 }
 

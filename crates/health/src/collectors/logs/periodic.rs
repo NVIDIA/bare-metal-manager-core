@@ -26,6 +26,9 @@ use nv_redfish::log_service::LogService;
 use nv_redfish::{Resource, ServiceRoot};
 use serde::{Deserialize, Serialize};
 
+use super::diagnostic::{
+    DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
+};
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
@@ -36,6 +39,9 @@ pub struct LogsCollectorConfig {
     pub state_file_path: PathBuf,
     pub service_refresh_interval: Duration,
     pub data_sink: Option<Arc<dyn DataSink>>,
+
+    /// Attach Redfish diagnostic payloads to emitted log records.
+    pub include_diagnostics: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -63,6 +69,7 @@ pub struct LogsCollector<B: Bmc> {
     state: Option<LogsCollectorState<B>>,
     service_refresh_interval: Duration,
     data_sink: Option<Arc<dyn DataSink>>,
+    include_diagnostics: bool,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
@@ -82,6 +89,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
             state: None,
             service_refresh_interval: config.service_refresh_interval,
             data_sink: config.data_sink,
+            include_diagnostics: config.include_diagnostics,
         })
     }
 
@@ -278,7 +286,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         }
                     };
 
-                    // We apply manual filter in either case, if BMC is returns all entries even with filter applied
+                    // We apply manual filter in either case, if BMC is returns all entries even
+                    // with filter applied
                     entries
                         .into_iter()
                         .filter(|entry| {
@@ -334,6 +343,26 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     String::new()
                 };
 
+                let diagnostic_record = self
+                    .include_diagnostics
+                    .then(|| {
+                        make_diagnostic_record(DiagnosticPayload {
+                            diagnostic_data: nullable_str(&entry.diagnostic_data),
+                            diagnostic_data_type: nullable_ref(&entry.diagnostic_data_type)
+                                .and_then(redfish_enum_string),
+                            oem_diagnostic_data_type: nullable_str(&entry.oem_diagnostic_data_type),
+                            additional_data_uri: nullable_str(&entry.additional_data_uri),
+                            additional_data_size_bytes: nullable_ref(
+                                &entry.additional_data_size_bytes,
+                            )
+                            .copied(),
+                            message_id: entry.message_id.as_deref(),
+                            event_id: entry.event_id.as_deref(),
+                            log_entry_id: Some(entry.base.id.as_str()),
+                        })
+                    })
+                    .flatten();
+
                 let log_event = CollectorEvent::Log(
                     LogRecord {
                         body,
@@ -343,6 +372,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                             (Cow::Borrowed("entry_id"), entry.base.id.clone()),
                             (Cow::Borrowed("service_id"), service_id.clone()),
                         ],
+                        diagnostic_record,
                     }
                     .into(),
                 );

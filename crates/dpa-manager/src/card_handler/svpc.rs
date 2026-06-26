@@ -19,15 +19,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use carbide_dpa::DpaInfo;
+use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::spx::{NULL_SPX_PARTITION_ID, SpxPartitionId};
 use chrono::TimeDelta;
 use db::{self, ObjectColumnFilter};
+use mac_address::MacAddress;
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{Machine, ManagedHostStateSnapshot};
 use mqttea::client::MqtteaClient;
-use sqlx::PgTransaction;
+use sqlx::{PgConnection, PgTransaction};
 
 use super::DpaInterfaceStateHandler;
 use crate::errors::{DpaManagerError, DpaManagerResult};
@@ -466,10 +468,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         apply_profile(dpa_interface)
     }
 
-    #[allow(clippy::unused_async)]
     async fn handle_locking(
         &self,
-        _monitor: &mut DpaMonitor,
+        monitor: &mut DpaMonitor,
         mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
@@ -497,11 +498,35 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         };
 
         if cs.lockmode == Some(Locked) {
+            // The card is now locked on the device. Complete its lockdown_ikm
+            // convergence, keyed by the card (NIC) MAC, so the rotation engine
+            // tracks this card from the moment it is actually locked. The record
+            // is committed atomically with the state transition below (the
+            // monitor reuses this txn to persist the new controller state).
+            //
+            // api-core staged the *exact* IKM version the lock key was derived
+            // from as the in-flight `rotating_to_version` when it issued the lock
+            // command; we promote that value to `current_version` here. We must
+            // not re-read the site-wide target instead: it can advance between
+            // issuing the lock and observing it, which would record the card as
+            // converged to a newer version than the IKM it is actually locked
+            // under. A card with nothing staged (locked before this flow shipped,
+            // already covered by the backfill at v0) falls back to the site-wide
+            // target; that path is idempotent and warns.
+            let mut txn = monitor
+                .db_services
+                .db_pool
+                .begin()
+                .await
+                .map_err(|e| db::AnnotatedSqlxError::new("handle_locking begin txn", e))?;
+            record_lock_convergence(txn.as_mut(), dpa_interface.id, dpa_interface.mac_address)
+                .await?;
+
             let new_state = DpaInterfaceControllerState::Assigned;
             tracing::info!(state = ?new_state, "Dpa Interface state transition");
             return Ok(HandlerResult {
                 new_state: Some(new_state),
-                txn: None,
+                txn: Some(txn),
             });
         }
 
@@ -595,4 +620,141 @@ fn apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
         new_state: None,
         txn: None,
     })
+}
+
+/// Completes `lockdown_ikm` convergence for a card observed locked, on the
+/// caller's `conn` (`handle_locking` passes its open transaction so the record
+/// commits atomically with the state transition).
+///
+/// api-core staged the exact IKM version the lock key was derived from as the
+/// in-flight `rotating_to_version` when it issued the lock command, so:
+///
+///   * if a rotation is staged, promote it to `current_version` verbatim. We
+///     must NOT re-read the site-wide target: it can advance between issuing the
+///     lock and observing it, which would record the card as converged to a
+///     newer version than the IKM it is actually locked under.
+///   * if nothing is staged (a card locked before this flow shipped, already
+///     covered by the backfill at v0), fall back to the site-wide target and
+///     warn; that path is idempotent.
+async fn record_lock_convergence(
+    conn: &mut PgConnection,
+    dpa_interface_id: DpaInterfaceId,
+    mac_address: MacAddress,
+) -> DpaManagerResult<()> {
+    let promoted = db::credential_rotation::promote_rotating_to_current(
+        conn,
+        mac_address,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+    )
+    .await?;
+
+    if !promoted {
+        tracing::warn!(
+            %dpa_interface_id,
+            %mac_address,
+            "card locked without a staged lockdown IKM rotation; \
+             recording convergence at the site-wide target"
+        );
+        db::credential_rotation::record_device_converged(
+            conn,
+            mac_address,
+            db::credential_rotation::CredentialRotationType::LockdownIkm,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use mac_address::MacAddress;
+    use sqlx::PgPool;
+
+    use super::record_lock_convergence;
+
+    // current_version for the lockdown_ikm row of `mac`, or None if no row exists.
+    async fn lockdown_version_of(pool: &PgPool, mac: &str) -> Option<i32> {
+        let row: Option<Option<i32>> = sqlx::query_scalar(
+            "SELECT current_version FROM device_credential_rotation \
+             WHERE device_mac = $1::macaddr AND credential_type = 'lockdown_ikm'",
+        )
+        .bind(mac)
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        row.flatten()
+    }
+
+    // rotating_to_version for the lockdown_ikm row of `mac`, or None.
+    async fn lockdown_rotating_version_of(pool: &PgPool, mac: &str) -> Option<i32> {
+        let row: Option<Option<i32>> = sqlx::query_scalar(
+            "SELECT rotating_to_version FROM device_credential_rotation \
+             WHERE device_mac = $1::macaddr AND credential_type = 'lockdown_ikm'",
+        )
+        .bind(mac)
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        row.flatten()
+    }
+
+    // Promote-path: a staged in-flight version is promoted verbatim, never
+    // re-derived from the (mutable) site-wide target -- this is the TOCTOU the
+    // two-phase lock flow guards against.
+    #[crate::sqlx_test]
+    async fn promotes_staged_version_not_sitewide_target(pool: PgPool) {
+        let id = carbide_uuid::dpa_interface::DpaInterfaceId::new();
+        let mac: MacAddress = "02:00:00:00:00:11".parse().unwrap();
+
+        // api-core staged the lock at version 2; advance the site-wide target so
+        // it differs: the promote-path must ignore it.
+        sqlx::query(
+            "UPDATE sitewide_credential_rotation SET target_version = 7 \
+             WHERE credential_type = 'lockdown_ikm'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        db::credential_rotation::mark_device_rotating_to_version(
+            &mut conn,
+            mac,
+            db::credential_rotation::CredentialRotationType::LockdownIkm,
+            2,
+        )
+        .await
+        .unwrap();
+
+        record_lock_convergence(&mut conn, id, mac).await.unwrap();
+        drop(conn);
+
+        assert_eq!(
+            lockdown_version_of(&pool, "02:00:00:00:00:11").await,
+            Some(2),
+            "must promote the staged version, not the site-wide target (7)"
+        );
+        assert_eq!(
+            lockdown_rotating_version_of(&pool, "02:00:00:00:00:11").await,
+            None,
+            "the in-flight marker must be cleared on promotion"
+        );
+    }
+
+    // Fallback (warn) path: nothing staged falls back to the site-wide target
+    // (seeded at 0 by the backfill migration).
+    #[crate::sqlx_test]
+    async fn falls_back_to_sitewide_target_when_nothing_staged(pool: PgPool) {
+        let id = carbide_uuid::dpa_interface::DpaInterfaceId::new();
+        let mac: MacAddress = "02:00:00:00:00:12".parse().unwrap();
+
+        let mut conn = pool.acquire().await.unwrap();
+        record_lock_convergence(&mut conn, id, mac).await.unwrap();
+        drop(conn);
+
+        assert_eq!(
+            lockdown_version_of(&pool, "02:00:00:00:00:12").await,
+            Some(0),
+            "nothing staged must fall back to the site-wide target (0)"
+        );
+    }
 }

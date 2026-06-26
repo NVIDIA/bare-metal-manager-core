@@ -15,6 +15,7 @@
     "renew-timer": 3600,
     "rebind-timer": 432000,
     "valid-lifetime": 604800,
+    "decline-probation-period": 900,
     "hooks-libraries": [
       {
         "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",

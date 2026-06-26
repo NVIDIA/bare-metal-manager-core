@@ -316,6 +316,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.GetMachineBootInterfacesResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.MachineInterfaceBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.PredictedBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ExploredBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RetainedBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.RoutingProfile",
             "#[derive(serde::Serialize)]",
         )
