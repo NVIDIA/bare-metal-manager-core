@@ -235,6 +235,9 @@ platform_environment_status_enabled = true
 gnmi_port = 9339
 sample_interval = "5m"
 request_timeout = "30s"
+# Keep strict TLS certificate and hostname verification by default. Set true only
+# for lab/self-signed NVOS gNMI endpoints where that dangerous bypass is required.
+dangerously_skip_tls_verification = false
 # streaming ON_CHANGE
 system_events_enabled = true
 

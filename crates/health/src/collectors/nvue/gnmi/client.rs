@@ -105,6 +105,35 @@ pub struct GnmiClient {
     username: Option<String>,
     password: Option<String>,
     request_timeout: Duration,
+    dangerously_skip_tls_verification: bool,
+}
+
+fn configure_tls_endpoint(
+    endpoint: Endpoint,
+    switch_id: &str,
+    dangerously_skip_tls_verification: bool,
+) -> Result<Endpoint, HealthError> {
+    if !dangerously_skip_tls_verification {
+        return Ok(endpoint);
+    }
+
+    // tonic 0.14 auto-injects a strict WebPKI/system-root TLS verifier when an
+    // Endpoint is built from an `https://` URI and layers its own TlsConnector
+    // over any custom connector (see tonic transport channel/service/connector.rs).
+    // That silently negated a hand-rolled hyper-rustls skip-verify connector and
+    // made tonic strictly reject the switch's self-signed NVOS gNMI cert (SAN does
+    // not cover the management IP). When the dangerous opt-in is enabled, use
+    // tonic's native custom-verifier hook so the skip-verify verifier is the one
+    // tonic actually applies. ClientTlsConfig::new() must NOT set any roots here
+    // (mixing roots + custom verifier is an error).
+    endpoint
+        .tls_config_with_verifier(
+            ClientTlsConfig::new(),
+            crate::collectors::nvue::tls::accept_any_cert_verifier(),
+        )
+        .map_err(|e| {
+            HealthError::GnmiError(format!("switch {switch_id}: invalid gNMI TLS config: {e}"))
+        })
 }
 
 impl GnmiClient {
@@ -115,6 +144,7 @@ impl GnmiClient {
         username: Option<String>,
         password: Option<String>,
         request_timeout: Duration,
+        dangerously_skip_tls_verification: bool,
     ) -> Self {
         Self {
             switch_id,
@@ -123,6 +153,7 @@ impl GnmiClient {
             username,
             password,
             request_timeout,
+            dangerously_skip_tls_verification,
         }
     }
 
@@ -141,43 +172,34 @@ impl GnmiClient {
                 ))
             })?;
 
-        // tonic 0.14 auto-injects a strict WebPKI/system-root TLS verifier when an
-        // Endpoint is built from an `https://` URI and layers its own TlsConnector
-        // over any custom connector (see tonic transport channel/service/connector.rs).
-        // That silently negated a hand-rolled hyper-rustls skip-verify connector and
-        // made tonic strictly reject the switch's self-signed NVOS gNMI cert (SAN does
-        // not cover the management IP). Use tonic's native custom-verifier hook so the
-        // skip-verify verifier is the one tonic actually applies. ClientTlsConfig::new()
-        // must NOT set any roots here (mixing roots + custom verifier is an error).
-        let endpoint = Endpoint::from(uri)
-            .tls_config_with_verifier(
-                ClientTlsConfig::new(),
-                crate::collectors::nvue::tls::accept_any_cert_verifier(),
-            )
-            .map_err(|e| {
-                HealthError::GnmiError(format!(
-                    "switch {}: invalid gNMI TLS config: {e}",
-                    self.switch_id
-                ))
-            })?
-            .connect_timeout(self.request_timeout)
-            .timeout(self.request_timeout);
+        let endpoint = configure_tls_endpoint(
+            Endpoint::from(uri),
+            &self.switch_id,
+            self.dangerously_skip_tls_verification,
+        )?
+        .connect_timeout(self.request_timeout)
+        .timeout(self.request_timeout);
 
-        let channel = endpoint
-            .connect()
-            .await
-            .map_err(|e| {
-                HealthError::GnmiError(format!(
-                    "switch {}: connection failed to {target}: {e}",
-                    self.switch_id
-                ))
-            })?;
+        let channel = endpoint.connect().await.map_err(|e| {
+            HealthError::GnmiError(format!(
+                "switch {}: connection failed to {target}: {e}",
+                self.switch_id
+            ))
+        })?;
 
-        tracing::debug!(
-            switch_id = %self.switch_id,
-            target = %target,
-            "gNMI TLS channel established (skip-verify)"
-        );
+        if self.dangerously_skip_tls_verification {
+            tracing::debug!(
+                switch_id = %self.switch_id,
+                target = %target,
+                "gNMI TLS channel established with certificate verification disabled"
+            );
+        } else {
+            tracing::debug!(
+                switch_id = %self.switch_id,
+                target = %target,
+                "gNMI TLS channel established"
+            );
+        }
 
         Ok(TonicGnmiClient::new(channel))
     }
@@ -479,6 +501,31 @@ mod tests {
     fn test_typed_value_to_f64_none() {
         let val = proto::TypedValue { value: None };
         assert_eq!(typed_value_to_f64(&val), None);
+    }
+
+    #[test]
+    fn test_gnmi_client_stores_dangerous_tls_skip_flag() {
+        let strict = GnmiClient::new(
+            "switch-1".to_string(),
+            "10.0.0.9",
+            9339,
+            None,
+            None,
+            Duration::from_secs(30),
+            false,
+        );
+        assert!(!strict.dangerously_skip_tls_verification);
+
+        let dangerous = GnmiClient::new(
+            "switch-1".to_string(),
+            "10.0.0.9",
+            9339,
+            None,
+            None,
+            Duration::from_secs(30),
+            true,
+        );
+        assert!(dangerous.dangerously_skip_tls_verification);
     }
 
     #[test]

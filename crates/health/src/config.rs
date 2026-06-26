@@ -958,6 +958,11 @@ pub struct NvueGnmiConfig {
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
 
+    /// Dangerously disable TLS certificate and hostname verification for NVUE gNMI.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
+
     /// Enable gNMI ON_CHANGE subscription for live system-event messages.
     #[serde(alias = "system_events_subscription_enabled", alias = "events_enabled")]
     pub system_events_enabled: bool,
@@ -972,6 +977,7 @@ impl Default for NvueGnmiConfig {
             gnmi_port: 9339,
             sample_interval: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
             system_events_enabled: true,
             paths: NvueGnmiPaths::default(),
         }
@@ -1371,6 +1377,7 @@ mod tests {
                 assert_eq!(gnmi.gnmi_port, 9339);
                 assert_eq!(gnmi.sample_interval, Duration::from_secs(300));
                 assert_eq!(gnmi.request_timeout, Duration::from_secs(30));
+                assert!(!gnmi.dangerously_skip_tls_verification);
                 assert!(gnmi.system_events_enabled);
             } else {
                 panic!("nvue gnmi config should be enabled in example config");
@@ -1880,6 +1887,60 @@ system_events_enabled = false
         } else {
             panic!("nvue config should be enabled");
         }
+    }
+
+    #[test]
+    fn test_nvue_gnmi_dangerous_tls_skip_defaults_false_and_parses_true() {
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(omitted))
+            .extract()
+            .expect("failed to parse omitted tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(!gnmi.dangerously_skip_tls_verification);
+
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+dangerously_skip_tls_verification = true
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(enabled))
+            .extract()
+            .expect("failed to parse enabled tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(gnmi.dangerously_skip_tls_verification);
     }
 
     #[test]
