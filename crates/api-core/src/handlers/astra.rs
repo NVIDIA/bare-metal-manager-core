@@ -34,18 +34,18 @@ use crate::api::Api;
 
 // Code to handle Astra specific information.
 
-// The Forge DPU agent periodically gRPC calls Carbide to GetManagedHostNetworkConfig.
-// This routine is called as a part of processing that request to retrieve and send
-// any Astra NIC configruation information in that response.
-// We need to look at the host associated with the DPU, find the Astra NICs
-// in the host. If the machine is an instance, we need to return the configuration
-// specified in the instance. Otherwise, we need to specify that each NIC should
-// not be associated with any VNI. If the host state is WaitingForDpaToBeReady,
-// we need to return the configuration specified in the instance.
-// 1) Is dpa enabled in config? If not, return None.
-// 2) Does the host associated with the DPU have any Astra NICs? If not, return None.
-// 3) Is the host associated with the DPU an instance? If so, return asta_config based on spx_config in instance.
-// 4) Otherwise, return astra_config with VNI set to 0 for each NIC.
+/// The Forge DPU agent periodically gRPC calls Carbide to GetManagedHostNetworkConfig.
+/// This routine is called as a part of processing that request to retrieve and send
+/// any Astra NIC configruation information in that response.
+/// We need to look at the host associated with the DPU, find the Astra NICs
+/// in the host. If the machine is an instance, we need to return the configuration
+/// specified in the instance. Otherwise, we need to specify that each NIC should
+/// not be associated with any VNI. If the host state is WaitingForDpaToBeReady,
+/// we need to return the configuration specified in the instance.
+/// 1) Is dpa enabled in config? If not, return None.
+/// 2) Does the host associated with the DPU have any Astra NICs? If not, return None.
+/// 3) Is the host associated with the DPU an instance? If so, return asta_config based on spx_config in instance.
+/// 4) Otherwise, return astra_config with VNI set to 0 for each NIC.
 pub(crate) async fn get_astra_config(
     api: &Api,
     snapshot: &ManagedHostStateSnapshot,
@@ -79,13 +79,11 @@ pub(crate) async fn get_astra_config(
 
     let mut astra_attachments = Vec::new();
 
-    let mut txn = match api.database_connection.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("handle_dpa_message: Unable to start txn: {:#?}", e);
-            return Ok(None);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::Internal {
+            message: format!("Failed to begin transaction: {e}"),
         }
-    };
+    })?;
 
     let subnet_ip = api
         .runtime_config
@@ -178,10 +176,11 @@ pub(crate) async fn get_astra_config(
     Ok(Some(AstraConfig { astra_attachments }))
 }
 
-// This function is called when the DPU agent reports the Astra config status.
-// We need to update the Astra observation in the database.
-// 1) Is dpa enabled in config? If not, return None.
-// 2) Does the host associated with the DPU have any Astra NICs? If not, just return
+/// Processes Astra config status reported by the DPU agent.
+/// This function is called when the DPU agent reports the Astra config status.
+/// We need to update the Astra observation in the database.
+/// 1) Is dpa enabled in config? If not, return None.
+/// 2) Does the host associated with the DPU have any Astra NICs? If not, just return
 pub(crate) async fn process_astra_config_status(
     api: &Api,
     dpu_machine_id: &MachineId,
@@ -223,7 +222,7 @@ pub(crate) async fn process_astra_config_status(
     let mut txn = match api.database_connection.begin().await {
         Ok(t) => t,
         Err(e) => {
-            tracing::error!("handle_dpa_message: Unable to start txn: {:#?}", e);
+            tracing::error!("process_astra_config_status: Unable to start txn: {:#?}", e);
             return Ok(());
         }
     };
@@ -255,7 +254,7 @@ pub(crate) async fn process_astra_config_status(
             Ok(ncv) => ncv,
             Err(e) => {
                 tracing::error!(
-                    "handle_dpa_message: Error parsing config version from DPA Ack msg {:#?} {:#?}",
+                    "process_astra_config_status: Error parsing config version from DPA Ack msg {:#?} {:#?}",
                     obs,
                     e
                 );
@@ -263,7 +262,6 @@ pub(crate) async fn process_astra_config_status(
             }
         };
 
-        // We checked that pf_info is not None above, so unwrap is safe.
         // If vni is non-zero, then we are in a tenancy and the partition_id is not None.
         // We need to get the partition_id correponding to this vni from the database.
         let vni = obs.vni;
@@ -280,7 +278,7 @@ pub(crate) async fn process_astra_config_status(
                 Ok(p) => p,
                 Err(e) => {
                     tracing::error!(
-                        "handle_dpa_message: Error for vni {vni} from find_by_vni {:#?}",
+                        "process_astra_config_status: Error for vni {vni} from find_byi {:#?}",
                         e
                     );
                     continue;
@@ -290,7 +288,7 @@ pub(crate) async fn process_astra_config_status(
             if partition.len() != 1 {
                 // Given a VNI, we expect exactly one partition to be found.
                 tracing::error!(
-                    "handle_dpa_message: multiple SPX partitions with vni {vni} found, len: {:#?}",
+                    "process_astra_config_status: multiple SPX partitions with vni {vni} found, len: {:#?}",
                     partition.len()
                 );
                 continue;
@@ -300,12 +298,12 @@ pub(crate) async fn process_astra_config_status(
             spx_partition_id = spx_partition.id;
 
             tracing::debug!(
-                "handle_dpa_message: SPX partition with vni {vni} found: {:#?}",
+                "process_astra_config_status: SPX partition with vni {vni} found: {:#?}",
                 spx_partition
             );
         } else {
             tracing::debug!(
-                "handle_dpa_message: received vni 0 in DPA message {:#?}",
+                "process_astra_config_status: received vni 0 in DPA message {:#?}",
                 obs
             );
         }

@@ -703,10 +703,7 @@ pub async fn batch_allocate_instances(
     .await?;
 
     for mid in &machine_ids {
-        let dpa_search_config = DpaSearchConfig {
-            only_svpc: false,
-            only_astra: false,
-        };
+        let dpa_search_config = DpaSearchConfig::default();
         let dpa_interfaces =
             db::dpa_interface::find_by_machine_id(&mut txn, *mid, dpa_search_config).await?;
         let machine_snapshot = snapshot_map.get(mid).unwrap();

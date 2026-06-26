@@ -38,9 +38,10 @@ use crate::{CarbideError, CarbideResult};
 
 // Code to handle SVPC specific information.
 
-// Scout is asking us what it should do. We found the machine in DpaProvisioning state.
-// So look at each DPA interface and make it progress through the state machine.
-// If there is work to be done, return an MLX action with per-device commands.
+/// Process a request from the Scout. The Scout periodically queries Carbide to determine
+/// what it should do (ForgeAgentControlRequest). We found the machine in DpaProvisioning state.
+/// So look at each DPA interface and make it progress through the state machine.
+/// If there is work to be done, return an MLX action with per-device commands.
 pub(crate) async fn process_scout_req(
     api: &Api,
     machine_id: MachineId,
@@ -117,6 +118,7 @@ pub(crate) async fn process_scout_req(
     Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
 }
 
+/// Build and return a command to unlock the DPA.
 async fn build_unlock_command(
     api: &Api,
     sn: &DpaInterface,
@@ -144,6 +146,7 @@ async fn build_unlock_command(
     })
 }
 
+/// Build and return a command to apply firmware to the DPA.
 fn build_apply_firmware_command<'a>(
     api: &'a Api,
     sn: &DpaInterface,
@@ -224,6 +227,7 @@ fn build_apply_firmware_command<'a>(
 // serialized, this returns an error — we must not send a None
 // to scout, as that would reset the card to factory defaults
 // without applying the intended profile.
+/// Build and return a command to apply a profile to the DPA.
 fn build_apply_profile_command(
     api: &Api,
     interface: &DpaInterface,
@@ -276,6 +280,7 @@ fn build_apply_profile_command(
     })
 }
 
+/// Build and return a command to lock the DPA.
 async fn build_lock_command(
     api: &Api,
     sn: &DpaInterface,
@@ -328,11 +333,11 @@ async fn build_lock_command(
     })
 }
 
-// The scout is sending us an mlx observation report. The report will
-// consist of a vector of observations, one for each mlx device.
-// Based on what is being reported, we update the card_state of the
-// corresponding DB entry. This update is noticed by the DPA statecontroller
-// and will cause it to advance to the next state.
+/// The scout is sending us an mlx observation report. The report will
+/// consist of a vector of observations, one for each mlx device.
+/// Based on what is being reported, we update the card_state of the
+/// corresponding DB entry. This update is noticed by the DPA statecontroller
+/// and will cause it to advance to the next state.
 async fn process_mlx_observation(
     api: &Api,
     request: tonic::Request<mlx_device_pb::PublishMlxObservationReportRequest>,
@@ -400,7 +405,7 @@ async fn process_mlx_observation(
             continue;
         };
 
-        let mut dpa = match get_dpa_by_mac(&devinfo, dpa_snapshots.clone()) {
+        let mut dpa = match get_dpa_by_mac(&devinfo, &dpa_snapshots) {
             Ok(dpa) => dpa,
             Err(e) => {
                 tracing::error!(
@@ -459,7 +464,7 @@ async fn process_mlx_observation(
 
         dpa.card_state = Some(cstate);
 
-        match dpa_interface::update_card_state(&mut txn, dpa.clone()).await {
+        match dpa_interface::update_card_state(&mut txn, dpa).await {
             Ok(_id) => (),
             Err(e) => {
                 tracing::error!("process_mlx_observation update_card_state error: {e}");
@@ -472,7 +477,7 @@ async fn process_mlx_observation(
     Ok(())
 }
 
-// Scout is telling Carbide the mlx device configuration in its machine
+/// Scout is telling Carbide the mlx device configuration in its machine
 pub(crate) async fn publish_mlx_device_report(
     api: &Api,
     request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
@@ -623,8 +628,8 @@ pub(crate) async fn publish_mlx_device_report(
     ))
 }
 
-// Scout is telling carbide the observed status (locking status, card mode) of the
-// mlx devices in its host
+/// Scout is telling carbide the observed status (locking status, card mode) of the
+/// mlx devices in its host
 pub(crate) async fn publish_mlx_observation_report(
     api: &Api,
     request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
@@ -644,13 +649,13 @@ pub(crate) async fn publish_mlx_observation_report(
     ))
 }
 
-// Find the DPA object in the given vector of DPA objects
-// which matches the mac address in the device device info
-// Just do a linear search for matching mac address given that
-// the Vec<DpaInterface> is not expected to be less than a dozen entries.
-fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: Vec<DpaInterface>) -> CarbideResult<DpaInterface> {
-    dpas.into_iter()
+/// Find the DPA object in the given slice of DPA objects which matches the MAC
+/// address in the device info. Linear search is fine because the slice is
+/// expected to contain fewer than a dozen entries.
+fn get_dpa_by_mac(devinfo: &MlxDeviceInfo, dpas: &[DpaInterface]) -> CarbideResult<DpaInterface> {
+    dpas.iter()
         .find(|dpa| dpa.mac_address.to_string() == devinfo.base_mac)
+        .cloned()
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "mac_addr",
             id: devinfo.base_mac.to_string(),
