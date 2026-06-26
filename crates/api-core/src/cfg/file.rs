@@ -734,6 +734,10 @@ pub struct CarbideConfig {
     /// encrypted in Postgres and vault leaves the credential chain
     /// entirely; when absent, vault remains the credential store.
     pub secrets: Option<SecretsConfig>,
+
+    /// IP cleanup on lease expiry
+    #[serde(default)]
+    pub dhcp_lease_expiry_handling: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

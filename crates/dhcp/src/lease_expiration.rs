@@ -102,8 +102,8 @@ fn expire_lease_at(
                 rpc::ExpireDhcpLeaseStatus::NotFound => {
                     log::info!("No allocation found for expired lease {ip_str}");
                 }
-                rpc::ExpireDhcpLeaseStatus::NotHandled => {
-                    log::info!("{ip_str} found but not handled by api.");
+                rpc::ExpireDhcpLeaseStatus::FeatureDisabled => {
+                    log::info!("Feature is disabled at NICo");
                 }
             }
             LeaseExpirationResult::Success
