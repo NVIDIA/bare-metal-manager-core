@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use super::{CollectorEvent, DataSink, EventContext};
+use super::{EventContext, HealthEvent, SyncEventNode};
 use crate::config::TracingSinkConfig;
 
 /// Sink that writes health events through the process tracing subscriber.
@@ -32,21 +32,21 @@ impl TracingSink {
     }
 }
 
-impl DataSink for TracingSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for TracingSink {
+    fn node_type(&self) -> &'static str {
         "tracing_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         match event {
-            CollectorEvent::MetricCollectionStart => {
+            HealthEvent::ScrapeBatchStarted => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     "Metric collection start"
                 );
             }
-            CollectorEvent::Metric(metric) => {
+            HealthEvent::MeasurementObserved(metric) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
@@ -58,21 +58,21 @@ impl DataSink for TracingSink {
                     "Metric event"
                 );
             }
-            CollectorEvent::MetricCollectionEnd => {
+            HealthEvent::ScrapeBatchFinished => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     "Metric collection end"
                 );
             }
-            CollectorEvent::CollectorRemoved => {
+            HealthEvent::NodeRemoved => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     "Collector removed"
                 );
             }
-            CollectorEvent::Log(record) => {
+            HealthEvent::LogObserved(record) => {
                 let has_included_diagnostics =
                     self.include_diagnostics && record.diagnostic_record.is_some();
 
@@ -97,7 +97,7 @@ impl DataSink for TracingSink {
                     );
                 }
             }
-            CollectorEvent::Firmware(info) => {
+            HealthEvent::FirmwareObserved(info) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
@@ -106,7 +106,7 @@ impl DataSink for TracingSink {
                     "Firmware info event"
                 );
             }
-            CollectorEvent::HealthReport(report) => {
+            HealthEvent::HealthReportProduced(report) => {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
@@ -119,6 +119,10 @@ impl DataSink for TracingSink {
                     "Health report event"
                 );
             }
+            HealthEvent::ScrapeRequested { .. }
+            | HealthEvent::InventoryDiscovered { .. }
+            | HealthEvent::InventoryUpdated { .. } => {}
         }
+        Vec::new()
     }
 }

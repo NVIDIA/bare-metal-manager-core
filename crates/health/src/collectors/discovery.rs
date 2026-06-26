@@ -24,36 +24,41 @@ use nv_redfish::ServiceRoot;
 use nv_redfish::core::Bmc;
 
 use crate::HealthError;
-use crate::collectors::inventory::{DiscoveredEntity, EntityInventory, SharedInventory};
+use crate::bmc::BmcClient;
+use crate::collectors::inventory::{DiscoveredEntity, EntityInventory};
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
+use crate::sink::{EventContext, HealthEvent, SyncEventNode};
 
 /// Configuration for the entity discovery collector
 pub struct EntityDiscoveryCollectorConfig<B: Bmc> {
-    pub(crate) shared: SharedInventory<B>,
+    pub(crate) data_sink: Option<Arc<dyn SyncEventNode>>,
     pub discovery_concurrency: usize,
+    pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
 pub struct EntityDiscoveryCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
+    event_context: EventContext,
     bmc: Arc<B>,
-    shared: SharedInventory<B>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     discovery_concurrency: usize,
     generation: u64,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
-    type Config = EntityDiscoveryCollectorConfig<B>;
+impl PeriodicCollector<BmcClient> for EntityDiscoveryCollector<BmcClient> {
+    type Config = EntityDiscoveryCollectorConfig<BmcClient>;
 
     fn new_runner(
-        bmc: Arc<B>,
+        bmc: Arc<BmcClient>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
         Ok(Self {
+            event_context: EventContext::from_endpoint(&endpoint, "entity_discovery_collector"),
             endpoint,
             bmc,
-            shared: config.shared,
+            data_sink: config.data_sink,
             discovery_concurrency: config.discovery_concurrency.max(1),
             generation: 0,
         })
@@ -65,11 +70,15 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
         let entity_count = entities.len();
 
         self.generation = self.generation.wrapping_add(1);
-        self.shared.store(Some(Arc::new(EntityInventory {
+        let inventory = Arc::new(EntityInventory {
             entities,
             discovered_at: std::time::Instant::now(),
             generation: self.generation,
-        })));
+        });
+        self.emit_event(HealthEvent::InventoryDiscovered {
+            endpoint_key: self.event_context.endpoint_key().to_string(),
+            inventory,
+        });
 
         tracing::info!(
             bmc = %self.endpoint.addr.mac,
@@ -90,12 +99,17 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
     }
 
     async fn stop(&mut self) {
-        // Clear the snapshot so readers stop emitting for a removed endpoint.
-        self.shared.store(None);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
-impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
+impl EntityDiscoveryCollector<BmcClient> {
+    fn emit_event(&self, event: HealthEvent) {
+        if let Some(data_sink) = &self.data_sink {
+            data_sink.handle_event(&self.event_context, &event);
+        }
+    }
+
     fn record_failure<T, E: std::fmt::Debug>(
         &self,
         result: Result<T, E>,
@@ -115,7 +129,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
     async fn discover_entities(
         &self,
         fetch_failures: &AtomicUsize,
-    ) -> Result<Vec<DiscoveredEntity<B>>, HealthError> {
+    ) -> Result<Vec<DiscoveredEntity<BmcClient>>, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
 
         let mut entities = Vec::new();
@@ -155,9 +169,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 
     async fn discover_processors(
         &self,
-        system: &Arc<nv_redfish::computer_system::ComputerSystem<B>>,
+        system: &Arc<nv_redfish::computer_system::ComputerSystem<BmcClient>>,
         fetch_failures: &AtomicUsize,
-        entities: &mut Vec<DiscoveredEntity<B>>,
+        entities: &mut Vec<DiscoveredEntity<BmcClient>>,
         sensor_ids: &mut HashSet<String>,
     ) {
         let processors = self
@@ -194,9 +208,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 
     async fn discover_memory(
         &self,
-        system: &Arc<nv_redfish::computer_system::ComputerSystem<B>>,
+        system: &Arc<nv_redfish::computer_system::ComputerSystem<BmcClient>>,
         fetch_failures: &AtomicUsize,
-        entities: &mut Vec<DiscoveredEntity<B>>,
+        entities: &mut Vec<DiscoveredEntity<BmcClient>>,
         sensor_ids: &mut HashSet<String>,
     ) {
         let memory_modules = self
@@ -232,9 +246,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 
     async fn discover_drives(
         &self,
-        system: &Arc<nv_redfish::computer_system::ComputerSystem<B>>,
+        system: &Arc<nv_redfish::computer_system::ComputerSystem<BmcClient>>,
         fetch_failures: &AtomicUsize,
-        entities: &mut Vec<DiscoveredEntity<B>>,
+        entities: &mut Vec<DiscoveredEntity<BmcClient>>,
         sensor_ids: &mut HashSet<String>,
     ) {
         let storage_list = self
@@ -279,9 +293,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 
     async fn discover_power_supplies(
         &self,
-        chassis: &Arc<nv_redfish::chassis::Chassis<B>>,
+        chassis: &Arc<nv_redfish::chassis::Chassis<BmcClient>>,
         fetch_failures: &AtomicUsize,
-        entities: &mut Vec<DiscoveredEntity<B>>,
+        entities: &mut Vec<DiscoveredEntity<BmcClient>>,
         sensor_ids: &mut HashSet<String>,
     ) {
         let power_supplies = self
@@ -316,9 +330,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 
     async fn discover_chassis(
         &self,
-        chassis: &Arc<nv_redfish::chassis::Chassis<B>>,
+        chassis: &Arc<nv_redfish::chassis::Chassis<BmcClient>>,
         fetch_failures: &AtomicUsize,
-        entities: &mut Vec<DiscoveredEntity<B>>,
+        entities: &mut Vec<DiscoveredEntity<BmcClient>>,
         sensor_ids: &mut HashSet<String>,
     ) {
         let sensors = match chassis.sensor_links().await {

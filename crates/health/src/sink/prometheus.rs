@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use super::{CollectorEvent, DataSink, EventContext, MetricSample};
+use super::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 use crate::HealthError;
 use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
@@ -174,51 +174,51 @@ impl PrometheusSink {
     }
 }
 
-impl DataSink for PrometheusSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for PrometheusSink {
+    fn node_type(&self) -> &'static str {
         "prometheus_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         match event {
-            CollectorEvent::MetricCollectionStart => {
-                match self.get_or_create_stream_metrics(context) {
-                    Ok(stream_metrics) => stream_metrics.begin_update(),
-                    Err(error) => {
-                        tracing::warn!(
-                            ?error,
-                            endpoint_key = context.endpoint_key(),
-                            collector = context.collector_type,
-                            "Failed to initialize Prometheus stream metrics"
-                        );
-                    }
-                }
-            }
-            CollectorEvent::Metric(sample) => match self.get_or_create_stream_metrics(context) {
-                Ok(stream_metrics) => {
-                    stream_metrics.record(
-                        GaugeReading::new(
-                            Self::metric_reading_key(sample),
-                            sample.name.clone(),
-                            sample.metric_type.clone(),
-                            sample.unit.clone(),
-                            sample.value,
-                        )
-                        .with_labels(sample.labels.clone()),
-                    );
-                }
+            HealthEvent::ScrapeBatchStarted => match self.get_or_create_stream_metrics(context) {
+                Ok(stream_metrics) => stream_metrics.begin_update(),
                 Err(error) => {
                     tracing::warn!(
                         ?error,
                         endpoint_key = context.endpoint_key(),
                         collector = context.collector_type,
-                        metric = sample.name,
-                        metric_type = sample.metric_type,
-                        "Failed to record Prometheus metric sample"
+                        "Failed to initialize Prometheus stream metrics"
                     );
                 }
             },
-            CollectorEvent::MetricCollectionEnd => {
+            HealthEvent::MeasurementObserved(sample) => {
+                match self.get_or_create_stream_metrics(context) {
+                    Ok(stream_metrics) => {
+                        stream_metrics.record(
+                            GaugeReading::new(
+                                Self::metric_reading_key(sample),
+                                sample.name.clone(),
+                                sample.metric_type.clone(),
+                                sample.unit.clone(),
+                                sample.value,
+                            )
+                            .with_labels(sample.labels.clone()),
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            ?error,
+                            endpoint_key = context.endpoint_key(),
+                            collector = context.collector_type,
+                            metric = sample.name,
+                            metric_type = sample.metric_type,
+                            "Failed to record Prometheus metric sample"
+                        );
+                    }
+                }
+            }
+            HealthEvent::ScrapeBatchFinished => {
                 if let Some(endpoint_metrics) =
                     self.stream_metrics.get::<str>(context.endpoint_key())
                     && let Some(entry) = endpoint_metrics.get(context.collector_type)
@@ -226,11 +226,15 @@ impl DataSink for PrometheusSink {
                     entry.value().sweep_stale();
                 }
             }
-            CollectorEvent::CollectorRemoved => self.remove_collector_metrics(context),
-            CollectorEvent::Log(_)
-            | CollectorEvent::Firmware(_)
-            | CollectorEvent::HealthReport(_) => {}
+            HealthEvent::NodeRemoved => self.remove_collector_metrics(context),
+            HealthEvent::LogObserved(_)
+            | HealthEvent::ScrapeRequested { .. }
+            | HealthEvent::InventoryDiscovered { .. }
+            | HealthEvent::InventoryUpdated { .. }
+            | HealthEvent::FirmwareObserved(_)
+            | HealthEvent::HealthReportProduced(_) => {}
         }
+        Vec::new()
     }
 }
 

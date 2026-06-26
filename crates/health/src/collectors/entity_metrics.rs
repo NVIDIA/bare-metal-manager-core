@@ -27,10 +27,11 @@ use nv_redfish::schema::power_supply_metrics::PowerSupplyMetrics;
 use nv_redfish::schema::processor_metrics::ProcessorMetrics;
 
 use crate::HealthError;
-use crate::collectors::inventory::{DiscoveredEntity, SharedInventory};
+use crate::bmc::BmcClient;
+use crate::collectors::inventory::{DiscoveredEntity, EntityInventory};
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 
 struct MetricField {
     metric_type: Cow<'static, str>,
@@ -357,24 +358,24 @@ fn power_supply_metric_fields(m: &PowerSupplyMetrics) -> Vec<MetricField> {
 }
 
 pub struct MetricsCollectorConfig<B: Bmc> {
-    pub data_sink: Option<Arc<dyn DataSink>>,
-    pub(crate) shared: SharedInventory<B>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub fetch_concurrency: usize,
+    pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
 pub struct MetricsCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     event_context: EventContext,
-    shared: SharedInventory<B>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    latest_inventory: Option<Arc<EntityInventory<B>>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     fetch_concurrency: usize,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
-    type Config = MetricsCollectorConfig<B>;
+impl PeriodicCollector<BmcClient> for MetricsCollector<BmcClient> {
+    type Config = MetricsCollectorConfig<BmcClient>;
 
     fn new_runner(
-        _bmc: Arc<B>,
+        _bmc: Arc<BmcClient>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
@@ -382,14 +383,14 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
         Ok(Self {
             endpoint,
             event_context,
-            shared: config.shared,
+            latest_inventory: None,
             data_sink: config.data_sink,
             fetch_concurrency: config.fetch_concurrency.max(1),
         })
     }
 
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
-        let Some(inventory) = self.shared.load_full() else {
+        let Some(inventory) = self.latest_inventory.clone() else {
             tracing::debug!(
                 bmc_addr = ?self.endpoint.addr,
                 "No entity inventory available yet; skipping metrics iteration"
@@ -410,7 +411,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
         );
 
         let fetch_failures = AtomicUsize::new(0);
-        self.emit_event(CollectorEvent::MetricCollectionStart);
+        self.emit_event(HealthEvent::ScrapeBatchStarted);
 
         let this = &*self;
         let failures = &fetch_failures;
@@ -427,7 +428,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
             .into_iter()
             .sum();
 
-        self.emit_event(CollectorEvent::MetricCollectionEnd);
+        self.emit_event(HealthEvent::ScrapeBatchFinished);
 
         Ok(IterationResult {
             refresh_triggered: false,
@@ -440,13 +441,23 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
         "metrics_collector"
     }
 
+    fn wants_events(&self) -> bool {
+        true
+    }
+
+    fn handle_event(&mut self, _context: &EventContext, event: &HealthEvent) {
+        if let HealthEvent::InventoryDiscovered { inventory, .. } = event {
+            self.latest_inventory = Some(inventory.clone());
+        }
+    }
+
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
-impl<B: Bmc + 'static> MetricsCollector<B> {
-    fn emit_event(&self, event: CollectorEvent) {
+impl MetricsCollector<BmcClient> {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
@@ -454,7 +465,7 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
 
     async fn collect_entity(
         &self,
-        entity: &DiscoveredEntity<B>,
+        entity: &DiscoveredEntity<BmcClient>,
         fetch_failures: &AtomicUsize,
     ) -> usize {
         let fields = match entity {
@@ -502,7 +513,7 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
         let entity_key = entity.key();
         let count = fields.len();
         for field in fields {
-            self.emit_event(CollectorEvent::Metric(
+            self.emit_event(HealthEvent::MeasurementObserved(
                 MetricSample {
                     key: format!("{entity_key}/{}", field.metric_type),
                     name: "hw_metric".to_string(),

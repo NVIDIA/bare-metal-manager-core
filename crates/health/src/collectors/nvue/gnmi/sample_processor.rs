@@ -23,13 +23,13 @@ use std::time::Instant;
 use super::client::{typed_value_to_f64, typed_value_to_string};
 use super::proto::{self, PathElem};
 use super::subscriber::GnmiStreamMetrics;
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 
 pub(crate) const NVUE_GNMI_SAMPLE_STREAM_ID: &str = "nvue_gnmi";
 
-/// process NVUE gNMI SAMPLE notifications and emit them as `CollectorEvent::Metric`
+/// process NVUE gNMI SAMPLE notifications and emit them as `HealthEvent::MeasurementObserved`
 pub(crate) struct GnmiSampleProcessor {
-    pub(crate) data_sink: Option<Arc<dyn DataSink>>,
+    pub(crate) data_sink: Option<Arc<dyn SyncEventNode>>,
     pub(crate) event_context: EventContext,
     pub(crate) switch_id: String,
 }
@@ -235,7 +235,7 @@ impl GnmiSampleProcessor {
 
         sink.handle_event(
             &self.event_context,
-            &CollectorEvent::Metric(Box::new(MetricSample {
+            &HealthEvent::MeasurementObserved(Box::new(MetricSample {
                 key,
                 name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
                 metric_type: metric_type.to_string(),
@@ -305,19 +305,20 @@ mod tests {
 
     #[derive(Default)]
     struct CapturingSink {
-        events: Mutex<Vec<(EventContext, CollectorEvent)>>,
+        events: Mutex<Vec<(EventContext, HealthEvent)>>,
     }
 
-    impl DataSink for CapturingSink {
-        fn sink_type(&self) -> &'static str {
+    impl SyncEventNode for CapturingSink {
+        fn node_type(&self) -> &'static str {
             "capturing_sink"
         }
 
-        fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
             self.events
                 .lock()
                 .expect("lock poisoned")
                 .push((context.clone(), event.clone()));
+            Vec::new()
         }
     }
 
@@ -526,7 +527,7 @@ mod tests {
         assert_eq!(context.switch_slot_number(), Some(7));
         assert_eq!(context.switch_tray_index(), Some(3));
         assert_eq!(context.rack_id().map(RackId::as_str), Some("RACK_2"));
-        assert!(matches!(event, CollectorEvent::Metric(_)));
+        assert!(matches!(event, HealthEvent::MeasurementObserved(_)));
     }
 
     #[test]

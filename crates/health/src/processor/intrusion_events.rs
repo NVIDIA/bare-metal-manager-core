@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use super::{CollectorEvent, EventContext, EventProcessor};
+use super::{EventContext, HealthEvent, SyncEventNode};
 use crate::sink::{
     Classification, HealthReport, HealthReportAlert, HealthReportSuccess, HealthReportTarget,
     LogRecord, Probe, ReportSource,
@@ -34,9 +34,9 @@ enum IntrusionEventState {
 }
 
 #[derive(Default)]
-pub struct BmcIntrusionEventProcessor;
+pub struct BmcIntrusionSyncEventNode;
 
-impl BmcIntrusionEventProcessor {
+impl BmcIntrusionSyncEventNode {
     pub fn new() -> Self {
         Self
     }
@@ -98,17 +98,13 @@ impl BmcIntrusionEventProcessor {
     }
 }
 
-impl EventProcessor for BmcIntrusionEventProcessor {
-    fn processor_type(&self) -> &'static str {
+impl SyncEventNode for BmcIntrusionSyncEventNode {
+    fn node_type(&self) -> &'static str {
         "bmc_intrusion_event_processor"
     }
 
-    fn process_event(
-        &self,
-        _context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Vec<CollectorEvent> {
-        let CollectorEvent::Log(record) = event else {
+    fn handle_event(&self, _context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::LogObserved(record) = event else {
             return Vec::new();
         };
 
@@ -146,7 +142,7 @@ impl EventProcessor for BmcIntrusionEventProcessor {
             alerts,
         };
 
-        vec![CollectorEvent::HealthReport(Arc::new(report))]
+        vec![HealthEvent::HealthReportProduced(Arc::new(report))]
     }
 }
 
@@ -192,13 +188,13 @@ mod tests {
         }
     }
 
-    fn log(body: &str, severity: &str, message_args: Option<&str>) -> CollectorEvent {
+    fn log(body: &str, severity: &str, message_args: Option<&str>) -> HealthEvent {
         let mut attributes = Vec::new();
         if let Some(message_args) = message_args {
             attributes.push((Cow::Borrowed("message_args"), message_args.to_string()));
         }
 
-        CollectorEvent::Log(Box::new(LogRecord {
+        HealthEvent::LogObserved(Box::new(LogRecord {
             body: body.to_string(),
             severity: severity.to_string(),
             attributes,
@@ -206,12 +202,12 @@ mod tests {
         }))
     }
 
-    fn emitted_report(event: CollectorEvent) -> Arc<HealthReport> {
-        let processor = BmcIntrusionEventProcessor::new();
-        let emitted = processor.process_event(&context(), &event);
+    fn emitted_report(event: HealthEvent) -> Arc<HealthReport> {
+        let processor = BmcIntrusionSyncEventNode::new();
+        let emitted = processor.handle_event(&context(), &event);
         assert_eq!(emitted.len(), 1);
 
-        let CollectorEvent::HealthReport(report) = &emitted[0] else {
+        let HealthEvent::HealthReportProduced(report) = &emitted[0] else {
             panic!("expected health report");
         };
 
@@ -338,8 +334,8 @@ mod tests {
 
     #[test]
     fn ignores_unrelated_logs() {
-        let processor = BmcIntrusionEventProcessor::new();
-        let emitted = processor.process_event(
+        let processor = BmcIntrusionSyncEventNode::new();
+        let emitted = processor.handle_event(
             &context(),
             &log("CPU temperature threshold warning", "Warning", None),
         );

@@ -27,7 +27,7 @@ use super::proto::{self, PathElem};
 use super::sample_processor::now_unix_secs;
 use super::subscriber::GnmiStreamMetrics;
 use crate::HealthError;
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 
 type ParsedRow = HashMap<String, String>;
 type CachedRows = HashMap<String, ParsedRow>;
@@ -83,7 +83,7 @@ impl OnChangeStreamMetrics {
 pub(crate) struct GnmiOnChangeProcessor {
     pub(crate) collector_name: String,
     pub(crate) stream_metrics: OnChangeStreamMetrics,
-    pub(crate) data_sink: Option<Arc<dyn DataSink>>,
+    pub(crate) data_sink: Option<Arc<dyn SyncEventNode>>,
     pub(crate) event_context: EventContext,
     pub(crate) switch_id: String,
     cached_rows: Mutex<CachedRows>,
@@ -93,7 +93,7 @@ impl GnmiOnChangeProcessor {
     pub(crate) fn new(
         collector_name: String,
         stream_metrics: OnChangeStreamMetrics,
-        data_sink: Option<Arc<dyn DataSink>>,
+        data_sink: Option<Arc<dyn SyncEventNode>>,
         event_context: EventContext,
         switch_id: String,
     ) -> Self {
@@ -276,7 +276,7 @@ impl GnmiOnChangeProcessor {
 
         sink.handle_event(
             &self.event_context,
-            &CollectorEvent::Metric(Box::new(MetricSample {
+            &HealthEvent::MeasurementObserved(Box::new(MetricSample {
                 key,
                 name: self.collector_name.clone(),
                 metric_type: "on_change_row".to_string(),
@@ -337,19 +337,20 @@ mod tests {
 
     #[derive(Default)]
     struct CapturingSink {
-        events: Mutex<Vec<(EventContext, CollectorEvent)>>,
+        events: Mutex<Vec<(EventContext, HealthEvent)>>,
     }
 
-    impl DataSink for CapturingSink {
-        fn sink_type(&self) -> &'static str {
+    impl SyncEventNode for CapturingSink {
+        fn node_type(&self) -> &'static str {
             "capturing_sink"
         }
 
-        fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
             self.events
                 .lock()
                 .expect("lock poisoned")
                 .push((context.clone(), event.clone()));
+            Vec::new()
         }
     }
 
@@ -381,7 +382,7 @@ mod tests {
         }
     }
 
-    fn test_processor(data_sink: Option<Arc<dyn DataSink>>) -> GnmiOnChangeProcessor {
+    fn test_processor(data_sink: Option<Arc<dyn SyncEventNode>>) -> GnmiOnChangeProcessor {
         let registry = prometheus::Registry::new();
         let stream_metrics =
             OnChangeStreamMetrics::new(&registry, "test", TEST_COLLECTOR_NAME, test_labels())
@@ -617,7 +618,7 @@ mod tests {
 
         let events = sink.events.lock().expect("lock poisoned");
         assert_eq!(events.len(), 2);
-        let CollectorEvent::Metric(metric) = &events[1].1 else {
+        let HealthEvent::MeasurementObserved(metric) = &events[1].1 else {
             panic!("expected metric event");
         };
         assert_eq!(metric.value, 4.0);
@@ -657,7 +658,7 @@ mod tests {
 
         let events = sink.events.lock().expect("lock poisoned");
         assert_eq!(events.len(), 3);
-        let CollectorEvent::Metric(metric) = &events[2].1 else {
+        let HealthEvent::MeasurementObserved(metric) = &events[2].1 else {
             panic!("expected metric event");
         };
         assert_eq!(metric.value, 0.0);
@@ -697,7 +698,7 @@ mod tests {
 
         let events = sink.events.lock().expect("lock poisoned");
         assert_eq!(events.len(), 2);
-        let CollectorEvent::Metric(metric) = &events[1].1 else {
+        let HealthEvent::MeasurementObserved(metric) = &events[1].1 else {
             panic!("expected metric event");
         };
         assert_eq!(metric.value, 0.0);
@@ -743,7 +744,7 @@ mod tests {
 
         let events = sink.events.lock().expect("lock poisoned");
         assert_eq!(events.len(), 2);
-        let CollectorEvent::Metric(metric) = &events[1].1 else {
+        let HealthEvent::MeasurementObserved(metric) = &events[1].1 else {
             panic!("expected metric event");
         };
         assert_eq!(metric.value, 0.0);
@@ -830,7 +831,7 @@ mod tests {
         assert_eq!(context.switch_slot_number(), Some(7));
         assert_eq!(context.switch_tray_index(), Some(3));
         assert_eq!(context.rack_id().map(RackId::as_str), Some("RACK_2"));
-        let CollectorEvent::Metric(metric) = event else {
+        let HealthEvent::MeasurementObserved(metric) = event else {
             panic!("expected metric event");
         };
         assert_eq!(metric.metric_type, "on_change_row");

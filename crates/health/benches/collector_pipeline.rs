@@ -24,8 +24,8 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
-    MetricSample, PrometheusSink,
+    CompositeSyncEventNode, EventContext, FirmwareInfo, HealthEvent, LogRecord, MetricSample,
+    PrometheusSink, SyncEventNode,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mac_address::MacAddress;
@@ -34,14 +34,15 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 
 struct CountingSink;
 
-impl DataSink for CountingSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for CountingSink {
+    fn node_type(&self) -> &'static str {
         "counting_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         black_box(context);
         black_box(event);
+        Vec::new()
     }
 }
 
@@ -65,14 +66,14 @@ fn event_context() -> EventContext {
     }
 }
 
-fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
+fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> HealthEvent {
     let unique_keys = unique_keys.max(1);
     let sensor_idx = idx % unique_keys;
     let sensor_key = format!("sensor-{sensor_idx}");
     let machine_idx = idx % 16;
     let rack_idx = idx % 4;
 
-    CollectorEvent::Metric(
+    HealthEvent::MeasurementObserved(
         MetricSample {
             key: sensor_key.clone(),
             name: "hw_sensor".to_string(),
@@ -92,8 +93,8 @@ fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
     )
 }
 
-fn build_nmxt_metric_event(idx: usize) -> CollectorEvent {
-    CollectorEvent::Metric(
+fn build_nmxt_metric_event(idx: usize) -> HealthEvent {
+    HealthEvent::MeasurementObserved(
         MetricSample {
             key: format!("effective_ber:{}", idx % 64),
             name: "switch_nmxt".to_string(),
@@ -112,8 +113,8 @@ fn build_nmxt_metric_event(idx: usize) -> CollectorEvent {
     )
 }
 
-fn build_log_event(idx: usize) -> CollectorEvent {
-    CollectorEvent::Log(
+fn build_log_event(idx: usize) -> HealthEvent {
+    HealthEvent::LogObserved(
         LogRecord {
             body: format!("BMC event line {idx}"),
             severity: "INFO".to_string(),
@@ -128,9 +129,9 @@ fn build_log_event(idx: usize) -> CollectorEvent {
     )
 }
 
-fn build_firmware_event(idx: usize) -> CollectorEvent {
+fn build_firmware_event(idx: usize) -> HealthEvent {
     let component = format!("component-{idx}");
-    CollectorEvent::Firmware(FirmwareInfo {
+    HealthEvent::FirmwareObserved(FirmwareInfo {
         component: component.clone(),
         version: format!("1.0.{}", idx % 100),
         attributes: vec![
@@ -140,8 +141,8 @@ fn build_firmware_event(idx: usize) -> CollectorEvent {
     })
 }
 
-fn bench_collector_event_build(c: &mut Criterion) {
-    let mut group = c.benchmark_group("collector_event_build");
+fn bench_health_event_build(c: &mut Criterion) {
+    let mut group = c.benchmark_group("health_event_build");
     let sample_count = 10_000usize;
     group.throughput(Throughput::Elements(sample_count as u64));
 
@@ -181,12 +182,12 @@ fn bench_collector_event_build(c: &mut Criterion) {
 }
 
 fn emit_metric_batch_building(
-    sink: &dyn DataSink,
+    sink: &dyn SyncEventNode,
     context: &EventContext,
     batch_size: usize,
     unique_keys: usize,
 ) {
-    let start = CollectorEvent::MetricCollectionStart;
+    let start = HealthEvent::ScrapeBatchStarted;
     sink.handle_event(context, &start);
 
     for idx in 0..batch_size {
@@ -194,7 +195,7 @@ fn emit_metric_batch_building(
         sink.handle_event(context, &event);
     }
 
-    let end = CollectorEvent::MetricCollectionEnd;
+    let end = HealthEvent::ScrapeBatchFinished;
     sink.handle_event(context, &end);
 }
 
@@ -224,13 +225,13 @@ fn bench_collector_build_and_emit_prometheus(c: &mut Criterion) {
 }
 
 struct CompositeBuildEmitState {
-    sink: CompositeDataSink,
+    sink: CompositeSyncEventNode,
     context: EventContext,
 }
 
 impl CompositeBuildEmitState {
     fn new(sink_count: usize) -> Self {
-        let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(sink_count);
+        let mut sinks: Vec<Arc<dyn SyncEventNode>> = Vec::with_capacity(sink_count);
         for _ in 0..sink_count {
             sinks.push(Arc::new(CountingSink));
         }
@@ -238,7 +239,7 @@ impl CompositeBuildEmitState {
         let metrics_manager = Arc::new(
             MetricsManager::new("bench_collector").expect("metrics manager should initialize"),
         );
-        let sink = CompositeDataSink::new(sinks, metrics_manager);
+        let sink = CompositeSyncEventNode::new(sinks, metrics_manager);
 
         Self {
             sink,
@@ -268,7 +269,7 @@ fn bench_collector_build_and_emit_composite(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_collector_event_build,
+    bench_health_event_build,
     bench_collector_build_and_emit_prometheus,
     bench_collector_build_and_emit_composite
 );

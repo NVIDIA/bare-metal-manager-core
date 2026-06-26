@@ -19,12 +19,10 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use arc_swap::ArcSwapOption;
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
-use crate::bmc::BmcClient;
-use crate::collectors::{Collector, LogDowngradeRegistry, SharedInventory};
+use crate::collectors::{Collector, LogDowngradeRegistry};
 use crate::config::{
     Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
     LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
@@ -92,7 +90,6 @@ pub(super) struct CollectorState {
     nmxt: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
-    inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
 }
 
 impl CollectorState {
@@ -107,7 +104,6 @@ impl CollectorState {
             nmxt: HashMap::new(),
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
-            inventories: HashMap::new(),
         }
     }
 
@@ -142,23 +138,16 @@ impl CollectorState {
         }
     }
 
-    pub(super) fn inventory_for(&mut self, key: &str) -> SharedInventory<BmcClient> {
-        if let Some(shared) = self.inventories.get(key) {
-            return shared.clone();
-        }
-        let shared = Arc::new(ArcSwapOption::empty());
-        self.inventories
-            .insert(Cow::Owned(key.to_string()), shared.clone());
-        shared
-    }
-
-    /// Drop the shared inventory handle for a removed endpoint.
-    pub(super) fn remove_inventory(&mut self, key: &str) {
-        self.inventories.remove(key);
-    }
-
     pub(super) fn contains(&self, kind: CollectorKind, key: &str) -> bool {
         self.map(kind).contains_key(key)
+    }
+
+    pub(super) fn event_node(
+        &self,
+        kind: CollectorKind,
+        key: &str,
+    ) -> Option<Arc<dyn crate::sink::SyncEventNode>> {
+        self.map(kind).get(key).and_then(Collector::event_node)
     }
 
     pub(super) fn insert(

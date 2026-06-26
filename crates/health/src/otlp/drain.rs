@@ -24,7 +24,7 @@ use super::collector_logs::logs_service_client::LogsServiceClient;
 use super::convert::build_export_request;
 use crate::collectors::{BackoffConfig, ExponentialBackoff};
 use crate::sink::otlp::OtlpQueue;
-use crate::sink::{CollectorEvent, EventContext};
+use crate::sink::{EventContext, HealthEvent};
 
 pub(crate) struct OtlpDrainTask {
     queue: Arc<OtlpQueue>,
@@ -48,7 +48,7 @@ impl OtlpDrainTask {
         }
     }
 
-    fn drain_batch(&self, batch: &mut Vec<(EventContext, CollectorEvent)>) {
+    fn drain_batch(&self, batch: &mut Vec<(EventContext, HealthEvent)>) {
         let remaining = self.batch_size.saturating_sub(batch.len());
         for _ in 0..remaining {
             match self.queue.pop() {
@@ -127,7 +127,7 @@ impl OtlpDrainTask {
     async fn flush(
         &self,
         client: &mut LogsServiceClient<Channel>,
-        batch: &mut Vec<(EventContext, CollectorEvent)>,
+        batch: &mut Vec<(EventContext, HealthEvent)>,
     ) {
         if batch.is_empty() {
             return;

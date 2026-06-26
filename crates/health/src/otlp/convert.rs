@@ -28,7 +28,7 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample};
 
 fn severity_text_to_number(severity: &str) -> i32 {
     match severity.to_uppercase().as_str() {
@@ -148,10 +148,10 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     }
 }
 
-fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogRecord> {
+fn convert_event(event: &HealthEvent, observed_nanos: u64) -> Option<OtlpLogRecord> {
     match event {
-        CollectorEvent::Log(log) => Some(convert_log(log, observed_nanos)),
-        CollectorEvent::HealthReport(report) => {
+        HealthEvent::LogObserved(log) => Some(convert_log(log, observed_nanos)),
+        HealthEvent::HealthReportProduced(report) => {
             let body = format!(
                 "health report: {} alerts, {} ok (source: {:?})",
                 report.alerts.len(),
@@ -173,7 +173,7 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
                 ..Default::default()
             })
         }
-        CollectorEvent::Firmware(info) => {
+        HealthEvent::FirmwareObserved(info) => {
             let body = format!("{}: {}", info.component, info.version);
             Some(OtlpLogRecord {
                 time_unix_nano: observed_nanos,
@@ -185,15 +185,18 @@ fn convert_event(event: &CollectorEvent, observed_nanos: u64) -> Option<OtlpLogR
                 ..Default::default()
             })
         }
-        CollectorEvent::Metric(_)
-        | CollectorEvent::MetricCollectionStart
-        | CollectorEvent::MetricCollectionEnd
-        | CollectorEvent::CollectorRemoved => None,
+        HealthEvent::MeasurementObserved(_)
+        | HealthEvent::ScrapeRequested { .. }
+        | HealthEvent::InventoryDiscovered { .. }
+        | HealthEvent::InventoryUpdated { .. }
+        | HealthEvent::ScrapeBatchStarted
+        | HealthEvent::ScrapeBatchFinished
+        | HealthEvent::NodeRemoved => None,
     }
 }
 
 /// Builds an OTLP log export request grouped by endpoint.
-pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportLogsServiceRequest {
+pub fn build_export_request(batch: &[(EventContext, HealthEvent)]) -> ExportLogsServiceRequest {
     let observed_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -529,7 +532,7 @@ mod tests {
     #[test]
     fn log_event_converts_to_otlp_record() {
         let ctx = test_context();
-        let log = CollectorEvent::Log(Box::new(LogRecord {
+        let log = HealthEvent::LogObserved(Box::new(LogRecord {
             body: "something happened".to_string(),
             severity: "WARNING".to_string(),
             attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
@@ -557,7 +560,7 @@ mod tests {
             r#"{"key":"redfish.parent.log_entry_id","value":"42"}]}"#
         );
 
-        let log = CollectorEvent::Log(Box::new(LogRecord {
+        let log = HealthEvent::LogObserved(Box::new(LogRecord {
             body: body.to_string(),
             severity: "WARN".to_string(),
             attributes: vec![
@@ -596,8 +599,8 @@ mod tests {
     fn metric_events_are_filtered_out() {
         let ctx = test_context();
         let batch = vec![
-            (ctx.clone(), CollectorEvent::MetricCollectionStart),
-            (ctx, CollectorEvent::MetricCollectionEnd),
+            (ctx.clone(), HealthEvent::ScrapeBatchStarted),
+            (ctx, HealthEvent::ScrapeBatchFinished),
         ];
         let request = build_export_request(&batch);
         assert!(request.resource_logs.is_empty());
@@ -606,7 +609,7 @@ mod tests {
     #[test]
     fn health_report_converts_with_alert_severity() {
         let ctx = test_context();
-        let report = CollectorEvent::HealthReport(
+        let report = HealthEvent::HealthReportProduced(
             HealthReport {
                 source: ReportSource::BmcSensors,
                 target: None,
@@ -648,7 +651,7 @@ mod tests {
         let log = |ctx| {
             (
                 ctx,
-                CollectorEvent::Log(Box::new(LogRecord {
+                HealthEvent::LogObserved(Box::new(LogRecord {
                     body: "x".to_string(),
                     severity: "INFO".to_string(),
                     attributes: vec![],

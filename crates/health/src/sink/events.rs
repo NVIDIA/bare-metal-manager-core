@@ -30,6 +30,8 @@ use health_report::{
 use nv_redfish::resource::Health as BmcHealth;
 use serde::Serialize;
 
+use crate::bmc::BmcClient;
+use crate::collectors::inventory::EntityInventory;
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
 
@@ -335,15 +337,41 @@ impl HealthReport {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum CollectorEvent {
-    MetricCollectionStart,
-    Metric(Box<MetricSample>),
-    MetricCollectionEnd,
-    CollectorRemoved,
-    Log(Box<LogRecord>),
-    Firmware(FirmwareInfo),
-    HealthReport(Arc<HealthReport>),
+#[derive(Clone)]
+pub enum HealthEvent {
+    ScrapeRequested {
+        endpoint_key: String,
+        kind: ScrapeKind,
+    },
+    InventoryDiscovered {
+        endpoint_key: String,
+        inventory: Arc<EntityInventory<BmcClient>>,
+    },
+    InventoryUpdated {
+        endpoint_key: String,
+        generation: u64,
+    },
+    ScrapeBatchStarted,
+    MeasurementObserved(Box<MetricSample>),
+    ScrapeBatchFinished,
+    NodeRemoved,
+    LogObserved(Box<LogRecord>),
+    FirmwareObserved(FirmwareInfo),
+    HealthReportProduced(Arc<HealthReport>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum ScrapeKind {
+    Inventory,
+    Sensors,
+    Metrics,
+    Logs,
+    Firmware,
+    LeakDetectors,
+    Nmxt,
+    NvueRest,
+    NvueGnmi,
+    Telemetry,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]

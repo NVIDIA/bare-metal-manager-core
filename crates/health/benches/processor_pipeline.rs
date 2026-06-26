@@ -23,11 +23,11 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::processor::{
-    EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
-    RackLeakProcessor,
+    EventGraph, HealthReportProcessor, LeakSyncEventNode, RackLeakProcessor,
 };
 use carbide_health::sink::{
-    CollectorEvent, CompositeDataSink, DataSink, EventContext, MetricSample, SensorThresholdContext,
+    CompositeSyncEventNode, EventContext, HealthEvent, MetricSample, SensorThresholdContext,
+    SyncEventNode,
 };
 use carbide_uuid::rack::RackId;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -38,45 +38,38 @@ const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6r
 
 struct CountingSink;
 
-impl DataSink for CountingSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for CountingSink {
+    fn node_type(&self) -> &'static str {
         "counting_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         std::hint::black_box(context);
         std::hint::black_box(event);
+        Vec::new()
     }
 }
 
 struct NoopProcessor;
 
-impl EventProcessor for NoopProcessor {
-    fn processor_type(&self) -> &'static str {
+impl SyncEventNode for NoopProcessor {
+    fn node_type(&self) -> &'static str {
         "noop_processor"
     }
 
-    fn process_event(
-        &self,
-        _context: &EventContext,
-        _event: &CollectorEvent,
-    ) -> Vec<CollectorEvent> {
+    fn handle_event(&self, _context: &EventContext, _event: &HealthEvent) -> Vec<HealthEvent> {
         Vec::new()
     }
 }
 
 struct ReemitProcessor;
 
-impl EventProcessor for ReemitProcessor {
-    fn processor_type(&self) -> &'static str {
+impl SyncEventNode for ReemitProcessor {
+    fn node_type(&self) -> &'static str {
         "reemit_processor"
     }
 
-    fn process_event(
-        &self,
-        _context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Vec<CollectorEvent> {
+    fn handle_event(&self, _context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         vec![event.clone()]
     }
 }
@@ -101,19 +94,33 @@ fn event_context() -> EventContext {
     }
 }
 
-fn make_composite_sink(count: usize, metrics_manager: Arc<MetricsManager>) -> Arc<dyn DataSink> {
-    let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(count);
+fn make_composite_sink(
+    count: usize,
+    metrics_manager: Arc<MetricsManager>,
+) -> Arc<dyn SyncEventNode> {
+    let mut sinks: Vec<Arc<dyn SyncEventNode>> = Vec::with_capacity(count);
     for _ in 0..count {
         sinks.push(Arc::new(CountingSink));
     }
-    Arc::new(CompositeDataSink::new(sinks, metrics_manager))
+    Arc::new(CompositeSyncEventNode::new(sinks, metrics_manager))
+}
+
+fn make_event_graph(
+    sink: Arc<dyn SyncEventNode>,
+    processors: Vec<Arc<dyn SyncEventNode>>,
+    metrics_manager: Arc<MetricsManager>,
+) -> EventGraph {
+    let mut nodes = Vec::with_capacity(processors.len() + 1);
+    nodes.push(sink);
+    nodes.extend(processors);
+    EventGraph::new(nodes, metrics_manager)
 }
 
 fn metric_events(
     batch_size: usize,
     unique_keys: usize,
     with_health_context: bool,
-) -> Vec<CollectorEvent> {
+) -> Vec<HealthEvent> {
     let unique_keys = unique_keys.max(1);
 
     (0..batch_size)
@@ -150,18 +157,18 @@ fn metric_events(
                     bmc_health: BmcHealth::Warning,
                 });
             }
-            CollectorEvent::Metric(metric.into())
+            HealthEvent::MeasurementObserved(metric.into())
         })
         .collect()
 }
 
-fn emit_metric_batch(sink: &dyn DataSink, context: &EventContext, events: &[CollectorEvent]) {
-    let start = CollectorEvent::MetricCollectionStart;
+fn emit_metric_batch(sink: &dyn SyncEventNode, context: &EventContext, events: &[HealthEvent]) {
+    let start = HealthEvent::ScrapeBatchStarted;
     sink.handle_event(context, &start);
     for event in events {
         sink.handle_event(context, event);
     }
-    let end = CollectorEvent::MetricCollectionEnd;
+    let end = HealthEvent::ScrapeBatchFinished;
     sink.handle_event(context, &end);
 }
 
@@ -173,18 +180,14 @@ fn bench_pipeline_baseline(c: &mut Criterion) {
         let metrics_manager: Arc<MetricsManager> =
             Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
         let sink = make_composite_sink(2, metrics_manager.clone());
-        let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::with_capacity(processor_count);
+        let mut processors: Vec<Arc<dyn SyncEventNode>> = Vec::with_capacity(processor_count);
         for _ in 0..processor_count {
             processors.push(Arc::new(NoopProcessor));
         }
-        let sink: Arc<dyn DataSink> = if processors.is_empty() {
+        let sink: Arc<dyn SyncEventNode> = if processors.is_empty() {
             sink
         } else {
-            Arc::new(EventProcessingPipeline::new(
-                processors,
-                sink,
-                metrics_manager.clone(),
-            ))
+            Arc::new(make_event_graph(sink, processors, metrics_manager.clone()))
         };
         let context = event_context();
         let events = metric_events(batch_size, 64, false);
@@ -208,13 +211,13 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
     let metrics_manager: Arc<MetricsManager> =
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
-    let processors: Vec<Arc<dyn EventProcessor>> = vec![
+    let processors: Vec<Arc<dyn SyncEventNode>> = vec![
         Arc::new(HealthReportProcessor::default()),
-        Arc::new(LeakEventProcessor::new(1)),
+        Arc::new(LeakSyncEventNode::new(1)),
     ];
-    let pipeline = EventProcessingPipeline::new(
-        processors,
+    let pipeline = make_event_graph(
         make_composite_sink(2, metrics_manager.clone()),
+        processors,
         metrics_manager,
     );
     let context = event_context();
@@ -240,9 +243,9 @@ fn bench_pipeline_loop_guard(c: &mut Criterion) {
     let metrics_manager: Arc<MetricsManager> =
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
-    let pipeline = EventProcessingPipeline::new(
-        vec![Arc::new(ReemitProcessor)],
+    let pipeline = make_event_graph(
         make_composite_sink(2, metrics_manager.clone()),
+        vec![Arc::new(ReemitProcessor)],
         metrics_manager,
     );
     let context = event_context();
@@ -286,14 +289,14 @@ fn bench_pipeline_rack_leak(c: &mut Criterion) {
     let metrics_manager: Arc<MetricsManager> =
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
-    let processors: Vec<Arc<dyn EventProcessor>> = vec![
+    let processors: Vec<Arc<dyn SyncEventNode>> = vec![
         Arc::new(HealthReportProcessor::default()),
-        Arc::new(LeakEventProcessor::new(1)),
+        Arc::new(LeakSyncEventNode::new(1)),
         Arc::new(RackLeakProcessor::new(2)),
     ];
-    let pipeline = EventProcessingPipeline::new(
-        processors,
+    let pipeline = make_event_graph(
         make_composite_sink(2, metrics_manager.clone()),
+        processors,
         metrics_manager,
     );
 

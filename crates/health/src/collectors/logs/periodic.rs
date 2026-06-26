@@ -32,13 +32,13 @@ use super::diagnostic::{
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord};
+use crate::sink::{EventContext, HealthEvent, LogRecord, SyncEventNode};
 
 /// Configuration for logs collector
 pub struct LogsCollectorConfig {
     pub state_file_path: PathBuf,
     pub service_refresh_interval: Duration,
-    pub data_sink: Option<Arc<dyn DataSink>>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
 
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
@@ -68,7 +68,7 @@ pub struct LogsCollector<B: Bmc> {
     state_file_path: PathBuf,
     state: Option<LogsCollectorState<B>>,
     service_refresh_interval: Duration,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     include_diagnostics: bool,
 }
 
@@ -103,7 +103,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
 
     async fn stop(&mut self) {
         if let Some(data_sink) = &self.data_sink {
-            data_sink.handle_event(&self.event_context, &CollectorEvent::CollectorRemoved);
+            data_sink.handle_event(&self.event_context, &HealthEvent::NodeRemoved);
         }
     }
 }
@@ -363,7 +363,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     })
                     .flatten();
 
-                let log_event = CollectorEvent::Log(
+                let log_event = HealthEvent::LogObserved(
                     LogRecord {
                         body,
                         severity: severity_text,

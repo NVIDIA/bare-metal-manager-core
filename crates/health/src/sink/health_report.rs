@@ -25,7 +25,7 @@ use carbide_uuid::machine::MachineId;
 
 use super::dedup_queue::DedupQueue;
 use super::{
-    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+    EventContext, HealthEvent, HealthReport, HealthReportTarget, ReportSource, SyncEventNode,
 };
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
@@ -159,17 +159,17 @@ impl HealthReportSink {
     }
 }
 
-impl DataSink for HealthReportSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for HealthReportSink {
+    fn node_type(&self) -> &'static str {
         "health_report_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let CollectorEvent::HealthReport(report) = event else {
-            return;
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::HealthReportProduced(report) = event else {
+            return Vec::new();
         };
         if report.target != Some(HealthReportTarget::Machine) {
-            return;
+            return Vec::new();
         }
 
         if self.skip_empty_reports && report.is_empty() {
@@ -177,7 +177,7 @@ impl DataSink for HealthReportSink {
                 source = ?report.source,
                 "Skipping empty machine health report"
             );
-            return;
+            return Vec::new();
         }
 
         if let Some(machine_id) = context.machine_id() {
@@ -201,7 +201,7 @@ impl DataSink for HealthReportSink {
                             machine_id = %key.id,
                             "Suppressing unchanged success-only health report"
                         );
-                        return;
+                        return Vec::new();
                     }
                     cache.entries.insert(
                         key.clone(),
@@ -224,6 +224,7 @@ impl DataSink for HealthReportSink {
                 "Received machine-target HealthReport event without machine_id context"
             );
         }
+        Vec::new()
     }
 }
 
@@ -387,7 +388,7 @@ mod tests {
         let ctx = machine_context(mid);
         let sink = make_sink(Some(Duration::from_secs(300)));
         let report = success_report(ReportSource::BmcSensors);
-        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+        let event = HealthEvent::HealthReportProduced(Arc::clone(&report));
 
         sink.handle_event(&ctx, &event);
         assert!(sink.queue.pop().is_some(), "first send should go through");
@@ -410,13 +411,19 @@ mod tests {
         // Send a success first to populate last_sent, then send an alert.
         // The alert must not be suppressed, and the subsequent success must
         // also go through (alert clears the suppression entry).
-        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&success)));
+        sink.handle_event(
+            &ctx,
+            &HealthEvent::HealthReportProduced(Arc::clone(&success)),
+        );
         sink.queue.pop();
 
-        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&alert)));
+        sink.handle_event(&ctx, &HealthEvent::HealthReportProduced(Arc::clone(&alert)));
         assert!(sink.queue.pop().is_some(), "alert should not be suppressed");
 
-        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&success)));
+        sink.handle_event(
+            &ctx,
+            &HealthEvent::HealthReportProduced(Arc::clone(&success)),
+        );
         assert!(
             sink.queue.pop().is_some(),
             "first success after alert should not be suppressed"
@@ -430,7 +437,10 @@ mod tests {
         let sink = make_sink(Some(Duration::from_secs(300)));
 
         let report_a = success_report(ReportSource::BmcSensors);
-        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_a)));
+        sink.handle_event(
+            &ctx,
+            &HealthEvent::HealthReportProduced(Arc::clone(&report_a)),
+        );
         sink.queue.pop();
 
         let report_b = Arc::new(HealthReport {
@@ -443,7 +453,10 @@ mod tests {
             }],
             alerts: Vec::new(),
         });
-        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_b)));
+        sink.handle_event(
+            &ctx,
+            &HealthEvent::HealthReportProduced(Arc::clone(&report_b)),
+        );
 
         assert!(
             sink.queue.pop().is_some(),
@@ -457,7 +470,7 @@ mod tests {
         let ctx = machine_context(mid);
         let sink = make_sink(None);
         let report = success_report(ReportSource::BmcSensors);
-        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+        let event = HealthEvent::HealthReportProduced(Arc::clone(&report));
 
         sink.handle_event(&ctx, &event);
         sink.queue.pop();

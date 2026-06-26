@@ -44,15 +44,14 @@ use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSou
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
-    BmcIntrusionEventProcessor, EventProcessingPipeline, EventProcessor, HealthReportProcessor,
-    LeakEventProcessor, RackLeakProcessor,
+    BmcIntrusionSyncEventNode, EventGraph, HealthReportProcessor, LeakSyncEventNode,
+    RackLeakProcessor,
 };
 use crate::sharding::ShardManager;
 use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
 use crate::sink::{
-    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, OtlpSink,
-    PowerShelfHealthReportSink, PrometheusSink, RackHealthReportSink, SwitchHealthReportSink,
-    TracingSink,
+    HealthReportSink, LogFileSink, OtlpSink, PowerShelfHealthReportSink, PrometheusSink,
+    RackHealthReportSink, SwitchHealthReportSink, SyncEventNode, TracingSink,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -163,16 +162,15 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
 fn build_data_sink(
     config: &Config,
     metrics_manager: Arc<MetricsManager>,
-) -> Result<Option<Arc<dyn DataSink>>, HealthError> {
-    let mut sinks: Vec<Arc<dyn DataSink>> = Vec::new();
-    let mut processors: Vec<Arc<dyn EventProcessor>> = Vec::new();
+) -> Result<Option<Arc<dyn SyncEventNode>>, HealthError> {
+    let mut nodes: Vec<Arc<dyn SyncEventNode>> = Vec::new();
 
     if let Configurable::Enabled(sink_cfg) = &config.sinks.tracing {
-        sinks.push(Arc::new(TracingSink::new(sink_cfg)));
+        nodes.push(Arc::new(TracingSink::new(sink_cfg)));
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
-        sinks.push(Arc::new(PrometheusSink::new(
+        nodes.push(Arc::new(PrometheusSink::new(
             metrics_manager.clone(),
             &config.metrics.prefix,
         )?));
@@ -184,50 +182,50 @@ fn build_data_sink(
         || config.sinks.switch_health_report.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
-        processors.push(Arc::new(HealthReportProcessor::new()));
+        nodes.push(Arc::new(HealthReportProcessor::new()));
     }
 
     if config.sinks.health_report.is_enabled() {
-        processors.push(Arc::new(BmcIntrusionEventProcessor::new()));
+        nodes.push(Arc::new(BmcIntrusionSyncEventNode::new()));
     }
 
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
-        processors.push(Arc::new(LeakEventProcessor::new(
+        nodes.push(Arc::new(LeakSyncEventNode::new(
             leak_detection_cfg.minimum_alerts_per_report,
         )));
     }
 
     if let Configurable::Enabled(ref rack_leak_cfg) = config.processors.rack_leak {
-        processors.push(Arc::new(RackLeakProcessor::new(
+        nodes.push(Arc::new(RackLeakProcessor::new(
             rack_leak_cfg.leaking_tray_threshold,
         )));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.log_file {
-        sinks.push(Arc::new(
+        nodes.push(Arc::new(
             LogFileSink::new(sink_cfg).map_err(HealthError::GenericError)?,
         ));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_report {
-        sinks.push(Arc::new(HealthReportSink::new(sink_cfg)?));
+        nodes.push(Arc::new(HealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_report {
-        sinks.push(Arc::new(RackHealthReportSink::new(sink_cfg)?));
+        nodes.push(Arc::new(RackHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.switch_health_report {
-        sinks.push(Arc::new(SwitchHealthReportSink::new(sink_cfg)?));
+        nodes.push(Arc::new(SwitchHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.power_shelf_health_report {
-        sinks.push(Arc::new(PowerShelfHealthReportSink::new(sink_cfg)?));
+        nodes.push(Arc::new(PowerShelfHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {
         let mapper: Arc<dyn RedfishEventMapper> = Arc::new(OpenBmcEventMapper);
-        sinks.push(Arc::new(OtlpSink::new(
+        nodes.push(Arc::new(OtlpSink::new(
             otlp_cfg,
             mapper,
             &metrics_manager,
@@ -235,22 +233,11 @@ fn build_data_sink(
         )?));
     }
 
-    if sinks.is_empty() {
+    if nodes.is_empty() {
         return Ok(None);
     }
 
-    let composite_sink: Arc<dyn DataSink> =
-        Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
-
-    if processors.is_empty() {
-        return Ok(Some(composite_sink));
-    }
-
-    Ok(Some(Arc::new(EventProcessingPipeline::new(
-        processors,
-        composite_sink,
-        metrics_manager,
-    ))))
+    Ok(Some(Arc::new(EventGraph::new(nodes, metrics_manager))))
 }
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {

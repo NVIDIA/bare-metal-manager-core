@@ -21,14 +21,14 @@ use prometheus::Counter;
 
 use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::{CollectorEvent, DataSink, EventContext, LogRecord, MetricSample};
+use super::{EventContext, HealthEvent, LogRecord, MetricSample, SyncEventNode};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
 use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
 
-pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, CollectorEvent)>;
+pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, HealthEvent)>;
 pub(crate) type OtlpMetricsQueue = DedupQueue<OtlpMetricQueueKey, (EventContext, MetricSample)>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -62,13 +62,13 @@ pub struct OtlpSink {
 }
 
 /// Returns whether an event belongs in the logs drain.
-pub(crate) fn is_otlp_log_relevant(event: &CollectorEvent) -> bool {
+pub(crate) fn is_otlp_log_relevant(event: &HealthEvent) -> bool {
     !matches!(
         event,
-        CollectorEvent::Metric(_)
-            | CollectorEvent::MetricCollectionStart
-            | CollectorEvent::MetricCollectionEnd
-            | CollectorEvent::CollectorRemoved
+        HealthEvent::MeasurementObserved(_)
+            | HealthEvent::ScrapeBatchStarted
+            | HealthEvent::ScrapeBatchFinished
+            | HealthEvent::NodeRemoved
     )
 }
 
@@ -152,7 +152,7 @@ impl OtlpSink {
         let record = record
             .emitted_log_record(self.include_diagnostics)
             .into_owned();
-        let event = CollectorEvent::Log(Box::new(record));
+        let event = HealthEvent::LogObserved(Box::new(record));
 
         if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
@@ -184,7 +184,7 @@ impl OtlpSink {
 
 #[cfg(feature = "bench-hooks")]
 impl OtlpSink {
-    pub fn pop_for_bench(&self) -> Option<(EventContext, CollectorEvent)> {
+    pub fn pop_for_bench(&self) -> Option<(EventContext, HealthEvent)> {
         self.queue.pop().map(|(_key, value)| value)
     }
 
@@ -193,13 +193,13 @@ impl OtlpSink {
     }
 }
 
-impl DataSink for OtlpSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for OtlpSink {
+    fn node_type(&self) -> &'static str {
         "otlp_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        if let CollectorEvent::Metric(sample) = event {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        if let HealthEvent::MeasurementObserved(sample) = event {
             let key = metric_queue_key(context, sample);
 
             if self
@@ -209,19 +209,19 @@ impl DataSink for OtlpSink {
                 self.metrics_replaced_total.inc();
             }
 
-            return;
+            return Vec::new();
         }
 
         if !is_otlp_log_relevant(event) {
-            return;
+            return Vec::new();
         }
 
         let (key, event) = match event {
-            CollectorEvent::Log(record) => {
+            HealthEvent::LogObserved(record) => {
                 self.enqueue_log_event(context, record);
-                return;
+                return Vec::new();
             }
-            CollectorEvent::HealthReport(report) => {
+            HealthEvent::HealthReportProduced(report) => {
                 let key = format!(
                     "{}|health_report|{}",
                     context.endpoint_key,
@@ -230,16 +230,17 @@ impl DataSink for OtlpSink {
 
                 (key, event.clone())
             }
-            CollectorEvent::Firmware(info) => {
+            HealthEvent::FirmwareObserved(info) => {
                 let key = format!("{}|firmware|{}", context.endpoint_key, info.component);
                 (key, event.clone())
             }
-            _ => return,
+            _ => return Vec::new(),
         };
 
         if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
         }
+        Vec::new()
     }
 }
 
@@ -268,7 +269,7 @@ mod tests {
         }
     }
 
-    fn log_event(message_id: &str, message_args: &str) -> CollectorEvent {
+    fn log_event(message_id: &str, message_args: &str) -> HealthEvent {
         log_event_with_diagnostic_record(message_id, message_args, None)
     }
 
@@ -277,8 +278,8 @@ mod tests {
         message_id: &str,
         message_args: &str,
         diagnostic_record: Option<DiagnosticLogRecord>,
-    ) -> CollectorEvent {
-        CollectorEvent::Log(Box::new(LogRecord {
+    ) -> HealthEvent {
+        HealthEvent::LogObserved(Box::new(LogRecord {
             body: "test".to_string(),
             severity: "OK".to_string(),
             attributes: vec![
@@ -300,21 +301,16 @@ mod tests {
         }
     }
 
-    fn metric_event() -> CollectorEvent {
+    fn metric_event() -> HealthEvent {
         metric_event_with("k", "gauge", "celsius")
     }
 
-    fn metric_event_with(key: &str, metric_type: &str, unit: &str) -> CollectorEvent {
+    fn metric_event_with(key: &str, metric_type: &str, unit: &str) -> HealthEvent {
         metric_event_with_name("temp", key, metric_type, unit)
     }
 
-    fn metric_event_with_name(
-        name: &str,
-        key: &str,
-        metric_type: &str,
-        unit: &str,
-    ) -> CollectorEvent {
-        CollectorEvent::Metric(Box::new(MetricSample {
+    fn metric_event_with_name(name: &str, key: &str, metric_type: &str, unit: &str) -> HealthEvent {
+        HealthEvent::MeasurementObserved(Box::new(MetricSample {
             key: key.to_string(),
             name: name.to_string(),
             metric_type: metric_type.to_string(),
@@ -332,10 +328,8 @@ mod tests {
     #[test]
     fn is_otlp_log_relevant_excludes_metric_events() {
         assert!(!is_otlp_log_relevant(&metric_event()));
-        assert!(!is_otlp_log_relevant(
-            &CollectorEvent::MetricCollectionStart
-        ));
-        assert!(!is_otlp_log_relevant(&CollectorEvent::MetricCollectionEnd));
+        assert!(!is_otlp_log_relevant(&HealthEvent::ScrapeBatchStarted));
+        assert!(!is_otlp_log_relevant(&HealthEvent::ScrapeBatchFinished));
     }
 
     #[test]
@@ -359,8 +353,8 @@ mod tests {
     fn metric_collection_sentinels_are_no_op() {
         let sink = test_sink();
         let ctx = test_context();
-        sink.handle_event(&ctx, &CollectorEvent::MetricCollectionStart);
-        sink.handle_event(&ctx, &CollectorEvent::MetricCollectionEnd);
+        sink.handle_event(&ctx, &HealthEvent::ScrapeBatchStarted);
+        sink.handle_event(&ctx, &HealthEvent::ScrapeBatchFinished);
         assert!(sink.queue.pop().is_none());
         assert!(sink.metrics_queue.pop().is_none());
     }
@@ -507,7 +501,7 @@ mod tests {
         );
 
         let mut bodies = Vec::new();
-        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
+        while let Some((_key, (_context, HealthEvent::LogObserved(record)))) = sink.queue.pop() {
             bodies.push(record.body);
         }
 
@@ -547,7 +541,7 @@ mod tests {
         );
 
         let mut records = Vec::new();
-        while let Some((_key, (_context, CollectorEvent::Log(record)))) = sink.queue.pop() {
+        while let Some((_key, (_context, HealthEvent::LogObserved(record)))) = sink.queue.pop() {
             records.push(record);
         }
 

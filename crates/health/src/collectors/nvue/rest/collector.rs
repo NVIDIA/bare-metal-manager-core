@@ -24,7 +24,7 @@ use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
@@ -64,7 +64,7 @@ fn diagnostic_opcode_to_f64(code: &str) -> f64 {
 
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
-    pub data_sink: Option<Arc<dyn DataSink>>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub credential_provider: Arc<dyn CredentialProvider>,
 }
 
@@ -72,7 +72,7 @@ pub struct NvueRestCollector {
     client: RestClient,
     switch_id: String,
     event_context: EventContext,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     addr: BmcAddr,
     provider: Arc<dyn CredentialProvider>,
 }
@@ -128,7 +128,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             });
         }
 
-        self.emit_event(CollectorEvent::MetricCollectionStart);
+        self.emit_event(HealthEvent::ScrapeBatchStarted);
         let mut entity_count = 0usize;
         let mut fetch_failures = 0usize;
         let mut saw_auth_failure = false;
@@ -254,7 +254,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             self.client.clear_credentials();
         }
 
-        self.emit_event(CollectorEvent::MetricCollectionEnd);
+        self.emit_event(HealthEvent::ScrapeBatchFinished);
 
         tracing::debug!(
             switch_id = %self.switch_id,
@@ -274,7 +274,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
     }
 
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
@@ -303,7 +303,7 @@ impl NvueRestCollector {
         }
     }
 
-    fn emit_event(&self, event: CollectorEvent) {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
@@ -328,7 +328,7 @@ impl NvueRestCollector {
             None => metric_type.to_string(),
         };
 
-        self.emit_event(CollectorEvent::Metric(
+        self.emit_event(HealthEvent::MeasurementObserved(
             MetricSample {
                 key,
                 name: COLLECTOR_NAME.to_string(),

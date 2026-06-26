@@ -20,7 +20,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nv_redfish::resource::Health as BmcHealth;
 
-use super::{CollectorEvent, EventContext, EventProcessor};
+use super::{EventContext, HealthEvent, SyncEventNode};
 use crate::sink::{
     Classification, HealthReport, HealthReportAlert, HealthReportSuccess, MetricSample, Probe,
     ReportSource, SensorThresholdContext,
@@ -198,18 +198,18 @@ impl HealthReportProcessor {
     }
 }
 
-impl EventProcessor for HealthReportProcessor {
-    fn processor_type(&self) -> &'static str {
+impl SyncEventNode for HealthReportProcessor {
+    fn node_type(&self) -> &'static str {
         "health_report_processor"
     }
 
-    fn process_event(&self, context: &EventContext, event: &CollectorEvent) -> Vec<CollectorEvent> {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         match event {
-            CollectorEvent::MetricCollectionStart => {
+            HealthEvent::ScrapeBatchStarted => {
                 self.windows
                     .insert(Self::stream_key(context), HealthReportWindow::default());
             }
-            CollectorEvent::Metric(metric) => {
+            HealthEvent::MeasurementObserved(metric) => {
                 let Some(health) = metric.context.as_ref() else {
                     return Vec::new();
                 };
@@ -219,10 +219,18 @@ impl EventProcessor for HealthReportProcessor {
                     SensorHealthResult::Alert(alert) => window.alerts.push(alert),
                 }
             }
-            CollectorEvent::MetricCollectionEnd => {
+            HealthEvent::ScrapeBatchFinished => {
                 let Some((_, window)) = self.windows.remove(&Self::stream_key(context)) else {
                     return Vec::new();
                 };
+                if window.successes.is_empty() && window.alerts.is_empty() {
+                    tracing::debug!(
+                        endpoint = %context.addr.mac,
+                        collector_type = context.collector_type,
+                        "Skipping empty hardware health report"
+                    );
+                    return Vec::new();
+                }
                 let report = HealthReport {
                     source: ReportSource::BmcSensors,
                     target: context.health_report_target(),
@@ -233,19 +241,23 @@ impl EventProcessor for HealthReportProcessor {
 
                 tracing::info!(
                     endpoint = %context.addr.mac,
+                    target = ?report.target,
                     success_count = report.successes.len(),
                     alert_count = report.alerts.len(),
                     "Sending hardware health report"
                 );
 
-                return vec![CollectorEvent::HealthReport(Arc::new(report))];
+                return vec![HealthEvent::HealthReportProduced(Arc::new(report))];
             }
-            CollectorEvent::CollectorRemoved => {
+            HealthEvent::NodeRemoved => {
                 self.windows.remove(&Self::stream_key(context));
             }
-            CollectorEvent::Log(_)
-            | CollectorEvent::Firmware(_)
-            | CollectorEvent::HealthReport(_) => {}
+            HealthEvent::LogObserved(_)
+            | HealthEvent::ScrapeRequested { .. }
+            | HealthEvent::InventoryDiscovered { .. }
+            | HealthEvent::InventoryUpdated { .. }
+            | HealthEvent::FirmwareObserved(_)
+            | HealthEvent::HealthReportProduced(_) => {}
         }
 
         Vec::new()
@@ -291,10 +303,10 @@ mod tests {
         let processor = HealthReportProcessor::new();
         let context = test_context();
 
-        let _ = processor.process_event(&context, &CollectorEvent::MetricCollectionStart);
-        let _ = processor.process_event(
+        let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
+        let _ = processor.handle_event(
             &context,
-            &CollectorEvent::Metric(
+            &HealthEvent::MeasurementObserved(
                 MetricSample {
                     key: "sensor-1".to_string(),
                     name: "hw_sensor".to_string(),
@@ -319,9 +331,9 @@ mod tests {
                 .into(),
             ),
         );
-        let emitted = processor.process_event(&context, &CollectorEvent::MetricCollectionEnd);
+        let emitted = processor.handle_event(&context, &HealthEvent::ScrapeBatchFinished);
 
-        let Some(CollectorEvent::HealthReport(report)) = emitted.last() else {
+        let Some(HealthEvent::HealthReportProduced(report)) = emitted.last() else {
             panic!("expected health report event");
         };
 
@@ -336,10 +348,22 @@ mod tests {
         let processor = HealthReportProcessor::new();
         let context = test_context();
 
-        let _ = processor.process_event(&context, &CollectorEvent::MetricCollectionStart);
+        let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
         assert_eq!(processor.windows.len(), 1);
 
-        let emitted = processor.process_event(&context, &CollectorEvent::CollectorRemoved);
+        let emitted = processor.handle_event(&context, &HealthEvent::NodeRemoved);
+
+        assert!(emitted.is_empty());
+        assert!(processor.windows.is_empty());
+    }
+
+    #[test]
+    fn empty_metric_window_does_not_emit_health_report() {
+        let processor = HealthReportProcessor::new();
+        let context = test_context();
+
+        let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
+        let emitted = processor.handle_event(&context, &HealthEvent::ScrapeBatchFinished);
 
         assert!(emitted.is_empty());
         assert!(processor.windows.is_empty());

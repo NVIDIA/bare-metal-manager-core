@@ -21,7 +21,7 @@ use carbide_uuid::rack::RackId;
 
 use super::dedup_queue::DedupQueue;
 use super::{
-    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+    EventContext, HealthEvent, HealthReport, HealthReportTarget, ReportSource, SyncEventNode,
 };
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
@@ -97,18 +97,18 @@ impl RackHealthReportSink {
     }
 }
 
-impl DataSink for RackHealthReportSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for RackHealthReportSink {
+    fn node_type(&self) -> &'static str {
         "rack_health_report_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let CollectorEvent::HealthReport(report) = event else {
-            return;
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::HealthReportProduced(report) = event else {
+            return Vec::new();
         };
 
         if report.target != Some(HealthReportTarget::Rack) {
-            return;
+            return Vec::new();
         }
 
         if self.skip_empty_reports && report.is_empty() {
@@ -116,7 +116,7 @@ impl DataSink for RackHealthReportSink {
                 source = ?report.source,
                 "Skipping empty rack health report"
             );
-            return;
+            return Vec::new();
         }
 
         let Some(rack_id) = context.rack_id() else {
@@ -124,7 +124,7 @@ impl DataSink for RackHealthReportSink {
                 endpoint_key = context.endpoint_key(),
                 "Received rack-target HealthReport event without rack_id context"
             );
-            return;
+            return Vec::new();
         };
 
         let key = RackHealthReportKey {
@@ -132,5 +132,6 @@ impl DataSink for RackHealthReportSink {
             source: report.source,
         };
         self.queue.save_latest(key, Arc::clone(report));
+        Vec::new()
     }
 }

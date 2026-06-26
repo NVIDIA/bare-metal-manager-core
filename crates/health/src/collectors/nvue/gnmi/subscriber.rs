@@ -39,7 +39,7 @@ use crate::collectors::runtime::{BackoffConfig, ExponentialBackoff, StreamingCon
 use crate::config::NvueGnmiConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint};
 use crate::metrics::CollectorRegistry;
-use crate::sink::{CollectorEvent, DataSink, EventContext};
+use crate::sink::{EventContext, HealthEvent, SyncEventNode};
 
 // gRPC ConnectivityState values for `connection_state`. 0 (UNKNOWN) is the gauge default.
 const IDLE: i64 = 1;
@@ -444,7 +444,7 @@ pub fn spawn_gnmi_collector(
     gnmi_config: &NvueGnmiConfig,
     credential_provider: Arc<dyn CredentialProvider>,
     collector_registry: Arc<CollectorRegistry>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
 ) -> Result<Collector, HealthError> {
     let switch_id = endpoint
         .metadata
@@ -554,13 +554,10 @@ pub fn spawn_gnmi_collector(
         }
 
         if let Some(data_sink) = collector_removed_data_sink.as_deref() {
-            data_sink.handle_event(
-                &collector_removed_sample_context,
-                &CollectorEvent::CollectorRemoved,
-            );
+            data_sink.handle_event(&collector_removed_sample_context, &HealthEvent::NodeRemoved);
 
             if let Some(event_context) = &collector_removed_on_change_context {
-                data_sink.handle_event(event_context, &CollectorEvent::CollectorRemoved);
+                data_sink.handle_event(event_context, &HealthEvent::NodeRemoved);
             }
         }
     }))

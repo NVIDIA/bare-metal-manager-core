@@ -22,11 +22,11 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 
-use super::{CollectorEvent, DataSink, EventContext, LogRecord};
+use super::{EventContext, HealthEvent, LogRecord, SyncEventNode};
 use crate::config::LogFileSinkConfig;
 
-/// Durable JSONL log sink. Writes CollectorEvent::Log records to rotating
-/// files using sync I/O, safe to call from DataSink::handle_event.
+/// Durable JSONL log sink. Writes HealthEvent::LogObserved records to rotating
+/// files using sync I/O, safe to call from SyncEventNode::handle_event.
 pub struct LogFileSink {
     writer: Mutex<SyncLogFileWriter>,
     include_diagnostics: bool,
@@ -46,14 +46,14 @@ impl LogFileSink {
     }
 }
 
-impl DataSink for LogFileSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for LogFileSink {
+    fn node_type(&self) -> &'static str {
         "log_file_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let CollectorEvent::Log(record) = event else {
-            return;
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::LogObserved(record) = event else {
+            return Vec::new();
         };
 
         // Diagnostics are opt-in for log files. When enabled, fold the
@@ -66,18 +66,19 @@ impl DataSink for LogFileSink {
             Ok(json) => json,
             Err(e) => {
                 tracing::error!(error = ?e, "failed to serialize log record");
-                return;
+                return Vec::new();
             }
         };
 
         let Ok(mut writer) = self.writer.lock() else {
             tracing::error!("log file writer lock poisoned");
-            return;
+            return Vec::new();
         };
 
         if let Err(e) = writer.write_line(&line) {
             tracing::error!(error = ?e, "failed to write log record to file");
         }
+        Vec::new()
     }
 }
 
@@ -257,7 +258,7 @@ mod tests {
         let sink = LogFileSink::new(&config).expect("sink");
         let ctx = test_context();
 
-        let metric_event = CollectorEvent::MetricCollectionStart;
+        let metric_event = HealthEvent::ScrapeBatchStarted;
         sink.handle_event(&ctx, &metric_event);
 
         let log_path = dir.path().join("health_logs.jsonl");
@@ -277,7 +278,7 @@ mod tests {
         let sink = LogFileSink::new(&config).expect("sink");
         let ctx = test_context();
 
-        let event = CollectorEvent::Log(
+        let event = HealthEvent::LogObserved(
             LogRecord {
                 body: "something happened".to_string(),
                 severity: "INFO".to_string(),
@@ -312,7 +313,7 @@ mod tests {
         let sink = LogFileSink::new(&config).expect("sink");
         let ctx = test_context();
 
-        let event = CollectorEvent::Log(
+        let event = HealthEvent::LogObserved(
             LogRecord {
                 body: "parent log".to_string(),
                 severity: "INFO".to_string(),
@@ -362,7 +363,7 @@ mod tests {
         let sink = LogFileSink::new(&config).expect("sink");
         let ctx = test_context();
 
-        let event = CollectorEvent::Log(
+        let event = HealthEvent::LogObserved(
             LogRecord {
                 body: "parent log".to_string(),
                 severity: "INFO".to_string(),
@@ -399,7 +400,7 @@ mod tests {
         let ctx = test_context();
 
         for i in 0..5 {
-            let event = CollectorEvent::Log(
+            let event = HealthEvent::LogObserved(
                 LogRecord {
                     body: format!("log entry {i}"),
                     severity: "INFO".to_string(),
@@ -431,7 +432,7 @@ mod tests {
         let ctx = test_context();
 
         for i in 0..5 {
-            let event = CollectorEvent::Log(
+            let event = HealthEvent::LogObserved(
                 LogRecord {
                     body: format!("entry {i}"),
                     severity: "WARN".to_string(),

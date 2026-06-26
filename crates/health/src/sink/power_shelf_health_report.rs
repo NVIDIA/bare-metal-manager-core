@@ -21,7 +21,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 
 use super::dedup_queue::DedupQueue;
 use super::{
-    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+    EventContext, HealthEvent, HealthReport, HealthReportTarget, ReportSource, SyncEventNode,
 };
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
@@ -97,18 +97,18 @@ impl PowerShelfHealthReportSink {
     }
 }
 
-impl DataSink for PowerShelfHealthReportSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for PowerShelfHealthReportSink {
+    fn node_type(&self) -> &'static str {
         "power_shelf_health_report_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let CollectorEvent::HealthReport(report) = event else {
-            return;
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::HealthReportProduced(report) = event else {
+            return Vec::new();
         };
 
         if report.target != Some(HealthReportTarget::PowerShelf) {
-            return;
+            return Vec::new();
         }
 
         if self.skip_empty_reports && report.is_empty() {
@@ -116,7 +116,7 @@ impl DataSink for PowerShelfHealthReportSink {
                 source = ?report.source,
                 "Skipping empty power shelf health report"
             );
-            return;
+            return Vec::new();
         }
 
         let power_shelf_id = if let Some(power_shelf_id) = context.power_shelf_id() {
@@ -126,7 +126,7 @@ impl DataSink for PowerShelfHealthReportSink {
                 endpoint_key = context.endpoint_key(),
                 "Received power-shelf-target HealthReport event without power_shelf_id context"
             );
-            return;
+            return Vec::new();
         };
 
         let key = PowerShelfHealthReportKey {
@@ -134,5 +134,6 @@ impl DataSink for PowerShelfHealthReportSink {
             source: report.source,
         };
         self.queue.save_latest(key, Arc::clone(report));
+        Vec::new()
     }
 }

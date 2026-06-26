@@ -21,7 +21,7 @@ use carbide_uuid::switch::SwitchId;
 
 use super::dedup_queue::DedupQueue;
 use super::{
-    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+    EventContext, HealthEvent, HealthReport, HealthReportTarget, ReportSource, SyncEventNode,
 };
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
@@ -97,18 +97,18 @@ impl SwitchHealthReportSink {
     }
 }
 
-impl DataSink for SwitchHealthReportSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for SwitchHealthReportSink {
+    fn node_type(&self) -> &'static str {
         "switch_health_report_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
-        let CollectorEvent::HealthReport(report) = event else {
-            return;
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::HealthReportProduced(report) = event else {
+            return Vec::new();
         };
 
         if report.target != Some(HealthReportTarget::Switch) {
-            return;
+            return Vec::new();
         }
 
         if self.skip_empty_reports && report.is_empty() {
@@ -116,7 +116,7 @@ impl DataSink for SwitchHealthReportSink {
                 source = ?report.source,
                 "Skipping empty switch health report"
             );
-            return;
+            return Vec::new();
         }
 
         let switch_id = if let Some(switch_id) = context.switch_id() {
@@ -126,7 +126,7 @@ impl DataSink for SwitchHealthReportSink {
                 endpoint_key = context.endpoint_key(),
                 "Received switch-target HealthReport event without switch_id context"
             );
-            return;
+            return Vec::new();
         };
 
         let key = SwitchHealthReportKey {
@@ -134,5 +134,6 @@ impl DataSink for SwitchHealthReportSink {
             source: report.source,
         };
         self.queue.save_latest(key, Arc::clone(report));
+        Vec::new()
     }
 }

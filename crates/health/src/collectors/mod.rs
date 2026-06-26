@@ -29,7 +29,6 @@ mod sensors;
 pub use discovery::{EntityDiscoveryCollector, EntityDiscoveryCollectorConfig};
 pub use entity_metrics::{MetricsCollector, MetricsCollectorConfig};
 pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
-pub(crate) use inventory::SharedInventory;
 pub use leak_detector::{LeakDetectorCollector, LeakDetectorCollectorConfig};
 pub(crate) use logs::auto::{AutoFailureBudget, BudgetDecision, FailureKind};
 pub use logs::{

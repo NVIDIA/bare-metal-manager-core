@@ -19,7 +19,6 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_swap::ArcSwapOption;
 use nv_redfish::Resource;
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
@@ -132,10 +131,10 @@ impl<B: Bmc> DiscoveredEntity<B> {
         let mut attrs = Vec::new();
         match self {
             DiscoveredEntity::Processor { entity, .. } => {
-                if let Some(processor_type) = entity.raw().processor_type.flatten() {
+                if let Some(node_type) = entity.raw().processor_type.flatten() {
                     attrs.push((
-                        Cow::Borrowed("processor_type"),
-                        processor_type.to_snake_case().to_string(),
+                        Cow::Borrowed("node_type"),
+                        node_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {
@@ -213,10 +212,8 @@ impl<B: Bmc> DiscoveredEntity<B> {
     }
 }
 
-pub(crate) struct EntityInventory<B: Bmc> {
+pub struct EntityInventory<B: Bmc> {
     pub(crate) entities: Vec<DiscoveredEntity<B>>,
     pub(crate) discovered_at: Instant,
     pub(crate) generation: u64,
 }
-
-pub(crate) type SharedInventory<B> = Arc<ArcSwapOption<EntityInventory<B>>>;

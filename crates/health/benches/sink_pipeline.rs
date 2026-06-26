@@ -24,8 +24,8 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
-    HealthReportSink, LogRecord, MetricSample, PrometheusSink, ReportSource,
+    Classification, CompositeSyncEventNode, EventContext, HealthEvent, HealthReport,
+    HealthReportSink, LogRecord, MetricSample, PrometheusSink, ReportSource, SyncEventNode,
 };
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::HealthReport as CarbideHealthReport;
@@ -40,14 +40,15 @@ const MACHINE_IDS: [&str; 3] = [
 
 struct CountingSink;
 
-impl DataSink for CountingSink {
-    fn sink_type(&self) -> &'static str {
+impl SyncEventNode for CountingSink {
+    fn node_type(&self) -> &'static str {
         "counting_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
         std::hint::black_box(context);
         std::hint::black_box(event);
+        Vec::new()
     }
 }
 
@@ -75,7 +76,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
     }
 }
 
-fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
+fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<HealthEvent> {
     let unique_keys = unique_keys.max(1);
 
     (0..batch_size)
@@ -83,7 +84,7 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
             let sensor_idx = idx % unique_keys;
             let key = format!("sensor-{sensor_idx}");
 
-            CollectorEvent::Metric(
+            HealthEvent::MeasurementObserved(
                 MetricSample {
                     key: key.clone(),
                     name: "hw_sensor".to_string(),
@@ -99,13 +100,13 @@ fn metric_events(batch_size: usize, unique_keys: usize) -> Vec<CollectorEvent> {
         .collect()
 }
 
-fn emit_metric_batch(sink: &dyn DataSink, context: &EventContext, events: &[CollectorEvent]) {
-    let start = CollectorEvent::MetricCollectionStart;
+fn emit_metric_batch(sink: &dyn SyncEventNode, context: &EventContext, events: &[HealthEvent]) {
+    let start = HealthEvent::ScrapeBatchStarted;
     sink.handle_event(context, &start);
     for event in events {
         sink.handle_event(context, event);
     }
-    let end = CollectorEvent::MetricCollectionEnd;
+    let end = HealthEvent::ScrapeBatchFinished;
     sink.handle_event(context, &end);
 }
 
@@ -135,21 +136,21 @@ fn bench_prometheus_sink(c: &mut Criterion) {
 }
 
 struct CompositeBenchState {
-    sink: CompositeDataSink,
+    sink: CompositeSyncEventNode,
     context: EventContext,
-    events: Vec<CollectorEvent>,
+    events: Vec<HealthEvent>,
 }
 
 impl CompositeBenchState {
     fn new(sink_count: usize, batch_size: usize) -> Self {
-        let mut sinks: Vec<Arc<dyn DataSink>> = Vec::with_capacity(sink_count);
+        let mut sinks: Vec<Arc<dyn SyncEventNode>> = Vec::with_capacity(sink_count);
         for _ in 0..sink_count {
             sinks.push(Arc::new(CountingSink));
         }
 
         let metrics_manager =
             Arc::new(MetricsManager::new("bench_sink").expect("metrics manager should initialize"));
-        let sink = CompositeDataSink::new(sinks, metrics_manager);
+        let sink = CompositeSyncEventNode::new(sinks, metrics_manager);
 
         Self {
             sink,
@@ -202,8 +203,8 @@ struct HealthReportBenchState {
     sink: HealthReportSink,
     context: EventContext,
     distinct_contexts: Vec<EventContext>,
-    sensor_event: CollectorEvent,
-    leak_event: CollectorEvent,
+    sensor_event: HealthEvent,
+    leak_event: HealthEvent,
 }
 
 impl HealthReportBenchState {
@@ -214,8 +215,9 @@ impl HealthReportBenchState {
             .into_iter()
             .map(event_context_for_machine)
             .collect();
-        let sensor_event = CollectorEvent::HealthReport(Arc::new(health_report_with_alerts(256)));
-        let leak_event = CollectorEvent::HealthReport(Arc::new(HealthReport {
+        let sensor_event =
+            HealthEvent::HealthReportProduced(Arc::new(health_report_with_alerts(256)));
+        let leak_event = HealthEvent::HealthReportProduced(Arc::new(HealthReport {
             source: ReportSource::TrayLeakDetection,
             target: Some(carbide_health::sink::HealthReportTarget::Machine),
             observed_at: Some(chrono::Utc::now()),
@@ -240,8 +242,8 @@ impl HealthReportBenchState {
 
 fn filled_health_report_sink(
     contexts: &[EventContext],
-    event: &CollectorEvent,
-    leak_event: &CollectorEvent,
+    event: &HealthEvent,
+    leak_event: &HealthEvent,
 ) -> HealthReportSink {
     let sink = HealthReportSink::new_for_bench().expect("bench sink should initialize");
     for context in contexts {
@@ -328,11 +330,11 @@ fn bench_health_report_sink(c: &mut Criterion) {
     group.finish();
 }
 
-fn log_events_with_attrs(count: usize, unique_sensors: usize) -> Vec<CollectorEvent> {
+fn log_events_with_attrs(count: usize, unique_sensors: usize) -> Vec<HealthEvent> {
     (0..count)
         .map(|idx| {
             let sensor = format!("HGX_GPU_{}_Temp_1", idx % unique_sensors);
-            CollectorEvent::Log(Box::new(LogRecord {
+            HealthEvent::LogObserved(Box::new(LogRecord {
                 body: format!("{sensor} sensor crossed threshold"),
                 severity: "Warning".to_string(),
                 attributes: vec![

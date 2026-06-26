@@ -26,12 +26,12 @@ use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{
-    Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
-    HealthReportSuccess, Probe, ReportSource,
+    Classification, EventContext, HealthEvent, HealthReport, HealthReportAlert,
+    HealthReportSuccess, Probe, ReportSource, SyncEventNode,
 };
 
 pub struct LeakDetectorCollectorConfig {
-    pub data_sink: Option<Arc<dyn DataSink>>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub state_refresh_interval: Duration,
 }
 
@@ -39,7 +39,7 @@ pub struct LeakDetectorCollector<B: Bmc> {
     bmc: Arc<B>,
     event_context: EventContext,
     state: Option<LeakDetectorCollectorState>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     state_refresh_interval: Duration,
 }
 
@@ -80,7 +80,7 @@ where
     }
 
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
@@ -89,7 +89,7 @@ where
     B: Bmc + 'static,
     B::Error: 'static,
 {
-    fn emit_event(&self, event: CollectorEvent) {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
@@ -134,7 +134,7 @@ where
         let detector_count = detectors.len();
         let report = build_health_report(detectors, &self.event_context);
 
-        self.emit_event(CollectorEvent::HealthReport(Arc::new(report)));
+        self.emit_event(HealthEvent::HealthReportProduced(Arc::new(report)));
 
         Ok(IterationResult {
             refresh_triggered,

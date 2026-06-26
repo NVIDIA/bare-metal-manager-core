@@ -16,10 +16,9 @@
  */
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::Duration;
 
-use arc_swap::ArcSwapOption;
 use reqwest::Client;
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
@@ -52,7 +51,7 @@ impl std::fmt::Debug for UsernamePassword {
 pub struct RestClient {
     pub(crate) switch_id: String,
     base_url: Url,
-    credentials: ArcSwapOption<UsernamePassword>,
+    credentials: RwLock<Option<UsernamePassword>>,
     paths: NvueRestPaths,
     client: Client,
 }
@@ -83,22 +82,31 @@ impl RestClient {
         Ok(Self {
             switch_id,
             base_url,
-            credentials: ArcSwapOption::empty(),
+            credentials: RwLock::new(None),
             paths,
             client,
         })
     }
 
     pub fn set_credentials(&self, creds: UsernamePassword) {
-        self.credentials.store(Some(Arc::new(creds)));
+        *self
+            .credentials
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(creds);
     }
 
     pub fn clear_credentials(&self) {
-        self.credentials.store(None);
+        *self
+            .credentials
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 
     pub fn has_credentials(&self) -> bool {
-        self.credentials.load().is_some()
+        self.credentials
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
     }
 
     pub async fn get_system_health(&self) -> Result<Option<SystemHealthResponse>, HealthError> {
@@ -186,7 +194,12 @@ impl RestClient {
             request = request.query(extra_query);
         }
 
-        if let Some(creds) = self.credentials.load_full() {
+        let credentials = self
+            .credentials
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(creds) = credentials {
             request = request.basic_auth(&creds.username, creds.password.as_ref());
         }
 

@@ -33,7 +33,43 @@ use crate::collectors::{
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
-use crate::sink::DataSink;
+use crate::sink::{CompositeSyncEventNode, SyncEventNode};
+
+type SpawnGraphFn = fn(
+    &mut DiscoveryLoopContext,
+    &Arc<BmcEndpoint>,
+    Option<Arc<dyn SyncEventNode>>,
+    &str,
+) -> Result<(), HealthError>;
+
+struct EndpointGraphSpec {
+    name: &'static str,
+    applies_to: fn(&BmcEndpoint) -> bool,
+    spawn: SpawnGraphFn,
+}
+
+fn is_switch_host_endpoint(endpoint: &BmcEndpoint) -> bool {
+    endpoint
+        .switch_data()
+        .is_some_and(|switch| switch.endpoint_role == SwitchEndpointRole::Host)
+}
+
+fn is_generic_redfish_endpoint(endpoint: &BmcEndpoint) -> bool {
+    !is_switch_host_endpoint(endpoint)
+}
+
+const ENDPOINT_GRAPH_SPECS: [EndpointGraphSpec; 2] = [
+    EndpointGraphSpec {
+        name: "generic_redfish",
+        applies_to: is_generic_redfish_endpoint,
+        spawn: spawn_generic_redfish_collectors,
+    },
+    EndpointGraphSpec {
+        name: "switch_host",
+        applies_to: is_switch_host_endpoint,
+        spawn: spawn_switch_host_collectors,
+    },
+];
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
     PathBuf::from(template.replace("{machine_id}", endpoint_id))
@@ -42,22 +78,27 @@ fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
 pub(super) fn spawn_collectors_for_endpoint(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let endpoint_role = endpoint.switch_data().map(|switch| switch.endpoint_role);
-
-    if matches!(endpoint_role, Some(SwitchEndpointRole::Host)) {
-        spawn_switch_host_collectors(ctx, endpoint, data_sink, metrics_prefix)
-    } else {
-        spawn_generic_redfish_collectors(ctx, endpoint, data_sink, metrics_prefix)
+    for spec in ENDPOINT_GRAPH_SPECS {
+        if !(spec.applies_to)(endpoint) {
+            continue;
+        }
+        tracing::debug!(
+            endpoint_key = %endpoint.key(),
+            graph_spec = spec.name,
+            "applying endpoint graph spec"
+        );
+        return (spec.spawn)(ctx, endpoint, data_sink, metrics_prefix);
     }
+    Ok(())
 }
 
 fn spawn_generic_redfish_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
     let key = endpoint.key();
@@ -67,51 +108,9 @@ fn spawn_generic_redfish_collectors(
     let sensors_enabled = matches!(ctx.sensors_config, Configurable::Enabled(_));
     let metrics_enabled = matches!(ctx.metrics_config, Configurable::Enabled(_));
 
-    if (sensors_enabled || metrics_enabled)
-        && !ctx.collectors.contains(CollectorKind::Discovery, &key)
-    {
-        let shared = ctx.collectors.inventory_for(&key);
-        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
-            format!("entity_discovery_collector_{key}"),
-            metrics_prefix,
-        )?);
-        match Collector::start::<EntityDiscoveryCollector<BmcClient>>(
-            endpoint_arc.clone(),
-            bmc.clone(),
-            EntityDiscoveryCollectorConfig {
-                shared,
-                discovery_concurrency: ctx.discovery_config.discovery_concurrency,
-            },
-            CollectorStartContext {
-                limiter: ctx.limiter.clone(),
-                iteration_interval: ctx.discovery_config.refresh_interval,
-                collector_registry,
-                metrics_manager: ctx.metrics_manager.clone(),
-            },
-        ) {
-            Ok(monitor) => {
-                ctx.collectors
-                    .insert(CollectorKind::Discovery, key.clone().into(), monitor);
-                tracing::info!(
-                    endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Discovery),
-                    "Started entity discovery for BMC endpoint"
-                );
-            }
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    "Could not start entity discovery collector for: {:?}",
-                    endpoint.addr
-                );
-            }
-        }
-    }
-
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
-        let shared = ctx.collectors.inventory_for(&key);
         let collector_registry = Arc::new(
             ctx.metrics_manager
                 .create_collector_registry(format!("sensor_collector_{key}"), metrics_prefix)?,
@@ -121,9 +120,9 @@ fn spawn_generic_redfish_collectors(
             bmc.clone(),
             SensorCollectorConfig {
                 data_sink: data_sink.clone(),
-                shared,
                 sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
+                _bmc: std::marker::PhantomData,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -154,7 +153,6 @@ fn spawn_generic_redfish_collectors(
     if let Configurable::Enabled(metrics_cfg) = &ctx.metrics_config
         && !ctx.collectors.contains(CollectorKind::Metrics, &key)
     {
-        let shared = ctx.collectors.inventory_for(&key);
         let collector_registry = Arc::new(
             ctx.metrics_manager
                 .create_collector_registry(format!("metrics_collector_{key}"), metrics_prefix)?,
@@ -164,8 +162,8 @@ fn spawn_generic_redfish_collectors(
             bmc.clone(),
             MetricsCollectorConfig {
                 data_sink: data_sink.clone(),
-                shared,
                 fetch_concurrency: metrics_cfg.fetch_concurrency,
+                _bmc: std::marker::PhantomData,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -193,6 +191,77 @@ fn spawn_generic_redfish_collectors(
         }
     }
 
+    // Discovery's inventory fanout is captured when it starts, so only start it once
+    // every enabled consumer is up. Otherwise a consumer that starts in a later
+    // iteration (e.g. after a transient start failure) would never be wired in.
+    let sensor_ready = !sensors_enabled || ctx.collectors.contains(CollectorKind::Sensor, &key);
+    let metrics_ready = !metrics_enabled || ctx.collectors.contains(CollectorKind::Metrics, &key);
+    if (sensors_enabled || metrics_enabled)
+        && sensor_ready
+        && metrics_ready
+        && !ctx.collectors.contains(CollectorKind::Discovery, &key)
+    {
+        let mut discovery_nodes: Vec<Arc<dyn SyncEventNode>> = Vec::new();
+        if sensors_enabled
+            && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Sensor, &key)
+        {
+            discovery_nodes.push(event_node);
+        }
+        if metrics_enabled
+            && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Metrics, &key)
+        {
+            discovery_nodes.push(event_node);
+        }
+        if let Some(data_sink) = data_sink.clone() {
+            discovery_nodes.push(data_sink);
+        }
+        let discovery_data_sink = if discovery_nodes.is_empty() {
+            None
+        } else {
+            Some(Arc::new(CompositeSyncEventNode::new(
+                discovery_nodes,
+                ctx.metrics_manager.clone(),
+            )) as Arc<dyn SyncEventNode>)
+        };
+
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("entity_discovery_collector_{key}"),
+            metrics_prefix,
+        )?);
+        match Collector::start::<EntityDiscoveryCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            EntityDiscoveryCollectorConfig {
+                data_sink: discovery_data_sink,
+                discovery_concurrency: ctx.discovery_config.discovery_concurrency,
+                _bmc: std::marker::PhantomData,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: ctx.discovery_config.refresh_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::Discovery, key.clone().into(), monitor);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_collectors = ctx.collectors.len(CollectorKind::Discovery),
+                    "Started entity discovery for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Could not start entity discovery collector for: {:?}",
+                    endpoint.addr
+                );
+            }
+        }
+    }
+
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
@@ -210,7 +279,7 @@ fn spawn_generic_redfish_collectors(
         };
 
         let spawn_periodic_logs = |pcfg: PeriodicLogConfig,
-                                   data_sink: Option<Arc<dyn DataSink>>,
+                                   data_sink: Option<Arc<dyn SyncEventNode>>,
                                    collector_registry: Arc<_>|
          -> Option<Result<Collector, HealthError>> {
             let endpoint_id = endpoint.log_identity().into_owned();
@@ -417,7 +486,7 @@ fn spawn_generic_redfish_collectors(
 fn spawn_switch_host_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
     let key = endpoint.key();
@@ -568,16 +637,18 @@ mod tests {
     };
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
-    use crate::sink::{CollectorEvent, EventContext};
+    use crate::sink::{EventContext, HealthEvent};
 
     struct NoopSink;
 
-    impl DataSink for NoopSink {
-        fn sink_type(&self) -> &'static str {
+    impl SyncEventNode for NoopSink {
+        fn node_type(&self) -> &'static str {
             "noop"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
+        fn handle_event(&self, _context: &EventContext, _event: &HealthEvent) -> Vec<HealthEvent> {
+            Vec::new()
+        }
     }
 
     fn context_with_config(config: Config, metrics_name: &str) -> DiscoveryLoopContext {

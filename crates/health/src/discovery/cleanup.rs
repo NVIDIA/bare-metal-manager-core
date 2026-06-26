@@ -49,10 +49,6 @@ pub(super) fn stop_removed_bmc_collectors(
     for kind in CollectorKind::ALL {
         stop_collectors_for_keys(ctx, kind, &removed_keys);
     }
-    for key in &removed_keys {
-        ctx.collectors.remove_inventory(key);
-    }
-
     if !removed_keys.is_empty() {
         tracing::info!(
             removed_count = removed_keys.len(),

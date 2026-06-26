@@ -18,17 +18,17 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use super::{EventContext, EventProcessor};
+use super::{EventContext, SyncEventNode};
 use crate::sink::{
-    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
+    Classification, HealthEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
     HealthReportTarget, Probe, ReportSource,
 };
 
-pub struct LeakEventProcessor {
+pub struct LeakSyncEventNode {
     minimum_alerts_per_report: usize,
 }
 
-impl LeakEventProcessor {
+impl LeakSyncEventNode {
     pub fn new(minimum_alerts_per_report: usize) -> Self {
         Self {
             minimum_alerts_per_report,
@@ -60,17 +60,13 @@ fn leak_details(alerts: &[&HealthReportAlert]) -> String {
     targets.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
-impl EventProcessor for LeakEventProcessor {
-    fn processor_type(&self) -> &'static str {
+impl SyncEventNode for LeakSyncEventNode {
+    fn node_type(&self) -> &'static str {
         "leak_event_processor"
     }
 
-    fn process_event(
-        &self,
-        _context: &EventContext,
-        event: &CollectorEvent,
-    ) -> Vec<CollectorEvent> {
-        let CollectorEvent::HealthReport(report) = event else {
+    fn handle_event(&self, _context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        let HealthEvent::HealthReportProduced(report) = event else {
             return Vec::new();
         };
 
@@ -119,7 +115,7 @@ impl EventProcessor for LeakEventProcessor {
             alerts,
         };
 
-        vec![CollectorEvent::HealthReport(Arc::new(leak_report))]
+        vec![HealthEvent::HealthReportProduced(Arc::new(leak_report))]
     }
 }
 
@@ -158,7 +154,7 @@ mod tests {
 
     #[test]
     fn does_not_emit_alert_when_threshold_not_met() {
-        let processor = LeakEventProcessor::new(2);
+        let processor = LeakSyncEventNode::new(2);
         let report = HealthReport {
             source: ReportSource::BmcLeakDetectors,
             target: Some(HealthReportTarget::Machine),
@@ -167,11 +163,13 @@ mod tests {
             alerts: vec![leak_alert("LeakDetector_Probe")],
         };
 
-        let emitted =
-            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+        let emitted = processor.handle_event(
+            &context(),
+            &HealthEvent::HealthReportProduced(Arc::new(report)),
+        );
         assert_eq!(emitted.len(), 1);
 
-        let CollectorEvent::HealthReport(derived) = &emitted[0] else {
+        let HealthEvent::HealthReportProduced(derived) = &emitted[0] else {
             panic!("expected derived health report");
         };
 
@@ -183,7 +181,7 @@ mod tests {
 
     #[test]
     fn emits_derived_leak_report_when_threshold_met() {
-        let processor = LeakEventProcessor::new(1);
+        let processor = LeakSyncEventNode::new(1);
         let report = HealthReport {
             source: ReportSource::BmcLeakDetectors,
             target: Some(HealthReportTarget::Machine),
@@ -192,11 +190,13 @@ mod tests {
             alerts: vec![leak_alert("LeakDetector_Probe")],
         };
 
-        let emitted =
-            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+        let emitted = processor.handle_event(
+            &context(),
+            &HealthEvent::HealthReportProduced(Arc::new(report)),
+        );
         assert_eq!(emitted.len(), 1);
 
-        let CollectorEvent::HealthReport(derived) = &emitted[0] else {
+        let HealthEvent::HealthReportProduced(derived) = &emitted[0] else {
             panic!("expected derived health report");
         };
         assert_eq!(derived.source, ReportSource::TrayLeakDetection);
@@ -213,8 +213,8 @@ mod tests {
 
     #[test]
     fn ignores_non_health_report_events() {
-        let processor = LeakEventProcessor::new(1);
-        let metric_event = CollectorEvent::Metric(
+        let processor = LeakSyncEventNode::new(1);
+        let metric_event = HealthEvent::MeasurementObserved(
             crate::sink::MetricSample {
                 key: "k".to_string(),
                 name: "n".to_string(),
@@ -226,13 +226,13 @@ mod tests {
             }
             .into(),
         );
-        let emitted = processor.process_event(&context(), &metric_event);
+        let emitted = processor.handle_event(&context(), &metric_event);
         assert!(emitted.is_empty());
     }
 
     #[test]
     fn ignores_sensor_health_reports() {
-        let processor = LeakEventProcessor::new(1);
+        let processor = LeakSyncEventNode::new(1);
         let report = HealthReport {
             source: ReportSource::BmcSensors,
             observed_at: Some(chrono::Utc::now()),
@@ -244,8 +244,10 @@ mod tests {
             target: Some(HealthReportTarget::Machine),
         };
 
-        let emitted =
-            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+        let emitted = processor.handle_event(
+            &context(),
+            &HealthEvent::HealthReportProduced(Arc::new(report)),
+        );
 
         assert!(emitted.is_empty());
     }

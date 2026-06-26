@@ -31,11 +31,11 @@ mod rack_health_report;
 mod switch_health_report;
 mod tracing;
 
-pub use composite::CompositeDataSink;
+pub use composite::CompositeSyncEventNode;
 pub use events::{
-    Classification, CollectorEvent, DiagnosticLogRecord, EventContext, FirmwareInfo, HealthReport,
+    Classification, DiagnosticLogRecord, EventContext, FirmwareInfo, HealthEvent, HealthReport,
     HealthReportAlert, HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe,
-    ReportSource, SensorThresholdContext,
+    ReportSource, ScrapeKind, SensorThresholdContext,
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
@@ -50,9 +50,12 @@ pub(crate) use self::otlp::OtlpSink;
 #[cfg(feature = "bench-hooks")]
 pub use self::otlp::OtlpSink;
 
-pub trait DataSink: Send + Sync {
-    fn sink_type(&self) -> &'static str;
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent);
+pub trait SyncEventNode: Send + Sync {
+    fn node_type(&self) -> &'static str;
+    fn interested_in(&self, _event: &HealthEvent) -> bool {
+        true
+    }
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent>;
 }
 
 #[cfg(test)]
@@ -65,8 +68,8 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::{
-        CollectorEvent, CompositeDataSink, DataSink, DiagnosticLogRecord, EventContext, LogRecord,
-        MetricSample, PrometheusSink,
+        CompositeSyncEventNode, DiagnosticLogRecord, EventContext, HealthEvent, LogRecord,
+        MetricSample, PrometheusSink, SyncEventNode,
     };
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::metrics::MetricsManager;
@@ -75,24 +78,27 @@ mod tests {
         counter: Arc<AtomicUsize>,
     }
 
-    impl DataSink for CountingSink {
-        fn sink_type(&self) -> &'static str {
+    impl SyncEventNode for CountingSink {
+        fn node_type(&self) -> &'static str {
             "counting_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
+        fn handle_event(&self, _context: &EventContext, _event: &HealthEvent) -> Vec<HealthEvent> {
             self.counter.fetch_add(1, Ordering::SeqCst);
+            Vec::new()
         }
     }
 
     struct NoopSink;
 
-    impl DataSink for NoopSink {
-        fn sink_type(&self) -> &'static str {
+    impl SyncEventNode for NoopSink {
+        fn node_type(&self) -> &'static str {
             "noop_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
+        fn handle_event(&self, _context: &EventContext, _event: &HealthEvent) -> Vec<HealthEvent> {
+            Vec::new()
+        }
     }
 
     #[tokio::test]
@@ -110,7 +116,7 @@ mod tests {
         });
 
         let composite =
-            CompositeDataSink::new(vec![sink_ok_1, sink_noop, sink_ok_2], metrics_manager);
+            CompositeSyncEventNode::new(vec![sink_ok_1, sink_noop, sink_ok_2], metrics_manager);
 
         let context = EventContext {
             endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
@@ -124,7 +130,7 @@ mod tests {
             rack_id: None,
         };
 
-        let event = CollectorEvent::Metric(
+        let event = HealthEvent::MeasurementObserved(
             MetricSample {
                 key: "key".to_string(),
                 name: "metric".to_string(),
@@ -168,7 +174,7 @@ mod tests {
             rack_id: None,
         };
 
-        let log_event = CollectorEvent::Log(
+        let log_event = HealthEvent::LogObserved(
             LogRecord {
                 body: "ignored by prometheus sink".to_string(),
                 severity: "INFO".to_string(),
@@ -187,7 +193,7 @@ mod tests {
             .expect("telemetry export should work");
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
-        let metric_event = CollectorEvent::Metric(
+        let metric_event = HealthEvent::MeasurementObserved(
             MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
@@ -240,7 +246,7 @@ mod tests {
             rack_id: None,
         };
 
-        let metric_event = CollectorEvent::Metric(
+        let metric_event = HealthEvent::MeasurementObserved(
             MetricSample {
                 key: "metric_key".to_string(),
                 name: "hw_sensor".to_string(),
@@ -259,7 +265,7 @@ mod tests {
             .expect("telemetry export should work");
         assert!(export_before_remove.contains("test_sink_hw_sensor_temperature_celsius"));
 
-        sink.handle_event(&context, &CollectorEvent::CollectorRemoved);
+        sink.handle_event(&context, &HealthEvent::NodeRemoved);
 
         let export_after_remove = metrics_manager
             .export_telemetry()
@@ -295,9 +301,9 @@ mod tests {
             rack_id: None,
         };
 
-        let start_event = CollectorEvent::MetricCollectionStart;
+        let start_event = HealthEvent::ScrapeBatchStarted;
         sink.handle_event(&context, &start_event);
-        let s1_event = CollectorEvent::Metric(
+        let s1_event = HealthEvent::MeasurementObserved(
             MetricSample {
                 key: "s1".to_string(),
                 name: "hw_sensor".to_string(),
@@ -310,7 +316,7 @@ mod tests {
             .into(),
         );
         sink.handle_event(&context, &s1_event);
-        let end_event = CollectorEvent::MetricCollectionEnd;
+        let end_event = HealthEvent::ScrapeBatchFinished;
         sink.handle_event(&context, &end_event);
 
         let first_export = metrics_manager
@@ -318,9 +324,9 @@ mod tests {
             .expect("telemetry export should work");
         assert!(first_export.contains("sensor=\"temp1\""));
 
-        let start_event = CollectorEvent::MetricCollectionStart;
+        let start_event = HealthEvent::ScrapeBatchStarted;
         sink.handle_event(&context, &start_event);
-        let s2_event = CollectorEvent::Metric(
+        let s2_event = HealthEvent::MeasurementObserved(
             MetricSample {
                 key: "s2".to_string(),
                 name: "hw_sensor".to_string(),
@@ -333,7 +339,7 @@ mod tests {
             .into(),
         );
         sink.handle_event(&context, &s2_event);
-        let end_event = CollectorEvent::MetricCollectionEnd;
+        let end_event = HealthEvent::ScrapeBatchFinished;
         sink.handle_event(&context, &end_event);
 
         let second_export = metrics_manager

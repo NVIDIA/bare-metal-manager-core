@@ -24,16 +24,16 @@ use nv_redfish::core::Bmc;
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, DataSink, EventContext, FirmwareInfo};
+use crate::sink::{EventContext, FirmwareInfo, HealthEvent, SyncEventNode};
 
 pub struct FirmwareCollectorConfig {
-    pub data_sink: Option<Arc<dyn DataSink>>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
 }
 
 pub struct FirmwareCollector<B: Bmc> {
     bmc: Arc<B>,
     event_context: EventContext,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
@@ -61,12 +61,12 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for FirmwareCollector<B> {
     }
 
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
 impl<B: Bmc + 'static> FirmwareCollector<B> {
-    fn emit_event(&self, event: CollectorEvent) {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
@@ -102,7 +102,7 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
                 (Cow::Borrowed("version"), version.clone()),
             ];
 
-            self.emit_event(CollectorEvent::Firmware(FirmwareInfo {
+            self.emit_event(HealthEvent::FirmwareObserved(FirmwareInfo {
                 component,
                 version,
                 attributes,

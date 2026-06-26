@@ -29,7 +29,7 @@ use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SyncEventNode};
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -139,7 +139,7 @@ async fn scrape_switch_nmxt_metrics(
 
 pub struct NmxtCollectorConfig {
     pub nmxt_config: NmxtCollectorOptions,
-    pub data_sink: Option<Arc<dyn DataSink>>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
 }
 
 /// NMX-T collector for a single switch/endpoint
@@ -148,7 +148,7 @@ pub struct NmxtCollector {
     switch_id: String,
     http_client: reqwest::Client,
     event_context: EventContext,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
@@ -196,12 +196,12 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
     }
 
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
 impl NmxtCollector {
-    fn emit_event(&self, event: CollectorEvent) {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
@@ -212,7 +212,7 @@ impl NmxtCollector {
 
         let metrics = scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await?;
 
-        self.emit_event(CollectorEvent::MetricCollectionStart);
+        self.emit_event(HealthEvent::ScrapeBatchStarted);
 
         for sample in metrics {
             let NmxtMetricSample {
@@ -242,7 +242,7 @@ impl NmxtCollector {
                 (Cow::Borrowed("port_num"), port_num),
             ];
 
-            self.emit_event(CollectorEvent::Metric(
+            self.emit_event(HealthEvent::MeasurementObserved(
                 MetricSample {
                     key: metric_key,
                     name: "switch_nmxt".to_string(),
@@ -256,7 +256,7 @@ impl NmxtCollector {
             ));
         }
 
-        self.emit_event(CollectorEvent::MetricCollectionEnd);
+        self.emit_event(HealthEvent::ScrapeBatchFinished);
 
         Ok(())
     }

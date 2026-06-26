@@ -28,6 +28,7 @@ use nv_redfish::core::Bmc;
 use nv_redfish::event_service::EventStreamPayload;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts};
 use rand::RngExt;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -38,7 +39,7 @@ use crate::limiter::RateLimiter;
 use crate::metrics::{
     CollectorRegistry, ComponentKind, MetricsManager, operation_duration_buckets_seconds,
 };
-use crate::sink::{CollectorEvent, DataSink, EventContext};
+use crate::sink::{EventContext, HealthEvent, SyncEventNode};
 
 /// Result of a collector iteration
 #[derive(Debug, Clone)]
@@ -69,12 +70,21 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
     /// Returns the type identifier for this collector
     fn collector_type(&self) -> &'static str;
 
+    /// Whether this collector consumes routed events (via [`Self::handle_event`]).
+    /// Only collectors that return `true` get an event mailbox exposed through
+    /// [`Collector::event_node`]. Defaults to `false`.
+    fn wants_events(&self) -> bool {
+        false
+    }
+
+    fn handle_event(&mut self, _context: &EventContext, _event: &HealthEvent) {}
+
     fn stop(&mut self) -> impl std::future::Future<Output = ()> + Send {
         async {}
     }
 }
 
-pub type EventStream<'a> = BoxStream<'a, Result<CollectorEvent, HealthError>>;
+pub type EventStream<'a> = BoxStream<'a, Result<HealthEvent, HealthError>>;
 
 /// Trait for collectors that maintain a long-lived stream (SSE, gRPC, etc.)
 /// runtime.rs creates the BMC client and injects it, the collector opens the stream and maps payloads to events
@@ -249,6 +259,41 @@ impl Drop for StreamingConnectionGuard {
 pub struct Collector {
     handle: JoinHandle<()>,
     cancel_token: CancellationToken,
+    event_node: Option<Arc<dyn SyncEventNode>>,
+}
+
+struct CollectorEventMailbox {
+    node_type: &'static str,
+    endpoint_key: String,
+    sender: mpsc::Sender<(EventContext, HealthEvent)>,
+}
+
+impl SyncEventNode for CollectorEventMailbox {
+    fn node_type(&self) -> &'static str {
+        self.node_type
+    }
+
+    fn interested_in(&self, event: &HealthEvent) -> bool {
+        matches!(
+            event,
+            HealthEvent::InventoryDiscovered { endpoint_key, .. }
+                if endpoint_key == &self.endpoint_key
+        )
+    }
+
+    fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
+        // A drop on a full mailbox selfheals: discovery re-emits InventoryDiscovered
+        // every refresh cycle, so the consumer recovers on the next tick
+        if let Err(error) = self.sender.try_send((context.clone(), event.clone())) {
+            tracing::warn!(
+                ?error,
+                node_type = self.node_type,
+                endpoint_key = %self.endpoint_key,
+                "dropping event for collector mailbox"
+            );
+        }
+        Vec::new()
+    }
 }
 
 pub struct CollectorStartContext {
@@ -281,6 +326,19 @@ impl Collector {
         let cancel_token_clone = cancel_token.clone();
 
         let mut runner = C::new_runner(bmc, endpoint.clone(), config)?;
+        // Only event-consuming collectors get a mailbox; others never receive events,
+        // so we skip the channel entirely and leave `event_node` as None.
+        let (event_node, mut event_receiver) = if runner.wants_events() {
+            let (event_sender, event_receiver) = mpsc::channel(16);
+            let node: Arc<dyn SyncEventNode> = Arc::new(CollectorEventMailbox {
+                node_type: runner.collector_type(),
+                endpoint_key: endpoint.key(),
+                sender: event_sender,
+            });
+            (Some(node), Some(event_receiver))
+        } else {
+            (None, None)
+        };
 
         let endpoint_key = endpoint.key();
         let const_labels = HashMap::from([
@@ -341,6 +399,7 @@ impl Collector {
         let handle = tokio::spawn(async move {
             let collector_type = runner.collector_type();
             let _collector_registry = collector_registry;
+            let mut next_iteration = tokio::time::Instant::now();
             loop {
                 tokio::select! {
                     _ = cancel_token_clone.cancelled() => {
@@ -348,7 +407,22 @@ impl Collector {
                         runner.stop().await;
                         break;
                     }
-                    _ = async {
+                    maybe_event = async {
+                        match event_receiver.as_mut() {
+                            Some(rx) => rx.recv().await,
+                            // No mailbox: park this branch forever so only the timer/cancel fire.
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        if let Some((event_context, event)) = maybe_event {
+                            runner.handle_event(&event_context, &event);
+                        }
+                    }
+                    // The scrape runs to completion here (not as a racing select future),
+                    // so an inbound event can never cancel an in-flight iteration or reset
+                    // its cadence. Trade-off: cancellation waits for the current scrape,
+                    // bounded by the BMC request timeout.
+                    _ = tokio::time::sleep_until(next_iteration) => {
                         limiter.acquire().await;
 
                         let start = Instant::now();
@@ -388,8 +462,7 @@ impl Collector {
                             }
                         }
 
-                        tokio::time::sleep(iteration_interval).await;
-                    } => {
+                        next_iteration = tokio::time::Instant::now() + iteration_interval;
                     }
                 }
             }
@@ -398,6 +471,7 @@ impl Collector {
         Ok(Self {
             handle,
             cancel_token,
+            event_node,
         })
     }
 
@@ -405,7 +479,7 @@ impl Collector {
         endpoint: Arc<BmcEndpoint>,
         bmc: Arc<BmcClient>,
         config: S::Config,
-        data_sink: Arc<dyn DataSink>,
+        data_sink: Arc<dyn SyncEventNode>,
         start_context: StreamingCollectorStartContext,
         mut on_connect_result: F,
     ) -> Result<Self, HealthError>
@@ -533,6 +607,7 @@ impl Collector {
         Ok(Self {
             handle,
             cancel_token,
+            event_node: None,
         })
     }
 
@@ -550,6 +625,7 @@ impl Collector {
         Self {
             handle,
             cancel_token,
+            event_node: None,
         }
     }
 
@@ -560,5 +636,9 @@ impl Collector {
 
     pub fn is_finished(&self) -> bool {
         self.handle.is_finished()
+    }
+
+    pub fn event_node(&self) -> Option<Arc<dyn SyncEventNode>> {
+        self.event_node.clone()
     }
 }

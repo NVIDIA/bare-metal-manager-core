@@ -24,35 +24,36 @@ use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
 use nv_redfish::sensor::SensorLink;
 
 use crate::HealthError;
-use crate::collectors::inventory::{DiscoveredEntity, SharedInventory};
+use crate::bmc::BmcClient;
+use crate::collectors::inventory::{DiscoveredEntity, EntityInventory};
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
 use crate::metrics::sanitize_unit;
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample, SensorThresholdContext};
+use crate::sink::{EventContext, HealthEvent, MetricSample, SensorThresholdContext, SyncEventNode};
 
 /// Configuration for the sensor collector.
 pub struct SensorCollectorConfig<B: Bmc> {
-    pub data_sink: Option<Arc<dyn DataSink>>,
-    pub(crate) shared: SharedInventory<B>,
+    pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub sensor_fetch_concurrency: usize,
     pub include_sensor_thresholds: bool,
+    pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
 /// Sensor collector for a single BMC endpoint
 pub struct SensorCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     event_context: EventContext,
-    shared: SharedInventory<B>,
-    data_sink: Option<Arc<dyn DataSink>>,
+    latest_inventory: Option<Arc<EntityInventory<B>>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     sensor_fetch_concurrency: usize,
     include_sensor_thresholds: bool,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
-    type Config = SensorCollectorConfig<B>;
+impl PeriodicCollector<BmcClient> for SensorCollector<BmcClient> {
+    type Config = SensorCollectorConfig<BmcClient>;
 
     fn new_runner(
-        _bmc: Arc<B>,
+        _bmc: Arc<BmcClient>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
@@ -60,7 +61,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         Ok(Self {
             endpoint,
             event_context,
-            shared: config.shared,
+            latest_inventory: None,
             data_sink: config.data_sink,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency.max(1),
             include_sensor_thresholds: config.include_sensor_thresholds,
@@ -68,7 +69,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
     }
 
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
-        let Some(inventory) = self.shared.load_full() else {
+        let Some(inventory) = self.latest_inventory.clone() else {
             tracing::debug!(
                 bmc_addr = ?self.endpoint.addr,
                 "No entity inventory available yet; skipping sensor iteration"
@@ -89,7 +90,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         );
 
         let fetch_failures = AtomicUsize::new(0);
-        self.emit_event(CollectorEvent::MetricCollectionStart);
+        self.emit_event(HealthEvent::ScrapeBatchStarted);
 
         // Entity-level derived metrics (drive media life, PSU capacity), once
         // per entity.
@@ -97,7 +98,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             self.emit_derived_metrics(entity);
         }
 
-        // Build the fetch futures borrowing from the shared snapshot, then
+        // Build fetch futures borrowing from the immutable inventory snapshot, then
         // drive them concurrently. Each future borrows `&self`, the entity, and
         // its sensor (all alive for as long as `inventory` is held here).
         let this = &*self;
@@ -120,7 +121,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             .into_iter()
             .sum();
 
-        self.emit_event(CollectorEvent::MetricCollectionEnd);
+        self.emit_event(HealthEvent::ScrapeBatchFinished);
 
         Ok(IterationResult {
             refresh_triggered: false,
@@ -133,19 +134,29 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         "sensor_collector"
     }
 
+    fn wants_events(&self) -> bool {
+        true
+    }
+
+    fn handle_event(&mut self, _context: &EventContext, event: &HealthEvent) {
+        if let HealthEvent::InventoryDiscovered { inventory, .. } = event {
+            self.latest_inventory = Some(inventory.clone());
+        }
+    }
+
     async fn stop(&mut self) {
-        self.emit_event(CollectorEvent::CollectorRemoved);
+        self.emit_event(HealthEvent::NodeRemoved);
     }
 }
 
-impl<B: Bmc + 'static> SensorCollector<B> {
-    fn emit_event(&self, event: CollectorEvent) {
+impl SensorCollector<BmcClient> {
+    fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
         }
     }
 
-    fn emit_derived_metrics(&self, entity: &DiscoveredEntity<B>) {
+    fn emit_derived_metrics(&self, entity: &DiscoveredEntity<BmcClient>) {
         let derived = entity.derived_metrics();
         if derived.is_empty() {
             return;
@@ -153,7 +164,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         let mut attributes = entity.base_attributes();
         attributes.extend(entity.entity_specific_attributes());
         for metric in derived {
-            self.emit_event(CollectorEvent::Metric(
+            self.emit_event(HealthEvent::MeasurementObserved(
                 MetricSample {
                     key: format!("{}/{}", entity.key(), metric.metric_type),
                     name: "hw".to_string(),
@@ -170,8 +181,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
     async fn update_sensor(
         &self,
-        entity: &DiscoveredEntity<B>,
-        sensor_link: &SensorLink<B>,
+        entity: &DiscoveredEntity<BmcClient>,
+        sensor_link: &SensorLink<BmcClient>,
         fetch_failures: &AtomicUsize,
     ) -> usize {
         let sensor = match sensor_link.fetch().await {
@@ -295,7 +306,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             (None, None, None, None, None, None)
         };
 
-        self.emit_event(CollectorEvent::Metric(
+        self.emit_event(HealthEvent::MeasurementObserved(
             MetricSample {
                 key: sensor.odata_id().to_string(),
                 name: "hw_sensor".to_string(),

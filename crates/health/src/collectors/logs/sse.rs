@@ -30,7 +30,7 @@ use super::diagnostic::{
 use crate::HealthError;
 use crate::collectors::runtime::{EventStream, StreamingCollector, open_sse_stream};
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, LogRecord};
+use crate::sink::{HealthEvent, LogRecord};
 
 /// Configuration for the Redfish SSE log collector.
 pub struct SseLogCollectorConfig {
@@ -91,7 +91,7 @@ fn map_payload<B: Bmc>(
     result: Result<EventStreamPayload, HealthError>,
     bmc: &B,
     include_diagnostics: bool,
-) -> Vec<Result<CollectorEvent, HealthError>> {
+) -> Vec<Result<HealthEvent, HealthError>> {
     match result {
         Ok(EventStreamPayload::Event(event)) => event_to_logs(&event, bmc, include_diagnostics),
         Ok(EventStreamPayload::MetricReport(_)) => Vec::new(),
@@ -104,7 +104,7 @@ fn event_to_logs<B: Bmc>(
     event: &Event,
     bmc: &B,
     include_diagnostics: bool,
-) -> Vec<Result<CollectorEvent, HealthError>> {
+) -> Vec<Result<HealthEvent, HealthError>> {
     event
         .events
         .iter()
@@ -201,7 +201,7 @@ fn event_to_logs<B: Bmc>(
                 None
             };
 
-            Ok(CollectorEvent::Log(Box::new(LogRecord {
+            Ok(HealthEvent::LogObserved(Box::new(LogRecord {
                 body,
                 severity,
                 attributes,

@@ -27,7 +27,7 @@ use super::spawn::spawn_collectors_for_endpoint;
 use crate::HealthError;
 use crate::endpoint::{BmcEndpoint, EndpointSource};
 use crate::sharding::ShardManager;
-use crate::sink::DataSink;
+use crate::sink::SyncEventNode;
 
 fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
     sharded_endpoints
@@ -40,7 +40,7 @@ pub async fn run_discovery_iteration(
     endpoint_source: Arc<dyn EndpointSource>,
     shard_manager: &ShardManager,
     ctx: &mut DiscoveryLoopContext,
-    data_sink: Option<Arc<dyn DataSink>>,
+    data_sink: Option<Arc<dyn SyncEventNode>>,
     metrics_prefix: &str,
 ) -> Result<DiscoveryIterationStats, HealthError> {
     let iteration_start = Instant::now();
