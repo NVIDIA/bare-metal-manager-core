@@ -36,10 +36,12 @@ use serde::Deserialize;
 use super::pagination::{self, PageContext, PaginationParams};
 use super::{Base, filters};
 use crate::action_status::{self, ActionStatus};
+use crate::site_explorer_run_status::SiteExplorerLastRunDisplay;
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
 struct ExploredEndpointsShow {
+    last_run: Option<SiteExplorerLastRunDisplay>,
     vendors: Vec<String>,
     endpoints: Vec<ExploredEndpointDisplay>,
     filter_name: &'static str,
@@ -52,9 +54,14 @@ struct ExploredEndpointsShow {
 #[derive(Template)]
 #[template(path = "explored_endpoints_show_paired.html")]
 struct ExploredEndpointsShowPaired {
+    last_run: Option<SiteExplorerLastRunDisplay>,
     managed_hosts: Vec<ExploredManagedHostDisplay>,
     page: PageContext,
     missing_default_credentials: Vec<DefaultCredential>,
+}
+
+fn last_run_from_report(report: &SiteExplorationReport) -> Option<SiteExplorerLastRunDisplay> {
+    report.last_run.as_ref().map(Into::into)
 }
 
 fn managed_hosts_from_report(report: &SiteExplorationReport) -> Vec<ExploredManagedHostDisplay> {
@@ -253,6 +260,7 @@ pub async fn show_html_all(
     let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
 
     let tmpl = ExploredEndpointsShow {
+        last_run: last_run_from_report(&report),
         filter_name: "All",
         vendors,
         endpoints,
@@ -285,6 +293,7 @@ pub async fn show_html_paired(
     let (info, managed_hosts) = pagination::paginate_vec(all_hosts, &params);
 
     let tmpl = ExploredEndpointsShowPaired {
+        last_run: last_run_from_report(&report),
         managed_hosts,
         page: PageContext::new(info, "/admin/explored-endpoint/paired"),
         missing_default_credentials: state.missing_default_credentials().await,
@@ -374,6 +383,7 @@ pub async fn show_html_unpaired(
     let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
 
     let tmpl = ExploredEndpointsShow {
+        last_run: last_run_from_report(&report),
         filter_name: "Unpaired",
         vendors,
         endpoints,

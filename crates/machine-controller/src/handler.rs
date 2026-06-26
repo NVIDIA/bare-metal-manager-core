@@ -20,6 +20,7 @@
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
 use std::net::IpAddr;
+use std::path::{Component, Path};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -178,6 +179,37 @@ fn scout_firmware_upgrade_deadline(
         .min(MAX_DEADLINE_DURATION_SECONDS);
 
     started_at + Duration::seconds(deadline_seconds)
+}
+
+fn firmware_artifact_url(
+    pxe_public_base_url: &str,
+    firmware_dir: &Path,
+    path: &str,
+) -> Result<String, StateHandlerError> {
+    let relative = Path::new(path).strip_prefix(firmware_dir).map_err(|_| {
+        StateHandlerError::GenericError(eyre!(
+            "firmware artifact path {path} is outside firmware directory {}",
+            firmware_dir.display()
+        ))
+    })?;
+
+    if !relative
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err(StateHandlerError::GenericError(eyre!(
+            "firmware artifact path {path} contains unsafe path components"
+        )));
+    }
+
+    let relative = relative.to_str().ok_or_else(|| {
+        StateHandlerError::GenericError(eyre!("firmware artifact path {path} is not valid UTF-8"))
+    })?;
+
+    Ok(format!(
+        "{}/public/firmware/{relative}",
+        pxe_public_base_url.trim_end_matches('/')
+    ))
 }
 
 /// Reachability params to check if DPU is up or not.
@@ -8258,21 +8290,28 @@ impl HostUpgradeState {
             if let Some(to_install) =
                 need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
             {
-                if let Some(scout_config) = &to_install.scout {
-                    let firmware_dir = ctx
+                let scout_script = crate::scout_firmware_scripts::find_scout_script(
+                    &ctx.services.site_config.pxe_public_base_url,
+                    fw_info.vendor,
+                    &fw_info.model,
+                    firmware_type,
+                )
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre!(
+                        "failed to resolve Scout firmware script for vendor={}, model={}, component={}: {error}",
+                        fw_info.vendor,
+                        fw_info.model,
+                        firmware_type
+                    ))
+                })?;
+
+                if let Some(scout_script) = scout_script {
+                    let firmware_dir = &ctx.services.site_config.firmware_global.firmware_directory;
+                    let pxe_public_base_url = ctx
                         .services
                         .site_config
-                        .firmware_global
-                        .firmware_directory
-                        .to_string_lossy();
-                    const PXE_URL: &str = "http://carbide-pxe.forge:8080";
-                    let to_pxe_url = |path: &str| -> String {
-                        let relative = path
-                            .strip_prefix(firmware_dir.as_ref())
-                            .unwrap_or(path)
-                            .trim_start_matches('/');
-                        format!("{PXE_URL}/public/firmware/{relative}")
-                    };
+                        .pxe_public_base_url
+                        .trim_end_matches('/');
 
                     let upgrade_task_id = uuid::Uuid::new_v4().to_string();
                     let file_artifact_count = to_install.files.len();
@@ -8281,20 +8320,26 @@ impl HostUpgradeState {
                         component_type: firmware_type.to_string(),
                         target_version: to_install.version.clone(),
                         script: Some(FileArtifact {
-                            url: to_pxe_url(&scout_config.script.filename),
-                            sha256: scout_config.script.sha256.clone(),
+                            url: scout_script.url,
+                            sha256: scout_script.sha256,
                         }),
-                        execution_timeout_seconds: scout_config.execution_timeout_seconds,
-                        artifact_download_timeout_seconds: scout_config
+                        execution_timeout_seconds: scout_script.execution_timeout_seconds,
+                        artifact_download_timeout_seconds: scout_script
                             .artifact_download_timeout_seconds,
                         file_artifacts: to_install
                             .files
                             .into_iter()
-                            .map(|f| FileArtifact {
-                                url: to_pxe_url(&f.filename),
-                                sha256: f.sha256,
+                            .map(|f| {
+                                Ok(FileArtifact {
+                                    url: firmware_artifact_url(
+                                        pxe_public_base_url,
+                                        firmware_dir,
+                                        &f.filename,
+                                    )?,
+                                    sha256: f.sha256,
+                                })
                             })
-                            .collect(),
+                            .collect::<Result<Vec<_>, StateHandlerError>>()?,
                     };
 
                     // Scout uses a fixed timeout for the script download and applies the artifact
@@ -8302,8 +8347,8 @@ impl HostUpgradeState {
                     let started_at = Utc::now();
                     let deadline = scout_firmware_upgrade_deadline(
                         started_at,
-                        scout_config.execution_timeout_seconds,
-                        scout_config.artifact_download_timeout_seconds,
+                        scout_script.execution_timeout_seconds,
+                        scout_script.artifact_download_timeout_seconds,
                         file_artifact_count,
                     );
                     return Ok(StateHandlerOutcome::transition(
@@ -8324,11 +8369,13 @@ impl HostUpgradeState {
                         ),
                     ));
                 }
+
                 if to_install.script.is_some() {
                     return self
                         .by_script(to_install, state, explored_endpoint, scenario)
                         .await;
                 }
+
                 tracing::info!(%machine_id,
                     "Installing {:?} (number #{}) on {}",
                     to_install,
@@ -11448,6 +11495,49 @@ mod tests {
         let deadline = scout_firmware_upgrade_deadline(started_at, u32::MAX, u32::MAX, usize::MAX);
 
         assert_eq!(deadline, started_at + Duration::hours(5));
+    }
+
+    #[test]
+    fn firmware_artifact_url_uses_path_relative_to_firmware_directory() {
+        let url = firmware_artifact_url(
+            "http://carbide-pxe.forge:8080/",
+            Path::new("/opt/nico/firmware"),
+            "/opt/nico/firmware/nvidia/dgxh100/cx7/cx7.bin",
+        )
+        .unwrap();
+
+        assert_eq!(
+            url,
+            "http://carbide-pxe.forge:8080/public/firmware/nvidia/dgxh100/cx7/cx7.bin"
+        );
+    }
+
+    #[test]
+    fn firmware_artifact_url_rejects_unsafe_paths() {
+        let unsafe_cases = [
+            (
+                // A sibling directory with the same string prefix is not inside the firmware root.
+                "/opt/nico/firmware2/nvidia/dgxh100/cx7/cx7.bin",
+                "is outside firmware directory /opt/nico/firmware",
+            ),
+            (
+                // A path under the firmware root still cannot traverse back out with `..`.
+                "/opt/nico/firmware/../cx7.bin",
+                "contains unsafe path components",
+            ),
+        ];
+
+        for (path, expected_error) in unsafe_cases {
+            let Err(error) = firmware_artifact_url(
+                "http://carbide-pxe.forge:8080",
+                Path::new("/opt/nico/firmware"),
+                path,
+            ) else {
+                panic!("expected unsafe path {path} to be rejected");
+            };
+
+            assert!(error.to_string().contains(expected_error));
+        }
     }
 
     #[test]

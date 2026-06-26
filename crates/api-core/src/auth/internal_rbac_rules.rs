@@ -270,6 +270,7 @@ impl InternalRBACRules {
             "GetSiteExplorationReport",
             vec![ForgeAdminCLI, Machineatron],
         );
+        x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);

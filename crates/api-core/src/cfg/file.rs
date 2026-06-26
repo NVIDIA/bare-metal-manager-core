@@ -614,6 +614,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub arm_pxe_boot_url_override: Option<String>,
 
+    /// Canonical PXE base URL
+    #[serde(default = "default_pxe_public_base_url")]
+    pub pxe_public_base_url: String,
+
     /// Vendors for which the state controller should pin the UEFI HTTP boot
     /// URL on the BMC (via Redfish `HttpBootUri`) in addition to the existing
     /// DHCP option 67 path. Machines whose BMC vendor is NOT in this list
@@ -762,6 +766,7 @@ impl Default for TracingConfig {
 impl CarbideConfig {
     pub fn machine_state_handler_site_config(&self) -> MachineStateHandlerSiteConfig {
         MachineStateHandlerSiteConfig {
+            pxe_public_base_url: self.pxe_public_base_url.clone(),
             firmware_global: self.firmware_global.clone(),
             machine_state_controller: self.machine_state_controller.clone(),
             host_health: self.host_health,
@@ -2113,6 +2118,10 @@ pub fn default_max_network_security_group_size() -> u32 {
     200
 }
 
+pub fn default_pxe_public_base_url() -> String {
+    "http://carbide-pxe.forge:8080".to_string()
+}
+
 pub fn default_internet_l3_vni() -> u32 {
     // This is a number agreed upon between the Network
     // Infrastructure team and NICo that they will use to
@@ -3029,6 +3038,7 @@ mod tests {
             config.vpc_peering_policy_on_existing,
             Some(VpcPeeringPolicy::Mixed)
         );
+        assert_eq!(config.pxe_public_base_url, "http://pxe.example.com:8080");
         assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,

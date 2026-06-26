@@ -243,10 +243,6 @@ sha256 = "abc123"
 [components.cx7.known_firmware.scout]
 execution_timeout_seconds = 1800
 artifact_download_timeout_seconds = 600
-
-[components.cx7.known_firmware.scout.script]
-filename = "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/scripts/cx7_upgrade.sh"
-sha256 = "def456"
 "#;
     let mut config: FirmwareConfig = Default::default();
     config.add_test_override(cfg.to_string());
@@ -268,9 +264,6 @@ sha256 = "def456"
     let scout = firmware.scout.as_ref().unwrap();
     assert_eq!(scout.execution_timeout_seconds, 1800);
     assert_eq!(scout.artifact_download_timeout_seconds, 600);
-    assert_eq!(
-        scout.script.filename,
-        "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/scripts/cx7_upgrade.sh"
-    );
+    assert!(scout.script.is_none());
     Ok(())
 }
