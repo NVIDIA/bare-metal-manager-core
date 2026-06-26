@@ -186,6 +186,7 @@ const (
 	Forge_GetMachineBootOverride_FullMethodName                             = "/forge.Forge/GetMachineBootOverride"
 	Forge_SetMachineBootOverride_FullMethodName                             = "/forge.Forge/SetMachineBootOverride"
 	Forge_ClearMachineBootOverride_FullMethodName                           = "/forge.Forge/ClearMachineBootOverride"
+	Forge_GetMachineBootInterfaces_FullMethodName                           = "/forge.Forge/GetMachineBootInterfaces"
 	Forge_GetNetworkTopology_FullMethodName                                 = "/forge.Forge/GetNetworkTopology"
 	Forge_FindNetworkDevicesByDeviceIds_FullMethodName                      = "/forge.Forge/FindNetworkDevicesByDeviceIds"
 	Forge_CreateCredential_FullMethodName                                   = "/forge.Forge/CreateCredential"
@@ -309,6 +310,7 @@ const (
 	Forge_FindMachineValidationRunItemIds_FullMethodName                    = "/forge.Forge/FindMachineValidationRunItemIds"
 	Forge_FindMachineValidationRunItemsByIds_FullMethodName                 = "/forge.Forge/FindMachineValidationRunItemsByIds"
 	Forge_GetMachineValidationAttempt_FullMethodName                        = "/forge.Forge/GetMachineValidationAttempt"
+	Forge_HeartbeatMachineValidationRun_FullMethodName                      = "/forge.Forge/HeartbeatMachineValidationRun"
 	Forge_RemoveMachineValidationExternalConfig_FullMethodName              = "/forge.Forge/RemoveMachineValidationExternalConfig"
 	Forge_GetMachineValidationTests_FullMethodName                          = "/forge.Forge/GetMachineValidationTests"
 	Forge_AddMachineValidationTest_FullMethodName                           = "/forge.Forge/AddMachineValidationTest"
@@ -761,6 +763,11 @@ type ForgeClient interface {
 	GetMachineBootOverride(ctx context.Context, in *MachineInterfaceId, opts ...grpc.CallOption) (*MachineBootOverride, error)
 	SetMachineBootOverride(ctx context.Context, in *MachineBootOverride, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ClearMachineBootOverride(ctx context.Context, in *MachineInterfaceId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Gather one machine's boot-interface view from every store that records it
+	// (owned interface rows, predictions, the explored endpoint default, and the
+	// retained post-deletion pairs), plus the effective boot interface the
+	// system would select. Read-only; built for troubleshooting and verification.
+	GetMachineBootInterfaces(ctx context.Context, in *GetMachineBootInterfacesRequest, opts ...grpc.CallOption) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(ctx context.Context, in *NetworkTopologyRequest, opts ...grpc.CallOption) (*NetworkTopologyData, error)
 	FindNetworkDevicesByDeviceIds(ctx context.Context, in *NetworkDeviceIdList, opts ...grpc.CallOption) (*NetworkTopologyData, error)
@@ -954,6 +961,8 @@ type ForgeClient interface {
 	FindMachineValidationRunItemsByIds(ctx context.Context, in *MachineValidationRunItemsByIdsRequest, opts ...grpc.CallOption) (*MachineValidationRunItemList, error)
 	// Machine-Validation attempt detail
 	GetMachineValidationAttempt(ctx context.Context, in *MachineValidationAttemptGetRequest, opts ...grpc.CallOption) (*MachineValidationAttempt, error)
+	// Machine-Validation run and active attempt heartbeat
+	HeartbeatMachineValidationRun(ctx context.Context, in *MachineValidationHeartbeatRequest, opts ...grpc.CallOption) (*MachineValidationHeartbeatResponse, error)
 	// Remove ExternalConfig
 	RemoveMachineValidationExternalConfig(ctx context.Context, in *RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Machine-Validation test list
@@ -2885,6 +2894,16 @@ func (c *forgeClient) ClearMachineBootOverride(ctx context.Context, in *MachineI
 	return out, nil
 }
 
+func (c *forgeClient) GetMachineBootInterfaces(ctx context.Context, in *GetMachineBootInterfacesRequest, opts ...grpc.CallOption) (*GetMachineBootInterfacesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMachineBootInterfacesResponse)
+	err := c.cc.Invoke(ctx, Forge_GetMachineBootInterfaces_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) GetNetworkTopology(ctx context.Context, in *NetworkTopologyRequest, opts ...grpc.CallOption) (*NetworkTopologyData, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NetworkTopologyData)
@@ -4109,6 +4128,16 @@ func (c *forgeClient) GetMachineValidationAttempt(ctx context.Context, in *Machi
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MachineValidationAttempt)
 	err := c.cc.Invoke(ctx, Forge_GetMachineValidationAttempt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) HeartbeatMachineValidationRun(ctx context.Context, in *MachineValidationHeartbeatRequest, opts ...grpc.CallOption) (*MachineValidationHeartbeatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationHeartbeatResponse)
+	err := c.cc.Invoke(ctx, Forge_HeartbeatMachineValidationRun_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -5999,6 +6028,11 @@ type ForgeServer interface {
 	GetMachineBootOverride(context.Context, *MachineInterfaceId) (*MachineBootOverride, error)
 	SetMachineBootOverride(context.Context, *MachineBootOverride) (*emptypb.Empty, error)
 	ClearMachineBootOverride(context.Context, *MachineInterfaceId) (*emptypb.Empty, error)
+	// Gather one machine's boot-interface view from every store that records it
+	// (owned interface rows, predictions, the explored endpoint default, and the
+	// retained post-deletion pairs), plus the effective boot interface the
+	// system would select. Read-only; built for troubleshooting and verification.
+	GetMachineBootInterfaces(context.Context, *GetMachineBootInterfacesRequest) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(context.Context, *NetworkTopologyRequest) (*NetworkTopologyData, error)
 	FindNetworkDevicesByDeviceIds(context.Context, *NetworkDeviceIdList) (*NetworkTopologyData, error)
@@ -6192,6 +6226,8 @@ type ForgeServer interface {
 	FindMachineValidationRunItemsByIds(context.Context, *MachineValidationRunItemsByIdsRequest) (*MachineValidationRunItemList, error)
 	// Machine-Validation attempt detail
 	GetMachineValidationAttempt(context.Context, *MachineValidationAttemptGetRequest) (*MachineValidationAttempt, error)
+	// Machine-Validation run and active attempt heartbeat
+	HeartbeatMachineValidationRun(context.Context, *MachineValidationHeartbeatRequest) (*MachineValidationHeartbeatResponse, error)
 	// Remove ExternalConfig
 	RemoveMachineValidationExternalConfig(context.Context, *RemoveMachineValidationExternalConfigRequest) (*emptypb.Empty, error)
 	// Machine-Validation test list
@@ -6974,6 +7010,9 @@ func (UnimplementedForgeServer) SetMachineBootOverride(context.Context, *Machine
 func (UnimplementedForgeServer) ClearMachineBootOverride(context.Context, *MachineInterfaceId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearMachineBootOverride not implemented")
 }
+func (UnimplementedForgeServer) GetMachineBootInterfaces(context.Context, *GetMachineBootInterfacesRequest) (*GetMachineBootInterfacesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMachineBootInterfaces not implemented")
+}
 func (UnimplementedForgeServer) GetNetworkTopology(context.Context, *NetworkTopologyRequest) (*NetworkTopologyData, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNetworkTopology not implemented")
 }
@@ -7342,6 +7381,9 @@ func (UnimplementedForgeServer) FindMachineValidationRunItemsByIds(context.Conte
 }
 func (UnimplementedForgeServer) GetMachineValidationAttempt(context.Context, *MachineValidationAttemptGetRequest) (*MachineValidationAttempt, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMachineValidationAttempt not implemented")
+}
+func (UnimplementedForgeServer) HeartbeatMachineValidationRun(context.Context, *MachineValidationHeartbeatRequest) (*MachineValidationHeartbeatResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HeartbeatMachineValidationRun not implemented")
 }
 func (UnimplementedForgeServer) RemoveMachineValidationExternalConfig(context.Context, *RemoveMachineValidationExternalConfigRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveMachineValidationExternalConfig not implemented")
@@ -10774,6 +10816,24 @@ func _Forge_ClearMachineBootOverride_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_GetMachineBootInterfaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMachineBootInterfacesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetMachineBootInterfaces(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetMachineBootInterfaces_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetMachineBootInterfaces(ctx, req.(*GetMachineBootInterfacesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_GetNetworkTopology_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NetworkTopologyRequest)
 	if err := dec(in); err != nil {
@@ -12984,6 +13044,24 @@ func _Forge_GetMachineValidationAttempt_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).GetMachineValidationAttempt(ctx, req.(*MachineValidationAttemptGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_HeartbeatMachineValidationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationHeartbeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).HeartbeatMachineValidationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_HeartbeatMachineValidationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).HeartbeatMachineValidationRun(ctx, req.(*MachineValidationHeartbeatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16499,6 +16577,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_ClearMachineBootOverride_Handler,
 		},
 		{
+			MethodName: "GetMachineBootInterfaces",
+			Handler:    _Forge_GetMachineBootInterfaces_Handler,
+		},
+		{
 			MethodName: "GetNetworkTopology",
 			Handler:    _Forge_GetNetworkTopology_Handler,
 		},
@@ -16989,6 +17071,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMachineValidationAttempt",
 			Handler:    _Forge_GetMachineValidationAttempt_Handler,
+		},
+		{
+			MethodName: "HeartbeatMachineValidationRun",
+			Handler:    _Forge_HeartbeatMachineValidationRun_Handler,
 		},
 		{
 			MethodName: "RemoveMachineValidationExternalConfig",

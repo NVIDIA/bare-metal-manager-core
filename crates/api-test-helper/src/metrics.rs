@@ -79,8 +79,6 @@ pub fn collect_metric_infos(metrics_endpoints: &[SocketAddr]) -> eyre::Result<Ve
         })
         .collect();
 
-    infos.sort_by(|e1, e2| e1.name.cmp(&e2.name));
-
     Ok(infos)
 }
 

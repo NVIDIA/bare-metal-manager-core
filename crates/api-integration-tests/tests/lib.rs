@@ -220,6 +220,9 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
     retain_existing_core_metric_infos(&mut infos);
+
+    infos.sort_by(|e1, e2| e1.name.cmp(&e2.name));
+
     let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
     use std::fmt::Write;
 
