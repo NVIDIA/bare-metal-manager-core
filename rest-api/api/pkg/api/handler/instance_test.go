@@ -9746,7 +9746,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			assert.Equal(t, cdbm.InstanceStatusTerminating, dinstance.Status)
 
 			sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-			statusDetails, _, serr := sdDAO.GetAllByEntityID(context.Background(), nil, tt.args.reqInstance, nil, nil, nil)
+			statusDetails, _, serr := sdDAO.GetAll(context.Background(), nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{tt.args.reqInstance}}, cdbp.PageInput{})
 			require.NoError(t, serr)
 			require.NotEmpty(t, statusDetails)
 			require.NotNil(t, statusDetails[0].Message)
