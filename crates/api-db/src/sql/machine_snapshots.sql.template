@@ -9,7 +9,7 @@ m.*,
 sku.device_type as hw_sku_device_type,
 COALESCE(i.json, '[]') AS interfaces,
 COALESCE(t.json, '[]') AS topology,
-COALESCE(bmc.json, t.bmc_info, '{}'::jsonb) AS bmc_info
+COALESCE(bmc.json, t.bmc_info - 'ip' - 'mac', '{}'::jsonb) AS bmc_info
 __HISTORY_SELECT__
 FROM machines m
 LEFT JOIN machine_skus sku on  m.hw_sku = sku.id
@@ -37,8 +37,8 @@ LEFT JOIN LATERAL (
         COALESCE(t.bmc_info, '{}'::jsonb) ||
         jsonb_build_object(
             'machine_interface_id', bmc_i.id,
-            'ip', COALESCE(host(bmc_addr.address), t.bmc_info->>'ip'),
-            'mac', COALESCE(bmc_i.mac_address::text, t.bmc_info->>'mac')
+            'ip', host(bmc_addr.address),
+            'mac', bmc_i.mac_address::text
         )
     ) AS json
     FROM machine_interfaces bmc_i
