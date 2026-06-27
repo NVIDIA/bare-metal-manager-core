@@ -1127,7 +1127,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 	}
 }
 
-func TestVpcSQLDAO_UpdateFromParams(t *testing.T) {
+func TestVpcSQLDAO_Update(t *testing.T) {
 	// Create test DB
 	dbSession := testInitDB(t)
 	defer dbSession.Close()

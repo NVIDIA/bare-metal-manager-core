@@ -13,7 +13,7 @@ For reference, see:
 - [Managed Host State Diagrams](../architecture/state_machines/managedhost.md)
 - [Repair Workflows](../manuals/repair/overview.md)
 - [Measured Boot Ingest Guidance](../provisioning/ingesting-hosts.md#measured-boot)
-- [Core Metrics](../manuals/metrics/core_metrics.md)
+- [Core Metrics](../observability/core_metrics.md)
 
 ## Release an Instance
 

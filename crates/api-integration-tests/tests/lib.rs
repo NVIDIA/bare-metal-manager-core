@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
@@ -213,12 +213,18 @@ async fn test_integration() -> eyre::Result<()> {
 }
 
 fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
-    let infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    let mut infos = metrics::collect_metric_infos(metrics_endpoints).unwrap();
+    retain_existing_core_metric_infos(&mut infos);
+
     // Delete everything with "alt_metric_" prefix
-    let infos: Vec<_> = infos
+    let mut infos: Vec<_> = infos
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
+
+    // Sort metrics for consistency
+    infos.sort_by(|e1, e2| e1.name.cmp(&e2.name));
+
     let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
     use std::fmt::Write;
 
@@ -228,7 +234,9 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         &mut docs,
         "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
-        Metrics for workflows which are not exercised by the test are missing."
+        Metrics for workflows which are not exercised by the test are missing. \
+        NVLink partition monitor's metrics are documented in the manual: \
+        [NVLink Partitioning](../manuals/nvlink_partitioning.md#metrics)."
     )
     .unwrap();
     writeln!(&mut docs).unwrap();
@@ -260,6 +268,63 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
     );
 
     std::fs::write(path, docs).unwrap();
+}
+
+fn retain_existing_core_metric_infos(infos: &mut Vec<metrics::MetricInfo>) {
+    let mut infos_by_name = infos
+        .drain(..)
+        .map(|info| (info.name.clone(), info))
+        .collect::<HashMap<_, _>>();
+
+    for line in std::fs::read_to_string(METRIC_DOC_PATH)
+        .unwrap_or_default()
+        .lines()
+    {
+        if let Some(info) = metrics::MetricInfo::parse_from_docs_line(line) {
+            infos_by_name.entry(info.name.clone()).or_insert(info);
+        }
+    }
+
+    infos.extend(infos_by_name.into_values());
+}
+
+trait ParseFromHtmlDocs {
+    fn parse_from_docs_line(line: &str) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl ParseFromHtmlDocs for metrics::MetricInfo {
+    fn parse_from_docs_line(line: &str) -> Option<Self> {
+        let row = line.strip_prefix("<tr><td>")?.strip_suffix("</td></tr>")?;
+        let cells = row.split("</td><td>").collect::<Vec<_>>();
+        let [name, ty, help] = cells.as_slice() else {
+            return None;
+        };
+
+        if *name == "Name" {
+            return None;
+        }
+
+        let unescape_html_cell = |value: &str| -> String {
+            if value.contains('&') {
+                value
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&#39;", "'")
+                    .replace("&quot;", "\"")
+                    .replace("&amp;", "&")
+            } else {
+                value.to_string()
+            }
+        };
+
+        Some(metrics::MetricInfo {
+            name: unescape_html_cell(name),
+            ty: unescape_html_cell(ty),
+            help: unescape_html_cell(help),
+        })
+    }
 }
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(

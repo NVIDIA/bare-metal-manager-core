@@ -29,10 +29,12 @@ use rpc::forge::forge_server::Forge;
 use super::Base;
 use super::pagination::{self, PageContext, PaginationParams};
 use crate::filters;
+use crate::site_explorer_run_status::SiteExplorerLastRunDisplay;
 
 #[derive(Template)]
 #[template(path = "expected_machine_show.html")]
 struct ExpectedMachines {
+    last_run: Option<SiteExplorerLastRunDisplay>,
     expected_rows: Vec<ExpectedMachineRow>,
     unexpected_rows: Vec<UnexpectedMachineRow>,
     all_count: usize,
@@ -207,6 +209,17 @@ pub async fn show_all_html(
         .collect();
     unexpected_machines.sort_unstable();
     let unexpected_count = unexpected_machines.len();
+    let last_run = match api
+        .get_site_explorer_last_run(tonic::Request::new(()))
+        .await
+        .map(|response| response.into_inner().last_run)
+    {
+        Ok(last_run) => last_run.as_ref().map(Into::into),
+        Err(err) => {
+            tracing::error!(%err, "get_site_explorer_last_run");
+            None
+        }
+    };
 
     let (expected_rows, unexpected_rows, info) = match active_tab.as_str() {
         "all" => {
@@ -248,6 +261,7 @@ pub async fn show_all_html(
     };
 
     let tmpl = ExpectedMachines {
+        last_run,
         expected_rows,
         unexpected_rows,
         all_count,

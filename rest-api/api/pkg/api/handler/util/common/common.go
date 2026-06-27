@@ -357,7 +357,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 // machines for instance type
 func GetCountOfMachinesForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceTypeID uuid.UUID) (int, error) {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-	_, tot, err := mitDAO.GetAll(ctx, tx, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil)
+	_, tot, err := mitDAO.GetAll(ctx, tx, cdbm.MachineInstanceTypeFilterInput{InstanceTypeIDs: []uuid.UUID{instanceTypeID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		return 0, err
 	}

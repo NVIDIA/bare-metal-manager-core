@@ -356,14 +356,13 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		vpc = updatedVpc
 
 		// Create status detail
-		createdSsd, derr := sdDAO.CreateFromParams(ctx, tx, vpc.ID.String(), cdbm.VpcStatusProvisioning,
-			cutil.GetPtr("VPC provisioning has been initiated on Site"))
+		createdSsd, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpc.ID.String(), Status: cdbm.VpcStatusProvisioning, Message: cutil.GetPtr("VPC provisioning has been initiated on Site")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC", nil)
 		}
 		if createdSsd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for VPC", nil)
 		}
 		ssd = createdSsd
@@ -452,7 +451,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			vpc = updatedVpc
 
 			// Best effort create status detail
-			ssd, err = sdDAO.CreateFromParams(ctx, nil, vpc.ID.String(), cdbm.VpcStatusReady, cutil.GetPtr("VPC is ready for use"))
+			ssd, err = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: vpc.ID.String(), Status: cdbm.VpcStatusReady, Message: cutil.GetPtr("VPC is ready for use")})
 			if err != nil {
 				logger.Error().Err(err).Msg("error creating Status Detail DB entry")
 			} else if ssd == nil {
@@ -790,7 +789,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details
-		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, vpc.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		fetchedSsds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{vpc.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for VPC", nil)
@@ -1055,7 +1054,7 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 		uv = updatedVpc
 
 		// Get status details
-		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uv.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		fetchedSsds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uv.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve status history for VPC", nil)
@@ -1732,8 +1731,7 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail (best-effort: original code only logs on error)
-		if _, derr := sdDAO.CreateFromParams(ctx, tx, vpc.ID.String(), *cutil.GetPtr(cdbm.VpcStatusDeleting),
-			cutil.GetPtr("received request for deletion, pending processing")); derr != nil {
+		if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpc.ID.String(), Status: *cutil.GetPtr(cdbm.VpcStatusDeleting), Message: cutil.GetPtr("received request for deletion, pending processing")}); derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 		}
 

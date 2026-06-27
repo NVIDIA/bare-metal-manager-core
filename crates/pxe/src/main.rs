@@ -21,6 +21,7 @@ use axum::middleware::{map_request, map_response};
 use axum::{Router, ServiceExt};
 use axum_client_ip::ClientIpSource;
 use axum_template::engine::Engine;
+use carbide_utils::SCOUT_FIRMWARE_SCRIPTS_DIR;
 use clap::Parser;
 use common::AppState;
 use tera::Tera;
@@ -82,6 +83,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let app = Router::new()
+        .nest_service(
+            "/public/scout-firmware-scripts",
+            ServeDir::new(SCOUT_FIRMWARE_SCRIPTS_DIR)
+                .with_buf_chunk_size(1024 * 1024 * 10 /* 10 MiB*/),
+        )
         .nest_service(
             "/public",
             ServeDir::new(opts.static_dir.clone())

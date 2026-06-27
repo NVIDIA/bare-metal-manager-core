@@ -1,2 +1,5 @@
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `bmc-root` of the request property `kind`
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `site-wide-root` of the request property `kind`
+API POST /v2/org/{org}/nico/instance the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+API POST /v2/org/{org}/nico/instance/batch the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+API PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`

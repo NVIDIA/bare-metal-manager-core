@@ -1064,6 +1064,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
 
+    async fn get_site_explorer_last_run(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<::rpc::site_explorer::SiteExplorerLastRunResponse>, Status> {
+        crate::handlers::site_explorer::get_site_explorer_last_run(self, request).await
+    }
+
     async fn find_explored_endpoint_ids(
         &self,
         request: Request<::rpc::site_explorer::ExploredEndpointSearchFilter>,
@@ -2304,6 +2311,13 @@ impl Forge for Api {
         request: Request<rpc::MachineValidationAttemptGetRequest>,
     ) -> Result<Response<rpc::MachineValidationAttempt>, Status> {
         crate::handlers::machine_validation::get_machine_validation_attempt(self, request).await
+    }
+
+    async fn heartbeat_machine_validation_run(
+        &self,
+        request: Request<rpc::MachineValidationHeartbeatRequest>,
+    ) -> Result<Response<rpc::MachineValidationHeartbeatResponse>, Status> {
+        crate::handlers::machine_validation::heartbeat_machine_validation_run(self, request).await
     }
 
     async fn admin_power_control(

@@ -311,8 +311,7 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 				}
 
 				// Create a status detail record for the child IPBlock
-				_, serr = sdDAO.CreateFromParams(ctx, tx, childIPBlock.ID.String(), *cutil.GetPtr(cdbm.IPBlockStatusReady),
-					cutil.GetPtr("Child IP Block is ready for use"))
+				_, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: childIPBlock.ID.String(), Status: *cutil.GetPtr(cdbm.IPBlockStatusReady), Message: cutil.GetPtr("Child IP Block is ready for use")})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail DB entry for IP Block in Allocation Constraint")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail ipblock entry for Allocation Constraint", nil)
@@ -343,14 +342,13 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 		a = newA
 
 		// Create a status detail record for the Allocation
-		newSsd, serr := sdDAO.CreateFromParams(ctx, tx, a.ID.String(), *cutil.GetPtr(cdbm.AllocationStatusRegistered),
-			cutil.GetPtr("received allocation creation request, registered"))
+		newSsd, serr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: a.ID.String(), Status: *cutil.GetPtr(cdbm.AllocationStatusRegistered), Message: cutil.GetPtr("received allocation creation request, registered")})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Allocation", nil)
 		}
 		if newSsd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Allocation", nil)
 		}
 		ssd = newSsd
@@ -1103,7 +1101,7 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(uah.dbSession)
-		retSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, a.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		retSsds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{a.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Allocation from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Allocation", nil)

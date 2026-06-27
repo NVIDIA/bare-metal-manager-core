@@ -544,6 +544,61 @@ pub(crate) async fn get_machine_validation_attempt(
     )))
 }
 
+pub(crate) async fn heartbeat_machine_validation_run(
+    api: &Api,
+    request: tonic::Request<rpc::MachineValidationHeartbeatRequest>,
+) -> Result<tonic::Response<rpc::MachineValidationHeartbeatResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let validation_id = req
+        .validation_id
+        .as_ref()
+        .ok_or(CarbideError::MissingArgument("validation id"))?;
+    let mut test_id = None;
+    let mut run_item_id = None;
+    let mut attempt_id = None;
+    match req.target {
+        Some(rpc::machine_validation_heartbeat_request::Target::RunItemId(id)) => {
+            run_item_id = Some(
+                uuid::Uuid::try_from(&id)
+                    .map(MachineValidationRunItemId::from)
+                    .map_err(CarbideError::from)?,
+            );
+        }
+        Some(rpc::machine_validation_heartbeat_request::Target::AttemptId(id)) => {
+            attempt_id = Some(
+                uuid::Uuid::try_from(&id)
+                    .map(MachineValidationAttemptId::from)
+                    .map_err(CarbideError::from)?,
+            );
+        }
+        Some(rpc::machine_validation_heartbeat_request::Target::TestId(value)) => {
+            test_id = Some(value);
+        }
+        None => {}
+    }
+
+    let mut txn = api.txn_begin().await?;
+    let accepted = db::machine_validation_execution::record_heartbeat(
+        &mut txn,
+        validation_id,
+        run_item_id.as_ref(),
+        attempt_id.as_ref(),
+        test_id.as_deref(),
+        chrono::Utc::now(),
+    )
+    .await?;
+    if accepted {
+        txn.commit().await?;
+    } else {
+        txn.rollback().await?;
+    }
+
+    Ok(tonic::Response::new(
+        rpc::MachineValidationHeartbeatResponse { accepted },
+    ))
+}
+
 pub(crate) async fn on_demand_machine_validation(
     api: &Api,
     request: tonic::Request<rpc::MachineValidationOnDemandRequest>,

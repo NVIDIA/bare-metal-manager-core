@@ -31,6 +31,7 @@ import (
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 
 	"go.temporal.io/api/enums/v1"
@@ -172,7 +173,7 @@ func testMachineBuildMachineInterface(t *testing.T, dbSession *cdb.Session, mID 
 func testMachineBuildStatusDetail(t *testing.T, dbSession *cdb.Session, entityID string, status string, message *string) *cdbm.StatusDetail {
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
 
-	ssd, err := sdDAO.CreateFromParams(context.Background(), nil, entityID, status, message)
+	ssd, err := sdDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: message})
 	assert.NoError(t, err)
 
 	return ssd
@@ -2758,7 +2759,11 @@ func TestMachineHandler_Update(t *testing.T) {
 
 				// Check that new MachineInstanceType was created
 				if tt.args.reqInstanceType != nil {
-					emits, total, _ := mitDAO.GetAll(context.Background(), nil, cutil.GetPtr(tt.args.reqMachine.ID), []uuid.UUID{tt.args.reqInstanceType.ID}, nil, nil, nil, nil)
+					emits, total, err := mitDAO.GetAll(context.Background(), nil, cdbm.MachineInstanceTypeFilterInput{
+						MachineID:       cutil.GetPtr(tt.args.reqMachine.ID),
+						InstanceTypeIDs: []uuid.UUID{tt.args.reqInstanceType.ID},
+					}, cdbp.PageInput{}, nil)
+					assert.Nil(t, err)
 					if tt.args.reqMachineInstanceTypeCount != nil {
 						assert.Equal(t, total, *tt.args.reqMachineInstanceTypeCount)
 						assert.Equal(t, emits[0].InstanceTypeID.String(), tt.args.reqInstanceType.ID.String())

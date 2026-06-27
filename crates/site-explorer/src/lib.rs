@@ -23,7 +23,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::{is_locally_administered_mac, sanitized_mac};
@@ -52,7 +52,8 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
-    PowerState, PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
+    PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
+    is_bf3_supernic_part_number, is_bluefield_part_number,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -107,6 +108,7 @@ pub fn new_bmc_explorer(
     credential_manager: Arc<dyn CredentialManager>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
+    database_connection: PgPool,
 ) -> Arc<BmcEndpointExplorer> {
     BmcEndpointExplorer::new(
         redfish_client_pool,
@@ -115,6 +117,7 @@ pub fn new_bmc_explorer(
         credential_manager,
         rotate_switch_nvos_credentials,
         mode,
+        Some(database_connection),
     )
     .into()
 }
@@ -234,6 +237,20 @@ pub struct Endpoint<'a> {
     last_explored: Option<&'a ExploredEndpoint>,
     pub(crate) expected: Option<&'a ExpectedEntity>,
     pause_ingestion_and_poweron: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EndpointExplorationStepDurations {
+    redfish_explore: Duration,
+    failure_context_load: Option<Duration>,
+    report_enrich: Option<Duration>,
+}
+
+struct EndpointExplorationTaskResult<'a> {
+    endpoint: Endpoint<'a>,
+    result: Result<EndpointExplorationReport, EndpointExplorationError>,
+    exploration_duration: Duration,
+    steps: EndpointExplorationStepDurations,
 }
 
 impl Display for Endpoint<'_> {
@@ -381,7 +398,89 @@ impl SiteExplorer {
         db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
+    fn last_run_status(
+        started_at: chrono::DateTime<Utc>,
+        finished_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) -> SiteExplorerLastRun {
+        let failure_category = result.as_ref().err().map(Self::run_failure_category);
+        SiteExplorerLastRun {
+            started_at,
+            finished_at,
+            success: result.is_ok(),
+            error: result.as_ref().err().map(Self::operator_error_message),
+            failure_category,
+            endpoint_explorations: metrics.endpoint_explorations as i64,
+            endpoint_explorations_success: metrics.endpoint_explorations_success as i64,
+            endpoint_explorations_failed: metrics
+                .endpoint_explorations_failures_by_type
+                .values()
+                .sum::<usize>() as i64,
+            last_successful_finished_at: result.is_ok().then_some(finished_at),
+            last_failed_finished_at: result.is_err().then_some(finished_at),
+        }
+    }
+
+    fn run_failure_category(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::DatabaseError(_) => "database_error",
+            SiteExplorerError::ModelError(_) => "model_error",
+            SiteExplorerError::AlreadyFoundError { .. } => "already_found",
+            SiteExplorerError::NotFoundError { .. } => "not_found",
+            SiteExplorerError::InvalidArgument(_) => "invalid_argument",
+            SiteExplorerError::EndpointExplorationError { err, .. } => {
+                return exploration_error_to_metric_label(err);
+            }
+            SiteExplorerError::Internal { .. } => "internal",
+        }
+        .to_string()
+    }
+
+    fn operator_error_message(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::EndpointExplorationError {
+                err:
+                    EndpointExplorationError::MissingCredentials { .. }
+                    | EndpointExplorationError::SetCredentials { .. },
+                ..
+            } => "Site Explorer credentials are missing or invalid".to_string(),
+            SiteExplorerError::EndpointExplorationError {
+                err: EndpointExplorationError::SecretsEngineError { .. },
+                ..
+            } => "Site Explorer could not access credentials".to_string(),
+            _ => error.to_string(),
+        }
+    }
+
+    fn record_run_status_metric(
+        metrics: &mut SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        metrics.run_failure_category = result.as_ref().err().map(Self::run_failure_category);
+    }
+
+    async fn record_last_run(&self, last_run: &SiteExplorerLastRun) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::site_explorer_run_status::upsert(&mut txn, last_run).await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    async fn record_last_run_result(
+        &self,
+        started_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        let last_run = Self::last_run_status(started_at, Utc::now(), metrics, result);
+        if let Err(error) = self.record_last_run(&last_run).await {
+            tracing::error!(%error, "Failed to record SiteExplorer last run status");
+        }
+    }
+
     pub async fn run_single_iteration(&self) -> SiteExplorerResult<SiteIdentifiedHosts> {
+        let started_at = Utc::now();
         let mut metrics = SiteExplorationMetrics::new();
 
         let _work_lock = match self
@@ -391,9 +490,14 @@ impl SiteExplorer {
         {
             Ok(lock) => lock,
             Err(e) => {
-                return Err(SiteExplorerError::internal(format!(
+                let result = Err(SiteExplorerError::internal(format!(
                     "Failed to acquire connection: {e}"
                 )));
+                Self::record_run_status_metric(&mut metrics, &result);
+                self.record_last_run_result(started_at, &metrics, &result)
+                    .await;
+                self.metric_holder.update_metrics(metrics);
+                return result;
             }
         };
 
@@ -460,6 +564,10 @@ impl SiteExplorer {
                 explore_site_span.record("otel.status_message", format!("{e:?}"));
             }
         }
+
+        Self::record_run_status_metric(&mut metrics, &res);
+        self.record_last_run_result(started_at, &metrics, &res)
+            .await;
 
         // Cache all other metrics that have been captured in this iteration.
         // Those will be queried by OTEL on demand
@@ -1134,7 +1242,7 @@ impl SiteExplorer {
 
             // Resolve the operator-declared DPU mode for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
-            // below -- operator override wins over BF3 model heuristics)
+            // below -- operator override wins over BF3 part-number heuristics)
             // and the post-match attach decision (NicMode/NoDpu hosts emit
             // a bare managed host regardless of what matched).
             let host_dpu_mode = effective_mode(&ep.address);
@@ -1198,7 +1306,7 @@ impl SiteExplorer {
                         .part_number
                         .as_deref()
                         .map(str::trim)
-                        .is_some_and(is_bluefield_model);
+                        .is_some_and(is_bluefield_part_number);
                     let chassis_has_serial = chassis
                         .serial_number
                         .as_deref()
@@ -1254,18 +1362,13 @@ impl SiteExplorer {
                 {
                     for dpu_sn in &expected_machine.data.fallback_dpu_serial_numbers {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
-                            // Enforce the host's declared DPU mode on a fallback-serial
-                            // match the same way the host-reported path does, rather than
-                            // trusting it as already-configured. A DPU still in the wrong
-                            // mode gets a `set_nic_mode` here and has to wait for the host
-                            // reset to apply it; without this, a DPU-mode BlueField on a
-                            // `NicMode` host would be attached and then dropped to zero-DPU
-                            // (the `NicMode` arm further down), leaving the database reading
-                            // "NIC-mode host" while the hardware stayed in DPU mode.
+                            // Fallback matching has only the expected serial and the
+                            // discovered DPU BMC report; pass the DPU's own part number
+                            // for the legacy BF3 heuristic.
                             let mode_check = Some(
                                 self.check_and_configure_dpu_mode(
                                     &dpu_ep,
-                                    dpu_ep.report.model().unwrap_or_default(),
+                                    dpu_ep.report.dpu_part_number(),
                                     host_dpu_mode,
                                     metrics,
                                 )
@@ -1587,7 +1690,10 @@ impl SiteExplorer {
     ) {
         // Count every DPU the host reports, independent of whether we've
         // discovered its BMC yet.
-        if part_number.map(str::trim).is_some_and(is_bluefield_model) {
+        if part_number
+            .map(str::trim)
+            .is_some_and(is_bluefield_part_number)
+        {
             exploration.reported_total += 1;
         }
 
@@ -1603,18 +1709,10 @@ impl SiteExplorer {
 
         // Resolve the DPU's mode against what the host declared. This is the only
         // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
-        let mode_check = match part_number {
-            Some(model) => Some(
-                self.check_and_configure_dpu_mode(
-                    dpu_ep,
-                    model.to_string(),
-                    host_dpu_mode,
-                    metrics,
-                )
+        let mode_check = Some(
+            self.check_and_configure_dpu_mode(dpu_ep, part_number, host_dpu_mode, metrics)
                 .await,
-            ),
-            None => None,
-        };
+        );
 
         match classify_matched_dpu(dpu_ep, host_ep, mode_check) {
             DiscoveredDpu::RunningAsDpu(dpu) => exploration.running_as_dpu.push(dpu),
@@ -1697,13 +1795,17 @@ impl SiteExplorer {
         self.endpoint_explorer
             .check_preconditions(metrics)
             .await
-            .map_err(|e| SiteExplorerError::internal(e.to_string()))
+            .map_err(|err| SiteExplorerError::EndpointExplorationError {
+                action: "check_preconditions",
+                err,
+            })
     }
 
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<ExploredEndpointIndex> {
+        let load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
 
         let underlay_segments =
@@ -1727,6 +1829,22 @@ impl SiteExplorer {
         let skus = db::sku::find(&mut txn, &sku_ids).await?;
 
         txn.commit().await?;
+        metrics.record_phase_latency("update_explored_endpoints_load", load_start.elapsed());
+
+        let explored_endpoint_count = explored_endpoints.len();
+        let expected_switch_count = expected_switches.len();
+        let expected_machine_count = expected_machines.len();
+        let expected_power_shelf_count = expected_power_shelves.len();
+        metrics.record_update_explored_endpoints_count(
+            "explored_endpoints_loaded",
+            explored_endpoint_count,
+        );
+        metrics.record_update_explored_endpoints_count("expected_switches", expected_switch_count);
+        metrics.record_update_explored_endpoints_count("expected_machines", expected_machine_count);
+        metrics.record_update_explored_endpoints_count(
+            "expected_power_shelves",
+            expected_power_shelf_count,
+        );
 
         // Create a map of sku_id -> device_type for quick lookup
         let sku_device_types: HashMap<String, Option<String>> = skus
@@ -1740,6 +1858,7 @@ impl SiteExplorer {
         // path that materializes static reservations for IPs that don't reach
         // `discover_dhcp` (devices on the static-assignments segment, devices not yet powered
         // on, etc.), and a belt-and-suspenders for the in-network case too.
+        let preallocate_start = Instant::now();
         for expected_machine in &expected_machines {
             let device_type = expected_machine
                 .data
@@ -1833,6 +1952,10 @@ impl SiteExplorer {
                 .await;
             }
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_preallocate",
+            preallocate_start.elapsed(),
+        );
 
         let expected_count = expected_machines.len();
 
@@ -1847,9 +1970,16 @@ impl SiteExplorer {
         // Get all underlay interfaces from the database, which includes interfaces
         // which have come from both DHCP and/or static assignments. Fetched here, after the
         // preallocate loops above, so we see any freshly preallocated rows from this iteration.
+        let interface_load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
         txn.commit().await?;
+        metrics.record_phase_latency(
+            "update_explored_endpoints_interface_load",
+            interface_load_start.elapsed(),
+        );
+
+        let build_index_start = Instant::now();
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
@@ -1857,6 +1987,11 @@ impl SiteExplorer {
                     && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
+        let underlay_interface_count = underlay_interfaces.len();
+        metrics.record_update_explored_endpoints_count(
+            "underlay_interfaces",
+            underlay_interface_count,
+        );
 
         // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
         let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
@@ -1864,10 +1999,15 @@ impl SiteExplorer {
             .with_expected_switches(expected_switches)
             .with_expected_power_shelves(expected_power_shelves)
             .build();
+        metrics.record_phase_latency(
+            "update_explored_endpoints_build_index",
+            build_index_start.elapsed(),
+        );
 
         // If a previously explored endpoint is not part of `MachineInterfaces` anymore,
         // we can delete knowledge about it. Otherwise we might try to refresh the
         // information about the endpoint
+        let plan_start = Instant::now();
         let mut delete_endpoints = Vec::new();
         let mut priority_update_endpoints = Vec::new();
         let mut update_endpoints = Vec::with_capacity(index.explored_endpoints().len());
@@ -1889,18 +2029,39 @@ impl SiteExplorer {
                 }
             }
         }
+        metrics.record_update_explored_endpoints_count(
+            "priority_update_candidates",
+            priority_update_endpoints.len(),
+        );
+        metrics.record_update_explored_endpoints_count(
+            "routine_update_candidates",
+            update_endpoints.len(),
+        );
+        metrics.record_update_explored_endpoints_count(
+            "stale_delete_candidates",
+            delete_endpoints.len(),
+        );
 
         // The unknown endpoints can quickly be cleaned up
+        let delete_stale_start = Instant::now();
         if !delete_endpoints.is_empty() {
             let mut txn = self.txn_begin().await?;
             db::explored_endpoints::delete_many(&mut txn, &delete_endpoints).await?;
             txn.commit().await?;
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_delete_stale",
+            delete_stale_start.elapsed(),
+        );
 
         // If there is a MachineInterface and no previously discovered information,
         // we need to detect it. This includes both regular machines, PowerShelves
         // and Switches.
         let unexplored_endpoints = index.get_unexplored_endpoints();
+        metrics.record_update_explored_endpoints_count(
+            "unexplored_candidates",
+            unexplored_endpoints.len(),
+        );
 
         // Now that we gathered the candidates for exploration, let's decide what
         // we are actually going to explore. The config limits the amount of explorations
@@ -1926,7 +2087,11 @@ impl SiteExplorer {
             });
         }
 
-        let routine_start = explore_endpoint_data.len();
+        let priority_selected_count = explore_endpoint_data.len();
+        metrics.record_update_explored_endpoints_count(
+            "selected_priority_updates",
+            priority_selected_count,
+        );
 
         // Next priority are all endpoints that we've never looked at
         let remaining_explore_endpoints = num_explore_endpoints;
@@ -1944,10 +2109,12 @@ impl SiteExplorer {
                 expected: index.matched_expected(address),
             });
         }
+        let selected_unexplored = explore_endpoint_data.len() - priority_selected_count;
+        metrics.record_update_explored_endpoints_count("selected_unexplored", selected_unexplored);
 
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
         let remaining_explore_endpoints =
-            num_explore_endpoints - (explore_endpoint_data.len() - routine_start);
+            num_explore_endpoints - (explore_endpoint_data.len() - priority_selected_count);
         if remaining_explore_endpoints != 0 {
             // Sort endpoints so that we will replace the oldest report first
             update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
@@ -1966,6 +2133,13 @@ impl SiteExplorer {
                 });
             }
         }
+        metrics.record_update_explored_endpoints_count(
+            "selected_routine_updates",
+            explore_endpoint_data.len() - priority_selected_count - selected_unexplored,
+        );
+        metrics
+            .record_update_explored_endpoints_count("selected_total", explore_endpoint_data.len());
+        metrics.record_phase_latency("update_explored_endpoints_plan", plan_start.elapsed());
 
         let task_set = FuturesUnordered::new();
         let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(
@@ -1978,6 +2152,7 @@ impl SiteExplorer {
             expected_count - index.all_matched_expected_machines().len();
         let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
 
+        let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
@@ -1989,7 +2164,8 @@ impl SiteExplorer {
 
             task_set.push(
                 async move {
-                    let start = std::time::Instant::now();
+                    let start = Instant::now();
+                    let mut steps = EndpointExplorationStepDurations::default();
 
                     // Acquire a permit which will block more than `concurrent_explorations`
                     // tasks from running.
@@ -2001,6 +2177,7 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
+                    let redfish_explore_start = Instant::now();
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
@@ -2010,9 +2187,11 @@ impl SiteExplorer {
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
+                    steps.redfish_explore = redfish_explore_start.elapsed();
 
                     if let Err(error) = &result {
                         // For logging purposes
+                        let failure_context_load_start = Instant::now();
                         let machine_state = match get_machine_state_by_bmc_ip(
                             &database_connection,
                             &endpoint.address.to_string(),
@@ -2022,14 +2201,22 @@ impl SiteExplorer {
                             Ok(state) if !state.is_empty() => format!(" (state: {state})"),
                             _ => String::new(),
                         };
+                        steps.failure_context_load = Some(failure_context_load_start.elapsed());
                         tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
                     }
 
                     if let Ok(report) = &mut result {
+                        let report_enrich_start = Instant::now();
                         enrich_endpoint_exploration_report(report, &fw_config_snapshot);
+                        steps.report_enrich = Some(report_enrich_start.elapsed());
                     }
 
-                    Ok(Some((endpoint, result, start.elapsed())))
+                    Ok(Some(EndpointExplorationTaskResult {
+                        endpoint,
+                        result,
+                        exploration_duration: start.elapsed(),
+                        steps,
+                    }))
                 }
                     .in_current_span(),
             );
@@ -2046,13 +2233,40 @@ impl SiteExplorer {
             .await
             .into_iter()
             .collect::<SiteExplorerResult<Vec<_>>>()?;
+        metrics.record_phase_latency("update_explored_endpoints_probe", probe_start.elapsed());
+        for EndpointExplorationTaskResult { steps, .. } in exploration_results.iter().flatten() {
+            metrics
+                .record_endpoint_exploration_step_latency("redfish_explore", steps.redfish_explore);
+            if let Some(duration) = steps.failure_context_load {
+                metrics.record_endpoint_exploration_step_latency("failure_context_load", duration);
+            }
+            if let Some(duration) = steps.report_enrich {
+                metrics.record_endpoint_exploration_step_latency("report_enrich", duration);
+            }
+        }
 
         // All subtasks finished. We now update the database
+        let persist_start = Instant::now();
+        metrics.record_update_explored_endpoints_count("insert_endpoint_attempts", 0);
+        metrics.record_update_explored_endpoints_count("endpoint_report_update_attempts", 0);
+        metrics.record_update_explored_endpoints_count("endpoint_error_update_attempts", 0);
+        metrics.record_update_explored_endpoints_count("firmware_version_update_attempts", 0);
+        metrics.record_update_explored_endpoints_count("redfish_remediation_candidates", 0);
         let mut txn = self.txn_begin().await?;
 
         let mut redfish_errors = Vec::new();
+        let mut insert_endpoint_attempts = 0;
+        let mut endpoint_report_update_attempts = 0;
+        let mut endpoint_error_update_attempts = 0;
+        let mut firmware_version_update_attempts = 0;
 
-        for (endpoint, result, exploration_duration) in exploration_results.into_iter().flatten() {
+        for EndpointExplorationTaskResult {
+            endpoint,
+            result,
+            exploration_duration,
+            ..
+        } in exploration_results.into_iter().flatten()
+        {
             let address = endpoint.address;
             let mut redfish_error = None;
 
@@ -2097,6 +2311,7 @@ impl SiteExplorer {
                         uefi_version,
                     )
                     .await?;
+                    firmware_version_update_attempts += 1;
                 }
             }
 
@@ -2122,6 +2337,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            endpoint_report_update_attempts += 1;
                         }
                         Err(e) => {
                             // If an endpoint can not be explored we don't delete the known information, since it's
@@ -2134,6 +2350,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            endpoint_error_update_attempts += 1;
                         }
                     }
                 }
@@ -2155,6 +2372,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            insert_endpoint_attempts += 1;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
@@ -2168,6 +2386,7 @@ impl SiteExplorer {
                                 &mut txn,
                             )
                             .await?;
+                            insert_endpoint_attempts += 1;
                         }
                     }
 
@@ -2192,12 +2411,38 @@ impl SiteExplorer {
         }
 
         txn.commit().await?;
+        metrics.record_phase_latency("update_explored_endpoints_persist", persist_start.elapsed());
+        metrics.record_update_explored_endpoints_count(
+            "insert_endpoint_attempts",
+            insert_endpoint_attempts,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "endpoint_report_update_attempts",
+            endpoint_report_update_attempts,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "endpoint_error_update_attempts",
+            endpoint_error_update_attempts,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "firmware_version_update_attempts",
+            firmware_version_update_attempts,
+        );
+        metrics.record_update_explored_endpoints_count(
+            "redfish_remediation_candidates",
+            redfish_errors.len(),
+        );
 
         // We handle redfish errors after committing the transaction, to avoid holding the
         // transaction while issuing expensive redfish calls.
+        let remediate_start = Instant::now();
         for (e, endpoint) in redfish_errors {
             self.handle_redfish_error(&endpoint, metrics, &e).await;
         }
+        metrics.record_phase_latency(
+            "update_explored_endpoints_remediate",
+            remediate_start.elapsed(),
+        );
 
         Ok(index)
     }
@@ -2940,13 +3185,13 @@ impl SiteExplorer {
     ///    DPU but operator said no DPU" gets surfaced as a health alert;
     ///    we don't try to reconfigure in that case.
     /// 3. Otherwise (operator default `DpuMode::DpuMode`), fall back to
-    ///    the existing BF3 SuperNIC / BF3 DPU model-based heuristic for
+    ///    the existing BF3 SuperNIC / BF3 DPU part-number heuristic for
     ///    backward compat: BF3 SuperNIC → NIC mode, BF3 DPU → DPU mode,
     ///    BF2 / unknown → no-op.
     async fn check_and_configure_dpu_mode(
         &self,
         dpu_ep: &ExploredEndpoint,
-        dpu_model: String,
+        dpu_part_number: Option<&str>,
         host_dpu_mode: DpuMode,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<bool> {
@@ -2957,15 +3202,19 @@ impl SiteExplorer {
             DpuMode::NicMode => Some(NicMode::Nic),
             DpuMode::NoDpu => None,
             DpuMode::DpuMode => {
-                // Preserve existing BF3-model heuristics when the operator
-                // hasn't explicitly chosen a mode.
-                if is_bf3_supernic(&dpu_model) {
-                    Some(NicMode::Nic)
-                } else if is_bf3_dpu(&dpu_model) {
-                    Some(NicMode::Dpu)
-                } else {
-                    None
-                }
+                // Preserve existing BF3 part-number heuristics when the operator
+                // hasn't explicitly chosen a mode. Missing part numbers only
+                // disable this heuristic fallback; explicit modes above do not
+                // require a part number.
+                dpu_part_number.and_then(|dpu_part_number| {
+                    if is_bf3_supernic_part_number(dpu_part_number) {
+                        Some(NicMode::Nic)
+                    } else if is_bf3_dpu_part_number(dpu_part_number) {
+                        Some(NicMode::Dpu)
+                    } else {
+                        None
+                    }
+                })
             }
         };
 
@@ -2978,7 +3227,7 @@ impl SiteExplorer {
             Some(observed) => {
                 tracing::warn!(
                     address = %dpu_ep.address,
-                    model = %dpu_model,
+                    part_number = ?dpu_part_number,
                     %observed,
                     ?target_nic_mode,
                     ?host_dpu_mode,
@@ -3357,8 +3606,8 @@ enum DiscoveredDpu {
 ///
 /// The only IO (`check_and_configure_dpu_mode`, which may issue a
 /// `set_nic_mode`) happens in the caller, which passes its result in as
-/// `mode_check` (`None` when the device reported no model to check). Keeping the
-/// decision here makes it unit-testable without a Redfish mock.
+/// `mode_check` (`None` when the caller deliberately skipped the mode check).
+/// Keeping the decision here makes it unit-testable without a Redfish mock.
 fn classify_matched_dpu(
     dpu_ep: &ExploredEndpoint,
     host_ep: &ExploredEndpoint,
@@ -3367,7 +3616,7 @@ fn classify_matched_dpu(
     match mode_check {
         Some(Ok(false)) => return DiscoveredDpu::NeedsReconfig,
         Some(Err(err)) => return DiscoveredDpu::ModeCheckFailed(err),
-        // Mode already correct, or there was no model to check.
+        // Mode already correct, or the caller skipped the mode check.
         Some(Ok(true)) | None => {}
     }
 
@@ -3620,7 +3869,7 @@ mod tests {
             classify_matched_dpu(&dpu, &host, Some(Ok(true))),
             DiscoveredDpu::RunningAsDpu(_)
         ));
-        // No model to check (`None`) behaves the same.
+        // A skipped mode check (`None`) behaves the same.
         assert!(matches!(
             classify_matched_dpu(&dpu, &host, None),
             DiscoveredDpu::RunningAsDpu(_)

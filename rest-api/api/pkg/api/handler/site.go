@@ -195,13 +195,13 @@ func (csh CreateSiteHandler) Handle(c echo.Context) error {
 		st = createdSite
 
 		// Create status detail
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, st.ID.String(), *cutil.GetPtr(cdbm.SiteStatusPending),
-			cutil.GetPtr("received site creation request, pending pairing"))
+		createdSSD, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: st.ID.String(), Status: *cutil.GetPtr(cdbm.SiteStatusPending), Message: cutil.GetPtr("received site creation request, pending pairing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Site", nil)
 		}
 		if createdSSD == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Site", nil)
 		}
 		ssd = createdSSD
@@ -522,15 +522,16 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 
 		// Add Status Detail record if needed
 		if status != nil {
-			_, derr := sdDAO.CreateFromParams(ctx, tx, siteID.String(), *status, statusMessage)
+			_, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: siteID.String(), Status: *status, Message: statusMessage})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Site", nil)
 			}
 		}
 
 		// Get status details (inside the tx for read-your-writes consistency
 		// with the StatusDetail created above)
-		details, _, derr := sdDAO.GetAllByEntityID(ctx, tx, siteID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		details, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{siteID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Site from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Site", nil)

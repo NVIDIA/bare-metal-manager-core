@@ -110,6 +110,7 @@ jobs:
       runtime_container_aarch64_run: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_run }}
       runtime_container_aarch64_version: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
+      core_rpc_proto_files_changed: ${{ steps.base-container-gate.outputs.core_rpc_proto_files_changed }}
       source_files_changed: ${{ steps.base-container-gate.outputs.source_files_changed }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
       release_build_args_aarch64: ${{ steps.release-metadata.outputs.build_args_aarch64 }}
@@ -139,6 +140,8 @@ jobs:
               - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
             proto_files:
               - '**/*.proto'
+            core_rpc_proto_files:
+              - 'crates/rpc/proto/**'
             source_files:
               - 'crates/**'
               - 'Cargo.toml'
@@ -214,6 +217,7 @@ jobs:
           BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
           PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
+          CORE_RPC_PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.core_rpc_proto_files }}
           SOURCE_FILES_CHANGED: ${{ steps.build-container-changes.outputs.source_files }}
         run: |
           build_container_x86_64_run=false
@@ -223,6 +227,7 @@ jobs:
           build_artifacts_container_x86_64_run=false
           build_artifacts_container_aarch64_run=false
           proto_files_changed=false
+          core_rpc_proto_files_changed=false
           source_files_changed=false
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
@@ -238,6 +243,10 @@ jobs:
 
           if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
              proto_files_changed=true
+          fi
+
+          if [[ "${CORE_RPC_PROTO_FILES_CHANGED}" == "true" ]]; then
+             core_rpc_proto_files_changed=true
           fi
 
           if [[ "${SOURCE_FILES_CHANGED}" == "true" ]]; then
@@ -271,6 +280,7 @@ jobs:
           echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
+          echo "core_rpc_proto_files_changed=${core_rpc_proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
@@ -468,11 +478,22 @@ jobs:
   # BUILD STAGE - Release Container
   # ============================================================================
   build-release-container-x86_64:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-x86_64.result)
+        && contains('success,skipped', needs.build-runtime-container-x86_64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+        && contains('success,skipped', needs.lint-police.result)
+      }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
+      - check-rest-core-proto-sync
+      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
@@ -490,11 +511,22 @@ jobs:
     secrets: inherit
 
   build-release-container-aarch64:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-aarch64.result)
+        && contains('success,skipped', needs.build-runtime-container-aarch64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+        && contains('success,skipped', needs.lint-police.result)
+      }}
     needs:
       - prepare
       - build-container-aarch64
       - build-runtime-container-aarch64
+      - check-rest-core-proto-sync
+      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
@@ -547,11 +579,22 @@ jobs:
               nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-aarch64@${{ needs.build-release-container-aarch64.outputs.image_digest }}
 
   test-release-container-services:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-x86_64.result)
+        && contains('success,skipped', needs.build-runtime-container-x86_64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+        && contains('success,skipped', needs.lint-police.result)
+      }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
+      - check-rest-core-proto-sync
+      - lint-police
     runs-on: linux-amd64-cpu16
     steps:
       - name: Checkout code
@@ -595,6 +638,9 @@ jobs:
               createdb root
               cargo make test-release-container-services
             '
+
+      - name: Final repository clean check
+        run: bash scripts/check-repo-clean.sh "release-container service tests"
 
   # ============================================================================
   # BUILD STAGE - Forge CLI (Multi-arch)
@@ -1008,6 +1054,41 @@ jobs:
             --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
             --error-format=github-actions
 
+  check-rest-core-proto-sync:
+    name: Check REST Core Proto Sync
+    permissions:
+      contents: read
+    needs:
+      - prepare
+    if: ${{ needs.prepare.outputs.core_rpc_proto_files_changed == 'true' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.11"
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Install buf and protoc plugins
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+
+      - name: Regenerate REST protos from Core protos
+        run: |
+          make -C rest-api core-proto
+          make -C rest-api/flow gen-nicoapi-pb
+
+      - name: Check repository is clean
+        run: bash scripts/check-repo-clean.sh "REST Core protobuf sync"
+
   lint-police:
     needs:
       - prepare
@@ -1056,6 +1137,9 @@ jobs:
 
       - name: Check isolated package builds
         run: cargo xtask check-isolated-package-builds
+
+      - name: Check repository is clean
+        run: bash scripts/check-repo-clean.sh "Core pre-build checks"
 
   # ============================================================================
   # BUILD STAGE - Helm Chart
@@ -1583,6 +1667,7 @@ jobs:
       - test-release-container-services
       - security-secret-scan
       - lint-police
+      - check-rest-core-proto-sync
     steps:
       - name: Decide pass/fail
         env:

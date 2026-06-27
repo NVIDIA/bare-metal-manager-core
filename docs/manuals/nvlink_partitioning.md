@@ -130,20 +130,22 @@ Each reconciliation pass does the following:
 
 Cadence is set by `nvlink_config.monitor_run_interval` (default `60s`).
 
-The reconciler exposes metrics under the
-`nico_nvlink_partition_monitor_*` namespace. Useful ones:
+#### Metrics
 
-| Metric | Use |
-|---|---|
-| `nico_nvlink_partition_monitor_iteration_latency` | Time per reconcile pass |
-| `nico_nvlink_partition_monitor_nmxc_op_latency` | Per-operation latency against NMX-C |
-| `nico_nvlink_partition_monitor_nmxc_changes_applied` | Counter of changes issued; nonzero in steady state is an anomaly |
-| `nico_nvlink_partition_monitor_nmxc_connect_error_count` | Connection failures to any NMX-C endpoint |
-| `nico_nvlink_partition_monitor_nmxm_connect_error_count` | Connection failures to NMX-M |
-| `nico_nvlink_partition_monitor_num_logical_partitions` | Logical-partition count NICo is tracking |
-| `nico_nvlink_partition_monitor_num_physical_partitions` | Physical-partition count NICo is tracking |
-| `nico_nvlink_partition_monitor_nmxc_partition_count` | Partition count NMX-C reports |
-| `nico_nvlink_partition_monitor_nmxc_gpu_count` | GPU count NMX-C reports across managed partitions |
+The reconciler exposes metrics under the
+`carbide_nvlink_partition_monitor_*` namespace. Useful ones:
+
+| Metric | Use | `health` values |
+|---|---|---|
+| `carbide_nvlink_partition_monitor_iteration_latency_milliseconds` | Time per reconcile pass | |
+| `carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds` | Per-operation latency against NMX-C | |
+| `carbide_nvlink_partition_monitor_nmxc_changes_applied_total` | Counter of changes issued; nonzero in steady state is an anomaly | |
+| `carbide_nvlink_partition_monitor_nmxc_connect_error_count` | Connection failures to any NMX-C endpoint | |
+| `carbide_nvlink_partition_monitor_num_logical_partitions` | Logical-partition count NICo is tracking | |
+| `carbide_nvlink_partition_monitor_num_physical_partitions` | Physical-partition count NICo is tracking | |
+| `carbide_nvlink_partition_monitor_nmxc_partition_count` | Partition count NMX-C reports, by `nvlink_domain_uuid` and `health` | `healthy`, `degraded_bw`, `degraded`, `unhealthy`, `unknown` |
+| `carbide_nvlink_partition_monitor_nmxc_gpu_count` | GPU count NMX-C reports, by `nvlink_domain_uuid` and `health` | `healthy`, `degraded`, `no_nvlink`, `degraded_bw`, `unknown` |
+| `carbide_nvlink_partition_monitor_nmxc_compute_node_count` | Compute-node count NMX-C reports, by `nvlink_domain_uuid` and `health` | `healthy`, `degraded`, `unhealthy`, `unknown` |
 
 ### Instance Release and Logical Partition Deletion
 

@@ -581,7 +581,7 @@ func TestAllocationHandler_Create(t *testing.T) {
 					assert.Nil(t, err)
 
 					sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-					_, sdcount, err := sdDAO.GetAllByEntityID(ctx, nil, childIPBUUID.String(), nil, nil, nil)
+					_, sdcount, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{childIPBUUID.String()}}, cdbp.PageInput{})
 					assert.NoError(t, err)
 					assert.Equal(t, sdcount, 1)
 

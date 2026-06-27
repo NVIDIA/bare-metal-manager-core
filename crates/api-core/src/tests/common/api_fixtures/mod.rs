@@ -1647,14 +1647,7 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build RackStateController");
 
-    let fake_endpoint_explorer = MockEndpointExplorer {
-        reports: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
-        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_control_failures: Arc::new(std::sync::Mutex::new(Default::default())),
-        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-    };
+    let fake_endpoint_explorer = MockEndpointExplorer::default();
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
     // on its own. TestEnv's site_explorer is a separate instance talking to the same database that

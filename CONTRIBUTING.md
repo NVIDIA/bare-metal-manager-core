@@ -148,8 +148,8 @@ Developers must first fork the upstream [Infra Controller repository](https://gi
 ### 2. Clone Your Fork
 
 ```bash
-git clone https://github.com/<your-username>/metal-manager.git
-cd metal-manager
+git clone https://github.com/<your-username>/infra-controller.git
+cd infra-controller
 ```
 
 ### 3. Add Upstream Remote
@@ -157,7 +157,7 @@ cd metal-manager
 Add the original repository as an upstream remote to keep your fork in sync:
 
 ```bash
-git remote add upstream https://github.com/NVIDIA/metal-manager.git
+git remote add upstream https://github.com/NVIDIA/infra-controller.git
 git remote -v  # Verify remotes
 ```
 
