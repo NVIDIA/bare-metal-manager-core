@@ -619,7 +619,10 @@ impl NmxtCollector {
                 }
             }
 
-            let (metric_type, unit) = (metrics.metric_type, metric.unit);
+            let Some(metric) = lookup_nmxt_metric(&name) else {
+                continue;
+            };
+            let (metric_type, unit) = (metric.metric_type, metric.unit);
 
             // Port number anchors the per-series key.
             let Some(port_num) = required_port_num(&sample_labels) else {
