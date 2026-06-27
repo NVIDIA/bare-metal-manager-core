@@ -38,15 +38,15 @@ use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
 use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
+/// default NMX-T port
 const NMXT_PORT: u16 = 9352;
 
+/// NMX-T endpoint
 const NMXT_ENDPOINT: &str = "/xcset/nvlink_domain_telemetry";
 
-/// Producer name for every emitted NMX-T series. Preserved across all mappings so the
-/// downstream sink keeps a single `switch_nmxt` family.
-const NMXT_PRODUCER: &str = "switch_nmxt";
+/// MetricSample name for NMX-T metrics
+const NMXT_METRIC_NAME: &str = "switch_nmxt";
 
-/// One NMX-T numeric family -> canonical `switch_nmxt` series; `source` matched verbatim.
 #[derive(Debug, PartialEq)]
 struct NmxtMetric {
     source: &'static str,
@@ -54,18 +54,13 @@ struct NmxtMetric {
     unit: &'static str,
 }
 
-/// One NMX-T identity/inventory label -> canonical label re-exported on every series.
 #[derive(Debug, PartialEq)]
 struct NmxtLabel {
     source: &'static str,
     canonical: &'static str,
 }
 
-/// Explicit family allowlist. Names absent here (and from [`NMXT_LABEL_MAP`]) are never exported;
-/// each entry was confirmed live in the GB200 NMX-T scrape (Stage 0). Trailing comments name the
-/// catalog telemetry parameter.
 const NMXT_METRIC_MAP: &[NmxtMetric] = &[
-    // BER / error counters
     NmxtMetric {
         source: "Effective_BER",
         metric_type: "effective_ber",
@@ -81,7 +76,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "link_down",
         unit: "count",
     },
-    // Identity / inventory numeric families
     NmxtMetric {
         source: "lid",
         metric_type: "lid",
@@ -92,7 +86,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "device_hw_rev",
         unit: "id",
     }, // DEVICE-HARDWARE-REVISION
-    // Status / link-down attribution
     NmxtMetric {
         source: "Advanced_Status_Opcode",
         metric_type: "status_opcode",
@@ -108,7 +101,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "time_to_link_up",
         unit: "milliseconds",
     }, // TIME-TO-LINKS-UP
-    // Cable optics (numeric families)
     NmxtMetric {
         source: "cable_technology",
         metric_type: "cable_transmitter_technology",
@@ -129,13 +121,11 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "cable_diag_supply_voltage",
         unit: "volts",
     }, // CABLE-DIAG-SUPPLY-VOLTAGE
-    // Link partner
     NmxtMetric {
         source: "link_partner_lid",
         metric_type: "link_partner_lid",
         unit: "id",
     }, // LINK-PARTNER-LID
-    // Recovery counters / timers
     NmxtMetric {
         source: "successful_recovery_events",
         metric_type: "link_recovery_success_cnt",
@@ -176,7 +166,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "serdes_recovery_cycle_duration",
         unit: "seconds",
     }, // SERDES-RECOVERY-CYCLE-DURATION
-    // Contain-and-drain discards
     NmxtMetric {
         source: "contain_n_drain_xmit_discards",
         metric_type: "contain_drain_xmit_discard",
@@ -187,7 +176,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "contain_drain_rcv_discard",
         unit: "count",
     }, // CONTAIN-DRAIN-RCV-DISCARD
-    // Raw error lanes
     NmxtMetric {
         source: "Raw_Errors_Lane_2",
         metric_type: "raw_err_lane_2",
@@ -198,9 +186,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
         metric_type: "raw_err_lane_3",
         unit: "count",
     }, // RAW-ERR-LANE-3
-    // Cable/transceiver fault flags (0/1). Re-sourced from NMX-T: NVLink ports on
-    // the N5400_LD are not modeled as gNMI transceiver components, so the catalog's
-    // gNMI transceiver-diag path is absent live; NMX-T exposes these per active link.
     NmxtMetric {
         source: "tx_cdr_lol",
         metric_type: "cable_tx_cdr_lol",
@@ -223,9 +208,6 @@ const NMXT_METRIC_MAP: &[NmxtMetric] = &[
     }, // CABLE-RX-LOS
 ];
 
-/// Explicit label allowlist. These are identity/inventory dimensions, never standalone metrics:
-/// re-exported as canonical labels on every emitted `switch_nmxt` sample. Trailing comments name
-/// the catalog telemetry parameter.
 const NMXT_LABEL_MAP: &[NmxtLabel] = &[
     NmxtLabel {
         source: "FW_Version",
@@ -345,15 +327,15 @@ fn lookup_nmxt_metric(name: &str) -> Option<&'static NmxtMetric> {
     NMXT_METRIC_MAP.iter().find(|m| m.source == name)
 }
 
-/// `Module_Temperature` arrives only as a label value (e.g. `"0C"`), never its own numeric line,
-/// so it is parsed here and re-emitted as a gauge. Returns `None` on empty/unparseable (e.g. `"N/A"`).
+/// Parse `Module_Temperature` as a label value (e.g. `"0C"`), never its own numeric
+/// line and emit as a gauge with either numeric or `None
 fn cable_temp_to_celsius(raw: &str) -> Option<f64> {
     let trimmed = raw.trim();
     let digits = trimmed.strip_suffix(['C', 'c']).unwrap_or(trimmed).trim();
     digits.parse::<f64>().ok()
 }
 
-/// Closed 3-state enum for `down_blame`, emitted as a StateSet (one 0/1 series per state).
+/// Enum for `down_blame`, emitted as a StateSet (one 0/1 series per state).
 const DOWN_BLAME_STATES: &[&str] = &["unknown", "local_phy", "remote_phy"];
 
 /// Maps a raw `down_blame` value to its canonical state, case-insensitively; unknown/empty -> "unknown".
@@ -372,7 +354,6 @@ fn required_port_num(sample_labels: &HashMap<String, String>) -> Option<&str> {
         .filter(|port_num| !port_num.is_empty())
 }
 
-/// Test-only; production iterates `NMXT_LABEL_MAP` directly in `build_labels`.
 #[cfg(test)]
 fn lookup_nmxt_label(key: &str) -> Option<&'static NmxtLabel> {
     NMXT_LABEL_MAP.iter().find(|l| l.source == key)
@@ -546,9 +527,7 @@ impl NmxtCollector {
         }
     }
 
-    /// Canonical label set for one `switch_nmxt` series. Always carries `switch_id` / `switch_ip`;
-    /// scraped dimensions are re-exported only when their key is on [`NMXT_LABEL_MAP`], everything
-    /// else is dropped (never sanitized into exported labels).
+    /// Builds label set for one `switch_nmxt` series
     fn build_labels(
         &self,
         switch_ip: &str,
@@ -575,8 +554,6 @@ impl NmxtCollector {
 
         self.emit_event(CollectorEvent::MetricCollectionStart);
 
-        // Scraped families off the allowlist: skipped (never sanitized) and only counted.
-        let mut unmapped_families = 0u64;
         // Ports already emitted a cable temperature this iteration (one series per port).
         let mut cable_temp_ports: HashSet<String> = HashSet::new();
         // Ports already emitted a down_blame StateSet this iteration (one set per port).
@@ -589,8 +566,8 @@ impl NmxtCollector {
                 value,
             } = sample;
 
-            // `Module_Temperature` rides as a label on lines whose family may not be allowlisted,
-            // so emit it before the family check, once per port.
+            // `Module_Temperature` rides as a label on lines whose map entry may not be
+            // collected. Emit before the map check, once per port.
             if let Some(celsius) = sample_labels
                 .get("Module_Temperature")
                 .and_then(|raw| cable_temp_to_celsius(raw))
@@ -603,7 +580,7 @@ impl NmxtCollector {
                     self.emit_event(CollectorEvent::Metric(
                         MetricSample {
                             key: format!("cable_temperature_celsius:{}", port_num),
-                            name: NMXT_PRODUCER.to_string(),
+                            name: NMXT_METRIC_NAME.to_string(),
                             metric_type: "cable_temperature_celsius".to_string(),
                             unit: "celsius".to_string(),
                             value: celsius,
@@ -615,21 +592,21 @@ impl NmxtCollector {
                 }
             }
 
-            // `down_blame` is a closed enum riding as a label; emit it as a per-port StateSet
-            // (one 0/1 series per state) before the family check, once per port.
+            // `down_blame` is an enum riding as a label; emit per port as a StateSet
             if let Some(raw) = sample_labels.get("down_blame") {
                 let Some(port_num) = required_port_num(&sample_labels) else {
                     continue;
                 };
                 if down_blame_ports.insert(port_num.to_string()) {
                     let current = down_blame_to_state(raw);
+                    let base_labels = self.build_labels(&switch_ip, &sample_labels);
                     for state in DOWN_BLAME_STATES {
-                        let mut labels = self.build_labels(&switch_ip, &sample_labels);
+                        let mut labels = base_labels.clone();
                         labels.push((Cow::Borrowed("state"), (*state).to_string()));
                         self.emit_event(CollectorEvent::Metric(
                             MetricSample {
                                 key: format!("down_blame:{}:{}", port_num, state),
-                                name: NMXT_PRODUCER.to_string(),
+                                name: NMXT_METRIC_NAME.to_string(),
                                 metric_type: "down_blame".to_string(),
                                 unit: "state".to_string(),
                                 value: if *state == current { 1.0 } else { 0.0 },
@@ -642,11 +619,7 @@ impl NmxtCollector {
                 }
             }
 
-            let Some(metric) = lookup_nmxt_metric(&name) else {
-                unmapped_families += 1;
-                continue;
-            };
-            let (metric_type, unit) = (metric.metric_type, metric.unit);
+            let (metric_type, unit) = (metrics.metric_type, metric.unit);
 
             // Port number anchors the per-series key.
             let Some(port_num) = required_port_num(&sample_labels) else {
@@ -663,7 +636,7 @@ impl NmxtCollector {
             self.emit_event(CollectorEvent::Metric(
                 MetricSample {
                     key: metric_key,
-                    name: NMXT_PRODUCER.to_string(),
+                    name: NMXT_METRIC_NAME.to_string(),
                     metric_type: metric_type.to_string(),
                     unit: unit.to_string(),
                     value,
@@ -672,14 +645,6 @@ impl NmxtCollector {
                 }
                 .into(),
             ));
-        }
-
-        if unmapped_families > 0 {
-            tracing::debug!(
-                switch_id = %self.switch_id,
-                count = unmapped_families,
-                "skipped NMX-T families not on explicit allowlist"
-            );
         }
 
         self.emit_event(CollectorEvent::MetricCollectionEnd);
@@ -1034,7 +999,7 @@ Link_Down{Port_Number="1"} 5
                         collector.emit_event(CollectorEvent::Metric(
                             MetricSample {
                                 key: format!("down_blame:{}:{}", port_num, state),
-                                name: NMXT_PRODUCER.to_string(),
+                                name: NMXT_METRIC_NAME.to_string(),
                                 metric_type: "down_blame".to_string(),
                                 unit: "state".to_string(),
                                 value: if *state == current { 1.0 } else { 0.0 },
@@ -1060,7 +1025,7 @@ Link_Down{Port_Number="1"} 5
         );
 
         for s in &blame_series {
-            assert_eq!(s.name, NMXT_PRODUCER);
+            assert_eq!(s.name, "switch_nmxt");
             assert_eq!(s.unit, "state");
             let state = s
                 .labels
@@ -1146,7 +1111,7 @@ Link_Down{Port_Number="1"} 5
                     collector.emit_event(CollectorEvent::Metric(
                         MetricSample {
                             key: format!("cable_temperature_celsius:{}", port_num),
-                            name: NMXT_PRODUCER.to_string(),
+                            name: NMXT_METRIC_NAME.to_string(),
                             metric_type: "cable_temperature_celsius".to_string(),
                             unit: "celsius".to_string(),
                             value: celsius,
@@ -1171,7 +1136,7 @@ Link_Down{Port_Number="1"} 5
         );
 
         let series = temp_series[0];
-        assert_eq!(series.name, NMXT_PRODUCER);
+        assert_eq!(series.name, "switch_nmxt");
         assert_eq!(series.unit, "celsius");
         assert_eq!(series.value, 37.5);
         assert_eq!(series.key, "cable_temperature_celsius:11");
