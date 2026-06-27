@@ -19,7 +19,12 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use bmc_explorer::ErrorClass;
+use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
+use bmc_mock::test_support::{self as bmc_mock_support, TestBmc, axum_http_client};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo};
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
@@ -3190,6 +3195,180 @@ async fn test_site_explorer_pairs_dpu_from_chassis_serial(
         explored_managed_hosts[0].dpus.len(),
         1,
         "the chassis-matched DPU should be attached to the host"
+    );
+
+    Ok(())
+}
+
+/// Dell R760 BF4 host BMCs report the card as a PCIe device with a BF4
+/// `900-9D4B4...` part number, while the BF4 BMC does not expose the product
+/// serial or DPU/NIC mode on its system object. Pairing must still treat the
+/// host as a DPU host by using the DPU BMC's `Bluefield_BMC` chassis serial.
+#[sqlx_test]
+async fn test_site_explorer_pairs_bf4_dpu_from_bluefield_bmc_chassis_serial(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+
+    let env = Env::new(pool).await;
+
+    const BF4_SERIAL: &str = "MT020000000003";
+    let dpu_info = DpuMachineInfo {
+        hw_type: HostHardwareType::DellPowerEdgeR760Bf4,
+        bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x01]),
+        host_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x02]),
+        oob_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x03]),
+        serial: BF4_SERIAL.to_string(),
+        settings: DpuSettings::default(),
+    };
+    let host_info = HostMachineInfo {
+        hw_type: HostHardwareType::DellPowerEdgeR760Bf4,
+        bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]),
+        serial: "020000000004".to_string(),
+        dpus: vec![dpu_info.clone()],
+        non_dpu_mac_address: None,
+        nvos_mac_addresses: vec![],
+        switch_serial_number: None,
+        hw_mac_addr_pool: MacAddressPoolConfig::new(
+            MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x00]),
+            16,
+        )
+        .unwrap(),
+    };
+    let host_bmc_mac = host_info.bmc_mac_address;
+    let host_serial = host_info.serial.clone();
+
+    let error_classifier = |err: &axum_http_client::Error| -> Option<ErrorClass> {
+        match err {
+            axum_http_client::Error::InvalidResponse { status, .. } => match *status {
+                http::StatusCode::NOT_FOUND => Some(ErrorClass::NotFound),
+                http::StatusCode::INTERNAL_SERVER_ERROR => Some(ErrorClass::InternalServerError),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    let explorer_config: bmc_explorer::Config<'_, TestBmc> = bmc_explorer::Config {
+        boot_interface_mac: None,
+        error_classifier: &error_classifier,
+        retry_timeout: Duration::from_millis(0),
+    };
+    let host_bmc = bmc_mock_support::bmc_for_machine(MachineInfo::Host(host_info)).await;
+    let dpu_bmc_report_source =
+        bmc_mock_support::bmc_for_machine(MachineInfo::Dpu(dpu_info.clone())).await;
+    let host_report =
+        bmc_explorer::nv_generate_exploration_report(host_bmc.service_root, &explorer_config)
+            .await?;
+    let mut dpu_report = bmc_explorer::nv_generate_exploration_report(
+        dpu_bmc_report_source.service_root,
+        &explorer_config,
+    )
+    .await?;
+
+    // bmc-mock still uses the generic BlueField OEM route for BF4 and
+    // synthesizes a `DpuMode` value there. The real R760/BF4 dump this
+    // regression is based on does not expose DPU/NIC mode, so clear only that
+    // synthetic field while keeping the rest of the Redfish-collected mock
+    // layout and serial data intact.
+    if let Some(system) = dpu_report.systems.first_mut() {
+        system.attributes.nic_mode = None;
+    }
+
+    let bf4_device = host_report
+        .systems
+        .iter()
+        .flat_map(|system| system.pcie_devices.iter())
+        .find(|device| {
+            device
+                .part_number
+                .as_deref()
+                .is_some_and(|part| part.starts_with("900-9D4B4"))
+        })
+        .expect("R760 BF4 host report must include the BF4 PCIe device");
+    assert_eq!(bf4_device.serial_number.as_deref(), Some(BF4_SERIAL));
+    assert!(
+        dpu_report
+            .systems
+            .first()
+            .and_then(|system| system.serial_number.as_deref())
+            .is_none(),
+        "BF4 DPU report should not expose a system serial"
+    );
+    assert_eq!(
+        dpu_report
+            .chassis
+            .iter()
+            .find(|chassis| chassis.id == "Bluefield_BMC")
+            .and_then(|chassis| chassis.serial_number.as_deref()),
+        Some(BF4_SERIAL),
+        "BF4 DPU report should expose the pairing serial on Bluefield_BMC chassis"
+    );
+    assert_eq!(
+        dpu_report.nic_mode(),
+        None,
+        "BF4 DPU report should not expose Redfish DPU/NIC mode"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: host_serial,
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "Dell");
+    let mut dpu_bmc = env.new_machine(&dpu_info.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc.ip.parse().unwrap(), Ok(dpu_report)),
+        (host_bmc.ip.parse().unwrap(), Ok(host_report)),
+    ]);
+
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc.ip.parse()?, dpu_bmc.ip.parse()?] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "BF4 host should not fall through to the zero-DPU blocker path"
+    );
+    assert_eq!(
+        explored_managed_hosts[0].dpus.len(),
+        1,
+        "BF4 DPU should pair via the Bluefield_BMC chassis serial"
+    );
+    assert_eq!(
+        explored_managed_hosts[0].dpus[0].bmc_ip,
+        dpu_bmc.ip.parse::<IpAddr>()?
     );
 
     Ok(())

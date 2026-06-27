@@ -2860,6 +2860,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-explorer",
+ "bmc-mock",
  "bmc-vendor",
  "carbide-api-db",
  "carbide-api-model",
