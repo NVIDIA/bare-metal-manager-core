@@ -225,7 +225,7 @@ interfaces_enabled = true
 platform_environment_temperature_enabled = true
 platform_environment_status_enabled = true
 
-# NVUE gNMI streaming collector, disabled by default. Subscribes to
+# NVUE gNMI streaming collector which subscribes to
 # gNMI SAMPLE paths (components + interfaces, plus platform_general when
 # platform_general_enabled is true) and pushes metrics through the configured
 # sinks. gNMI ON_CHANGE targets system-events
