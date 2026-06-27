@@ -303,6 +303,7 @@ struct DiagnosticLogBodyAttribute<'a> {
 
 #[derive(Clone, Debug)]
 pub struct FirmwareInfo {
+    pub id: String,
     pub component: String,
     pub version: String,
     pub attributes: Vec<MetricLabel>,

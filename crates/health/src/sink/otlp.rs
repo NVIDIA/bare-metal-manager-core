@@ -235,7 +235,7 @@ impl SyncEventNode for OtlpSink {
                 (key, event.clone())
             }
             HealthEvent::FirmwareObserved(info) => {
-                let key = format!("{}|firmware|{}", context.endpoint_key, info.component);
+                let key = format!("{}|firmware|{}", context.endpoint_key, info.id);
                 (key, event.clone())
             }
             _ => return Vec::new(),

@@ -131,10 +131,10 @@ impl<B: Bmc> DiscoveredEntity<B> {
         let mut attrs = Vec::new();
         match self {
             DiscoveredEntity::Processor { entity, .. } => {
-                if let Some(node_type) = entity.raw().processor_type.flatten() {
+                if let Some(processor_type) = entity.raw().processor_type.flatten() {
                     attrs.push((
-                        Cow::Borrowed("node_type"),
-                        node_type.to_snake_case().to_string(),
+                        Cow::Borrowed("processor_type"),
+                        processor_type.to_snake_case().to_string(),
                     ));
                 }
                 if let Some(model) = entity.raw().model.clone().flatten() {

@@ -104,6 +104,7 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
             ];
 
             self.emit_event(HealthEvent::FirmwareObserved(FirmwareInfo {
+                id: firmware_data.base.id.clone(),
                 component,
                 version,
                 attributes,
