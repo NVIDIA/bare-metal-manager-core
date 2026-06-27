@@ -30,7 +30,6 @@ const COLLECTOR_NAME: &str = "nvue_rest";
 
 const SYSTEM_HEALTH_STATES: &[&str] = &["ok", "not_ok", "unknown"];
 
-/// anything else (including absent) => "unknown".
 fn system_health_to_state(status: Option<&str>) -> &'static str {
     match status {
         Some("OK") => "ok",
@@ -47,7 +46,6 @@ const PARTITION_HEALTH_STATES: &[&str] = &[
     "unknown",
 ];
 
-/// The four known states map to themselves; anything else (including absent) => "unknown".
 fn partition_health_to_state(status: Option<&str>) -> &'static str {
     match status {
         Some("healthy") => "healthy",
@@ -60,7 +58,6 @@ fn partition_health_to_state(status: Option<&str>) -> &'static str {
 
 const APP_STATUS_STATES: &[&str] = &["ok", "not_ok", "unknown"];
 
-/// anything else (including absent) => "unknown".
 fn app_status_to_state(status: Option<&str>) -> &'static str {
     match status {
         Some("ok") => "ok",
@@ -69,7 +66,7 @@ fn app_status_to_state(status: Option<&str>) -> &'static str {
     }
 }
 
-/// code "0" means no issue; any other opcode indicates a problem
+/// "0" -> no issue. Any other opcode indicates a problem
 fn diagnostic_opcode_to_f64(code: &str) -> f64 {
     match code {
         "0" => 0.0,
@@ -77,26 +74,22 @@ fn diagnostic_opcode_to_f64(code: &str) -> f64 {
     }
 }
 
-/// NVUE reports fan max-speed as a string (e.g. "33000"). Parse it to RPM as
-/// f64; return `None` when the field is absent or unparseable so callers emit
-/// nothing rather than fabricating a value.
+/// NVUE reports fan max-speed as a string (e.g. "33000"). Parse it to RPM.
+/// Returns None when the field is absent or unparseable.
 fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
     max_speed.and_then(|s| s.trim().parse::<f64>().ok())
 }
 
-/// NVUE reports temperatures (current/max/crit) as strings in degrees Celsius
-/// (e.g. "105.00"). Parse to f64; return `None` when the field is absent or
-/// unparseable so callers emit nothing rather than fabricating a value. Shares
-/// the same trim-then-parse contract as `fan_max_speed_to_f64`.
+/// NVUE reports temps (current/max/crit) as Celsius strings (e.g. "105.00").
+/// Parse to f64. Returns None when the field is absent or unparseable.
 fn temp_to_f64(value: Option<&str>) -> Option<f64> {
     value.and_then(|s| s.trim().parse::<f64>().ok())
 }
 
 const TEMP_STATE_STATES: &[&str] = &["ok", "not_ok"];
 
-/// Map a temperature sensor's string `state` to a StateSet state: "ok"
-/// (case-insensitive) => "ok", any other present value => "not_ok", absent =>
-/// None (so callers emit nothing rather than fabricating an all-zero StateSet).
+/// Sensor `state` -> StateSet: "ok" (case-insensitive) => "ok", other present
+/// => "not_ok", absent => None.
 fn temp_state_to_state(state: Option<&str>) -> Option<&'static str> {
     state.map(|s| {
         if s.trim().eq_ignore_ascii_case("ok") {
@@ -109,10 +102,8 @@ fn temp_state_to_state(state: Option<&str>) -> Option<&'static str> {
 
 const FAN_LED_STATES: &[&str] = &["ok", "not_ok"];
 
-/// Map the aggregate `FAN_STATUS` LED state from the platform/environment parent
-/// summary to a StateSet state: "green"/"ok" (case-insensitive) => "ok", any
-/// other non-empty value (e.g. "amber"/"red") => "not_ok", absent/empty => None
-/// (so callers emit nothing rather than fabricating an all-zero StateSet).
+/// `FAN_STATUS` LED -> StateSet: "green"/"ok" (case-insensitive) => "ok",
+/// other non-empty => "not_ok", absent/empty => None.
 fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
     let s = state?.trim();
     if s.is_empty() {
@@ -312,7 +303,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         match self.client.get_platform_environment_fan().await {
             Ok(Some(fans)) => {
                 for (fan_name, fan) in &fans {
-                    // Only emit when max-speed parses; absent/garbage → nothing.
+                    // Only emit when max-speed parses. Absent or garbage emits nothing.
                     if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
                         self.emit_metric(
                             "fan_max_speed",
@@ -340,8 +331,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         match self.client.get_platform_environment_temperature().await {
             Ok(Some(temps)) => {
                 for (sensor_name, temp) in &temps {
-                    // Each field is optional; emit only the ones present/parseable
-                    // rather than fabricating absent thresholds.
+                    // Each field is optional. Emit only those present and parseable.
                     let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
 
                     if let Some(value) = temp_to_f64(temp.current.as_deref()) {
@@ -374,8 +364,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                         );
                         entity_count += 1;
                     }
-                    // Absent `state` => emit nothing (never fabricate an
-                    // all-zero StateSet); present => one 0/1 series per state.
+                    // Absent state emits nothing. Present state emits one 0/1 series per state.
                     if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
                         self.emit_state_set(
                             "platform_temperature_state",
@@ -402,8 +391,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
 
         match self.client.get_platform_environment().await {
             Ok(Some(env)) => {
-                // Switch-level aggregate FAN_STATUS LED; emit only when present
-                // and the state maps to a value, absent → nothing.
+                // Switch-level FAN_STATUS LED. Emit only when present and mappable.
                 if let Some(current) = env
                     .get("FAN_STATUS")
                     .and_then(|s| fan_led_to_state(s.state.as_deref()))
@@ -520,11 +508,9 @@ impl NvueRestCollector {
         ));
     }
 
-    /// emit an OpenMetrics StateSet: one `0.0`/`1.0` series per possible state,
-    /// with the current state's series == 1.0 and an added `state` label. The
-    /// existing per-entity `labels` are carried onto every series; `key_base`
-    /// is the per-entity key qualifier (it is suffixed with the state name so
-    /// each series gets a unique key). Unit is always "state".
+    /// Emit an OpenMetrics StateSet: one 0/1 series per state (current => 1.0),
+    /// each carrying `labels` plus a `state` label. `key_base` is suffixed with
+    /// the state name for a unique per-series key. Unit is always "state".
     fn emit_state_set(
         &self,
         metric_type: &str,
@@ -537,9 +523,8 @@ impl NvueRestCollector {
             let mut series_labels = labels.clone();
             series_labels.push((Cow::Borrowed("state"), state.to_string()));
 
-            // suffix the state onto the per-entity qualifier so each series key
-            // is unique (switch-level series have no entity qualifier, so the
-            // state name alone disambiguates them).
+            // suffix state onto the qualifier for a unique per-series key
+            // (switch-level series use the state name alone).
             let qualifier = match key_base {
                 Some(base) => format!("{base}:{state}"),
                 None => (*state).to_string(),
@@ -570,10 +555,8 @@ mod tests {
     use crate::bmc::BoxFuture;
     use crate::config::NvueRestPaths;
 
-    /// Assert OpenMetrics StateSet semantics over a captured fan-out: exactly
-    /// one 0/1 series per `all_states` entry, each with unit "state" and a
-    /// `state` label; the series whose `state` label equals `current` has value
-    /// 1.0 and every other series is 0.0. `entity` (if any) is asserted present
+    /// Assert StateSet semantics: one 0/1 series per state (current => 1.0),
+    /// each with unit "state" and a `state` label. `entity` (if set) is present
     /// on every series.
     fn assert_state_set(
         samples: &[MetricSample],
@@ -696,9 +679,8 @@ mod tests {
         assert_eq!(fan_led_to_state(None), None);
     }
 
-    /// Drives the same parse + emit logic `run_iteration` uses for the
-    /// platform/environment/fan endpoint against a captured sink, asserting the
-    /// emitted MAX-SPEED sample shape. Table-driven over representative payloads.
+    /// Drives run_iteration's fan parse + emit logic against a captured sink,
+    /// asserting max-speed sample shape. Table-driven.
     #[test]
     fn test_fan_max_speed_emit() {
         use crate::collectors::nvue::rest::client::FanEnvironmentResponse;
@@ -826,11 +808,9 @@ mod tests {
         }
     }
 
-    /// Drives the same parse + emit logic `run_iteration` uses for the
-    /// platform/environment/temperature endpoint against a captured sink. A
-    /// fully-populated sensor (ASIC1) emits all four series; a sparse sensor
-    /// (Ambient-MNG-Temp, only current + state) emits exactly two and must NOT
-    /// fabricate the absent max/critical thresholds.
+    /// Drives run_iteration's temperature parse + emit logic against a captured
+    /// sink. A full sensor (ASIC1) emits all four series. A sparse sensor
+    /// (current + state only) emits two and must NOT fabricate absent max/crit.
     #[test]
     fn test_platform_temperature_emit() {
         use crate::collectors::nvue::rest::client::TemperatureEnvironmentResponse;
@@ -938,7 +918,7 @@ mod tests {
             assert_eq!(sample.labels[0].1, "ASIC1");
         }
 
-        // ASIC1 state="ok" => StateSet: ok=1, not_ok=0; sensor label preserved.
+        // ASIC1 state="ok" => StateSet: ok=1, not_ok=0. Sensor label preserved.
         let asic1_state: Vec<MetricSample> = samples
             .iter()
             .filter(|s| {
@@ -989,10 +969,8 @@ mod tests {
         );
     }
 
-    /// Drives the same parse + emit logic `run_iteration` uses for the
-    /// platform/environment parent summary against a captured sink, asserting the
-    /// emitted switch-level `fan_led` sample shape. "green"/"ok" => 1.0,
-    /// "amber" => 0.0, and an absent `FAN_STATUS` emits nothing.
+    /// Drives run_iteration's fan_led parse + emit logic against a captured sink.
+    /// "green"/"ok" => 1.0, "amber" => 0.0, absent FAN_STATUS emits nothing.
     #[test]
     fn test_fan_led_emit() {
         use crate::collectors::nvue::rest::client::PlatformEnvironmentResponse;
@@ -1064,7 +1042,7 @@ mod tests {
             match case.expected {
                 Some(current) => {
                     // switch-level StateSet: no per-entity label, but a `state`
-                    // label per series; series keys are unique per state.
+                    // label per series. Series keys are unique per state.
                     assert_state_set(&samples, "fan_led", None, FAN_LED_STATES, current);
                     for sample in samples.iter() {
                         assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
@@ -1101,9 +1079,8 @@ mod tests {
 
     struct ScriptedProvider {
         calls: AtomicUsize,
-        // Each call pops the front of this queue; an empty queue yields an
-        // error. `HealthError` is not `Clone`, so we store and consume by
-        // value rather than indexing + `.cloned()`.
+        // Each call pops the front. An empty queue yields an error. HealthError
+        // isn't Clone, so we consume by value.
         responses: StdMutex<std::collections::VecDeque<Result<BmcCredentials, HealthError>>>,
     }
 

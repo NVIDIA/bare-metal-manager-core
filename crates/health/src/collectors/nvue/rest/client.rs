@@ -324,9 +324,7 @@ pub type FanEnvironmentResponse = HashMap<String, FanData>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct FanData {
-    /// Fan maximum speed in RPM, reported by NVUE as a string (e.g. "33000").
-    /// Other per-fan fields (current-speed, min-speed, direction, state) are
-    /// intentionally not captured — only max-speed is in scope.
+    /// Fan maximum speed in RPM, scraped as string (e.g. "33000")
     #[serde(rename = "max-speed")]
     pub max_speed: Option<String>,
 }
@@ -335,24 +333,19 @@ pub type TemperatureEnvironmentResponse = HashMap<String, TempData>;
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct TempData {
-    /// Current temperature in degrees Celsius, reported by NVUE as a string
-    /// (e.g. "43.00"). Each per-sensor field is optional — NVUE reports only a
-    /// subset for many sensors (e.g. ambient sensors expose only current+state).
+    /// Current temperature Celsius, scraped as string (e.g. "43.00").
+    /// Field is optional per sensor
     pub current: Option<String>,
-    /// Maximum (warning) threshold in degrees Celsius, as a string (e.g. "105.00").
+    /// Maximum (warning) threshold in Celsius as string (e.g. "105.00").
     pub max: Option<String>,
-    /// Critical threshold in degrees Celsius, as a string (e.g. "120.00").
+    /// Critical threshold in Celsius as a string (e.g. "120.00").
     pub crit: Option<String>,
-    /// Sensor state as a string (e.g. "ok").
+    /// Sensor state as string (e.g. "ok").
     pub state: Option<String>,
 }
 
-/// Parent `/nvue_v1/platform/environment` summary. Keys are aggregate status
-/// entries (e.g. `FAN_STATUS`) as well as the `fan`/`temperature` subtrees.
-/// Only the LED-style summary entries carry a top-level `state`; the nested
-/// subtree objects have a different shape and deserialize with `state` absent
-/// (serde ignores unknown keys, including the LED `type` discriminator we do
-/// not consume), so they are harmlessly skipped by callers.
+/// `/nvue_v1/platform/environment` summary. Keys are aggregate status
+/// entries (e.g. `FAN_STATUS`) as well as the `fan`/`temperature` subtrees
 pub type PlatformEnvironmentResponse = HashMap<String, EnvItem>;
 
 #[derive(Debug, Clone, Deserialize, Default)]

@@ -989,9 +989,6 @@ impl Default for NvueGnmiConfig {
 pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
-    /// Subscribe to `/platform-general/state` for switch-level memory and disk
-    /// utilization. This is a singleton resource (not keyed by interface or
-    /// component name).
     pub platform_general_enabled: bool,
 }
 

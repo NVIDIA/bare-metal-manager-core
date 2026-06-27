@@ -63,8 +63,8 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
         });
     }
     if paths_config.platform_general_enabled {
-        // switch-level singleton: `/platform-general/state` carries the memory
-        // and disk utilization leaves (no interface/component name key).
+        // `/platform-general/state` carries the memory and disk
+        // utilization leaves
         paths.push(Path {
             elem: vec![
                 PathElem {
@@ -78,8 +78,8 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
             ],
             ..Default::default()
         });
-        // sibling singleton: `/platform-general/versions` carries the OS/BMC/EROT
-        // firmware version leaves (also no interface/component name key).
+        // `/platform-general/versions` carries the OS/BMC/EROT
+        // firmware version leaves
         paths.push(Path {
             elem: vec![
                 PathElem {
@@ -117,15 +117,8 @@ fn configure_tls_endpoint(
         return Ok(endpoint);
     }
 
-    // tonic 0.14 auto-injects a strict WebPKI/system-root TLS verifier when an
-    // Endpoint is built from an `https://` URI and layers its own TlsConnector
-    // over any custom connector (see tonic transport channel/service/connector.rs).
-    // That silently negated a hand-rolled hyper-rustls skip-verify connector and
-    // made tonic strictly reject the switch's self-signed NVOS gNMI cert (SAN does
-    // not cover the management IP). When the dangerous opt-in is enabled, use
-    // tonic's native custom-verifier hook so the skip-verify verifier is the one
-    // tonic actually applies. ClientTlsConfig::new() must NOT set any roots here
-    // (mixing roots + custom verifier is an error).
+    // Use tonic's verifier hook (https endpoints get a strict verifier
+    // otherwise). No roots on ClientTlsConfig — roots + verifier is an error.
     endpoint
         .tls_config_with_verifier(
             ClientTlsConfig::new(),

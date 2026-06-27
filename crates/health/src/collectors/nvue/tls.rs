@@ -63,13 +63,7 @@ impl ServerCertVerifier for AcceptAnyCertVerifier {
     }
 }
 
-/// Dangerous rustls verifier that accepts any server certificate without validation.
-///
-/// Passed to tonic's `Endpoint::tls_config_with_verifier` so tonic's own TLS layer
-/// skips verification. NVOS gNMI presents a self-signed cert whose SAN may not cover
-/// the management IP being dialed; a strict verifier rejects it. Do not hand-roll a
-/// separate `hyper_rustls` connector for this — tonic 0.14 layers its own (strict)
-/// TLS over any custom connector for `https://` URIs, which silently negates it.
+/// Dangerous rustls verifier that accepts any server certificate without validation
 pub fn accept_any_cert_verifier() -> Arc<dyn ServerCertVerifier> {
     Arc::new(AcceptAnyCertVerifier)
 }

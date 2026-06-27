@@ -92,7 +92,7 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
         attrs.push(kv("switch.id", switch_id.to_string()));
     }
     if let Some(serial) = context.switch_serial() {
-        attrs.push(kv("switch.serial", serial.to_string()));
+        attrs.push(kv("switch.serial_number", serial.to_string()));
     }
     if let Some(role) = context.switch_endpoint_role() {
         let endpoint_role = match role {
@@ -253,9 +253,11 @@ pub fn build_metrics_export_request(
             .map(|(k, v)| kv(k, v.clone()))
             .collect();
 
-        // promote switch identity onto the datapoint so dashboards filtering on
-        // `switch_serial`/`switch_id` (underscore label form) match; these otherwise
-        // only exist as OTLP *resource* attributes (`switch.serial`/`switch.id`).
+        // Promote switch identity onto the datapoint so it is queryable as a
+        // per-series label. As an OTLP resource attribute alone it lands on
+        // target_info, not the series. These datapoint labels use the underscore
+        // form (Prometheus label names cannot contain dots); the dotted
+        // switch.serial_number / switch.id live on the resource attributes.
         if !attributes.iter().any(|attr| attr.key == "switch_serial")
             && let Some(serial) = context.switch_serial()
         {
@@ -492,7 +494,10 @@ mod tests {
             attr_value(&attrs, "switch.id"),
             Some(switch_id_attr.as_str())
         );
-        assert_eq!(attr_value(&attrs, "switch.serial"), Some("SN-SWITCH-001"));
+        assert_eq!(
+            attr_value(&attrs, "switch.serial_number"),
+            Some("SN-SWITCH-001")
+        );
         assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("host"));
         assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(true));
         assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
@@ -540,7 +545,7 @@ mod tests {
             Some(switch_id_attr.as_str())
         );
         assert_eq!(
-            attr_value(&attrs, "switch.serial"),
+            attr_value(&attrs, "switch.serial_number"),
             Some("SN-SWITCH-BMC-001")
         );
         assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("bmc"));

@@ -113,8 +113,6 @@ impl GnmiSampleProcessor {
         iface_name: &str,
         val: &proto::TypedValue,
     ) {
-        // Allowlisted `/interfaces/interface` leaves (live in the Stage-0 probe);
-        // unknown leaves fall through and are never exported.
         if leaf_matches(elems, &["state", "oper-status"]) {
             let current = oper_status_to_state(typed_value_to_string(val).as_deref());
             self.emit_state_set(
@@ -148,8 +146,6 @@ impl GnmiSampleProcessor {
                 LOGICAL_PORT_STATES,
             );
         } else if leaf_matches(elems, &["infiniband", "state", "speed"]) {
-            // NVOS types speed as a string/enum but live GB200 emits bare numeric Gbps;
-            // unparseable forms (e.g. "hdr") emit nothing.
             match link_speed_to_gbps(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_link_speed_active", iface_name, v, "gbps"),
                 None => debug_unmapped_value(elems, val, "interface_link_speed_active"),
@@ -165,7 +161,6 @@ impl GnmiSampleProcessor {
                 None => debug_unmapped_value(elems, val, "interface_supported_width"),
             }
         } else if leaf_matches(elems, &["phy-diag", "state", "phy-manager-state"]) {
-            // dynamic PHY FSM string: emit as a StateSet, not an info label.
             let current = phy_manager_to_state(typed_value_to_string(val).as_deref());
             self.emit_state_set(
                 "interface_phy_manager_state",
@@ -174,16 +169,15 @@ impl GnmiSampleProcessor {
                 current,
                 PHY_MANAGER_STATES,
             );
-        } else if leaf_matches(elems, &["infiniband", "state", "vl-capabilities"]) {
-            // stable capability string surfaced as an info-metric; empty emits nothing.
-            if let Some(caps) = typed_value_to_string(val).filter(|s| !s.is_empty()) {
-                self.emit_iface_info(
-                    "interface_vl_capabilities_info",
-                    iface_name,
-                    "vl_capabilities",
-                    &caps,
-                );
-            }
+        } else if leaf_matches(elems, &["infiniband", "state", "vl-capabilities"])
+            && let Some(caps) = typed_value_to_string(val).filter(|s| !s.is_empty())
+        {
+            self.emit_iface_info(
+                "interface_vl_capabilities_info",
+                iface_name,
+                "vl_capabilities",
+                &caps,
+            );
         }
     }
 
@@ -238,9 +232,9 @@ impl GnmiSampleProcessor {
         comp_name: &str,
         val: &proto::TypedValue,
     ) {
-        // Allowlisted `/components/component` leaves; the `component_name` label
-        // distinguishes rows that share a leaf (FAN-STATE and CPU-STATE both resolve
-        // to `state/oper-status`). Unknown leaves are never exported.
+        // `/components/component` leaves: the `component_name` label
+        // distinguishes rows that share a leaf (e.g. FAN-STATE and CPU-STATE both resolve
+        // to `state/oper-status`)
         if leaf_matches(elems, &["healthz", "state", "status"]) {
             let current = component_health_to_state(typed_value_to_string(val).as_deref());
             self.emit_state_set(
@@ -278,9 +272,6 @@ impl GnmiSampleProcessor {
         {
             self.emit_comp("component_cpu_utilization", comp_name, v, "percent");
         }
-        // ASIC-NAME (row 876): `state/name` is intentionally not emitted; the
-        // same value is already surfaced as the `component_name` label on every
-        // component metric, so a dedicated series would be redundant.
     }
 
     fn emit_comp(&self, metric_type: &str, comp_name: &str, value: f64, unit: &str) {
@@ -295,22 +286,6 @@ impl GnmiSampleProcessor {
     }
 
     fn process_platform_general_metric(&self, elems: &[&PathElem], val: &proto::TypedValue) {
-        // Explicit per-leaf canonical mappings for `/platform-general/state`.
-        // This is a switch-level singleton: the four numeric memory/disk leaves
-        // are numeric gauges; contact/location/platform-name are stable strings
-        // surfaced as switch-level info-metrics. Every other platform-general
-        // leaf falls through and is never exported.
-        //
-        // String info-metrics first (CONTACT 862, LOCATION 863,
-        // NODE-DESCRIPTION 864): each emits a constant 1.0 sample whose
-        // information is carried by a single string label. Empty strings carry
-        // no information and emit nothing (CONTACT/LOCATION are empty on the
-        // GB200 rig, so only NODE-DESCRIPTION emits live).
-        //
-        // The firmware version info-metrics (OS-VERSION 868, BMC-VERSION 869,
-        // EROT-FW-VERSION 870) live under the sibling `/platform-general/versions`
-        // subtree rather than `/state`; they follow the same info-metric contract
-        // (constant 1.0 sample, single string label, empty strings emit nothing).
         let info: Option<(&str, &'static str)> = if leaf_matches(elems, &["state", "contact"]) {
             Some(("platform_contact_info", "contact"))
         } else if leaf_matches(elems, &["state", "location"]) {
@@ -410,7 +385,6 @@ impl GnmiSampleProcessor {
         key.push(':');
         key.push_str(entity_id);
 
-        // only the entity label; endpoint identity is added by PrometheusSink from EventContext.
         let labels = vec![(
             Cow::Borrowed(entity_label_name),
             entity_label_value.to_string(),
@@ -431,7 +405,7 @@ impl GnmiSampleProcessor {
     }
 
     /// OpenMetrics StateSet: one `0.0`/`1.0` series per state (current == 1.0), with a `state`
-    /// label. The fan-out works for both sinks since OTLP has no native StateSet type. Unit "state".
+    /// label.
     fn emit_state_set(
         &self,
         metric_type: &str,
@@ -451,7 +425,6 @@ impl GnmiSampleProcessor {
             key.push(':');
             key.push_str(state);
 
-            // only the entity + state labels; endpoint identity is added by PrometheusSink.
             let labels = vec![
                 (Cow::Borrowed(entity_label_name), entity_id.to_string()),
                 (Cow::Borrowed("state"), state.to_string()),
@@ -495,23 +468,19 @@ fn leaf_matches(elems: &[&PathElem], expected: &[&str]) -> bool {
         .all(|(elem, name)| elem.name == *name)
 }
 
-/// One numeric `/interfaces/interface` leaf mapping: path tail -> metric_type + unit.
 struct NumericLeafMapping {
     tail: &'static [&'static str],
     name: &'static str,
     unit: &'static str,
 }
 
-/// A resolved numeric leaf: the metric_type + unit to emit.
 struct NumericLeaf {
     name: &'static str,
     unit: &'static str,
 }
 
-/// Table-driven dispatch for numeric `/interfaces/interface` leaves. Every entry
-/// is an explicit GB200 catalog mapping proven live in the Stage-0 probe; the
-/// expected leaf path tail is matched against the live gNMI tree. Leaves not in
-/// this table are never exported as metrics.
+/// Table-driven dispatch for numeric `/interfaces/interface` leaves. The
+/// expected leaf path tail is matched against the live gNMI tree.
 fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
     const TABLE: &[NumericLeafMapping] = &[
         // OpenConfig interface counters (`/state/counters/*`)
@@ -637,10 +606,6 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
             name: "interface_port_xmit_wait",
             unit: "count",
         },
-        // NOTE: `infiniband/state/speed` is intentionally NOT in this numeric
-        // table. NVOS types it as a string/enum and the live GB200 form is a
-        // bare Gbps numeric; it is handled by a dedicated `link_speed_to_gbps`
-        // arm in `process_interface_metric` that emits unit `gbps`.
         NumericLeafMapping {
             tail: &["infiniband", "state", "mtu"],
             name: "interface_mtu",
@@ -816,8 +781,6 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
             name: "interface_plr_bw_loss_percent",
             unit: "percent",
         },
-        // existing pre-branch mapping retained (leaf out of GB200 row set but
-        // restored upstream; kept so the canonical series is not dropped)
         NumericLeafMapping {
             tail: &["phy-diag", "state", "unintentional-link-down-events"],
             name: "interface_link_down_events",
@@ -825,7 +788,7 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
         },
     ];
 
-    // FEC histogram bins 0..=15 -> interface_fec_hist_{n} (rows 911..926)
+    // FEC histogram bins 0..=15 -> interface_fec_hist_{n}
     if let Some(leaf) = elems.last().map(|e| e.name.as_str())
         && let Some(bin) = leaf.strip_prefix("rs-num-corr-err-bin")
         && let Ok(n) = bin.parse::<usize>()
@@ -846,8 +809,7 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
     })
 }
 
-/// Stable, leaked-free metric_type names for FEC histogram bins 0..=15. The
-/// catalog defines exactly 16 bins (FEC-HIST-0 .. FEC-HIST-15).
+/// FEC histogram bins 0..=15
 const FEC_HIST_NAMES: [&str; 16] = [
     "interface_fec_hist_0",
     "interface_fec_hist_1",
@@ -870,7 +832,7 @@ const FEC_HIST_NAMES: [&str; 16] = [
 const OPER_STATUS_STATES: &[&str] = &["up", "down"];
 
 /// oper-status string -> current StateSet state. "up" when the source reads
-/// "up" or "active" (case-insensitive), else "down". Used for both
+/// "up" or "active" else "down". Applies to
 /// `interface_oper_status` and `component_oper_status`.
 fn oper_status_to_state(status: Option<&str>) -> &'static str {
     match status {
@@ -896,9 +858,7 @@ const PHY_MANAGER_STATES: &[&str] = &["up", "down"];
 
 /// PHY manager FSM state string -> current StateSet state. The PHY manager
 /// reports a dynamic FSM label (e.g. "Active_or_Linkup", "Disabled"), so we
-/// match the `active`/`linkup` tokens on word boundaries -- a bare substring
-/// check would also match "Inactive"/"Deactivated" and falsely report a down
-/// PHY as up.
+/// match the `active`/`linkup` tokens
 fn phy_manager_to_state(state: Option<&str>) -> &'static str {
     match state {
         Some(s)
@@ -914,9 +874,9 @@ fn phy_manager_to_state(state: Option<&str>) -> &'static str {
 
 const LOGICAL_PORT_STATES: &[&str] = &["active", "down"];
 
-/// InfiniBand logical port state enum -> current StateSet state. Values
-/// observed live on GB200: `ACTIVE`, `DOWN`. "active" when the source reads
-/// "active" (case-insensitive), else "down".
+/// InfiniBand logical port state enum -> current StateSet state.
+/// (e.g. `ACTIVE`, `DOWN`). "active" when the source reads
+/// "active", else "down".
 fn logical_port_to_state(state: Option<&str>) -> &'static str {
     match state {
         Some(s) if s.eq_ignore_ascii_case("active") => "active",
@@ -940,27 +900,18 @@ fn link_width_to_f64(width: Option<&str>) -> Option<f64> {
         .reduce(f64::max)
 }
 
-/// IB link speed -> Gbps. NVOS types speed as a string/enum, but the live GB200
-/// capture emits bare numeric Gbps ("400" pairs with ib-speed=SPEED_NDR). We
-/// accept the bare numeric (authoritative for this hardware) plus the defensive
-/// suffix forms the schema permits, and normalize everything to Gbps:
-///   - bare numeric ("400", "2.5") -> that value
-///   - "<n>G"/"<n.n>G" (trailing G, case-insensitive) -> n
-///   - "<n>Mb/s" or "<n>M" -> n/1000
-///   - anything else (e.g. "hdr") -> None (not exported)
+/// IB link speed -> Gbps. GB200 emits bare numeric Gbps; we also accept the
+/// suffix forms the schema permits.
 fn link_speed_to_gbps(speed: Option<&str>) -> Option<f64> {
     let s = speed?.trim();
     if s.is_empty() {
         return None;
     }
-    // Mb/s forms first ("M" alone is ambiguous with a stray suffix, but the
-    // longest match wins so "Mb/s" is checked before the bare "M").
+    // handle Mbit suffix
     if let Some(mbps) = s
         .strip_suffix("Mb/s")
-        .or_else(|| s.strip_suffix("MB/s"))
         .or_else(|| s.strip_suffix("Mbps"))
         .or_else(|| s.strip_suffix('M'))
-        .or_else(|| s.strip_suffix('m'))
     {
         return mbps.trim().parse::<f64>().ok().map(|v| v / 1000.0);
     }
@@ -968,13 +919,11 @@ fn link_speed_to_gbps(speed: Option<&str>) -> Option<f64> {
     if let Some(gbps) = s.strip_suffix(['G', 'g']) {
         return gbps.trim().parse::<f64>().ok();
     }
-    // bare numeric Gbps (live GB200 form)
+    // base case numeric implicit Gbps
     s.parse::<f64>().ok()
 }
 
-/// Log (at debug) an interface leaf that matched a known mapping arm but whose
-/// value could not be coerced, so the silent drop is observable. Nothing is
-/// emitted for the metric in this case.
+/// Log when an interface leaf that matched a known mapping but value wasn't caught.
 fn debug_unmapped_value(elems: &[&PathElem], val: &proto::TypedValue, metric_type: &str) {
     tracing::debug!(
         leaf = %leaf_path(elems),
@@ -997,7 +946,7 @@ fn leaf_path(elems: &[&PathElem]) -> String {
 const COMPONENT_HEALTH_STATES: &[&str] = &["healthy", "unhealthy", "unknown"];
 
 /// component healthz status -> current StateSet state. "healthy"/"unhealthy"
-/// by case-insensitive match, anything else (including absent) "unknown".
+/// else "unknown".
 fn component_health_to_state(status: Option<&str>) -> &'static str {
     match status {
         Some(s) if s.eq_ignore_ascii_case("healthy") => "healthy",
