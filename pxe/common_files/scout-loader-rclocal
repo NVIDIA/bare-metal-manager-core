@@ -39,13 +39,26 @@ send_msg() {
 	done
 }
 
-# Default image will be scout, from the nginx container
+# Default image will be scout, from the nginx container.
+# Resolution order for the rootfs URL:
+#   1. newrootfs=<full-url> on the kernel cmdline (explicit override).
+#   2. static_pxe_url=<base> on the kernel cmdline, populated by NICo Core from
+#      the configured static-pxe URL (honors external_static_pxe_url overrides).
+#   3. Backward-compatible fallback to the carbide-static-pxe.forge hostname.
 if [ "$(grep -c 'newrootfs=' /proc/cmdline)" -eq 1 ]
 then
     newrootfsurl=$(cat /proc/cmdline | sed -e 's/.*newrootfs=//' -e 's/ .*//')
 else
     arch=$(uname -m)
-    newrootfsurl="http://carbide-static-pxe.forge/public/blobs/internal/${arch}/scout.squashfs"
+    if [ "$(grep -c 'static_pxe_url=' /proc/cmdline)" -eq 1 ]
+    then
+        # static_pxe_url already points at .../public/blobs (NICo Core base-url);
+        # strip any trailing slash before appending the rootfs path.
+        static_pxe_url=$(cat /proc/cmdline | sed -e 's/.*static_pxe_url=//' -e 's/ .*//' -e 's:/*$::')
+        newrootfsurl="${static_pxe_url}/internal/${arch}/scout.squashfs"
+    else
+        newrootfsurl="http://carbide-static-pxe.forge/public/blobs/internal/${arch}/scout.squashfs"
+    fi
 fi
 
 # Respect the console info from the kernel command line

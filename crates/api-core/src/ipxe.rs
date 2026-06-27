@@ -207,7 +207,10 @@ impl PxeInstructions {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
-                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
+                        // static_pxe_url passes the (already iPXE-expanded) static-pxe
+                        // base to the scout-loader so it fetches scout.squashfs from the
+                        // configured static-pxe server instead of hardcoding a hostname.
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url] static_pxe_url=${{base-url}}"),
                         initrd: None,
                     }
                 }
@@ -223,7 +226,10 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator {
                     kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
-                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
+                    // static_pxe_url passes the (already iPXE-expanded) static-pxe
+                    // base to the scout-loader so it fetches scout.squashfs from the
+                    // configured static-pxe server instead of hardcoding a hostname.
+                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url] static_pxe_url=${{base-url}}"),
                     initrd: None,
                 }
             }
