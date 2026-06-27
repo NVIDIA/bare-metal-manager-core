@@ -21,12 +21,17 @@ use std::time::Instant;
 use super::{EventContext, HealthEvent, SyncEventNode};
 use crate::metrics::{ComponentKind, ComponentMetrics, MetricsManager};
 
+/// A [`SyncEventNode`] that fans every event out to a set of inner sinks,
+/// recording per-sink timing metrics. Terminal node: it never emits derived
+/// events.
 pub struct CompositeSyncEventNode {
     sinks: Vec<Arc<dyn SyncEventNode>>,
     component_metrics: Arc<ComponentMetrics>,
 }
 
 impl CompositeSyncEventNode {
+    /// Creates a composite over `sinks`, sourcing timing metrics from
+    /// `metrics_manager`.
     pub fn new(sinks: Vec<Arc<dyn SyncEventNode>>, metrics_manager: Arc<MetricsManager>) -> Self {
         Self {
             sinks,
@@ -34,6 +39,7 @@ impl CompositeSyncEventNode {
         }
     }
 
+    /// Records the time a single inner sink spent handling one event.
     fn record_sink_operation(&self, sink: &dyn SyncEventNode, duration: std::time::Duration) {
         self.component_metrics.record_operation(
             ComponentKind::Sink,

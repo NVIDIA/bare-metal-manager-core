@@ -357,12 +357,14 @@ fn power_supply_metric_fields(m: &PowerSupplyMetrics) -> Vec<MetricField> {
     out
 }
 
+/// Configuration for the entity metrics collector.
 pub struct MetricsCollectorConfig<B: Bmc> {
     pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub fetch_concurrency: usize,
     pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
+/// Metrics collector for a single BMC endpoint.
 pub struct MetricsCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     event_context: EventContext,
@@ -413,6 +415,13 @@ impl PeriodicCollector<BmcClient> for MetricsCollector<BmcClient> {
         let fetch_failures = AtomicUsize::new(0);
         self.emit_event(HealthEvent::ScrapeBatchStarted);
 
+        // Entity-level derived metrics (drive media life, PSU capacity), once
+        // per entity. These are hardware metrics, so they flow with the metrics
+        // collector rather than being tied to the sensor scrape path.
+        for entity in &inventory.entities {
+            self.emit_derived_metrics(entity);
+        }
+
         let this = &*self;
         let failures = &fetch_failures;
         let futures: Vec<_> = inventory
@@ -457,9 +466,35 @@ impl PeriodicCollector<BmcClient> for MetricsCollector<BmcClient> {
 }
 
 impl MetricsCollector<BmcClient> {
+    /// Forwards an event into the configured data sink, if any.
     fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
+        }
+    }
+
+    /// Emits the entity-level derived metrics (e.g. drive media life, PSU
+    /// capacity) for `entity` as measurement events.
+    fn emit_derived_metrics(&self, entity: &DiscoveredEntity<BmcClient>) {
+        let derived = entity.derived_metrics();
+        if derived.is_empty() {
+            return;
+        }
+        let mut attributes = entity.base_attributes();
+        attributes.extend(entity.entity_specific_attributes());
+        for metric in derived {
+            self.emit_event(HealthEvent::MeasurementObserved(
+                MetricSample {
+                    key: format!("{}/{}", entity.key(), metric.metric_type),
+                    name: "hw".to_string(),
+                    metric_type: metric.metric_type.to_string(),
+                    unit: metric.unit.to_string(),
+                    value: metric.value,
+                    labels: attributes.clone(),
+                    context: None,
+                }
+                .into(),
+            ));
         }
     }
 

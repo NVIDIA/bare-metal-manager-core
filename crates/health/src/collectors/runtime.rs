@@ -52,9 +52,16 @@ pub struct IterationResult {
     pub fetch_failures: usize,
 }
 
+/// A collector that is polled on a fixed cadence to scrape an endpoint.
+///
+/// The runtime owns the timer, rate limiter, and (optionally) an event mailbox;
+/// implementors only provide the per-iteration scrape logic and, if they opt in
+/// via [`Self::wants_events`], react to routed events.
 pub trait PeriodicCollector<B: Bmc>: Send + 'static {
+    /// Per-collector configuration consumed by [`Self::new_runner`].
     type Config: Send + 'static;
 
+    /// Builds a runner bound to a specific endpoint and BMC client.
     fn new_runner(
         bmc: Arc<B>,
         endpoint: Arc<BmcEndpoint>,
@@ -63,6 +70,7 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
     where
         Self: Sized;
 
+    /// Performs one scrape pass, emitting events and returning iteration stats.
     fn run_iteration(
         &mut self,
     ) -> impl std::future::Future<Output = Result<IterationResult, HealthError>> + Send;
@@ -77,13 +85,17 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
         false
     }
 
+    /// Reacts to an event routed to this collector's mailbox. No-op by default;
+    /// only invoked for collectors that opt in via [`Self::wants_events`].
     fn handle_event(&mut self, _context: &EventContext, _event: &HealthEvent) {}
 
+    /// Releases any resources when the collector is stopped. No-op by default.
     fn stop(&mut self) -> impl std::future::Future<Output = ()> + Send {
         async {}
     }
 }
 
+/// A boxed stream of health events produced by a [`StreamingCollector`].
 pub type EventStream<'a> = BoxStream<'a, Result<HealthEvent, HealthError>>;
 
 /// Trait for collectors that maintain a long-lived stream (SSE, gRPC, etc.)
@@ -256,12 +268,16 @@ impl Drop for StreamingConnectionGuard {
     }
 }
 
+/// A running periodic collector task plus the handles used to drive and stop it.
 pub struct Collector {
     handle: JoinHandle<()>,
     cancel_token: CancellationToken,
     event_node: Option<Arc<dyn SyncEventNode>>,
 }
 
+/// A [`SyncEventNode`] that forwards endpoint-addressed events into a running
+/// collector task's channel, decoupling the event graph from the collector's
+/// async loop.
 struct CollectorEventMailbox {
     node_type: &'static str,
     endpoint_key: String,
@@ -274,11 +290,17 @@ impl SyncEventNode for CollectorEventMailbox {
     }
 
     fn interested_in(&self, event: &HealthEvent) -> bool {
-        matches!(
-            event,
+        // Route every endpoint-addressed control/stage event to the collector's
+        // mailbox; the runner's `handle_event` decides which ones it acts on.
+        // The endpoint_key guard applies to all such events.
+        match event {
             HealthEvent::InventoryDiscovered { endpoint_key, .. }
-                if endpoint_key == &self.endpoint_key
-        )
+            | HealthEvent::InventoryUpdated { endpoint_key, .. }
+            | HealthEvent::ScrapeRequested { endpoint_key, .. } => {
+                endpoint_key == &self.endpoint_key
+            }
+            _ => false,
+        }
     }
 
     fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent> {
@@ -638,6 +660,8 @@ impl Collector {
         self.handle.is_finished()
     }
 
+    /// Returns this collector's event mailbox, if it consumes events, so the
+    /// event graph can route events to it.
     pub fn event_node(&self) -> Option<Arc<dyn SyncEventNode>> {
         self.event_node.clone()
     }

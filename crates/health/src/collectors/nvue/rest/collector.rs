@@ -303,6 +303,7 @@ impl NvueRestCollector {
         }
     }
 
+    /// Forwards an event into the configured data sink, if any.
     fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);

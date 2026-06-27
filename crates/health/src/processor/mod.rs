@@ -32,17 +32,24 @@ pub use rack_leak::RackLeakProcessor;
 use crate::metrics::{ComponentMetrics, MetricsManager};
 use crate::sink::{EventContext, HealthEvent, SyncEventNode};
 
+/// A queued event plus the set of nodes that may not re-consume it, so a node
+/// never re-processes events derived from its own output.
 struct PendingEvent<'a> {
     event: Cow<'a, HealthEvent>,
     blocked_processors: Vec<bool>,
 }
 
+/// Runs a pipeline of [`SyncEventNode`]s: each input event is offered to every
+/// interested node, and any events a node emits are fed back through the graph
+/// (excluding the emitting node) until the work queue drains.
 pub struct EventGraph {
     nodes: Vec<Arc<dyn SyncEventNode>>,
     component_metrics: Arc<ComponentMetrics>,
 }
 
 impl EventGraph {
+    /// Builds a graph over `nodes`. Callers must only construct this when at
+    /// least one node is configured.
     pub fn new(nodes: Vec<Arc<dyn SyncEventNode>>, metrics_manager: Arc<MetricsManager>) -> Self {
         debug_assert!(
             !nodes.is_empty(),
@@ -54,6 +61,8 @@ impl EventGraph {
         }
     }
 
+    /// Offers `current_event` to every interested, non-blocked node and queues
+    /// the events they emit for further processing.
     fn next_events(
         &self,
         context: &EventContext,

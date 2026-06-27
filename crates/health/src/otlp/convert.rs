@@ -148,6 +148,8 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     }
 }
 
+/// Converts a single health event into an OTLP log record, or `None` for events
+/// (metrics, lifecycle markers) that are not exported as logs.
 fn convert_event(event: &HealthEvent, observed_nanos: u64) -> Option<OtlpLogRecord> {
     match event {
         HealthEvent::LogObserved(log) => Some(convert_log(log, observed_nanos)),

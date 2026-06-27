@@ -88,6 +88,7 @@ impl RestClient {
         })
     }
 
+    /// Stores the credentials used for subsequent authenticated requests.
     pub fn set_credentials(&self, creds: UsernamePassword) {
         *self
             .credentials
@@ -95,6 +96,7 @@ impl RestClient {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(creds);
     }
 
+    /// Drops any stored credentials, e.g. after an authentication failure.
     pub fn clear_credentials(&self) {
         *self
             .credentials
@@ -102,6 +104,7 @@ impl RestClient {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 
+    /// Returns whether credentials are currently stored.
     pub fn has_credentials(&self) -> bool {
         self.credentials
             .read()

@@ -27,16 +27,22 @@ use crate::sink::{
     HealthReportTarget, Probe, ReportSource,
 };
 
+/// Per-rack tally of which trays are currently reporting a leak.
 struct RackLeakState {
     leaking_trays: HashSet<String>,
 }
 
+/// Processor node that rolls up per-tray leak reports into a rack-level leak
+/// report, alerting once the number of simultaneously-leaking trays in a rack
+/// crosses a threshold.
 pub struct RackLeakProcessor {
     racks: DashMap<RackId, RackLeakState>,
     leaking_tray_threshold: usize,
 }
 
 impl RackLeakProcessor {
+    /// Creates a rack-leak processor that alerts once `leaking_tray_threshold`
+    /// trays in a rack are leaking at the same time.
     pub fn new(leaking_tray_threshold: usize) -> Self {
         Self {
             racks: DashMap::new(),
@@ -44,6 +50,8 @@ impl RackLeakProcessor {
         }
     }
 
+    /// Builds the rack-level report (alert or success) for `leaking_count`
+    /// currently-leaking trays.
     fn build_report(&self, leaking_count: usize) -> HealthReport {
         if leaking_count >= self.leaking_tray_threshold {
             HealthReport {

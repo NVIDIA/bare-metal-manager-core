@@ -58,12 +58,16 @@ struct HealthReportWindow {
     alerts: Vec<HealthReportAlert>,
 }
 
+/// Processor node that classifies sensor measurements against their thresholds
+/// and, at the end of each scrape batch, emits a single health report
+/// summarizing the window (suppressing empty windows).
 #[derive(Default)]
 pub struct HealthReportProcessor {
     windows: DashMap<String, HealthReportWindow>,
 }
 
 impl HealthReportProcessor {
+    /// Creates a processor with no in-flight scrape windows.
     pub fn new() -> Self {
         Self {
             windows: DashMap::new(),

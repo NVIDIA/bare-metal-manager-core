@@ -212,6 +212,13 @@ impl<B: Bmc> DiscoveredEntity<B> {
     }
 }
 
+/// An immutable snapshot of the entities discovered at an endpoint.
+///
+/// Discovery publishes a new snapshot via [`HealthEvent::InventoryDiscovered`];
+/// consumers cache their own `Arc` to it, so there is no shared mutable state.
+/// `generation` increases with each snapshot to let consumers detect refreshes.
+///
+/// [`HealthEvent::InventoryDiscovered`]: crate::sink::HealthEvent::InventoryDiscovered
 pub struct EntityInventory<B: Bmc> {
     pub(crate) entities: Vec<DiscoveredEntity<B>>,
     pub(crate) discovered_at: Instant,

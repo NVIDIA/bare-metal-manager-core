@@ -48,6 +48,8 @@ impl OtlpMetricsDrainTask {
         }
     }
 
+    /// Pops queued metric samples into `batch` until it reaches `batch_size` or
+    /// the queue is empty.
     fn drain_batch(&self, batch: &mut Vec<(EventContext, MetricSample)>) {
         let remaining = self.batch_size.saturating_sub(batch.len());
         for _ in 0..remaining {

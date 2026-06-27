@@ -24,22 +24,28 @@ use crate::sink::{
     HealthReportTarget, Probe, ReportSource,
 };
 
+/// Processor node that aggregates per-detector BMC leak alerts into a single
+/// tray-level leak report, declaring a leak once enough detectors fire.
 pub struct LeakSyncEventNode {
     minimum_alerts_per_report: usize,
 }
 
 impl LeakSyncEventNode {
+    /// Creates a leak processor that declares a leak once at least
+    /// `minimum_alerts_per_report` leak-detector alerts are seen in a report.
     pub fn new(minimum_alerts_per_report: usize) -> Self {
         Self {
             minimum_alerts_per_report,
         }
     }
 
+    /// Returns whether `alerts` meets the configured leak threshold.
     fn is_leaking(&self, alerts: usize) -> bool {
         alerts >= self.minimum_alerts_per_report
     }
 }
 
+/// Returns whether an alert was raised by a leak detector.
 fn is_leak_detector_alert(alert: &HealthReportAlert) -> bool {
     alert
         .classifications
@@ -47,6 +53,8 @@ fn is_leak_detector_alert(alert: &HealthReportAlert) -> bool {
         .any(|classification| classification == &Classification::LeakDetector)
 }
 
+/// Builds a comma-separated, de-duplicated list of the leaking detector targets
+/// for inclusion in the report message.
 fn leak_details(alerts: &[&HealthReportAlert]) -> String {
     let targets: BTreeSet<String> = alerts
         .iter()

@@ -142,6 +142,8 @@ impl CollectorState {
         self.map(kind).contains_key(key)
     }
 
+    /// Returns the event mailbox of the tracked collector of `kind` for `key`,
+    /// so newly discovered inventory can be routed to already-running consumers.
     pub(super) fn event_node(
         &self,
         kind: CollectorKind,

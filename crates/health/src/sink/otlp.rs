@@ -28,7 +28,9 @@ use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
 
+/// Dedup queue of log-shaped events awaiting OTLP export, keyed by endpoint.
 pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, HealthEvent)>;
+/// Dedup queue of metric samples awaiting OTLP export, keyed by sample identity.
 pub(crate) type OtlpMetricsQueue = DedupQueue<OtlpMetricQueueKey, (EventContext, MetricSample)>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -184,10 +186,12 @@ impl OtlpSink {
 
 #[cfg(feature = "bench-hooks")]
 impl OtlpSink {
+    /// Pops one queued log event from the sink's internal queue (benchmarks only).
     pub fn pop_for_bench(&self) -> Option<(EventContext, HealthEvent)> {
         self.queue.pop().map(|(_key, value)| value)
     }
 
+    /// Pops one queued metric sample from the sink's internal queue (benchmarks only).
     pub fn pop_metric_for_bench(&self) -> Option<(EventContext, MetricSample)> {
         self.metrics_queue.pop().map(|(_key, value)| value)
     }

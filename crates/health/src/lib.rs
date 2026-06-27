@@ -111,10 +111,13 @@ impl<B: nv_redfish::core::Bmc + 'static> From<nv_redfish::Error<B>> for HealthEr
     }
 }
 
+/// The endpoint discovery wiring assembled from configured endpoint sources.
 struct EndpointWiring {
     source: Arc<dyn EndpointSource>,
 }
 
+/// Assembles the composite endpoint source (static and/or Carbide API) from
+/// config, erroring if no sources are configured.
 fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
     let reqwest = ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
         .map_err(BmcError::ReqwestError)?;
@@ -159,6 +162,8 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
     })
 }
 
+/// Builds the root event-graph node wiring together all enabled sinks and
+/// processors, returning `None` when no nodes are configured.
 fn build_data_sink(
     config: &Config,
     metrics_manager: Arc<MetricsManager>,
@@ -180,12 +185,19 @@ fn build_data_sink(
         || config.sinks.health_report.is_enabled()
         || config.sinks.power_shelf_health_report.is_enabled()
         || config.sinks.switch_health_report.is_enabled()
+        || config.sinks.otlp.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
         nodes.push(Arc::new(HealthReportProcessor::new()));
     }
 
-    if config.sinks.health_report.is_enabled() {
+    // Intrusion reports target the machine; install whenever any consumer of
+    // machine-targeted HealthReportProduced events is enabled (tracing/otlp
+    // forward all reports, the machine health-report sink consumes them directly).
+    if config.sinks.tracing.is_enabled()
+        || config.sinks.health_report.is_enabled()
+        || config.sinks.otlp.is_enabled()
+    {
         nodes.push(Arc::new(BmcIntrusionSyncEventNode::new()));
     }
 

@@ -337,29 +337,47 @@ impl HealthReport {
     }
 }
 
+/// Canonical event flowing through the health event graph.
+///
+/// Every collector, processor, and sink communicates exclusively in terms of
+/// these events; the variants are domain facts (what was observed) rather than
+/// source-specific shapes, so new data sources can reuse them unchanged.
 #[derive(Clone)]
 pub enum HealthEvent {
+    /// Request to scrape a specific endpoint with the given cadence/kind.
     ScrapeRequested {
         endpoint_key: String,
         kind: ScrapeKind,
     },
+    /// A fresh inventory snapshot was discovered for an endpoint; consumers
+    /// cache their own copy of the immutable snapshot.
     InventoryDiscovered {
         endpoint_key: String,
         inventory: Arc<EntityInventory<BmcClient>>,
     },
+    /// A consumer's cached inventory advanced to `generation`.
     InventoryUpdated {
         endpoint_key: String,
         generation: u64,
     },
+    /// Marks the start of a scrape batch (used by sinks to window samples).
     ScrapeBatchStarted,
+    /// A single metric measurement was observed.
     MeasurementObserved(Box<MetricSample>),
+    /// Marks the end of a scrape batch.
     ScrapeBatchFinished,
+    /// The owning node/endpoint was removed; sinks should drop its state.
     NodeRemoved,
+    /// A log record was observed.
     LogObserved(Box<LogRecord>),
+    /// Firmware version information was observed.
     FirmwareObserved(FirmwareInfo),
+    /// A health report was produced by a processor for downstream sinks.
     HealthReportProduced(Arc<HealthReport>),
 }
 
+/// The category of data a [`HealthEvent::ScrapeRequested`] asks a collector to
+/// gather, allowing one collector type to serve multiple data domains.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ScrapeKind {
     Inventory,

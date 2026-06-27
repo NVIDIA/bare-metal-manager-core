@@ -37,6 +37,10 @@ pub struct EntityDiscoveryCollectorConfig<B: Bmc> {
     pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
+/// Discovers the entity inventory of a single endpoint and publishes snapshots
+/// as [`HealthEvent::InventoryDiscovered`] events.
+///
+/// [`HealthEvent::InventoryDiscovered`]: crate::sink::HealthEvent::InventoryDiscovered
 pub struct EntityDiscoveryCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     event_context: EventContext,
@@ -104,6 +108,7 @@ impl PeriodicCollector<BmcClient> for EntityDiscoveryCollector<BmcClient> {
 }
 
 impl EntityDiscoveryCollector<BmcClient> {
+    /// Forwards an event into the configured data sink, if any.
     fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);

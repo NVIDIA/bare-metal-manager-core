@@ -35,6 +35,9 @@ use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
 use crate::sink::{CompositeSyncEventNode, SyncEventNode};
 
+/// Spawns the collector graph for one endpoint: given the discovery context, the
+/// endpoint, an optional data sink, and a metrics prefix, it starts the
+/// appropriate collectors.
 type SpawnGraphFn = fn(
     &mut DiscoveryLoopContext,
     &Arc<BmcEndpoint>,
@@ -42,18 +45,23 @@ type SpawnGraphFn = fn(
     &str,
 ) -> Result<(), HealthError>;
 
+/// Declarative binding of an endpoint predicate to the collector graph that
+/// should be spawned for endpoints matching it.
 struct EndpointGraphSpec {
     name: &'static str,
     applies_to: fn(&BmcEndpoint) -> bool,
     spawn: SpawnGraphFn,
 }
 
+/// Returns whether the endpoint is a switch acting in the host role.
 fn is_switch_host_endpoint(endpoint: &BmcEndpoint) -> bool {
     endpoint
         .switch_data()
         .is_some_and(|switch| switch.endpoint_role == SwitchEndpointRole::Host)
 }
 
+/// Returns whether the endpoint should use the generic Redfish collector graph
+/// (everything that is not a switch host).
 fn is_generic_redfish_endpoint(endpoint: &BmcEndpoint) -> bool {
     !is_switch_host_endpoint(endpoint)
 }

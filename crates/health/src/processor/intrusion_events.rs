@@ -33,10 +33,13 @@ enum IntrusionEventState {
     Clear,
 }
 
+/// Processor node that turns BMC intrusion log records into machine-targeted
+/// health reports (an alert when intrusion is asserted, a success when cleared).
 #[derive(Default)]
 pub struct BmcIntrusionSyncEventNode;
 
 impl BmcIntrusionSyncEventNode {
+    /// Creates a new intrusion-event processor.
     pub fn new() -> Self {
         Self
     }

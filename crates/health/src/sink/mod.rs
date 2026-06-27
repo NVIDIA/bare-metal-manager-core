@@ -50,11 +50,26 @@ pub(crate) use self::otlp::OtlpSink;
 #[cfg(feature = "bench-hooks")]
 pub use self::otlp::OtlpSink;
 
+/// A node in the synchronous health event graph.
+///
+/// Every processing unit (sinks, transforms, collector mailboxes) implements
+/// this single trait. A node receives a [`HealthEvent`], may act on it, and
+/// returns any derived events to be fed back into the graph. This unifies what
+/// used to be separate "collector", "sink", and "processor" abstractions.
 pub trait SyncEventNode: Send + Sync {
+    /// Stable identifier for this node, used in logs and metrics labels.
     fn node_type(&self) -> &'static str;
+
+    /// Returns whether this node wants to receive `event`.
+    ///
+    /// Dispatchers consult this before calling [`Self::handle_event`] so nodes
+    /// can cheaply opt out of events they never act on. Defaults to `true`.
     fn interested_in(&self, _event: &HealthEvent) -> bool {
         true
     }
+
+    /// Processes `event` and returns any derived events to re-feed into the
+    /// graph (empty when the node is a terminal sink).
     fn handle_event(&self, context: &EventContext, event: &HealthEvent) -> Vec<HealthEvent>;
 }
 
