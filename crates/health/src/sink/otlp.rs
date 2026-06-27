@@ -235,7 +235,10 @@ impl SyncEventNode for OtlpSink {
                 (key, event.clone())
             }
             HealthEvent::FirmwareObserved(info) => {
-                let key = format!("{}|firmware|{}", context.endpoint_key, info.id);
+                let key = format!(
+                    "{}|firmware|{}|{}",
+                    context.endpoint_key, info.id, info.component
+                );
                 (key, event.clone())
             }
             _ => return Vec::new(),
@@ -257,7 +260,7 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{DiagnosticLogRecord, LogRecord, MetricSample};
+    use crate::sink::{DiagnosticLogRecord, FirmwareInfo, LogRecord, MetricSample};
 
     fn test_context() -> EventContext {
         EventContext {
@@ -325,6 +328,15 @@ mod tests {
         }))
     }
 
+    fn firmware_event(id: &str, component: &str, version: &str) -> HealthEvent {
+        HealthEvent::FirmwareObserved(FirmwareInfo {
+            id: id.to_string(),
+            component: component.to_string(),
+            version: version.to_string(),
+            attributes: Vec::new(),
+        })
+    }
+
     fn test_sink() -> OtlpSink {
         OtlpSink::new_for_bench(Arc::new(OpenBmcEventMapper))
     }
@@ -375,6 +387,28 @@ mod tests {
         }
         assert_eq!(count, 1, "same key should dedup to one entry");
         assert_eq!(sink.metrics_replaced_total.get() as u64, 1);
+    }
+
+    #[test]
+    fn firmware_events_dedup_by_id_and_component() {
+        let sink = test_sink();
+        let ctx = test_context();
+
+        sink.handle_event(&ctx, &firmware_event("1", "BIOS", "1.0"));
+        sink.handle_event(&ctx, &firmware_event("2", "BIOS", "1.0"));
+        sink.handle_event(&ctx, &firmware_event("", "BMC", "1.0"));
+        sink.handle_event(&ctx, &firmware_event("", "BIOS", "1.0"));
+
+        let mut count = 0;
+        while sink.queue.pop().is_some() {
+            count += 1;
+        }
+
+        assert_eq!(
+            count, 4,
+            "id and component are both part of firmware identity"
+        );
+        assert_eq!(sink.replaced_total.get() as u64, 0);
     }
 
     #[test]

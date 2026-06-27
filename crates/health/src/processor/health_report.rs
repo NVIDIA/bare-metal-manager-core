@@ -64,13 +64,15 @@ struct HealthReportWindow {
 #[derive(Default)]
 pub struct HealthReportProcessor {
     windows: DashMap<String, HealthReportWindow>,
+    emit_empty_reports: bool,
 }
 
 impl HealthReportProcessor {
     /// Creates a processor with no in-flight scrape windows.
-    pub fn new() -> Self {
+    pub fn new(emit_empty_reports: bool) -> Self {
         Self {
             windows: DashMap::new(),
+            emit_empty_reports,
         }
     }
 
@@ -227,7 +229,10 @@ impl SyncEventNode for HealthReportProcessor {
                 let Some((_, window)) = self.windows.remove(&Self::stream_key(context)) else {
                     return Vec::new();
                 };
-                if window.successes.is_empty() && window.alerts.is_empty() {
+                if !self.emit_empty_reports
+                    && window.successes.is_empty()
+                    && window.alerts.is_empty()
+                {
                     tracing::debug!(
                         endpoint = %context.addr.mac,
                         collector_type = context.collector_type,
@@ -304,7 +309,7 @@ mod tests {
 
     #[test]
     fn metric_window_emits_abstract_health_report() {
-        let processor = HealthReportProcessor::new();
+        let processor = HealthReportProcessor::new(false);
         let context = test_context();
 
         let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
@@ -349,7 +354,7 @@ mod tests {
 
     #[test]
     fn collector_removed_clears_metric_window() {
-        let processor = HealthReportProcessor::new();
+        let processor = HealthReportProcessor::new(false);
         let context = test_context();
 
         let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
@@ -363,13 +368,28 @@ mod tests {
 
     #[test]
     fn empty_metric_window_does_not_emit_health_report() {
-        let processor = HealthReportProcessor::new();
+        let processor = HealthReportProcessor::new(false);
         let context = test_context();
 
         let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
         let emitted = processor.handle_event(&context, &HealthEvent::ScrapeBatchFinished);
 
         assert!(emitted.is_empty());
+        assert!(processor.windows.is_empty());
+    }
+
+    #[test]
+    fn empty_metric_window_can_emit_health_report_when_configured() {
+        let processor = HealthReportProcessor::new(true);
+        let context = test_context();
+
+        let _ = processor.handle_event(&context, &HealthEvent::ScrapeBatchStarted);
+        let emitted = processor.handle_event(&context, &HealthEvent::ScrapeBatchFinished);
+
+        let Some(HealthEvent::HealthReportProduced(report)) = emitted.last() else {
+            panic!("expected health report event");
+        };
+        assert!(report.is_empty());
         assert!(processor.windows.is_empty());
     }
 }

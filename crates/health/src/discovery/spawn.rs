@@ -115,6 +115,7 @@ fn spawn_generic_redfish_collectors(
 
     let sensors_enabled = matches!(ctx.sensors_config, Configurable::Enabled(_));
     let metrics_enabled = matches!(ctx.metrics_config, Configurable::Enabled(_));
+    let mut inventory_consumer_started = false;
 
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
@@ -130,6 +131,7 @@ fn spawn_generic_redfish_collectors(
                 data_sink: data_sink.clone(),
                 sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
+                emit_derived_metrics: !metrics_enabled,
                 _bmc: std::marker::PhantomData,
             },
             CollectorStartContext {
@@ -142,6 +144,7 @@ fn spawn_generic_redfish_collectors(
             Ok(monitor) => {
                 ctx.collectors
                     .insert(CollectorKind::Sensor, key.clone().into(), monitor);
+                inventory_consumer_started = true;
                 tracing::info!(
                     endpoint_key = %key,
                     total_collectors = ctx.collectors.len(CollectorKind::Sensor),
@@ -183,6 +186,7 @@ fn spawn_generic_redfish_collectors(
             Ok(monitor) => {
                 ctx.collectors
                     .insert(CollectorKind::Metrics, key.clone().into(), monitor);
+                inventory_consumer_started = true;
                 tracing::info!(
                     endpoint_key = %key,
                     total_collectors = ctx.collectors.len(CollectorKind::Metrics),
@@ -199,27 +203,37 @@ fn spawn_generic_redfish_collectors(
         }
     }
 
-    // Discovery's inventory fanout is captured when it starts, so only start it once
-    // every enabled consumer is up. Otherwise a consumer that starts in a later
-    // iteration (e.g. after a transient start failure) would never be wired in.
-    let sensor_ready = !sensors_enabled || ctx.collectors.contains(CollectorKind::Sensor, &key);
-    let metrics_ready = !metrics_enabled || ctx.collectors.contains(CollectorKind::Metrics, &key);
+    if inventory_consumer_started
+        && let Some(discovery) = ctx
+            .collectors
+            .map_mut(CollectorKind::Discovery)
+            .remove(key.as_str())
+    {
+        tracing::info!(
+            endpoint_key = %key,
+            "Restarting entity discovery to rewire inventory consumers"
+        );
+        tokio::spawn(async move {
+            discovery.stop().await;
+        });
+    }
+
+    let mut discovery_nodes: Vec<Arc<dyn SyncEventNode>> = Vec::new();
+    if sensors_enabled
+        && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Sensor, &key)
+    {
+        discovery_nodes.push(event_node);
+    }
+    if metrics_enabled
+        && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Metrics, &key)
+    {
+        discovery_nodes.push(event_node);
+    }
+
     if (sensors_enabled || metrics_enabled)
-        && sensor_ready
-        && metrics_ready
+        && !discovery_nodes.is_empty()
         && !ctx.collectors.contains(CollectorKind::Discovery, &key)
     {
-        let mut discovery_nodes: Vec<Arc<dyn SyncEventNode>> = Vec::new();
-        if sensors_enabled
-            && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Sensor, &key)
-        {
-            discovery_nodes.push(event_node);
-        }
-        if metrics_enabled
-            && let Some(event_node) = ctx.collectors.event_node(CollectorKind::Metrics, &key)
-        {
-            discovery_nodes.push(event_node);
-        }
         if let Some(data_sink) = data_sink.clone() {
             discovery_nodes.push(data_sink);
         }

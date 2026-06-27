@@ -299,6 +299,7 @@ impl SyncEventNode for CollectorEventMailbox {
             | HealthEvent::ScrapeRequested { endpoint_key, .. } => {
                 endpoint_key == &self.endpoint_key
             }
+            HealthEvent::NodeRemoved => true,
             _ => false,
         }
     }

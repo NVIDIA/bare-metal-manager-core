@@ -132,6 +132,7 @@ fn build_log_event(idx: usize) -> HealthEvent {
 fn build_firmware_event(idx: usize) -> HealthEvent {
     let component = format!("component-{idx}");
     HealthEvent::FirmwareObserved(FirmwareInfo {
+        id: format!("firmware-{idx}"),
         component: component.clone(),
         version: format!("1.0.{}", idx % 100),
         attributes: vec![

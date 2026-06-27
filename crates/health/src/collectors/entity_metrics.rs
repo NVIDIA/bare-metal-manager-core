@@ -454,9 +454,17 @@ impl PeriodicCollector<BmcClient> for MetricsCollector<BmcClient> {
         true
     }
 
-    fn handle_event(&mut self, _context: &EventContext, event: &HealthEvent) {
-        if let HealthEvent::InventoryDiscovered { inventory, .. } = event {
-            self.latest_inventory = Some(inventory.clone());
+    fn handle_event(&mut self, context: &EventContext, event: &HealthEvent) {
+        match event {
+            HealthEvent::InventoryDiscovered { inventory, .. } => {
+                self.latest_inventory = Some(inventory.clone());
+            }
+            HealthEvent::NodeRemoved
+                if context.endpoint_key() == self.event_context.endpoint_key() =>
+            {
+                self.latest_inventory = None;
+            }
+            _ => {}
         }
     }
 

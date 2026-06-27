@@ -169,9 +169,11 @@ fn build_data_sink(
     metrics_manager: Arc<MetricsManager>,
 ) -> Result<Option<Arc<dyn SyncEventNode>>, HealthError> {
     let mut nodes: Vec<Arc<dyn SyncEventNode>> = Vec::new();
+    let mut has_terminal_sink = false;
 
     if let Configurable::Enabled(sink_cfg) = &config.sinks.tracing {
         nodes.push(Arc::new(TracingSink::new(sink_cfg)));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(_) = &config.sinks.prometheus {
@@ -179,7 +181,24 @@ fn build_data_sink(
             metrics_manager.clone(),
             &config.metrics.prefix,
         )?));
+        has_terminal_sink = true;
     }
+
+    let emit_empty_sensor_reports = config
+        .sinks
+        .health_report
+        .as_option()
+        .is_some_and(|cfg| !cfg.skip_empty_reports)
+        || config
+            .sinks
+            .power_shelf_health_report
+            .as_option()
+            .is_some_and(|cfg| !cfg.skip_empty_reports)
+        || config
+            .sinks
+            .switch_health_report
+            .as_option()
+            .is_some_and(|cfg| !cfg.skip_empty_reports);
 
     if config.sinks.tracing.is_enabled()
         || config.sinks.health_report.is_enabled()
@@ -188,7 +207,9 @@ fn build_data_sink(
         || config.sinks.otlp.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
-        nodes.push(Arc::new(HealthReportProcessor::new()));
+        nodes.push(Arc::new(HealthReportProcessor::new(
+            emit_empty_sensor_reports,
+        )));
     }
 
     // Intrusion reports target the machine; install whenever any consumer of
@@ -217,22 +238,27 @@ fn build_data_sink(
         nodes.push(Arc::new(
             LogFileSink::new(sink_cfg).map_err(HealthError::GenericError)?,
         ));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_report {
         nodes.push(Arc::new(HealthReportSink::new(sink_cfg)?));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_report {
         nodes.push(Arc::new(RackHealthReportSink::new(sink_cfg)?));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.switch_health_report {
         nodes.push(Arc::new(SwitchHealthReportSink::new(sink_cfg)?));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.power_shelf_health_report {
         nodes.push(Arc::new(PowerShelfHealthReportSink::new(sink_cfg)?));
+        has_terminal_sink = true;
     }
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {
@@ -243,9 +269,10 @@ fn build_data_sink(
             &metrics_manager,
             &config.metrics.prefix,
         )?));
+        has_terminal_sink = true;
     }
 
-    if nodes.is_empty() {
+    if !has_terminal_sink {
         return Ok(None);
     }
 

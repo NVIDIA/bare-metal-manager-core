@@ -36,6 +36,7 @@ pub struct SensorCollectorConfig<B: Bmc> {
     pub data_sink: Option<Arc<dyn SyncEventNode>>,
     pub sensor_fetch_concurrency: usize,
     pub include_sensor_thresholds: bool,
+    pub emit_derived_metrics: bool,
     pub(crate) _bmc: std::marker::PhantomData<B>,
 }
 
@@ -47,6 +48,7 @@ pub struct SensorCollector<B: Bmc> {
     data_sink: Option<Arc<dyn SyncEventNode>>,
     sensor_fetch_concurrency: usize,
     include_sensor_thresholds: bool,
+    emit_derived_metrics: bool,
 }
 
 impl PeriodicCollector<BmcClient> for SensorCollector<BmcClient> {
@@ -65,6 +67,7 @@ impl PeriodicCollector<BmcClient> for SensorCollector<BmcClient> {
             data_sink: config.data_sink,
             sensor_fetch_concurrency: config.sensor_fetch_concurrency.max(1),
             include_sensor_thresholds: config.include_sensor_thresholds,
+            emit_derived_metrics: config.emit_derived_metrics,
         })
     }
 
@@ -91,6 +94,12 @@ impl PeriodicCollector<BmcClient> for SensorCollector<BmcClient> {
 
         let fetch_failures = AtomicUsize::new(0);
         self.emit_event(HealthEvent::ScrapeBatchStarted);
+
+        if self.emit_derived_metrics {
+            for entity in &inventory.entities {
+                self.emit_derived_metrics(entity);
+            }
+        }
 
         // Build fetch futures borrowing from the immutable inventory snapshot, then
         // drive them concurrently. Each future borrows `&self`, the entity, and
@@ -132,9 +141,17 @@ impl PeriodicCollector<BmcClient> for SensorCollector<BmcClient> {
         true
     }
 
-    fn handle_event(&mut self, _context: &EventContext, event: &HealthEvent) {
-        if let HealthEvent::InventoryDiscovered { inventory, .. } = event {
-            self.latest_inventory = Some(inventory.clone());
+    fn handle_event(&mut self, context: &EventContext, event: &HealthEvent) {
+        match event {
+            HealthEvent::InventoryDiscovered { inventory, .. } => {
+                self.latest_inventory = Some(inventory.clone());
+            }
+            HealthEvent::NodeRemoved
+                if context.endpoint_key() == self.event_context.endpoint_key() =>
+            {
+                self.latest_inventory = None;
+            }
+            _ => {}
         }
     }
 
@@ -148,6 +165,29 @@ impl SensorCollector<BmcClient> {
     fn emit_event(&self, event: HealthEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
+        }
+    }
+
+    fn emit_derived_metrics(&self, entity: &DiscoveredEntity<BmcClient>) {
+        let derived = entity.derived_metrics();
+        if derived.is_empty() {
+            return;
+        }
+        let mut attributes = entity.base_attributes();
+        attributes.extend(entity.entity_specific_attributes());
+        for metric in derived {
+            self.emit_event(HealthEvent::MeasurementObserved(
+                MetricSample {
+                    key: format!("{}/{}", entity.key(), metric.metric_type),
+                    name: "hw".to_string(),
+                    metric_type: metric.metric_type.to_string(),
+                    unit: metric.unit.to_string(),
+                    value: metric.value,
+                    labels: attributes.clone(),
+                    context: None,
+                }
+                .into(),
+            ));
         }
     }
 
