@@ -18,8 +18,8 @@ use std::net::IpAddr;
 
 use mac_address::MacAddress;
 use model::expected_machine::{
-    DpuMode, ExpectedHostNic, ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
-    HostLifecycleProfile, LinkedExpectedMachine, UnexpectedMachine,
+    BmcIpAllocationType, DpuMode, ExpectedHostNic, ExpectedMachine, ExpectedMachineData,
+    ExpectedMachineRequest, HostLifecycleProfile, LinkedExpectedMachine, UnexpectedMachine,
 };
 use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
@@ -49,6 +49,32 @@ impl From<rpc::forge::DpuMode> for DpuMode {
             // which preserves behavior for old clients that don't send the
             // field at all.
             rpc::forge::DpuMode::Unspecified => DpuMode::default(),
+        }
+    }
+}
+
+impl From<BmcIpAllocationType> for rpc::forge::BmcIpAllocationType {
+    fn from(mode: BmcIpAllocationType) -> Self {
+        match mode {
+            BmcIpAllocationType::Auto => rpc::forge::BmcIpAllocationType::Auto,
+            BmcIpAllocationType::Dynamic => rpc::forge::BmcIpAllocationType::Dynamic,
+            BmcIpAllocationType::Fixed => rpc::forge::BmcIpAllocationType::Fixed,
+            BmcIpAllocationType::Retained => rpc::forge::BmcIpAllocationType::Retained,
+        }
+    }
+}
+
+impl From<rpc::forge::BmcIpAllocationType> for BmcIpAllocationType {
+    fn from(mode: rpc::forge::BmcIpAllocationType) -> Self {
+        match mode {
+            rpc::forge::BmcIpAllocationType::Auto => BmcIpAllocationType::Auto,
+            rpc::forge::BmcIpAllocationType::Dynamic => BmcIpAllocationType::Dynamic,
+            rpc::forge::BmcIpAllocationType::Fixed => BmcIpAllocationType::Fixed,
+            rpc::forge::BmcIpAllocationType::Retained => BmcIpAllocationType::Retained,
+            // Unspecified (0) or any unknown value means "use the default",
+            // which preserves behavior for old clients that don't send the
+            // field at all.
+            rpc::forge::BmcIpAllocationType::Unspecified => BmcIpAllocationType::default(),
         }
     }
 }
@@ -169,6 +195,12 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                 DpuMode::DpuMode => None,
                 other => Some(rpc::forge::DpuMode::from(other) as i32),
             },
+            // Only emit `bmc_ip_allocation` when it's non-default (Auto), so an
+            // unset field round-trips and older clients keep falling back to Auto.
+            bmc_ip_allocation: match expected_machine.data.bmc_ip_allocation {
+                BmcIpAllocationType::Auto => None,
+                other => Some(rpc::forge::BmcIpAllocationType::from(other) as i32),
+            },
             host_lifecycle_profile: (!expected_machine.data.host_lifecycle_profile.is_empty())
                 .then_some(rpc::forge::HostLifecycleProfile {
                     disable_lockdown: expected_machine
@@ -241,6 +273,20 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
                 .map(|i| rpc::forge::DpuMode::try_from(i).unwrap_or_default())
                 .map(DpuMode::from)
                 .unwrap_or_default(),
+            // `bmc_ip_allocation` is optional on the wire; an unset field (and the
+            // ::Unspecified discriminant) falls back to `BmcIpAllocationType::default()`
+            // (::Auto), so old clients continue to behave as before. An unknown
+            // discriminant is rejected rather than silently coerced to the default.
+            bmc_ip_allocation: match em.bmc_ip_allocation {
+                None => BmcIpAllocationType::default(),
+                Some(i) => BmcIpAllocationType::from(
+                    rpc::forge::BmcIpAllocationType::try_from(i).map_err(|_| {
+                        RpcDataConversionError::InvalidArgument(format!(
+                            "Invalid bmc_ip_allocation: {i}"
+                        ))
+                    })?,
+                ),
+            },
             host_lifecycle_profile: em
                 .host_lifecycle_profile
                 .map(|hlp| HostLifecycleProfile {
@@ -314,6 +360,45 @@ mod tests {
     #[test]
     fn dpu_mode_default_is_dpu_mode() {
         assert_eq!(DpuMode::default(), DpuMode::DpuMode);
+    }
+
+    /// `BmcIpAllocationType::from(rpc::forge::BmcIpAllocationType)` maps each
+    /// named variant onto its model twin, and Unspecified (what old clients send)
+    /// onto the default — keeping existing deployments behaving as before. The
+    /// named rows also stand in for the model -> rpc -> model round trip, since
+    /// the rpc input is exactly what `rpc::forge::BmcIpAllocationType::from(model)`
+    /// produces.
+    #[test]
+    fn rpc_bmc_ip_allocation_maps_to_model() {
+        value_scenarios!(
+            run = BmcIpAllocationType::from;
+            "unspecified maps to default" {
+                rpc::forge::BmcIpAllocationType::Unspecified => BmcIpAllocationType::default(),
+            }
+
+            "auto round trips" {
+                rpc::forge::BmcIpAllocationType::Auto => BmcIpAllocationType::Auto,
+            }
+
+            "dynamic round trips" {
+                rpc::forge::BmcIpAllocationType::Dynamic => BmcIpAllocationType::Dynamic,
+            }
+
+            "fixed round trips" {
+                rpc::forge::BmcIpAllocationType::Fixed => BmcIpAllocationType::Fixed,
+            }
+
+            "retained round trips" {
+                rpc::forge::BmcIpAllocationType::Retained => BmcIpAllocationType::Retained,
+            }
+        );
+    }
+
+    /// The BmcIpAllocationType default is Auto, which is what the Unspecified
+    /// mapping above relies on.
+    #[test]
+    fn bmc_ip_allocation_default_is_auto() {
+        assert_eq!(BmcIpAllocationType::default(), BmcIpAllocationType::Auto);
     }
 
     #[test]

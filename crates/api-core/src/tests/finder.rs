@@ -72,11 +72,14 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     )
     .await;
 
+    // The managed host above uses the default `auto` bmc_ip_allocation, which
+    // retains its auto-allocated BMC address as Static -- so the finder reports
+    // it as StaticBmcIp rather than plain BmcIp.
     test_inner(
         host_machine.bmc_info.as_ref().unwrap().ip(),
-        IpType::BmcIp,
+        IpType::StaticBmcIp,
         &env,
-        "test_bmc_ip",
+        "test_static_bmc_ip",
     )
     .await;
 

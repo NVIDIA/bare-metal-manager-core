@@ -736,6 +736,28 @@ pub async fn preallocate_bmc_machine_interface(
     .await
 }
 
+/// Pin a BMC interface's dynamic (DHCP) address as `Static` so lease expiry can't
+/// reap it. Idempotent no-op if the BMC interface has no DHCP address. Honors a
+/// `Retained` bmc_ip_allocation for BMCs with no operator-specified address.
+pub async fn retain_bmc_address_by_mac(
+    txn: &mut PgConnection,
+    bmc_mac: MacAddress,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machine_interface_addresses
+        SET allocation_type = 'static'
+        WHERE allocation_type = 'dhcp'
+          AND interface_id IN (
+              SELECT id FROM machine_interfaces
+              WHERE mac_address = $1 AND interface_type = 'Bmc'
+          )";
+    sqlx::query(query)
+        .bind(bmc_mac)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|err| DatabaseError::query(query, err))
+}
+
 /// If a machine interface row already exists for `mac_address`, reconcile it against the
 /// requested (`static_ip`, `interface_type`):
 ///   - Returns `Ok(true)` when an existing row carries `static_ip`. Promotes `interface_type`

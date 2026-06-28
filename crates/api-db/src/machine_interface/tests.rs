@@ -228,3 +228,90 @@ async fn test_preallocate_machine_interface_promotes_interface_type(
 
     Ok(())
 }
+
+/// `retain_bmc_address_by_mac` promotes a BMC interface's DHCP address to
+/// `Static` so DHCP lease expiry can't reap it, is a no-op on a second call, and
+/// the promoted address then survives the DHCP-scoped expiry delete path.
+#[crate::sqlx_test]
+async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::allocation_type::AllocationType;
+
+    create_static_assignments_segment(&pool).await?;
+    let mac: MacAddress = "7A:7B:7C:7D:7E:37".parse().unwrap();
+    let ip: std::net::IpAddr = "192.0.2.250".parse().unwrap();
+
+    // Create a BMC interface (preallocate lands a Static address), then swap that
+    // address for a Dhcp one so we have a BMC interface holding a DHCP lease --
+    // the state a BMC reaches when it auto-allocates over DHCP.
+    let mut txn = db::Transaction::begin(&pool).await?;
+    preallocate_bmc_machine_interface(txn.as_pgconn(), mac, ip, None).await?;
+    let interfaces = find_by_mac_address(&mut txn, mac).await?;
+    let interface_id = interfaces[0].id;
+    assert_eq!(
+        interfaces[0].interface_type,
+        InterfaceType::Bmc,
+        "preallocated interface should be the BMC type"
+    );
+    crate::machine_interface_address::delete(txn.as_pgconn(), &interface_id).await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        interface_id,
+        ip,
+        AllocationType::Dhcp,
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Retain: the DHCP address is promoted to Static.
+    let mut txn = db::Transaction::begin(&pool).await?;
+    retain_bmc_address_by_mac(txn.as_pgconn(), mac).await?;
+    let addrs =
+        crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
+    txn.commit().await?;
+    assert_eq!(addrs.len(), 1, "retain must not duplicate the address row");
+    assert_eq!(
+        addrs[0].allocation_type,
+        AllocationType::Static,
+        "retain should promote the DHCP address to Static"
+    );
+
+    // Idempotent: a second retain is a no-op (the row is already Static).
+    let mut txn = db::Transaction::begin(&pool).await?;
+    retain_bmc_address_by_mac(txn.as_pgconn(), mac).await?;
+    let addrs =
+        crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
+    txn.commit().await?;
+    assert_eq!(addrs.len(), 1, "second retain must remain a single row");
+    assert_eq!(
+        addrs[0].allocation_type,
+        AllocationType::Static,
+        "second retain should leave the address Static"
+    );
+
+    // The promoted Static address survives the DHCP-scoped expiry delete path:
+    // delete_by_address(.., Dhcp) finds nothing to delete and the row remains.
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let deleted = crate::machine_interface_address::delete_by_address(
+        txn.as_pgconn(),
+        ip,
+        AllocationType::Dhcp,
+    )
+    .await?;
+    let addrs =
+        crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
+    txn.commit().await?;
+    assert!(
+        !deleted,
+        "DHCP-scoped expiry delete should not match a Static address"
+    );
+    assert_eq!(
+        addrs.len(),
+        1,
+        "the retained Static address should survive DHCP lease expiry"
+    );
+    assert_eq!(addrs[0].allocation_type, AllocationType::Static);
+
+    Ok(())
+}

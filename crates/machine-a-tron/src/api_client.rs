@@ -519,6 +519,7 @@ impl ApiClient {
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: dpu_mode.map(|m| m as i32),
+                bmc_ip_allocation: None,
                 host_lifecycle_profile: None,
             })
             .await

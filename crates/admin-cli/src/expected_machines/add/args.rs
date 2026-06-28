@@ -21,7 +21,7 @@ use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::forge::{DpuMode, ExpectedHostNic};
+use rpc::forge::{BmcIpAllocationType, DpuMode, ExpectedHostNic};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{CarbideCliError, CarbideCliResult};
@@ -50,6 +50,11 @@ Add a host whose DPU should be treated as a plain NIC:
     $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
     --dpu-mode nic-mode
+
+Retain the BMC's auto-allocated DHCP address as a static one (never expires):
+    $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
+    --bmc-ip-allocation retained
 
 ")]
 pub struct Args {
@@ -168,6 +173,14 @@ pub struct Args {
     pub dpu_mode: Option<DpuMode>,
 
     #[clap(
+        long = "bmc-ip-allocation",
+        value_name = "BMC_IP_ALLOCATION",
+        value_enum,
+        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated address pinned as static (never expires). Unset defers to the server default (`auto`)."
+    )]
+    pub bmc_ip_allocation: Option<BmcIpAllocationType>,
+
+    #[clap(
         long = "disable-lockdown",
         value_name = "DISABLE_LOCKDOWN",
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
@@ -217,6 +230,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: value.bmc_retain_credentials,
             dpu_mode: value.dpu_mode.map(|m| m as i32),
+            bmc_ip_allocation: value.bmc_ip_allocation.map(|m| m as i32),
             host_lifecycle_profile: value.disable_lockdown.map(|dl| {
                 rpc::forge::HostLifecycleProfile {
                     disable_lockdown: Some(dl),

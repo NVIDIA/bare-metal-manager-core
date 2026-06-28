@@ -6008,6 +6008,26 @@ enum DpuMode {
   NO_DPU = 3;
 }
 
+// Per-host control over how a BMC's IP address is assigned and whether it is
+// retained.
+//
+// - BMC_IP_ALLOCATION_TYPE_AUTO: The default. Inferred from `bmc_ip_address` --
+//   a configured address is treated as FIXED, no address is treated as RETAINED.
+// - BMC_IP_ALLOCATION_TYPE_DYNAMIC: a normal DHCP lease that may expire and change.
+// - BMC_IP_ALLOCATION_TYPE_FIXED: the operator-specified `bmc_ip_address` (static).
+// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
+//   (never expires).
+//
+// Unset and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` both mean "use the default"
+// (AUTO), which preserves behavior for old clients that don't send the field.
+enum BmcIpAllocationType {
+  BMC_IP_ALLOCATION_TYPE_UNSPECIFIED = 0;
+  BMC_IP_ALLOCATION_TYPE_AUTO = 1;
+  BMC_IP_ALLOCATION_TYPE_DYNAMIC = 2;
+  BMC_IP_ALLOCATION_TYPE_FIXED = 3;
+  BMC_IP_ALLOCATION_TYPE_RETAINED = 4;
+}
+
 // Per-host lifecycle profile for settings that affect state-machine progression.
 // When the outer field is unset on ExpectedMachine, the server preserves the
 // existing DB value (patch semantics).
@@ -6047,6 +6067,9 @@ message ExpectedMachine {
   // Per-host lifecycle profile. When unset in a patch/update request, the
   // existing DB value is preserved via COALESCE.
   optional HostLifecycleProfile host_lifecycle_profile = 17;
+  // Per-host control over how this BMC's IP is assigned and retained. See
+  // `BmcIpAllocationType` above. Unset means "use the default" (AUTO).
+  optional BmcIpAllocationType bmc_ip_allocation = 18;
 }
 
 message ExpectedMachineRequest {

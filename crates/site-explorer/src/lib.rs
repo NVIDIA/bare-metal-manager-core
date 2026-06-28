@@ -1906,6 +1906,15 @@ impl SiteExplorer {
                     self.config.retained_boot_interface_window,
                 )
                 .await;
+            } else if expected_machine
+                .data
+                .bmc_ip_allocation
+                .retains_dynamic_ip(false)
+            {
+                // No operator-specified BMC IP, but the host's bmc_ip_allocation
+                // retains its auto-allocated address: pin the BMC interface's
+                // DHCP lease as Static so it survives lease expiry.
+                try_retain_bmc(&self.database_connection, expected_machine.bmc_mac_address).await;
             }
             for nic in &expected_machine.data.host_nics {
                 let Some(ip) = nic.fixed_ip else {
@@ -3390,6 +3399,32 @@ pub async fn try_preallocate_one(
         }
         Err(error) => {
             tracing::warn!(%error, %mac, %ip, kind, "Site-explorer preallocation skipped");
+        }
+    }
+}
+
+/// Pin a BMC's auto-allocated (DHCP) address as `Static` so DHCP lease expiry
+/// can't reap it, for BMCs whose `bmc_ip_allocation` retains a dynamic IP and
+/// that have no operator-specified `bmc_ip_address`. Mirrors
+/// [`try_preallocate_one`]: own txn from the pool, warn-and-continue on error so
+/// a single failure never fails the whole reconcile pass. Idempotent on the
+/// api-db side -- a no-op once the address is already `Static`.
+pub async fn try_retain_bmc(pool: &PgPool, mac: MacAddress) {
+    let mut txn = match db::Transaction::begin(pool).await {
+        Ok(t) => t,
+        Err(error) => {
+            tracing::warn!(%error, %mac, "Site-explorer BMC retain: txn_begin failed");
+            return;
+        }
+    };
+    match db::machine_interface::retain_bmc_address_by_mac(txn.as_pgconn(), mac).await {
+        Ok(()) => {
+            if let Err(error) = txn.commit().await {
+                tracing::warn!(%error, %mac, "Site-explorer BMC retain: commit failed");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, %mac, "Site-explorer BMC retain skipped");
         }
     }
 }

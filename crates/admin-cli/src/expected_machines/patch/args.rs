@@ -19,7 +19,7 @@ use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
-use rpc::forge::DpuMode;
+use rpc::forge::{BmcIpAllocationType, DpuMode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -48,6 +48,7 @@ use crate::errors::CarbideCliError;
 "sku_id",
 "bmc_ip_address",
 "dpu_mode",
+"bmc_ip_allocation",
 "dpf_enabled",
 ])))]
 #[command(after_long_help = "\
@@ -68,6 +69,10 @@ Rotate the BMC credentials (username and password must be set together):
 Change the per-host DPU mode:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --dpu-mode no-dpu
+
+Retain the BMC's auto-allocated DHCP address as a static one (never expires):
+    $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-ip-allocation retained
 
 ")]
 pub struct Args {
@@ -188,6 +193,15 @@ pub struct Args {
     pub dpu_mode: Option<DpuMode>,
 
     #[clap(
+        long = "bmc-ip-allocation",
+        value_name = "BMC_IP_ALLOCATION",
+        value_enum,
+        group = "group",
+        help = "Per-host control over how this BMC's IP is assigned and retained. `auto` (default): infer from `--bmc-ip-address` -- a configured address is `fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that may expire and change; `fixed`: the operator-specified `--bmc-ip-address` (static); `retained`: an auto-allocated address pinned as static (never expires). Unset preserves the existing per-host value."
+    )]
+    pub bmc_ip_allocation: Option<BmcIpAllocationType>,
+
+    #[clap(
         long = "disable-lockdown",
         value_name = "DISABLE_LOCKDOWN",
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
@@ -219,8 +233,9 @@ impl Args {
             && self.dpf_enabled.is_none()
             && self.bmc_ip_address.is_none()
             && self.dpu_mode.is_none()
+            && self.bmc_ip_allocation.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or dpf-enabled".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or bmc-ip-allocation or dpf-enabled".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers
