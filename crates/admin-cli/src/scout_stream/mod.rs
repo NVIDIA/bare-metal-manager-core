@@ -24,14 +24,14 @@ use prettytable::{Cell, Row, Table};
 use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
-use crate::rpc::ApiClient;
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum ScoutStreamAction {
     #[clap(about = "Show all active scout stream connections")]
     Show(ConnectionsShowCommand),
@@ -78,110 +78,88 @@ pub struct ConnectionsPingCommand {
     pub machine_id: MachineId,
 }
 
-pub struct CliContext<'g, 'a> {
-    pub grpc_conn: &'g ApiClient,
-    pub format: &'a OutputFormat,
-}
-
-impl Dispatch for ScoutStreamAction {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        let mut ctxt = CliContext {
-            grpc_conn: &ctx.api_client,
-            format: &ctx.config.format,
-        };
-        match self {
-            ScoutStreamAction::Show(cmd) => handle_show(cmd, &mut ctxt).await?,
-            ScoutStreamAction::Disconnect(cmd) => handle_disconnect(cmd, &mut ctxt).await?,
-            ScoutStreamAction::Ping(cmd) => handle_ping(cmd, &mut ctxt).await?,
+// Show all active scout stream connections.
+impl Run for ConnectionsShowCommand {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        let response = ctx.api_client.0.scout_stream_show_connections().await?;
+        let mut connections = response.scout_stream_connections;
+        connections.sort_by_key(|connection| connection.machine_id);
+        match &ctx.config.format {
+            OutputFormat::AsciiTable => {
+                print_connections_table(&connections);
+            }
+            OutputFormat::Json => {
+                let json = serde_json::json!({
+                    "connections": connections.iter().map(|c| {
+                        serde_json::json!({
+                            "machine_id": c.machine_id,
+                            "connect_time": c.connected_at,
+                            "uptime_seconds": c.uptime_seconds,
+                        })
+                    }).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            }
+            OutputFormat::Yaml => {
+                println!("connections:");
+                for conn in connections {
+                    let machine_id = match conn.machine_id.as_ref() {
+                        Some(id) => id.to_string(),
+                        None => "null".to_string(),
+                    };
+                    println!("  - machine_id: {}", machine_id);
+                    println!("    connect_time: \"{}\"", conn.connected_at);
+                    println!("    uptime_seconds: {}", conn.uptime_seconds);
+                }
+            }
+            OutputFormat::Csv => {
+                for conn in connections {
+                    let machine_id = match conn.machine_id.as_ref() {
+                        Some(id) => id.to_string(),
+                        None => "null".to_string(),
+                    };
+                    println!(
+                        "{},{},{}",
+                        machine_id, conn.connected_at, conn.uptime_seconds
+                    );
+                }
+            }
         }
         Ok(())
     }
 }
 
-// handle_show shows all active scout stream connections.
-async fn handle_show(
-    _cmd: ConnectionsShowCommand,
-    ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
-    let response = ctxt.grpc_conn.0.scout_stream_show_connections().await?;
-    let mut connections = response.scout_stream_connections;
-    connections.sort_by_key(|connection| connection.machine_id);
-    match ctxt.format {
-        OutputFormat::AsciiTable => {
-            print_connections_table(&connections);
+// Disconnect an active scout stream connection.
+impl Run for ConnectionsDisconnectCommand {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        let request: ::rpc::forge::ScoutStreamDisconnectRequest = self.into();
+        let response = ctx.api_client.0.scout_stream_disconnect(request).await?;
+        let machine_id = match response.machine_id.as_ref() {
+            Some(id) => id.to_string(),
+            None => "null".to_string(),
+        };
+        if response.success {
+            println!("Successfully disconnected machine_id={}.", machine_id);
+        } else {
+            println!(
+                "Failed to disconnect machine_id={} (already disconnected).",
+                machine_id
+            );
         }
-        OutputFormat::Json => {
-            let json = serde_json::json!({
-                "connections": connections.iter().map(|c| {
-                    serde_json::json!({
-                        "machine_id": c.machine_id,
-                        "connect_time": c.connected_at,
-                        "uptime_seconds": c.uptime_seconds,
-                    })
-                }).collect::<Vec<_>>(),
-            });
-            println!("{}", serde_json::to_string_pretty(&json)?);
-        }
-        OutputFormat::Yaml => {
-            println!("connections:");
-            for conn in connections {
-                let machine_id = match conn.machine_id.as_ref() {
-                    Some(id) => id.to_string(),
-                    None => "null".to_string(),
-                };
-                println!("  - machine_id: {}", machine_id);
-                println!("    connect_time: \"{}\"", conn.connected_at);
-                println!("    uptime_seconds: {}", conn.uptime_seconds);
-            }
-        }
-        OutputFormat::Csv => {
-            for conn in connections {
-                let machine_id = match conn.machine_id.as_ref() {
-                    Some(id) => id.to_string(),
-                    None => "null".to_string(),
-                };
-                println!(
-                    "{},{},{}",
-                    machine_id, conn.connected_at, conn.uptime_seconds
-                );
-            }
-        }
+
+        Ok(())
     }
-    Ok(())
 }
 
-// handle_disconnect disconnects an active scout stream connection.
-async fn handle_disconnect(
-    cmd: ConnectionsDisconnectCommand,
-    ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
-    let request: ::rpc::forge::ScoutStreamDisconnectRequest = cmd.into();
-    let response = ctxt.grpc_conn.0.scout_stream_disconnect(request).await?;
-    let machine_id = match response.machine_id.as_ref() {
-        Some(id) => id.to_string(),
-        None => "null".to_string(),
-    };
-    if response.success {
-        println!("Successfully disconnected machine_id={}.", machine_id);
-    } else {
-        println!(
-            "Failed to disconnect machine_id={} (already disconnected).",
-            machine_id
-        );
+// Ping-test a scout stream connection.
+impl Run for ConnectionsPingCommand {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        let request: ::rpc::forge::ScoutStreamAdminPingRequest = self.into();
+        let response = ctx.api_client.0.scout_stream_ping(request).await?;
+
+        println!("{}", response.pong);
+        Ok(())
     }
-
-    Ok(())
-}
-
-async fn handle_ping(
-    cmd: ConnectionsPingCommand,
-    ctxt: &mut CliContext<'_, '_>,
-) -> CarbideCliResult<()> {
-    let request: ::rpc::forge::ScoutStreamAdminPingRequest = cmd.into();
-    let response = ctxt.grpc_conn.0.scout_stream_ping(request).await?;
-
-    println!("{}", response.pong);
-    Ok(())
 }
 
 // print_connections_table displays connections in an ASCII table format.
