@@ -35,7 +35,7 @@ use nv_redfish::core::Bmc;
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 /// default NMX-T port
@@ -460,7 +460,6 @@ pub struct NmxtCollectorConfig {
 
 pub struct NmxtCollector {
     endpoint: Arc<BmcEndpoint>,
-    switch_id: String,
     http_client: reqwest::Client,
     event_context: EventContext,
     data_sink: Option<Arc<dyn DataSink>>,
@@ -474,10 +473,6 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let switch_id = match &endpoint.metadata {
-            Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
-            _ => endpoint.addr.mac.to_string(),
-        };
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
         let request_timeout = config.nmxt_config.request_timeout;
 
@@ -495,7 +490,6 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
 
         Ok(Self {
             endpoint,
-            switch_id,
             http_client,
             event_context,
             data_sink: config.data_sink,
@@ -530,13 +524,9 @@ impl NmxtCollector {
     /// Builds label set for one `switch_nmxt` series
     fn build_labels(
         &self,
-        switch_ip: &str,
         sample_labels: &HashMap<String, String>,
     ) -> Vec<(Cow<'static, str>, String)> {
-        let mut labels: Vec<(Cow<'static, str>, String)> =
-            Vec::with_capacity(2 + NMXT_LABEL_MAP.len());
-        labels.push((Cow::Borrowed("switch_id"), self.switch_id.clone()));
-        labels.push((Cow::Borrowed("switch_ip"), switch_ip.to_string()));
+        let mut labels: Vec<(Cow<'static, str>, String)> = Vec::with_capacity(NMXT_LABEL_MAP.len());
 
         for label in NMXT_LABEL_MAP {
             if let Some(value) = sample_labels.get(label.source) {
@@ -576,7 +566,7 @@ impl NmxtCollector {
                     continue;
                 };
                 if cable_temp_ports.insert(port_num.to_string()) {
-                    let labels = self.build_labels(&switch_ip, &sample_labels);
+                    let labels = self.build_labels(&sample_labels);
                     self.emit_event(CollectorEvent::Metric(
                         MetricSample {
                             key: format!("cable_temperature_celsius:{}", port_num),
@@ -599,7 +589,7 @@ impl NmxtCollector {
                 };
                 if down_blame_ports.insert(port_num.to_string()) {
                     let current = down_blame_to_state(raw);
-                    let base_labels = self.build_labels(&switch_ip, &sample_labels);
+                    let base_labels = self.build_labels(&sample_labels);
                     for state in DOWN_BLAME_STATES {
                         let mut labels = base_labels.clone();
                         labels.push((Cow::Borrowed("state"), (*state).to_string()));
@@ -634,7 +624,7 @@ impl NmxtCollector {
             metric_key.push(':');
             metric_key.push_str(port_num);
 
-            let labels = self.build_labels(&switch_ip, &sample_labels);
+            let labels = self.build_labels(&sample_labels);
 
             self.emit_event(CollectorEvent::Metric(
                 MetricSample {
@@ -975,7 +965,6 @@ Link_Down{Port_Number="1"} 5
         });
         let collector = NmxtCollector {
             endpoint: endpoint.clone(),
-            switch_id: "test-switch".to_string(),
             http_client: reqwest::Client::new(),
             event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
             data_sink: Some(sink.clone()),
@@ -986,7 +975,6 @@ Link_Down{Port_Number="1"} 5
             r#"lid{Port_Number="11", down_blame="Remote_phy"} 3093"#,
             r#"Effective_BER{Port_Number="11", down_blame="Remote_phy"} 0"#,
         ];
-        let switch_ip = endpoint.addr.ip.to_string();
         let mut down_blame_ports: HashSet<String> = HashSet::new();
         for line in lines {
             let sample = parse_prometheus_line(line).expect("parse line");
@@ -997,7 +985,7 @@ Link_Down{Port_Number="1"} 5
                 if down_blame_ports.insert(port_num.to_string()) {
                     let current = down_blame_to_state(raw);
                     for state in DOWN_BLAME_STATES {
-                        let mut labels = collector.build_labels(&switch_ip, &sample.labels);
+                        let mut labels = collector.build_labels(&sample.labels);
                         labels.push((Cow::Borrowed("state"), (*state).to_string()));
                         collector.emit_event(CollectorEvent::Metric(
                             MetricSample {
@@ -1086,7 +1074,6 @@ Link_Down{Port_Number="1"} 5
         });
         let collector = NmxtCollector {
             endpoint: endpoint.clone(),
-            switch_id: "test-switch".to_string(),
             http_client: reqwest::Client::new(),
             event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
             data_sink: Some(sink.clone()),
@@ -1097,7 +1084,6 @@ Link_Down{Port_Number="1"} 5
             r#"lid{Port_Number="11", Module_Temperature="37.5C"} 3093"#,
             r#"Effective_BER{Port_Number="11", Module_Temperature="37.5C"} 0"#,
         ];
-        let switch_ip = endpoint.addr.ip.to_string();
         let mut cable_temp_ports: HashSet<String> = HashSet::new();
         for line in lines {
             let sample = parse_prometheus_line(line).expect("parse line");
@@ -1110,7 +1096,7 @@ Link_Down{Port_Number="1"} 5
                     continue;
                 };
                 if cable_temp_ports.insert(port_num.to_string()) {
-                    let labels = collector.build_labels(&switch_ip, &sample.labels);
+                    let labels = collector.build_labels(&sample.labels);
                     collector.emit_event(CollectorEvent::Metric(
                         MetricSample {
                             key: format!("cable_temperature_celsius:{}", port_num),

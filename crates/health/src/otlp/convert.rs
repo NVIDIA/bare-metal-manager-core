@@ -247,27 +247,15 @@ pub fn build_metrics_export_request(
     let mut by_endpoint: HashMap<String, (Vec<KeyValue>, Vec<OtlpMetric>)> = HashMap::new();
 
     for (context, sample) in batch {
-        let mut attributes: Vec<KeyValue> = sample
+        // Switch identity rides once on the resource attributes (switch.id,
+        // switch.serial_number, switch.ip). VictoriaMetrics flattens resource
+        // attributes onto every series, so promoting them onto the datapoint too
+        // only duplicates the same value under a second (underscore) label name.
+        let attributes: Vec<KeyValue> = sample
             .labels
             .iter()
             .map(|(k, v)| kv(k, v.clone()))
             .collect();
-
-        // Promote switch identity onto the datapoint so it is queryable as a
-        // per-series label. As an OTLP resource attribute alone it lands on
-        // target_info, not the series. These datapoint labels use the underscore
-        // form (Prometheus label names cannot contain dots); the dotted
-        // switch.serial_number / switch.id live on the resource attributes.
-        if !attributes.iter().any(|attr| attr.key == "switch_serial")
-            && let Some(serial) = context.switch_serial()
-        {
-            attributes.push(kv("switch_serial", serial.to_string()));
-        }
-        if !attributes.iter().any(|attr| attr.key == "switch_id")
-            && let Some(switch_id) = context.switch_id()
-        {
-            attributes.push(kv("switch_id", switch_id.to_string()));
-        }
 
         let data_point = NumberDataPoint {
             attributes,
@@ -763,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn switch_nmxt_metric_carries_full_name_and_switch_serial_label() {
+    fn switch_nmxt_identity_is_resource_only_not_on_datapoint() {
         let switch_id = test_switch_id("switch-nmxt");
         let switch_id_attr = switch_id.to_string();
         let context = EventContext {
@@ -796,7 +784,8 @@ mod tests {
         };
 
         let request = build_metrics_export_request(&[(context, sample)], "carbide_hardware_health");
-        let metrics = &request.resource_metrics[0].scope_metrics[0].metrics;
+        let resource_metrics = &request.resource_metrics[0];
+        let metrics = &resource_metrics.scope_metrics[0].metrics;
 
         assert_eq!(metrics.len(), 1);
         assert_eq!(
@@ -807,10 +796,23 @@ mod tests {
         let metric::Data::Gauge(gauge) = metrics[0].data.as_ref().expect("metric data") else {
             panic!("expected gauge data");
         };
+        // Identity must NOT be promoted onto the datapoint (VM duplicates it from the resource).
         let attrs = &gauge.data_points[0].attributes;
-        assert_eq!(attr_value(attrs, "switch_serial"), Some("SN-SWITCH-001"));
+        assert_eq!(attr_value(attrs, "switch_serial"), None);
+        assert_eq!(attr_value(attrs, "switch_id"), None);
+
+        // It lives once, on the resource (dotted form).
+        let resource_attrs = &resource_metrics
+            .resource
+            .as_ref()
+            .expect("resource")
+            .attributes;
         assert_eq!(
-            attr_value(attrs, "switch_id"),
+            attr_value(resource_attrs, "switch.serial_number"),
+            Some("SN-SWITCH-001")
+        );
+        assert_eq!(
+            attr_value(resource_attrs, "switch.id"),
             Some(switch_id_attr.as_str())
         );
     }
