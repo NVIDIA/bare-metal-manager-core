@@ -183,7 +183,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		} else {
 			// Check if the latest status detail message is different from the current status message
 			// Leave orderBy nil since the result is sorted by create timestamp by default
-			latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cwutil.GetPtr(1), nil)
+			latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{subnet.ID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Subnet")
 			} else if len(latestsd) == 0 || (latestsd[0].Message != nil && *latestsd[0].Message != statusMessage) {
@@ -274,7 +274,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 
 			// Leave orderBy as nil as the result is sorted by created timestamp by default
 			if status == subnet.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cwutil.GetPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{subnet.ID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Subnet")
 					continue
@@ -314,7 +314,7 @@ func (ms ManageSubnet) updateSubnetStatusInDB(ctx context.Context, tx *cdb.Tx, s
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(ms.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, subnetID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: subnetID.String(), Status: *status, Message: statusMessage})
 		if err != nil {
 			return err
 		}
@@ -429,7 +429,7 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 	metricsRecorded := 0
 
 	for _, event := range subnetLifecycleEvents {
-		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+		statusDetails, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{event.ObjectID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)})
 		if err != nil {
 			logger.Error().Err(err).Str("Subnet ID", event.ObjectID.String()).Msg("failed to retrieve Status Details for Subnet")
 			return err

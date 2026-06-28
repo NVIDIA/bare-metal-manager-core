@@ -151,11 +151,11 @@ type MachineInterfaceSQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new MachineInterface from the given parameters
+// Create creates a new MachineInterface from the given parameters
 // The returned MachineInterface will not have any related structs filled in
 func (micd MachineInterfaceSQLDAO) Create(ctx context.Context, tx *db.Tx, input MachineInterfaceCreateInput) (*MachineInterface, error) {
 	// Create a child span and set the attributes for current request
-	ctx, machineInterfaceDAOSpan := micd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineInterfaceDAO.CreateFromParams")
+	ctx, machineInterfaceDAOSpan := micd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineInterfaceDAO.Create")
 	if machineInterfaceDAOSpan != nil {
 		defer machineInterfaceDAOSpan.End()
 	}

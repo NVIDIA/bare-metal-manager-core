@@ -276,7 +276,7 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 
 			// Create a status detail record for the SSH Key Group
 			sdDAO := cdbm.NewStatusDetailDAO(cskh.dbSession)
-			_, derr = sdDAO.CreateFromParams(ctx, tx, dbskg.ID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key creation, pending processing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: dbskg.ID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("Sync required due to SSH Key creation, pending processing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
@@ -975,7 +975,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 			}
 
 			// Create a status detail record for the SSH Key Group
-			_, derr = sdDAO.CreateFromParams(ctx, tx, skgsa.SSHKeyGroupID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key deletion, pending processing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsa.SSHKeyGroupID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("Sync required due to SSH Key deletion, pending processing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)

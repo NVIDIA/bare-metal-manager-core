@@ -71,7 +71,12 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	var serr error
 	if len(ips) == 0 {
 		// Create Infrastructure Provider
-		ip, serr = ipDAO.CreateFromParams(ctx, nil, org, nil, org, cutil.GetPtr(org), dbUser)
+		ip, serr = ipDAO.Create(ctx, nil, cdbm.InfrastructureProviderCreateInput{
+			Name:           org,
+			Org:            org,
+			OrgDisplayName: cutil.GetPtr(org),
+			CreatedBy:      dbUser.ID,
+		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Infrastructure Provider DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Infrastructure Provider for org, DB error", nil)
@@ -155,8 +160,11 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Tenant Account for org's Tenant, DB error", nil)
 			}
 
-			_, derr = sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), cdbm.TenantAccountStatusReady,
-				cutil.GetPtr("service account enabled, tenant account ready"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+				EntityID: ta.ID.String(),
+				Status:   cdbm.TenantAccountStatusReady,
+				Message:  cutil.GetPtr("service account enabled, tenant account ready"),
+			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail for Tenant Account")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for org's Tenant Account, DB error", nil)

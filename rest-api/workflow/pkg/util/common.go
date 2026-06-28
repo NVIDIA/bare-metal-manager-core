@@ -69,7 +69,7 @@ func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbS
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
-		newSSD, err = statusDetailDAO.CreateFromParams(ctx, tx, nvlinklogicalpartitionID.String(), string(*status), statusMessage)
+		newSSD, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: nvlinklogicalpartitionID.String(), Status: string(*status), Message: statusMessage})
 		if err != nil {
 			return updatedNVLinkLogicalPartition, newSSD, err
 		}

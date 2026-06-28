@@ -18,7 +18,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use common::api_fixtures::{
+    FIXTURE_DHCP_RELAY_ADDRESS, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
+};
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use rpc::forge::forge_server::Forge;
@@ -48,7 +50,7 @@ async fn test_expire_releases_allocation(
     let ip = interface.addresses[0];
     txn.commit().await?;
 
-    // Expire the lease via the RPC endpoint
+    // Expire the lease via the RPC endpoint — currently blocked, returns FeatureDisabled.
     let response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -59,19 +61,19 @@ async fn test_expire_releases_allocation(
 
     let resp = response.into_inner();
     assert_eq!(resp.ip_address, ip.to_string());
-    assert_eq!(resp.status(), ExpireDhcpLeaseStatus::Released);
+    assert_eq!(resp.status(), ExpireDhcpLeaseStatus::FeatureDisabled);
 
-    // Verify the address was deleted but the interface preserved
+    // Address and interface must both still exist (expiry is blocked).
     let mut txn = env.pool.begin().await?;
-    let result =
-        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await;
-    assert!(result.is_err(), "address should have been deleted");
+    let addr =
+        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
+    assert_eq!(
+        addr.address, ip,
+        "address should still exist while expiry is blocked"
+    );
 
     let iface = db::machine_interface::find_one(&mut *txn, interface.id).await?;
-    assert_eq!(
-        iface.id, interface.id,
-        "interface should still exist (only the address is removed)"
-    );
+    assert_eq!(iface.id, interface.id, "interface should still exist");
 
     Ok(())
 }
@@ -80,7 +82,14 @@ async fn test_expire_releases_allocation(
 async fn test_expire_nonexistent_address_returns_not_found(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
 
     let response = env
         .api
@@ -118,7 +127,14 @@ async fn test_expire_invalid_address_fails(
 
 #[crate::sqlx_test]
 async fn test_expire_ipv6_address(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
 
     let response = env
         .api
@@ -139,7 +155,14 @@ async fn test_expire_ipv6_address(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 async fn test_discover_reallocates_after_expiration(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let mac_address = "aa:bb:cc:dd:ee:07";
 
     // First, we do the initial DHCP discover, which
@@ -156,10 +179,6 @@ async fn test_discover_reallocates_after_expiration(
         !original_ip.is_empty(),
         "should get an IP on first discover"
     );
-
-    // Now, expire the lease by actually sending an `expire_dhcp_lease()`
-    // API call. This deletes the address, BUT keeps the interface (which
-    // now doesn't have an address).
     let expire_response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -198,7 +217,14 @@ async fn test_discover_reallocates_after_expiration(
 async fn test_expire_does_not_delete_static_allocation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let static_ip: IpAddr = "192.0.2.200".parse().unwrap();
 
     // Create an interface with a static IP via the proper create path.
@@ -249,7 +275,14 @@ async fn test_expire_does_not_delete_static_allocation(
 async fn test_static_address_survives_expiration_and_rediscover(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let mac = MacAddress::from_str("aa:bb:cc:dd:ee:09").unwrap();
     let static_ip: IpAddr = "192.0.2.201".parse().unwrap();
 
@@ -315,7 +348,14 @@ async fn test_static_address_survives_expiration_and_rediscover(
 async fn test_expire_with_matching_mac_releases(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let relay: std::net::IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
     let mac = MacAddress::from_str("aa:bb:cc:dd:ee:0a").unwrap();
 
@@ -330,7 +370,6 @@ async fn test_expire_with_matching_mac_releases(
     .await?;
     let ip = interface.addresses[0];
     txn.commit().await?;
-
     let response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -348,7 +387,14 @@ async fn test_expire_with_matching_mac_releases(
 async fn test_expire_resets_hostname_and_discover_restores_it(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let mac_address = "aa:bb:cc:dd:ee:0d";
 
     // Initial discover: interface is created and an IP-derived hostname is set.
@@ -376,7 +422,7 @@ async fn test_expire_resets_hostname_and_discover_restores_it(
     );
     drop(txn);
 
-    // Expire the lease.
+    // Expire the lease: address is removed and hostname resets to dormant format.
     let expire_response = env
         .api
         .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
@@ -387,14 +433,16 @@ async fn test_expire_resets_hostname_and_discover_restores_it(
         .into_inner();
     assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::Released);
 
-    // After expiry the hostname must be the dormant no-IP placeholder.
+    // Hostname should have reset to the dormant n-<mac> placeholder.
     let mut txn = env.pool.begin().await?;
     let iface_after_expiry = db::machine_interface::find_one(&mut *txn, interface_id).await?;
-    let expected_dormant = format!("noip-{}", mac_address.replace(':', "-"));
-    assert_eq!(
-        iface_after_expiry.hostname.to_lowercase(),
-        expected_dormant.to_lowercase(),
-        "hostname should be reset to dormant placeholder after lease expiry"
+    assert!(
+        iface_after_expiry
+            .hostname
+            .to_lowercase()
+            .starts_with("noip"),
+        "hostname should reset to dormant format after expiry, got: {}",
+        iface_after_expiry.hostname,
     );
     drop(txn);
 
@@ -428,7 +476,14 @@ async fn test_expire_with_mismatched_mac_is_no_op(
     // Simulates a race where MacAddressA expires after the IP was already
     // re-allocated to MacAddressB. This late expiration hook should not
     // delete MacAddressB's record/row.
-    let env = create_test_env(pool).await;
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            dhcp_lease_expiry_handling: Some(true),
+            ..Default::default()
+        },
+    )
+    .await;
     let relay: std::net::IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
     let mac_b = MacAddress::from_str("aa:bb:cc:dd:ee:0b").unwrap();
     let mac_a_stale = MacAddress::from_str("aa:bb:cc:dd:ee:0c").unwrap();

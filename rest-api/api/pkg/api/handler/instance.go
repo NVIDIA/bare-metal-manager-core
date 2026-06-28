@@ -90,7 +90,7 @@ func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 }
 
 // Returns either a default OS or an existing instance OS config.
-// apiRequest will be mutated for use in createFromParams.
+// apiRequest will be mutated for use in create.
 // osConfig will hold the struct/data for use with Temporal/NICo calls.
 // Errors should be returned in the form of cutil.NewAPIErrorResponse
 func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIInstanceCreateRequest, site *cdbm.Site) (*cwssaws.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
@@ -1592,14 +1592,13 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		// Create the status detail record
 		sdDAO := cdbm.NewStatusDetailDAO(cih.dbSession)
 		var serr error
-		ssd, serr = sdDAO.CreateFromParams(ctx, tx, instance.ID.String(), *cutil.GetPtr(cdbm.InstanceStatusPending),
-			cutil.GetPtr("received instance creation request, pending"))
+		ssd, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: instance.ID.String(), Status: *cutil.GetPtr(cdbm.InstanceStatusPending), Message: cutil.GetPtr("received instance creation request, pending")})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Instance, DB error", nil)
 		}
 		if ssd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Instance", nil)
 		}
 
@@ -1805,7 +1804,7 @@ func (uih UpdateInstanceHandler) handleReboot(c echo.Context, logger *zerolog.Lo
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance", nil)
 		}
 
-		_, serr := sdDAO.CreateFromParams(ctx, tx, instance.ID.String(), *cutil.GetPtr(cdbm.InstancePowerStatusRebooting), powerStatusMessage)
+		_, serr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: instance.ID.String(), Status: *cutil.GetPtr(cdbm.InstancePowerStatusRebooting), Message: powerStatusMessage})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Instance reboot", nil)
@@ -1835,7 +1834,7 @@ func (uih UpdateInstanceHandler) handleReboot(c echo.Context, logger *zerolog.Lo
 		}
 
 		// Get status details
-		ssds, _, derr = sdDAO.GetAllByEntityID(ctx, tx, ui.ID.String(), nil, nil, nil)
+		ssds, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{ui.ID.String()}}, cdbp.PageInput{})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Instance from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Instance", nil)
@@ -2993,7 +2992,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		// Create status detail for instance based on updates requested
 		statusMessage := cutil.GetPtr("received Instance config update request, processing")
 
-		_, serr := sdDAO.CreateFromParams(ctx, tx, ui.ID.String(), *cutil.GetPtr(cdbm.InstanceStatusConfiguring), statusMessage)
+		_, serr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ui.ID.String(), Status: *cutil.GetPtr(cdbm.InstanceStatusConfiguring), Message: statusMessage})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create status detail for Instance update", nil)
@@ -3526,7 +3525,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Get Status Details
-		ssds, _, derr = sdDAO.GetAllByEntityID(ctx, tx, ui.ID.String(), nil, nil, nil)
+		ssds, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{ui.ID.String()}}, cdbp.PageInput{})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Instance from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Instance", nil)
@@ -4879,8 +4878,7 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 
 		// Create status detail
 		sdDAO := cdbm.NewStatusDetailDAO(dih.dbSession)
-		_, derr = sdDAO.CreateFromParams(ctx, tx, instance.ID.String(), *cutil.GetPtr(cdbm.InstanceStatusTerminating),
-			cutil.GetPtr("Instance deletion successfully initiated on Site"))
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: instance.ID.String(), Status: *cutil.GetPtr(cdbm.InstanceStatusTerminating), Message: cutil.GetPtr("Instance deletion successfully initiated on Site")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 		}

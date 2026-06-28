@@ -281,15 +281,14 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 		// Create the status detail record for Operating System
 		sdDAO := cdbm.NewStatusDetailDAO(csh.dbSession)
-		ossd, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), *cutil.GetPtr(osStatus),
-			cutil.GetPtr(osStatusMessage))
+		ossd, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: os.ID.String(), Status: *cutil.GetPtr(osStatus), Message: &osStatusMessage})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
 		}
 
 		if ossd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Operating System", nil)
 		}
 		dbossd = append(dbossd, *ossd)
@@ -314,8 +313,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			}
 
 			// Create Status details
-			_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-				cutil.GetPtr("received Operating System Association create request, syncing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ossa.ID.String(), Status: *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing), Message: cutil.GetPtr("received Operating System Association create request, syncing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
@@ -1156,14 +1154,14 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		logger.Info().Msg("done updating os in DB")
 
 		sdDAO := cdbm.NewStatusDetailDAO(ush.dbSession)
-		_, derr = sdDAO.CreateFromParams(ctx, tx, uos.ID.String(), *osStatus, &osStatusMessage)
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: uos.ID.String(), Status: *osStatus, Message: &osStatusMessage})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create status detail for Operating System update", nil)
 		}
 
 		// get status details for the response
-		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		retssds, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uos.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for os from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Operating System", nil)
@@ -1189,8 +1187,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 				}
 
 				// Create Status details
-				_, derr = sdDAO.CreateFromParams(ctx, tx, dbossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-					cutil.GetPtr("received Operating System Association update request, syncing"))
+				_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: dbossa.ID.String(), Status: *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing), Message: cutil.GetPtr("received Operating System Association update request, syncing")})
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Site Association", nil)
@@ -1473,7 +1470,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			// Create status detail
 			sdDAO := cdbm.NewStatusDetailDAO(dsh.dbSession)
 			// create a status detail record for the Operating System
-			_, derr = sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: os.ID.String(), Status: cdbm.OperatingSystemStatusDeleting, Message: cutil.GetPtr("received request for deletion, pending processing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
@@ -1497,7 +1494,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// create a status detail record for the Operating System Association
-					_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), cdbm.OperatingSystemSiteAssociationStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
+					_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ossa.ID.String(), Status: cdbm.OperatingSystemSiteAssociationStatusDeleting, Message: cutil.GetPtr("received request for deletion, pending processing")})
 					if derr != nil {
 						logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 						return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)

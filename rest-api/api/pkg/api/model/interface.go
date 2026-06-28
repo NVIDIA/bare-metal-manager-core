@@ -133,8 +133,8 @@ func (ifcr APIInterfaceCreateOrUpdateRequest) Validate() error {
 		validation.Field(&ifcr.DeviceInstance,
 			validation.Min(0).Error("deviceInstance must be equal or greater than 0")),
 		validation.Field(&ifcr.VirtualFunctionID,
-			validation.Min(1).Error("virtualFunctionId must be between 1 and 16"),
-			validation.Max(16).Error("virtualFunctionId must be between 1 and 16")),
+			validation.Min(0).Error("virtualFunctionId must be between 0 and 15"),
+			validation.Max(15).Error("virtualFunctionId must be between 0 and 15")),
 	)
 
 	if ifcr.SubnetID != nil && ifcr.VpcPrefixID != nil {

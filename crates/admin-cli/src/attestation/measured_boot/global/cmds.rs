@@ -19,16 +19,7 @@
 //! Global commands at the root of the CLI, as well as some helper
 //! functions used by main.
 
-use crate::cfg::measurement::GlobalOptions;
 use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::rpc::ApiClient;
-
-/// CliData is a simple struct containing the single database connection
-/// and parsed arguments, which is passed down to all subcommands.
-pub struct CliData<'g, 'a> {
-    pub grpc_conn: &'g ApiClient,
-    pub args: &'a GlobalOptions,
-}
 
 /// IdentifierType is a enum that stores the identifer
 /// type when providing a name or ID-based option via the

@@ -161,6 +161,8 @@ pub struct SiteExplorationMetrics {
     /// These are issues that prevent a host from being paired with its dpu(s)
     /// and require manual intervention.
     pub host_dpu_pairing_blockers: HashMap<String, usize>,
+    /// Generic category for the latest whole-run failure. `None` means success.
+    pub run_failure_category: Option<String>,
     /// Total count of DPU NIC-mode migration signals by kind. These track the
     /// flip-and-reset flow that drives a DPU into the mode its host's
     /// `dpu_mode` declares (mismatch found, `set_nic_mode` issued, reset
@@ -203,21 +205,9 @@ impl SiteExplorationMetrics {
             endpoint_explorations_expected_power_shelves_missing_overall_count: 0,
             expected_machines_sku_count: HashMap::new(),
             host_dpu_pairing_blockers: HashMap::new(),
+            run_failure_category: None,
             dpu_migration_signals: HashMap::new(),
         }
-    }
-
-    fn increment_endpoint_explorations_failures(&mut self, failure_type: String) {
-        *self
-            .endpoint_explorations_failures_by_type
-            .entry(failure_type)
-            .or_default() += 1;
-    }
-
-    pub fn increment_credential_missing(&mut self, credential_key: &str) {
-        self.increment_endpoint_explorations_failures(format!(
-            "credentials_missing_{credential_key}"
-        ))
     }
 
     pub fn increment_endpoint_explorations_failures_overall_count(&mut self, failure_type: String) {
@@ -341,6 +331,33 @@ impl SiteExplorerInstruments {
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.endpoint_explorations as u64, attrs);
+                    })
+                })
+                .build();
+        }
+
+        {
+            let metrics = shared_metrics.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_last_run_status")
+                .with_description("The status of the latest Site Explorer run")
+                .with_callback(move |observer| {
+                    metrics.if_available(|metrics, attrs| {
+                        let (status, failure_category) = metrics
+                            .run_failure_category
+                            .as_deref()
+                            .map_or(("success", "none"), |category| ("failed", category));
+                        observer.observe(
+                            1,
+                            &[
+                                attrs,
+                                &[
+                                    KeyValue::new("status", status),
+                                    KeyValue::new("failure_category", failure_category.to_string()),
+                                ],
+                            ]
+                            .concat(),
+                        );
                     })
                 })
                 .build();

@@ -291,15 +291,13 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 		vpcPeering = createdVpcPeering
 
 		// Create a status detail record for the VPC Peering
-		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, vpcPeering.ID.String(),
-			*cutil.GetPtr(cdbm.VpcPeeringStatusPending),
-			cutil.GetPtr("Received VPC Peering creation request, pending processing"))
+		statusDetail, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpcPeering.ID.String(), Status: *cutil.GetPtr(cdbm.VpcPeeringStatusPending), Message: cutil.GetPtr("Received VPC Peering creation request, pending processing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating status detail for VPC Peering")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC Peering", nil)
 		}
 		if statusDetail == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for VPC Peering", nil)
 		}
 

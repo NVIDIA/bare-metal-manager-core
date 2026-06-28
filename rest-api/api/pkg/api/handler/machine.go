@@ -912,7 +912,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 			// Check if Machine/InstanceType association already exists filter by machine
 			mitDAO := cdbm.NewMachineInstanceTypeDAO(umh.dbSession)
-			emits, totalEmits, derr := mitDAO.GetAll(ctx, itTx, &machine.ID, nil, nil, nil, nil, nil)
+			emits, totalEmits, derr := mitDAO.GetAll(ctx, itTx, cdbm.MachineInstanceTypeFilterInput{MachineID: &machine.ID}, cdbp.PageInput{}, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Machine/InstanceType association from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to check for existing InstanceType association for Machine", nil)
@@ -937,7 +937,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				}
 
 				// Remove Machine/InstanceType association
-				serr := mitDAO.DeleteByID(ctx, itTx, emit.ID, false)
+				serr := mitDAO.Delete(ctx, itTx, emit.ID, false)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error deleting Machine/InstanceType association in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to remove existing Machine/InstanceType association", nil)
@@ -969,7 +969,10 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 			if newit != nil {
 				// Create new Machine/InstanceType association
-				_, serr := mitDAO.CreateFromParams(ctx, itTx, machine.ID, newit.ID)
+				_, serr := mitDAO.Create(ctx, itTx, cdbm.MachineInstanceTypeCreateInput{
+					MachineID:      machine.ID,
+					InstanceTypeID: newit.ID,
+				})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Machine/InstanceType association")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Machine/InstanceType association", nil)
@@ -1182,7 +1185,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 			// Add status detail
 			sdDAO := cdbm.NewStatusDetailDAO(umh.dbSession)
-			_, derr = sdDAO.CreateFromParams(ctx, mnTx, machine.ID, status, &statusMessage)
+			_, derr = sdDAO.Create(ctx, mnTx, cdbm.StatusDetailCreateInput{EntityID: machine.ID, Status: status, Message: &statusMessage})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail for Machine in DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create status detail for Machine, DB error", nil)
@@ -1423,7 +1426,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				}
 
 				// Update Instance status in StatusDetail
-				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusRepairing, cutil.GetPtr("Instance is currently being repaired"))
+				_, derr = statusDetailDAO.Create(ctx, orTx, cdbm.StatusDetailCreateInput{EntityID: inst.ID.String(), Status: cdbm.InstanceStatusRepairing, Message: cutil.GetPtr("Instance is currently being repaired")})
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error updating Instance status in StatusDetail for online repair in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair", nil)
@@ -1499,7 +1502,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				}
 
 				// Update Instance status in StatusDetail
-				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusReady, cutil.GetPtr("Instance repair has been completed, ready for use"))
+				_, derr = statusDetailDAO.Create(ctx, orTx, cdbm.StatusDetailCreateInput{EntityID: inst.ID.String(), Status: cdbm.InstanceStatusReady, Message: cutil.GetPtr("Instance repair has been completed, ready for use")})
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error updating Instance status in StatusDetail for online repair exit in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair exit", nil)
@@ -1818,7 +1821,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 
 		// Even if IsMissingOnSite is true, we want to make sure it's been missing for a little while
 		statusDAO := cdbm.NewStatusDetailDAO(umh.dbSession)
-		statuses, _, derr := statusDAO.GetAllByEntityID(ctx, tx, machine.ID, nil, cutil.GetPtr(1), nil)
+		statuses, _, derr := statusDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{machine.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(1)})
 
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error while retrieving StatusDetail for Machine")

@@ -738,6 +738,10 @@ pub struct CarbideConfig {
     /// chain and write target are operator-configured (defaulting to the same
     /// env -> file -> vault behavior as when it is absent); see `SecretsConfig`.
     pub secrets: Option<SecretsConfig>,
+
+    /// IP cleanup on lease expiry
+    #[serde(default)]
+    pub dhcp_lease_expiry_handling: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

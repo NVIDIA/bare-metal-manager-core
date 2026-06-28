@@ -33,10 +33,27 @@ pub async fn expire_dhcp_lease(
         mac_address,
     } = request.into_inner();
     let ip_address: IpAddr = ip_address.parse()?;
+
     let mac_address: Option<MacAddress> = mac_address
         .as_deref()
         .map(|m| m.parse::<MacAddress>().map_err(CarbideError::from))
         .transpose()?;
+
+    if !api.runtime_config.dhcp_lease_expiry_handling {
+        // Controlled by the `dhcp_lease_expiry_handling` runtime config flag (default: disabled).
+        // The problem with lease expiry handling is that
+        // 1. If a BMC IP is released, there is no way to update it in machine_topologies table,
+        //    which causes a mismatch between machine_interface and topology entry.
+        // 2. Since this might cauase BMC IP to change, DPF right now does not support BMC IP
+        //    change. Again a mismatch between DPF and NICo.
+        // 3. State machine can't process the host since there is no address attached to a interface.
+        // Blocking this handling for now and will revisit once DPF releases the fix.
+        tracing::info!("Expire lease handling for DHCP is disabled.");
+        return Ok(Response::new(rpc::ExpireDhcpLeaseResponse {
+            ip_address: ip_address.to_string(),
+            status: rpc::ExpireDhcpLeaseStatus::FeatureDisabled.into(),
+        }));
+    }
 
     let mut txn = api.txn_begin().await?;
 

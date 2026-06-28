@@ -33,82 +33,91 @@ use measured_boot::profile::MeasurementSystemProfile;
 use measured_boot::records::MeasurementSystemProfileRecord;
 use serde::Serialize;
 
+use crate::attestation::measured_boot::MachineIdList;
 use crate::attestation::measured_boot::profile::args::{
-    CmdProfile, Create, Delete, List, ListBundles, ListMachines, Rename, Show,
+    Create, Delete, ListAll, ListBundles, ListMachines, Rename, Show,
 };
-use crate::attestation::measured_boot::{MachineIdList, global};
-use crate::cli_output;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-/// dispatch matches + dispatches the correct command for
-/// the `profile` subcommand (e.g. create, delete, etc).
-pub async fn dispatch(
-    cmd: CmdProfile,
-    cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
-    match cmd {
-        CmdProfile::Create(local_args) => {
-            cli_output(
-                create(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdProfile::Delete(local_args) => {
-            cli_output(
-                delete(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdProfile::Rename(local_args) => {
-            cli_output(
-                rename(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdProfile::Show(local_args) => {
-            if local_args.identifier.is_some() {
-                cli_output(
-                    show_by_id_or_name(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            } else {
-                cli_output(
-                    show_all(cli.grpc_conn).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        }
-        CmdProfile::List(selector) => match selector {
-            List::Bundles(local_args) => {
-                cli_output(
-                    list_bundles_for_id_or_name(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-            List::Machines(local_args) => {
-                cli_output(
-                    list_machines_for_id_or_name(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-            List::All(_) => {
-                cli_output(
-                    list_all(cli.grpc_conn).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        },
+impl Run for Create {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            create(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
     }
-    Ok(())
+}
+
+impl Run for Delete {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            delete(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Rename {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            rename(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Show {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        if self.identifier.is_some() {
+            crate::cli_output(
+                show_by_id_or_name(&ctx.api_client, self).await?,
+                &ctx.config.format,
+                crate::Destination::Stdout(),
+            )
+        } else {
+            crate::cli_output(
+                show_all(&ctx.api_client).await?,
+                &ctx.config.format,
+                crate::Destination::Stdout(),
+            )
+        }
+    }
+}
+
+impl Run for ListAll {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_all(&ctx.api_client).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ListBundles {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_bundles_for_id_or_name(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ListMachines {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_machines_for_id_or_name(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
 }
 
 /// create is `profile create` and used for creating

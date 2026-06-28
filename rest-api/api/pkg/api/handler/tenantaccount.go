@@ -195,14 +195,13 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 		}
 
 		// Create a status detail record for the tenantaccount
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), *cutil.GetPtr(cdbm.TenantAccountStatusInvited),
-			cutil.GetPtr("received tenant account creation request, pending accept"))
+		ssd, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ta.ID.String(), Status: *cutil.GetPtr(cdbm.TenantAccountStatusInvited), Message: cutil.GetPtr("received tenant account creation request, pending accept")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
 		}
 		if ssd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for TenantAccount", nil)
 		}
 
@@ -704,39 +703,40 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Tenant Account status is not Invited", nil)
 	}
 
-	// Update TenantAccount in DB
-	// TODO start transaction
-	ta, err = taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
-		TenantAccountID: taID,
-		TenantContactID: cutil.GetPtr(dbUser.ID),
-		Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
+	// Values needed after the transaction closure
+	var uta *cdbm.TenantAccount
+	var ssds []cdbm.StatusDetail
+	// Handle database updates -- both tenant account and status detail
+	err = cdb.WithTx(ctx, utah.dbSession, func(tx *cdb.Tx) error {
+		var derr error
+		uta, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{TenantAccountID: taID, TenantContactID: cutil.GetPtr(dbUser.ID), Status: cutil.GetPtr(cdbm.TenantAccountStatusReady)})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error updating TenantAccount in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update TenantAccount", nil)
+		}
+		logger.Info().Msg("updated TenantAccount in DB")
+
+		sdDAO := cdbm.NewStatusDetailDAO(utah.dbSession)
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: uta.ID.String(), Status: *cutil.GetPtr(cdbm.TenantAccountStatusReady), Message: cutil.GetPtr("received tenant account update request, ready")})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating Status Detail for TenantAccount")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
+		}
+
+		// Get status details for the response
+		ssds, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uta.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error retrieving Status Details for TenantAccount from DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
+		}
+		return nil
 	})
 	if err != nil {
-		logger.Error().Err(err).Msg("error updating TenantAccount in DB")
-		// TODO rollback transaction
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Tenant", nil)
+		return common.HandleTxError(c, logger, err, "Failed to update Tenant Account, DB transaction error")
 	}
-
-	// create status detail record for the update
-	sdDAO := cdbm.NewStatusDetailDAO(utah.dbSession)
-	_, serr := sdDAO.CreateFromParams(ctx, nil, ta.ID.String(), *cutil.GetPtr(cdbm.TenantAccountStatusReady),
-		cutil.GetPtr("received tenant account update request, ready"))
-	if serr != nil {
-		// TODO rollback transaction
-		logger.Error().Err(serr).Msg("error updating Status Detail DB entry")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
-	}
-
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, ta.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
-	if err != nil {
-		// TODO rollback transaction
-		logger.Error().Err(err).Msg("error retrieving Status Details for TenantAccount from DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
-	}
-	// TODO commit transaction
 
 	// Create response
-	apiInstance := model.NewAPITenantAccount(ta, ssds, 0)
+	apiInstance := model.NewAPITenantAccount(uta, ssds, 0)
 
 	logger.Info().Msg("finishing API handler")
 

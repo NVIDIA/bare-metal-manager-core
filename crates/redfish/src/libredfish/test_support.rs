@@ -56,7 +56,6 @@ struct RedfishSimState {
     get_task_trigger_evidence_returns_interrupted: bool,
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
-    is_boot_order_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
     job_state_sequence: VecDeque<JobState>,
     /// Offset (in seconds) applied to the BMC `DateTime` returned by
@@ -81,6 +80,22 @@ struct RedfishSimHostState {
     power: PowerState,
     lockdown: libredfish::EnabledDisabled,
     actions: Vec<RedfishSimAction>,
+    /// Whether this host's `HttpDev1` UEFI HTTP-boot device is enabled in BIOS.
+    /// Defaults to `true` (the steady state after `machine_setup`): the boot
+    /// device is present, so `set_boot_order_dpu_first` can promote it and
+    /// `is_boot_order_setup` reports the order as configured. Tests flip it to
+    /// `false` via [`RedfishSim::set_http_dev1_reverted`] to model a NIC-mode
+    /// reboot de-enumerating the BlueField, which reverts the attribute to the
+    /// onboard default; only a fresh `machine_setup` re-enables it. Per-host so
+    /// one host's de-enumeration (or recovery) doesn't bleed into the others.
+    http_dev1_enabled: bool,
+    /// Whether this host reports its boot order as configured. `None` defers to
+    /// the default (`true`); `set_boot_order_dpu_first` records it as
+    /// `Some(http_dev1_enabled)` -- the reorder only "sticks" while the HTTP
+    /// boot device is present -- and `set_is_boot_order_setup` forces it.
+    /// Per-host so one host's boot-order state can't flip another host's
+    /// `is_boot_order_setup` check.
+    is_boot_order_setup: Option<bool>,
 }
 
 impl Default for RedfishSimHostState {
@@ -89,6 +104,10 @@ impl Default for RedfishSimHostState {
             power: PowerState::default(),
             lockdown: libredfish::EnabledDisabled::Disabled,
             actions: Vec::default(),
+            // Enabled by default so existing tests, which never model a
+            // de-enumeration, see the boot order configure normally.
+            http_dev1_enabled: true,
+            is_boot_order_setup: None,
         }
     }
 }
@@ -170,9 +189,31 @@ impl RedfishSim {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
     }
 
-    /// Configure whether simulated Redfish reports the host boot order as ready.
+    /// Force whether simulated Redfish reports the boot order as configured,
+    /// for every current host. A later `set_boot_order_dpu_first` overwrites it
+    /// per host (last write wins), the same as a real boot-order setup would.
     pub fn set_is_boot_order_setup(&self, ready: bool) {
-        self.state.lock().unwrap().is_boot_order_setup = Some(ready);
+        let mut state = self.state.lock().unwrap();
+        for host_state in state.hosts.values_mut() {
+            host_state.is_boot_order_setup = Some(ready);
+        }
+    }
+
+    /// Model a NIC-mode reboot de-enumerating the BlueField: the `HttpDev1`
+    /// UEFI HTTP-boot device reverts to the onboard default and is no longer
+    /// enabled. While reverted, `set_boot_order_dpu_first` records the boot
+    /// order as *not* configured (it can only reorder a device that exists),
+    /// so `is_boot_order_setup` reports `false` until a fresh `machine_setup`
+    /// re-enables the device.
+    ///
+    /// The flag is per-host, so reverting every current host here is just the
+    /// no-host-id entry point; a later `machine_setup` re-enables only the host
+    /// it targets, which is what keeps multi-host tests isolated.
+    pub fn set_http_dev1_reverted(&self) {
+        let mut state = self.state.lock().unwrap();
+        for host_state in state.hosts.values_mut() {
+            host_state.http_dev1_enabled = false;
+        }
     }
 
     /// Configure simulated BMC lockdown state for existing and future clients.
@@ -351,12 +392,19 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
+            let job_id = state.machine_setup_bios_job_id.clone();
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // `machine_setup` re-asserts the platform BIOS config, which
+            // re-enables this host's `HttpDev1` HTTP-boot device. This is the
+            // recovery a de-enumeration relies on: a subsequent
+            // `set_boot_order_dpu_first` can then promote the device and the
+            // boot order sticks. Per-host, so it recovers only this host.
+            host_state.http_dev1_enabled = true;
             host_state.actions.push(RedfishSimAction::MachineSetup {
                 oem_manager_profiles: oem_manager_profiles.clone(),
                 boot_interface_mac: boot_interface.map(boot_interface_ref_to_string),
             });
-            Ok(state.machine_setup_bios_job_id.clone())
+            Ok(job_id)
         })
     }
 
@@ -1225,8 +1273,11 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
-            state.is_boot_order_setup = Some(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // Reordering only promotes an existing boot device; it can't
+            // re-create a de-enumerated one. So the order reads as configured
+            // exactly when this host's HTTP boot device is currently enabled.
+            host_state.is_boot_order_setup = Some(host_state.http_dev1_enabled);
             host_state
                 .actions
                 .push(RedfishSimAction::SetBootOrderDpuFirst {
@@ -1407,8 +1458,11 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
-            let is_boot_order_setup = state.is_boot_order_setup.unwrap_or(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // Readiness is per-host: it defaults to configured (`true`) and is
+            // updated only by this host's own `set_boot_order_dpu_first` /
+            // `set_is_boot_order_setup`, so other hosts can't flip it.
+            let is_boot_order_setup = host_state.is_boot_order_setup.unwrap_or(true);
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
                 boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
@@ -1862,6 +1916,8 @@ impl RedfishClientPool for RedfishSim {
                     power: PowerState::On,
                     lockdown: default_lockdown,
                     actions: Default::default(),
+                    http_dev1_enabled: true,
+                    is_boot_order_setup: None,
                 });
             if state.fw_version.is_empty() {
                 state.fw_version = Arc::new("24.10-17".to_string());

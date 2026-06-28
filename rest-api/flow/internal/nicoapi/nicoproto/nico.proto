@@ -71,6 +71,7 @@ service Forge {
   rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
   rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
+  rpc AttachNetworkSegmentToVpc(AttachNetworkSegmentToVpcRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   // TODO: This functionality should get integrated into NetworkSegmentSearchFilter
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
@@ -301,6 +302,12 @@ service Forge {
   // paginated APIs to get site explorer explored managed hosts
   rpc FindExploredManagedHostIds(site_explorer.ExploredManagedHostSearchFilter) returns (site_explorer.ExploredManagedHostIdList);
   rpc FindExploredManagedHostsByIds(site_explorer.ExploredManagedHostsByIdsRequest) returns (site_explorer.ExploredManagedHostList);
+  // Mellanox/BlueField device firmware, projected from explored Redfish PCIe
+  // inventory -- surfaces NIC firmware for DPUs operating in NIC mode. Paginated
+  // like the explored reads above: list the host BMC IPs carrying BlueField
+  // devices, then fetch their devices a page of hosts at a time.
+  rpc FindExploredMlxDeviceHostIds(site_explorer.ExploredMlxDeviceHostSearchFilter) returns (site_explorer.ExploredMlxDeviceHostIdList);
+  rpc FindExploredMlxDevicesByIds(site_explorer.ExploredMlxDevicesByIdsRequest) returns (site_explorer.ExploredMlxDeviceList);
   rpc UpdateMachineHardwareInfo(UpdateMachineHardwareInfoRequest) returns (google.protobuf.Empty);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
@@ -363,6 +370,12 @@ service Forge {
   rpc GetMachineBootOverride(common.MachineInterfaceId) returns (MachineBootOverride);
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(common.MachineInterfaceId) returns (google.protobuf.Empty);
+
+  // Gather one machine's boot-interface view from every store that records it
+  // (owned interface rows, predictions, the explored endpoint default, and the
+  // retained post-deletion pairs), plus the effective boot interface the
+  // system would select. Read-only; built for troubleshooting and verification.
+  rpc GetMachineBootInterfaces(GetMachineBootInterfacesRequest) returns (GetMachineBootInterfacesResponse);
 
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
@@ -595,6 +608,18 @@ service Forge {
   rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
   // Machine-Validation executed list
   rpc GetMachineValidationRuns(MachineValidationRunListGetRequest) returns (MachineValidationRunList);
+
+  // Machine-Validation run item IDs
+  rpc FindMachineValidationRunItemIds(MachineValidationRunItemSearchFilter) returns (MachineValidationRunItemIdList);
+
+  // Machine-Validation run items by IDs
+  rpc FindMachineValidationRunItemsByIds(MachineValidationRunItemsByIdsRequest) returns (MachineValidationRunItemList);
+
+  // Machine-Validation attempt detail
+  rpc GetMachineValidationAttempt(MachineValidationAttemptGetRequest) returns (MachineValidationAttempt);
+
+  // Machine-Validation run and active attempt heartbeat
+  rpc HeartbeatMachineValidationRun(MachineValidationHeartbeatRequest) returns (MachineValidationHeartbeatResponse);
 
   // Remove ExternalConfig
   rpc RemoveMachineValidationExternalConfig(RemoveMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
@@ -933,6 +958,9 @@ service Forge {
   // Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
   // and OS definition fields (including ipxe_definition_hash) unchanged.
   rpc UpdateOperatingSystemCachableIpxeTemplateArtifacts(UpdateOperatingSystemIpxeTemplateArtifactRequest) returns (IpxeTemplateArtifactList);
+
+  // Secrets management
+  rpc ReWrapSecrets(ReWrapSecretsRequest) returns (ReWrapSecretsResponse);
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller
@@ -1258,6 +1286,7 @@ enum CredentialType {
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
   BgpSiteWideLeafPassword = 11;
+  SiteWideNicLockdownIkm = 12;
 }
 
 message CredentialCreationRequest {
@@ -1478,19 +1507,30 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
-// 
+message VpcConfig {
+  string tenant_organization_id = 1;
+  optional string tenant_keyset_id = 2;
+  optional VpcVirtualizationType network_virtualization_type = 3;
+  optional string network_security_group_id = 4;
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 5;
+  // Desired VNI for this VPC. Only populated when explicitly requested during creation.
+  optional uint32 vni = 6;
+  optional string routing_profile_type = 7;
+}
+
 message VpcStatus {
   // The actual VNI allocated to the VPC. If a VNI had been
-  // explicitly requested, we'd expect this to match the VNI
-  // of the Vpc message. If not explicitly requested, we'd
-  // expect the VNI of the Vpc message to be unset.
+  // explicitly requested, we'd expect this to match config.vni.
+  // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
 }
 
 message Vpc {
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_organization_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
 
@@ -1499,34 +1539,41 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  optional string tenantKeysetId = 7; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  // Deprecated: use config.tenant_keyset_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
-  // We'll keep populating this field but it will come from
-  // status.vni
-  // We'll be able to trim it out later after some deprecation window.
-  optional uint32 deprecated_vni = 8; // Deprecated
+  // Deprecated: use status.vni
+  // TODO change to reserved once rest component uses `VpcStatus`
+  optional uint32 deprecated_vni = 8 [deprecated = true];
 
-  optional VpcVirtualizationType network_virtualization_type = 9;
+  // Deprecated: use config.network_virtualization_type
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
   Metadata metadata = 10;
 
-  // Sets the desired NSG ID for a VPC
-  optional string network_security_group_id  = 11;
+  // Deprecated: use config.network_security_group_id
+  // TODO Change to reserved once rest component uses `VpcConfig`
+  optional string network_security_group_id  = 11 [deprecated = true];
 
   // dpa_vni
   reserved 12;
 
-  // The ID of the default NVLink Logical Partition for a VPC
-  // This is the NVLink Logical Partition that will be used by default for all instances in the VPC.
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13;
+  // Deprecated: use config.default_nvlink_logical_partition_id
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
 
   optional VpcStatus status = 14;
 
-  // This will only be populated if the VNI was explicitly
-  // requested during creation of the VPC.
-  optional uint32 vni = 15;
+  // Deprecated: use config.vni
+  // TODO change to reserved once rest component uses `VpcConfig`
+  optional uint32 vni = 15 [deprecated = true];
 
-  // The resolved routing profile type applied to this VPC.
-  optional string routing_profile_type = 16;
+  // Deprecated: use config.routing_profile_type
+  // TODO change to reserved once rest-component uses `VpcConfig`
+  optional string routing_profile_type = 16 [deprecated = true];
+
+  VpcConfig config = 17;
 }
 
 message VpcCreationRequest {
@@ -1686,6 +1733,9 @@ message VpcPrefixStatus {
   uint64 total_linknet_segments = 3;
   uint64 available_linknet_segments = 4;
   LifecycleStatus lifecycle = 5;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 6;
 }
 
 message VpcPrefixCreationRequest {
@@ -2433,6 +2483,12 @@ message NetworkSegmentDeletionRequest {
   common.NetworkSegmentId id = 1;
 }
 
+message AttachNetworkSegmentToVpcRequest {
+  common.NetworkSegmentId network_segment_id = 1;
+  common.VpcId vpc_id = 2;
+  bool allow_replace = 3;
+}
+
 message NetworkSegmentDeletionResult {
 }
 
@@ -2732,22 +2788,32 @@ message InstanceNetworkConfig {
   // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
 
-  // When true, NICO (or potentially some pluggable SDN backend) will
+  // Deprecated. Set auto_config.vpc_id to the requested VPC ID instead.
+  bool auto = 2 [deprecated = true];
+
+  // When set, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
   // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
   // MUST be empty on the request.
   //
-  // Callers reading the instance back also see `auto = true` with an empty
+  // Callers reading the instance back also see `auto_config` set, with an empty
   // `interfaces` list (what they sent is preserved verbatim). The
   // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
   // in `Instance.status.network.interfaces` instead.
   //
-  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // On update, setting `auto_config` re-resolves interfaces from the host's
   // current HostInband segments. If nothing has changed, this is a no-op.
   // If the host's segments have been added/removed by the operator, the
   // update reflects that change.
-  bool auto = 2;
+  optional InstanceNetworkAutoConfig auto_config = 3;
+}
+
+message InstanceNetworkAutoConfig {
+  // For Flat zero-DPU deployments, multiple VPCs may share the same
+  // HostInband network segment, so VPC ownership is carried by the
+  // instance address rather than by the segment.
+  optional common.VpcId vpc_id = 1;
 }
 
 // Desired infiniband configuration for an instance
@@ -3174,6 +3240,9 @@ message InstanceInterfaceStatus {
 
   optional string device = 6;
   uint32 device_instance = 7;
+
+  // The logical VPC this interface belongs to.
+  optional common.VpcId vpc_id = 8;
 }
 
 // The actual status of a single IB interface of an instance
@@ -3530,6 +3599,13 @@ message Machine {
 
   // Build version of forge-scout last observed during machine discovery registration.
   optional string last_scout_observed_version = 48;
+
+  optional DpfMachineState dpf = 49;
+}
+
+message DpfMachineState {
+  bool enabled = 1;
+  bool used_for_ingestion = 2;
 }
 
 message InstanceNetworkRestrictions {
@@ -3790,6 +3866,55 @@ message DhcpDiscovery {
   optional string circuit_id = 5;
   optional string remote_id = 6;
   optional string desired_address = 7;
+  // DHCP protocol family for this request.
+  // Omit only for legacy callers; the service infers the family from relay/link
+  // addresses. If present, ADDRESS_FAMILY_UNSPECIFIED is invalid.
+  // When either address_family or message_kind is present, both must be present,
+  // specified, and compatible.
+  optional AddressFamily address_family = 8;
+  // DHCP message kind for this request.
+  // Omit only for legacy callers. If present, MESSAGE_KIND_UNSPECIFIED is invalid.
+  // ADDRESS_FAMILY_V4 is valid only with MESSAGE_KIND_V4_DISCOVER.
+  // ADDRESS_FAMILY_V6 is valid only with MESSAGE_KIND_V6_SOLICIT,
+  // MESSAGE_KIND_V6_REQUEST, or MESSAGE_KIND_V6_INFO_REQUEST.
+  // Mismatched pairs, such as ADDRESS_FAMILY_V4 with MESSAGE_KIND_V6_SOLICIT,
+  // are validation errors and must not be coerced.
+  optional MessageKind message_kind = 9;
+  // DHCPv6 client DUID.
+  // Must be present and non-empty for DHCPv6 requests, including all V6
+  // MessageKind values and any request with ADDRESS_FAMILY_V6.
+  // Must be absent for DHCPv4 requests.
+  optional bytes duid = 10;
+}
+
+// DHCP protocol family used to validate DhcpDiscovery.message_kind and duid.
+// Field absence means legacy inference; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
+enum AddressFamily {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.address_family instead
+  // when using legacy family inference.
+  ADDRESS_FAMILY_UNSPECIFIED = 0;
+  // DHCPv4. Compatible only with MESSAGE_KIND_V4_DISCOVER and no DUID.
+  ADDRESS_FAMILY_V4 = 1;
+  // DHCPv6. Compatible only with V6 MessageKind values and requires a DUID.
+  ADDRESS_FAMILY_V6 = 2;
+}
+
+// DHCP message type used to validate DhcpDiscovery.address_family and duid.
+// Field absence means legacy behavior; *_UNSPECIFIED means an explicit invalid
+// value and is rejected when supplied.
+enum MessageKind {
+  // Invalid when explicitly supplied. Omit DhcpDiscovery.message_kind instead
+  // when using legacy behavior.
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  // DHCPv4 DISCOVER. Requires ADDRESS_FAMILY_V4 and forbids duid.
+  MESSAGE_KIND_V4_DISCOVER = 1;
+  // DHCPv6 SOLICIT. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
+  MESSAGE_KIND_V6_SOLICIT = 2;
+  // DHCPv6 REQUEST. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
+  MESSAGE_KIND_V6_REQUEST = 3;
+  // DHCPv6 Information-request. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
+  MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
 
 message ExpireDhcpLeaseRequest {
@@ -3804,6 +3929,7 @@ message ExpireDhcpLeaseRequest {
 enum ExpireDhcpLeaseStatus {
   EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
   EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+  EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED = 2;
 }
 
 message ExpireDhcpLeaseResponse {
@@ -3831,6 +3957,18 @@ message DhcpRecord {
 
   // The last time any underlay or admin DHCP record managed by Forge got invalidated
   optional google.protobuf.Timestamp last_invalidation_time = 12;
+
+  // Per site NTP server IPs
+  repeated string ntp_servers = 13;
+
+  // DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When present, dhcpv6_valid_lifetime_secs must also be present and must be
+  // greater than or equal to this value.
+  optional uint32 dhcpv6_preferred_lifetime_secs = 14;
+  // DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
+  // When both DHCPv6 lifetime fields are present, this value must be greater
+  // than or equal to dhcpv6_preferred_lifetime_secs.
+  optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
 message NetworkSegmentList {
@@ -4031,6 +4169,10 @@ message ManagedHostNetworkConfigResponse {
   // should perform any extra config to prepare
   // for them.
   bool stateful_acls_enabled = 21;
+
+  // site-level configured NTP server IPs
+  // If empty, the agent may fall back to resolving carbide-ntp.forge for compatibility.
+  repeated string ntp_servers = 22;
 
   // Enable forge DHCP on HBN.
   // Deprecated: It is always enabled now.
@@ -5700,6 +5842,8 @@ message IpxeTemplateList {
 
 message ExpectedHostNic {
   string mac_address = 1;
+  // Legacy free-form segment hint (bf3, onboard, oob, ...). Kept for backward
+  // compatibility; declare network_segment_type instead, which wins.
   optional string nic_type = 2;
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
@@ -5714,6 +5858,12 @@ message ExpectedHostNic {
   // Some day this could be even possibly used to say "this dumb NIC
   // *is* the primary interface, even though I know I have a DPU."
   optional bool primary = 6;
+  // The network segment type this NIC's first DHCP lease should come from.
+  // A NIC's segment normally follows its DHCP relay; where segment prefixes
+  // nest or overlap and a relay matches several, this narrows the choice to
+  // the segment of this type. Supersedes nic_type; absent both, the relay's
+  // match stands.
+  optional NetworkSegmentType network_segment_type = 7;
 }
 
 // Per-host DPU operating mode. Lets site operators mix DPU-mode,
@@ -5931,6 +6081,7 @@ message MachineValidationRun {
   optional string context = 6;
   MachineValidationStatus status = 7;
   google.protobuf.Duration duration_to_complete = 8;
+  google.protobuf.Timestamp last_heartbeat_at = 9;
 
 }
 
@@ -6114,6 +6265,78 @@ message MachineValidationRunListGetRequest {
   bool include_history = 2;
 }
 
+message MachineValidationRunItemSearchFilter {
+  common.MachineValidationId validation_id = 1;
+}
+
+message MachineValidationRunItemIdList {
+  repeated common.UUID run_item_ids = 1;
+}
+
+message MachineValidationRunItemsByIdsRequest {
+  repeated common.UUID run_item_ids = 1;
+}
+
+message MachineValidationRunItemList {
+  repeated MachineValidationRunItem run_items = 1;
+}
+
+message MachineValidationRunItem {
+  common.UUID run_item_id = 1;
+  common.MachineValidationId validation_id = 2;
+  string test_id = 3;
+  optional string test_version = 4;
+  string display_name = 5;
+  string context = 6;
+  optional string component = 7;
+  string state = 8;
+  uint32 order_index = 9;
+  uint32 attempt = 10;
+  uint32 max_attempts = 11;
+  google.protobuf.Duration timeout = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp ended_at = 14;
+  google.protobuf.Timestamp last_heartbeat_at = 15;
+  optional string skip_reason = 16;
+  optional string failure_reason = 17;
+  common.UUID current_attempt_id = 18;
+}
+
+message MachineValidationAttemptGetRequest {
+  common.UUID attempt_id = 1;
+}
+
+message MachineValidationAttempt {
+  common.UUID attempt_id = 1;
+  common.UUID run_item_id = 2;
+  uint32 attempt_number = 3;
+  string state = 4;
+  optional string command = 5;
+  optional string args = 6;
+  optional string container_image = 7;
+  optional bool execute_in_host = 8;
+  optional int32 exit_code = 9;
+  optional string failure_classification = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  google.protobuf.Timestamp last_heartbeat_at = 13;
+  optional string stdout_summary = 14;
+  optional string stderr_summary = 15;
+}
+
+message MachineValidationHeartbeatRequest {
+  common.MachineValidationId validation_id = 1;
+  oneof target {
+    common.UUID run_item_id = 2;
+    common.UUID attempt_id = 3;
+    string test_id = 4;
+  }
+}
+
+message MachineValidationHeartbeatResponse {
+  bool accepted = 1;
+}
+
 message IsBmcInManagedHostResponse {
   bool in_managed_host = 1;
 }
@@ -6240,6 +6463,7 @@ message MachineValidationRunRequest {
   common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
+  repeated MachineValidationTest selected_tests = 4;
 }
 message MachineValidationRunResponse {
   string message = 1;
@@ -7203,6 +7427,12 @@ enum RackHardwareTopology {
   RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
 }
 
+enum RackProductFamily {
+  RACK_PRODUCT_FAMILY_UNSPECIFIED = 0;
+  RACK_PRODUCT_FAMILY_GB200 = 1;
+  RACK_PRODUCT_FAMILY_GB300 = 2;
+}
+
 enum RackHardwareClass {
   RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
   RACK_HARDWARE_CLASS_DEV = 1;
@@ -7241,6 +7471,7 @@ message RackProfile {
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
   RackCapabilitiesSet capabilities = 4;
+  RackProductFamily product_family = 5;
 }
 
 message GetRackProfileRequest {
@@ -7325,6 +7556,9 @@ enum NmxcBrowseOperation {
   NMXC_BROWSE_OPERATION_GPU_INFO = 2;
   // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
   NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
+  NMXC_BROWSE_OPERATION_PARTITION_INFO_LIST = 4;
+  NMXC_BROWSE_OPERATION_SWITCH_NODE_INFO_LIST = 5;
+  NMXC_BROWSE_OPERATION_GET_DOMAIN_PROPERTIES = 6;
 }
 
 message NmxcBrowseRequest {
@@ -8498,4 +8732,101 @@ message UpdateOperatingSystemIpxeTemplateArtifactRequest {
 message HostRepresentorInterceptBridging {
   string bridge     = 1;
   string patch_port = 2;
+}
+
+message ReWrapSecretsRequest {
+  // Rows scanned per batch during the re-wrap walk.
+  // Unset: the server picks a sensible default (100).
+  // Out of range: the server clamps to [1, 10000]; in
+  // particular 0 does not mean "scan nothing". Clients
+  // should not rely on sending 0 or very large values.
+  optional uint32 batch_size = 1;
+}
+
+message ReWrapSecretsResponse {
+  // Journal rows whose DEK was re-wrapped to the
+  // routed KEK.
+  uint64 re_wrapped = 1;
+  // Journal rows already wrapped by the routed KEK.
+  uint64 already_current = 2;
+  // Journal rows still wrapped by a KEK outside the
+  // routing config after the walk. Zero means every
+  // unrouted KEK can be retired.
+  uint64 stale_remaining = 3;
+}
+
+// ---------------------------------------------------------------------------
+// GetMachineBootInterfaces: one machine's boot-interface view, gathered from
+// every store that records it. Each store gets its own purpose-built report
+// message that explicitly carries `boot_interface_id` -- the regular
+// `MachineInterface` message drops it, so these are separate report types.
+// ---------------------------------------------------------------------------
+
+message GetMachineBootInterfacesRequest {
+  common.MachineId machine_id = 1;
+}
+
+// A `machine_interfaces` row's boot interface: the authoritative store for an
+// owned machine. `primary_interface` is the designation `pick_boot_interface`
+// keys on.
+message MachineInterfaceBootInterface {
+  string mac_address = 1;
+  bool primary_interface = 2;
+  // Vendor-named Redfish EthernetInterface.Id, absent until site-explorer has
+  // captured it for this MAC.
+  optional string boot_interface_id = 3;
+  // Segment type of the row, when one is known (denormalized from the segment).
+  optional string network_segment_type = 4;
+}
+
+// A `predicted_machine_interfaces` row's boot interface: the candidate a host
+// offers in the window before its first DHCP lease creates an owned row.
+message PredictedBootInterface {
+  string mac_address = 1;
+  bool primary_interface = 2;
+  optional string boot_interface_id = 3;
+  // The predicted/expected segment type carried on the prediction.
+  optional string network_segment_type = 4;
+}
+
+// An `explored_endpoints` row's boot interface: site-explorer's per-cycle
+// automatic pick for a BMC endpoint, used only for endpoints no machine owns.
+message ExploredBootInterface {
+  // BMC endpoint address this explored default was recorded against.
+  string address = 1;
+  optional string boot_interface_mac = 2;
+  optional string boot_interface_id = 3;
+}
+
+// A `retained_boot_interfaces` row: the last-known boot pair preserved past
+// interface deletion, keyed by MAC. `recorded_at` is included so the view can
+// show stale records (ones aged past the retention window).
+message RetainedBootInterface {
+  string mac_address = 1;
+  string boot_interface_id = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+message GetMachineBootInterfacesResponse {
+  common.MachineId machine_id = 1;
+
+  // Boot interfaces from the four stores.
+  repeated MachineInterfaceBootInterface machine_interfaces = 2;
+  repeated PredictedBootInterface predicted_interfaces = 3;
+  repeated ExploredBootInterface explored_endpoints = 4;
+  repeated RetainedBootInterface retained_interfaces = 5;
+
+  // The boot interface MAC the system would select for this machine right now,
+  // applying `pick_boot_interface` to the owned `machine_interfaces` rows.
+  // Absent when there is no owned candidate yet.
+  optional string effective_boot_interface_mac = 6;
+  // The fully-populated effective boot interface id (MAC + Redfish id), when
+  // the selected row has its interface id captured. Absent otherwise.
+  optional string effective_boot_interface_id = 7;
+
+  // True when the stores do not all agree on the boot MAC -- a signal worth a
+  // closer look during troubleshooting (e.g. the explored default points at a
+  // different NIC than the effective owned pick, or a predicted primary
+  // disagrees). See the handler for the exact comparison.
+  bool divergent = 8;
 }

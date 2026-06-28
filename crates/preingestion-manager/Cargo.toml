@@ -33,6 +33,9 @@ tracing = { workspace = true }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+carbide-firmware = { path = "../firmware", features = ["test-support"] }
+carbide-test-harness = { path = "../test-harness" }
+carbide-uuid = { path = "../uuid" }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 
 [lints]

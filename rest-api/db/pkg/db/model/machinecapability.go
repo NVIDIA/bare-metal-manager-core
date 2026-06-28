@@ -574,7 +574,7 @@ type MachineCapabilitySQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new MachineCapability from the given parameters
+// Create creates a new MachineCapability from the given parameters
 // The returned MachineCapability will not have any related structs filled in
 // since there are 2 operations (INSERT, SELECT), in this, it is required that
 // this library call happens within a transaction
@@ -582,7 +582,7 @@ func (mcd MachineCapabilitySQLDAO) Create(
 	ctx context.Context, tx *db.Tx,
 	input MachineCapabilityCreateInput) (*MachineCapability, error) {
 	// Create a child span and set the attributes for current request
-	ctx, MachineCapabilityDAOSpan := mcd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineCapabilityDAO.CreateFromParams")
+	ctx, MachineCapabilityDAOSpan := mcd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineCapabilityDAO.Create")
 	if MachineCapabilityDAOSpan != nil {
 		defer MachineCapabilityDAOSpan.End()
 
@@ -907,7 +907,7 @@ func (mcd MachineCapabilitySQLDAO) Update(
 	ctx context.Context, tx *db.Tx,
 	input MachineCapabilityUpdateInput) (*MachineCapability, error) {
 	// Create a child span and set the attributes for current request
-	ctx, MachineCapabilityDAOSpan := mcd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineCapabilityDAO.UpdateFromParams")
+	ctx, MachineCapabilityDAOSpan := mcd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineCapabilityDAO.Update")
 	if MachineCapabilityDAOSpan != nil {
 		defer MachineCapabilityDAOSpan.End()
 	}

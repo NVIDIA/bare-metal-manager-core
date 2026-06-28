@@ -11105,6 +11105,25 @@ async fn set_host_boot_order(
                 }
             };
 
+            // Re-assert the platform BIOS config before reordering -- a NIC-mode
+            // reboot can de-enumerate the BlueField and revert HttpDev1 to the
+            // onboard default, and `set_boot_order_dpu_first` only reorders the
+            // boot options it finds, so it can't bring HttpDev1 back on its own.
+            // Re-running `machine_setup` (by interface id) restores the HTTP boot
+            // device for the reorder, the same recovery the BIOS-setup phase
+            // already does. Idempotent when it's already set, and applied by the
+            // existing RebootHost restart; the returned job id is dropped
+            // (zero-DPU hosts swallow it as `NoDpu`, and CheckBootOrder tracks
+            // the boot-order job below).
+            call_machine_setup_and_handle_no_dpu_error(
+                redfish_client,
+                Some(&boot_interface),
+                mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                &ctx.services.site_config,
+            )
+            .await
+            .map_err(|e| redfish_error("machine_setup", e))?;
+
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
                 &boot_interface,

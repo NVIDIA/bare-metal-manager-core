@@ -207,7 +207,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 
 		// If status was updated, then create status detail
 		if status != nil {
-			_, err = sdDAO.CreateFromParams(ctx, nil, dpuExtensionService.ID.String(), *status, statusMessage)
+			_, err = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: dpuExtensionService.ID.String(), Status: *status, Message: statusMessage})
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to create status detail for DPU Extension Service in DB")
 				continue
@@ -253,7 +253,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 			}
 
 			// Create status detail for DPU Extension Service
-			_, err = sdDAO.CreateFromParams(ctx, nil, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusError, cutil.GetPtr("DPU Extension Service is missing on Site"))
+			_, err = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: dpuExtensionService.ID.String(), Status: cdbm.DpuExtensionServiceStatusError, Message: cutil.GetPtr("DPU Extension Service is missing on Site")})
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to create status detail for DPU Extension Service in DB")
 				continue

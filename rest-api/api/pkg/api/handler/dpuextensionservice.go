@@ -206,8 +206,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		dpuExtensionService = des
 
 		// Create a status detail record for the DPU Extension Service
-		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusPending,
-			cutil.GetPtr("Received DPU Extension Service creation request, pending processing"))
+		statusDetail, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: dpuExtensionService.ID.String(), Status: cdbm.DpuExtensionServiceStatusPending, Message: cutil.GetPtr("Received DPU Extension Service creation request, pending processing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for DPU Extension Service", nil)
@@ -308,10 +307,11 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error updating DPU Extension Service record in DB")
 			// Don't fail the request, the service will get updated on next inventory sync
 		} else {
-			statusDetail, serr := sdDAO.CreateFromParams(ctx, nil, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusReady,
-				cutil.GetPtr("DPU Extension Service is ready for deployment"))
+			statusDetail, serr := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: dpuExtensionService.ID.String(), Status: cdbm.DpuExtensionServiceStatusReady, Message: cutil.GetPtr("DPU Extension Service is ready for deployment")})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
+			} else if statusDetail == nil {
+				logger.Error().Msg("Status detail not returned from Create call")
 			} else {
 				statusDetails = append(statusDetails, *statusDetail)
 			}

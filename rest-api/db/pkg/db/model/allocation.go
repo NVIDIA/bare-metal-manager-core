@@ -459,7 +459,7 @@ func (asd AllocationSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter Alloca
 // this library call happens within a transaction
 func (asd AllocationSQLDAO) Update(ctx context.Context, tx *db.Tx, input AllocationUpdateInput) (*Allocation, error) {
 	// Create a child span and set the attributes for current request
-	ctx, aDAOSpan := asd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationDAO.UpdateFromParams")
+	ctx, aDAOSpan := asd.tracerSpan.CreateChildInCurrentContext(ctx, "AllocationDAO.Update")
 	if aDAOSpan != nil {
 		defer aDAOSpan.End()
 

@@ -505,7 +505,7 @@ func (mskg ManageSSHKeyGroup) updateSSHKeyGroupSiteAssociationStatusInDB(ctx con
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mskg.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, skgsaID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsaID.String(), Status: *status, Message: statusMessage})
 		if err != nil {
 			return err
 		}
@@ -680,7 +680,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 	}
 
 	statusDetailDAO := cdbm.NewStatusDetailDAO(mskg.dbSession)
-	_, err = statusDetailDAO.CreateFromParams(ctx, nil, skgID.String(), *sgStatus, sgMessage)
+	_, err = statusDetailDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: skgID.String(), Status: *sgStatus, Message: sgMessage})
 	if err != nil {
 		return err
 	}
@@ -693,7 +693,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 // IsSSHKeyGroupCreated is helper function to get if sshkeygroup created or not
 func (mskg ManageSSHKeyGroup) IsSSHKeyGroupCreatedOnSite(ctx context.Context, tx *cdb.Tx, sshKeyGroupSiteAssociationID uuid.UUID) (*bool, error) {
 	sdDAO := cdbm.NewStatusDetailDAO(mskg.dbSession)
-	skgsds, _, err := sdDAO.GetAllByEntityID(ctx, tx, sshKeyGroupSiteAssociationID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+	skgsds, _, err := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{sshKeyGroupSiteAssociationID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)})
 	if err != nil {
 		return nil, err
 	}

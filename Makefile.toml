@@ -576,7 +576,9 @@ description = "Tasks that run on workspace level (not crate level) in pre-commit
 category = "CI"
 # clippy-flow is a default target provided by cargo-make.
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to add it to the lint-police job in .github/workflows/ci.yaml too.
+# REST proto generation is covered by the dedicated check-rest-core-proto-sync CI job because it needs Go/buf setup.
 dependencies = [
+  "generate-rest-core-proto",
   "clippy-flow",
   "carbide-lints",
   "check-format-nightly",
@@ -585,6 +587,34 @@ dependencies = [
   "check-licenses",
   "check-bans",
 ]
+
+[tasks.generate-rest-core-proto]
+workspace = false
+description = "Regenerate REST protobuf snapshots and Go bindings from crates/rpc/proto."
+category = "Generate"
+script = '''
+set -eu
+make -C rest-api core-proto
+make -C rest-api/flow gen-nicoapi-pb
+'''
+
+[tasks.check-repo-clean]
+workspace = false
+description = "Fail if the repository has uncommitted generated or lockfile changes."
+category = "CI"
+script = '''
+bash "${REPO_ROOT}/scripts/check-repo-clean.sh" "cargo make check-repo-clean"
+'''
+
+[tasks.check-rest-core-proto-sync]
+workspace = false
+description = "Regenerate REST Core protobuf outputs and fail if they were not committed."
+category = "CI"
+script = '''
+set -eu
+cargo make --no-workspace generate-rest-core-proto
+cargo make --no-workspace check-repo-clean
+'''
 
 [tasks.clippy]
 workspace = false

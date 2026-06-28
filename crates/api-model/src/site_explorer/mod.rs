@@ -610,10 +610,8 @@ impl ExploredDpu {
     pub fn hardware_info(&self) -> ModelResult<HardwareInfo> {
         let serial_number = self
             .report
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-            .unwrap();
+            .dpu_pairing_serial_number()
+            .ok_or(ModelError::MissingArgument("Missing DPU serial number"))?;
         let vendor = self
             .report
             .systems
@@ -626,7 +624,7 @@ impl ExploredDpu {
             .and_then(|system| system.model.as_ref());
         let dmi_data = self
             .report
-            .create_temporary_dmi_data(serial_number.as_str(), vendor, model);
+            .create_temporary_dmi_data(serial_number, vendor, model);
 
         let chassis_map = self
             .report
@@ -748,10 +746,43 @@ mod serialize_option_display {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SiteExplorationReport {
+    /// Metadata about the latest site explorer run, if site explorer has run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<SiteExplorerLastRun>,
     /// The endpoints that had been explored
     pub endpoints: Vec<ExploredEndpoint>,
     /// The managed-hosts which have been explored
     pub managed_hosts: Vec<ExploredManagedHost>,
+}
+
+/// Operator-facing status for the latest site explorer run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SiteExplorerLastRun {
+    /// When the run started.
+    pub started_at: DateTime<Utc>,
+    /// When the run finished.
+    pub finished_at: DateTime<Utc>,
+    /// Whether the run completed successfully.
+    pub success: bool,
+    /// Error string for a failed run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Failure category for a failed run, suitable for metrics and alert routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_category: Option<String>,
+    /// Number of endpoint exploration attempts made during the run.
+    pub endpoint_explorations: i64,
+    /// Number of successful endpoint explorations during the run.
+    pub endpoint_explorations_success: i64,
+    /// Number of endpoint exploration errors during the run.
+    pub endpoint_explorations_failed: i64,
+    /// When the most recent successful run finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_successful_finished_at: Option<DateTime<Utc>>,
+    /// When the most recent failed run finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_failed_finished_at: Option<DateTime<Utc>>,
 }
 
 impl EndpointExplorationReport {
@@ -896,17 +927,32 @@ impl EndpointExplorationReport {
         }
     }
 
+    fn machine_id_serial_number(&self) -> Option<&str> {
+        self.systems
+            .first()
+            .and_then(|system| system.serial_number.as_deref().map(str::trim))
+            .filter(|sn| !sn.is_empty())
+            .or_else(|| {
+                self.is_dpu().then(|| {
+                    // BF4 reports no system serial in Redfish. The stable product serial is
+                    // on the Bluefield_BMC chassis; use that explicit chassis ID instead of
+                    // depending on chassis collection order or unrelated component serials.
+                    self.chassis
+                        .iter()
+                        .find(|chassis| chassis.id == "Bluefield_BMC")
+                        .and_then(|chassis| chassis.serial_number.as_deref().map(str::trim))
+                        .filter(|serial| !serial.trim().is_empty())
+                })?
+            })
+    }
+
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
     pub fn generate_machine_id(
         &mut self,
         force_predicted_host: bool,
     ) -> ModelResult<Option<&MachineId>> {
-        if let Some(serial_number) = self
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-        {
+        if let Some(serial_number) = self.machine_id_serial_number() {
             let vendor = self
                 .systems
                 .first()
@@ -1586,10 +1632,15 @@ pub fn is_bf2_dpu_part_number(part_number: &str) -> bool {
     // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
     normalized_part_number.starts_with("mbf2")
 }
+
+pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.to_lowercase();
+    normalized_part_number.starts_with("900-9d4b4")
+}
+
 // returns true if the passed in string is a BlueField part number
 pub fn is_bluefield_part_number(part_number: &str) -> bool {
     let normalized_part_number = part_number.trim().to_lowercase();
-
     normalized_part_number.contains("bluefield")
         || is_bf3_dpu_part_number(&normalized_part_number)
         // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
@@ -1597,6 +1648,7 @@ pub fn is_bluefield_part_number(part_number: &str) -> bool {
         // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
         // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
         || is_bf2_dpu_part_number(&normalized_part_number)
+        || is_bf4_dpu_part_number(&normalized_part_number)
 }
 
 /// The kind of BlueField/Mellanox device, classified from its Redfish part number.
@@ -1758,6 +1810,32 @@ impl EndpointExplorationReport {
             .map(str::to_string)
             .collect()
     }
+
+    /// Serial key used to join a DPU BMC endpoint to the same DPU as reported by
+    /// its host BMC.
+    pub fn dpu_pairing_serial_number(&self) -> Option<&str> {
+        if !self.is_dpu() {
+            return None;
+        }
+
+        self.systems
+            .first()
+            .and_then(|system| system.serial_number.as_deref())
+            .map(str::trim)
+            .filter(|serial| !serial.is_empty())
+            .or_else(|| {
+                // BF4 Redfish does not currently expose the product serial or
+                // DPU/NIC mode on the system object. The stable product serial
+                // lives on the Bluefield_BMC chassis and matches the serial the
+                // host BMC reports for the PCIe/network-adapter device.
+                self.chassis
+                    .iter()
+                    .find(|chassis| chassis.id == "Bluefield_BMC")
+                    .and_then(|chassis| chassis.serial_number.as_deref())
+                    .map(str::trim)
+                    .filter(|serial| !serial.is_empty())
+            })
+    }
 }
 
 /// Builds the [`ExploredMlxDevice`] view across a set of explored endpoints.
@@ -1769,22 +1847,14 @@ impl EndpointExplorationReport {
 /// without those two fields. This is the same serial correlation site
 /// exploration already uses to attach DPUs to their hosts.
 pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<ExploredMlxDevice> {
-    // Index explored DPU endpoints by their (trimmed) system serial number, so a
-    // host-reported device can be matched to the DPU's own BMC endpoint -- the
-    // same key site exploration uses in `record_host_dpu_device`. Empty serials
-    // are skipped, and a serial reported by more than one DPU endpoint is dropped
-    // as ambiguous: better to attach nothing than to join to the wrong DPU.
+    // Index explored DPU endpoints by the serial that host BMCs report for the
+    // same device. Empty serials are skipped, and a serial reported by more than
+    // one DPU endpoint is dropped as ambiguous: better to attach nothing than to
+    // join to the wrong DPU.
     let mut dpu_by_serial: HashMap<&str, &ExploredEndpoint> = HashMap::new();
     let mut ambiguous: HashSet<&str> = HashSet::new();
     for ep in endpoints.iter().filter(|ep| ep.report.is_dpu()) {
-        let Some(serial) = ep
-            .report
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_deref())
-            .map(str::trim)
-            .filter(|serial| !serial.is_empty())
-        else {
+        let Some(serial) = ep.report.dpu_pairing_serial_number() else {
             continue;
         };
         if dpu_by_serial.insert(serial, ep).is_some() {
@@ -2023,6 +2093,59 @@ mod explored_mlx_device_tests {
         // no DPU endpoint matched this serial, so the join fields stay unset
         assert_eq!(supernic.dpu_bmc_ip, None);
         assert_eq!(supernic.nic_mode, None);
+    }
+
+    #[test]
+    fn projects_bf4_and_joins_dpu_by_bluefield_bmc_chassis_serial() {
+        const BF4_SERIAL: &str = "MT020000000003";
+        let host = endpoint(
+            "192.0.2.20",
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                systems: vec![ComputerSystem {
+                    pcie_devices: vec![pcie(
+                        "900-9D4B4-CWAA-TSA",
+                        "82.48.0802",
+                        BF4_SERIAL,
+                        "mat_2",
+                    )],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        let dpu = endpoint(
+            "192.0.2.50",
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                systems: vec![ComputerSystem {
+                    id: "Bluefield".to_string(),
+                    // BF4 leaves the system serial unset; the stable product
+                    // serial used for host pairing is on the Bluefield_BMC
+                    // chassis below.
+                    serial_number: None,
+                    ..Default::default()
+                }],
+                chassis: vec![Chassis {
+                    id: "Bluefield_BMC".to_string(),
+                    serial_number: Some(BF4_SERIAL.to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+
+        let devices = collect_explored_mlx_devices(&[host, dpu]);
+        assert_eq!(devices.len(), 1);
+
+        let bf4 = &devices[0];
+        assert_eq!(bf4.device_kind, MlxDeviceKind::Unknown);
+        assert_eq!(bf4.part_number.as_deref(), Some("900-9D4B4-CWAA-TSA"));
+        assert_eq!(bf4.serial_number.as_deref(), Some(BF4_SERIAL));
+        assert_eq!(bf4.dpu_bmc_ip, Some("192.0.2.50".parse().unwrap()));
+        // BF4 does not currently expose DPU/NIC mode through Redfish; missing
+        // mode must not prevent the serial join.
+        assert_eq!(bf4.nic_mode, None);
     }
 
     #[test]

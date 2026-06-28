@@ -160,7 +160,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 		}
 
 		if status != nil {
-			_, err = statusDetailDAO.CreateFromParams(ctx, nil, nvllp.ID.String(), string(*status), statusMessage)
+			_, err = statusDetailDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: nvllp.ID.String(), Status: string(*status), Message: statusMessage})
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to create status detail for NVLink Logical Partition in DB")
 				continue

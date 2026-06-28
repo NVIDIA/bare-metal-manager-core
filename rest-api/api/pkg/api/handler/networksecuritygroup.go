@@ -231,14 +231,13 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusReady),
-			cutil.GetPtr("processed network security group creation request"))
+		statusDetail, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: nsg.ID, Status: *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusReady), Message: cutil.GetPtr("processed network security group creation request")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Network Security Group, DB error", nil)
 		}
 		if statusDetail == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Network Security Group", nil)
 		}
 		ssd = statusDetail
@@ -891,8 +890,7 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		_, derr = sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusDeleting),
-			cutil.GetPtr("received request for deletion, pending processing"))
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: nsg.ID, Status: *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusDeleting), Message: cutil.GetPtr("received request for deletion, pending processing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Network Security Group", nil)
@@ -1174,7 +1172,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details
-		statusDetails, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID, nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		statusDetails, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for NetworkSecurityGroup from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Network Security Group", nil)

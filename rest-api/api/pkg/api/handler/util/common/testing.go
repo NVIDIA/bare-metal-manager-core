@@ -179,7 +179,13 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func TestBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, cutil.GetPtr(name), user)
+	ip, err := ipDAO.Create(context.Background(), nil, cdbm.InfrastructureProviderCreateInput{
+		Name:           name,
+		DisplayName:    cutil.GetPtr("Test Infrastructure Provider"),
+		Org:            org,
+		OrgDisplayName: cutil.GetPtr(name),
+		CreatedBy:      user.ID,
+	})
 	assert.Nil(t, err)
 
 	return ip
@@ -408,7 +414,10 @@ func TestBuildMachine(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 func TestBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, m *cdbm.Machine, it *cdbm.InstanceType) *cdbm.MachineInstanceType {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
 
-	mit, err := mitDAO.CreateFromParams(context.Background(), nil, m.ID, it.ID)
+	mit, err := mitDAO.Create(context.Background(), nil, cdbm.MachineInstanceTypeCreateInput{
+		MachineID:      m.ID,
+		InstanceTypeID: it.ID,
+	})
 	assert.Nil(t, err)
 
 	return mit
@@ -564,7 +573,7 @@ func TestCommonBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mach
 // TestBuildStatusDetail creates a test status detail
 func TestBuildStatusDetail(t *testing.T, dbSession *cdb.Session, entityID string, status string, message *string) {
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-	ssd, err := sdDAO.CreateFromParams(context.Background(), nil, entityID, status, message)
+	ssd, err := sdDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: message})
 	assert.Nil(t, err)
 	assert.NotNil(t, ssd)
 	assert.Equal(t, entityID, ssd.EntityID)

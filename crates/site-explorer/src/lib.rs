@@ -52,8 +52,8 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
-    PowerState, PreingestionState, Service, is_bf3_dpu_part_number, is_bf3_supernic_part_number,
-    is_bluefield_part_number,
+    PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
+    is_bf3_supernic_part_number, is_bluefield_part_number,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -398,7 +398,89 @@ impl SiteExplorer {
         db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
     }
 
+    fn last_run_status(
+        started_at: chrono::DateTime<Utc>,
+        finished_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) -> SiteExplorerLastRun {
+        let failure_category = result.as_ref().err().map(Self::run_failure_category);
+        SiteExplorerLastRun {
+            started_at,
+            finished_at,
+            success: result.is_ok(),
+            error: result.as_ref().err().map(Self::operator_error_message),
+            failure_category,
+            endpoint_explorations: metrics.endpoint_explorations as i64,
+            endpoint_explorations_success: metrics.endpoint_explorations_success as i64,
+            endpoint_explorations_failed: metrics
+                .endpoint_explorations_failures_by_type
+                .values()
+                .sum::<usize>() as i64,
+            last_successful_finished_at: result.is_ok().then_some(finished_at),
+            last_failed_finished_at: result.is_err().then_some(finished_at),
+        }
+    }
+
+    fn run_failure_category(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::DatabaseError(_) => "database_error",
+            SiteExplorerError::ModelError(_) => "model_error",
+            SiteExplorerError::AlreadyFoundError { .. } => "already_found",
+            SiteExplorerError::NotFoundError { .. } => "not_found",
+            SiteExplorerError::InvalidArgument(_) => "invalid_argument",
+            SiteExplorerError::EndpointExplorationError { err, .. } => {
+                return exploration_error_to_metric_label(err);
+            }
+            SiteExplorerError::Internal { .. } => "internal",
+        }
+        .to_string()
+    }
+
+    fn operator_error_message(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::EndpointExplorationError {
+                err:
+                    EndpointExplorationError::MissingCredentials { .. }
+                    | EndpointExplorationError::SetCredentials { .. },
+                ..
+            } => "Site Explorer credentials are missing or invalid".to_string(),
+            SiteExplorerError::EndpointExplorationError {
+                err: EndpointExplorationError::SecretsEngineError { .. },
+                ..
+            } => "Site Explorer could not access credentials".to_string(),
+            _ => error.to_string(),
+        }
+    }
+
+    fn record_run_status_metric(
+        metrics: &mut SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        metrics.run_failure_category = result.as_ref().err().map(Self::run_failure_category);
+    }
+
+    async fn record_last_run(&self, last_run: &SiteExplorerLastRun) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::site_explorer_run_status::upsert(&mut txn, last_run).await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    async fn record_last_run_result(
+        &self,
+        started_at: chrono::DateTime<Utc>,
+        metrics: &SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        let last_run = Self::last_run_status(started_at, Utc::now(), metrics, result);
+        if let Err(error) = self.record_last_run(&last_run).await {
+            tracing::error!(%error, "Failed to record SiteExplorer last run status");
+        }
+    }
+
     pub async fn run_single_iteration(&self) -> SiteExplorerResult<SiteIdentifiedHosts> {
+        let started_at = Utc::now();
         let mut metrics = SiteExplorationMetrics::new();
 
         let _work_lock = match self
@@ -408,9 +490,14 @@ impl SiteExplorer {
         {
             Ok(lock) => lock,
             Err(e) => {
-                return Err(SiteExplorerError::internal(format!(
+                let result = Err(SiteExplorerError::internal(format!(
                     "Failed to acquire connection: {e}"
                 )));
+                Self::record_run_status_metric(&mut metrics, &result);
+                self.record_last_run_result(started_at, &metrics, &result)
+                    .await;
+                self.metric_holder.update_metrics(metrics);
+                return result;
             }
         };
 
@@ -477,6 +564,10 @@ impl SiteExplorer {
                 explore_site_span.record("otel.status_message", format!("{e:?}"));
             }
         }
+
+        Self::record_run_status_metric(&mut metrics, &res);
+        self.record_last_run_result(started_at, &metrics, &res)
+            .await;
 
         // Cache all other metrics that have been captured in this iteration.
         // Those will be queried by OTEL on demand
@@ -1095,17 +1186,14 @@ impl SiteExplorer {
                 .map(|em| em.data.dpu_mode);
             DpuMode::resolve(declared, site_dpu_mode)
         };
-        // Match HOST and DPU using SerialNumber.
-        // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
+        // Match HOST and DPU using the serial Redfish reports for the same
+        // physical card. BF4 does not expose that serial on the DPU system
+        // object, so this uses `EndpointExplorationReport::dpu_pairing_serial_number`
+        // rather than reading `systems[0].serial_number` directly.
         let mut dpu_sn_to_endpoint = HashMap::new();
         for (_, ep) in explored_dpus {
-            if let Some(sn) = ep
-                .report
-                .systems
-                .first()
-                .and_then(|system| system.serial_number.as_ref())
-            {
-                dpu_sn_to_endpoint.insert(sn.trim().to_string(), ep);
+            if let Some(sn) = ep.report.dpu_pairing_serial_number() {
+                dpu_sn_to_endpoint.insert(sn.to_string(), ep);
             }
         }
 
@@ -1704,7 +1792,10 @@ impl SiteExplorer {
         self.endpoint_explorer
             .check_preconditions(metrics)
             .await
-            .map_err(|e| SiteExplorerError::internal(e.to_string()))
+            .map_err(|err| SiteExplorerError::EndpointExplorationError {
+                action: "check_preconditions",
+                err,
+            })
     }
 
     async fn update_explored_endpoints(
@@ -2716,28 +2807,38 @@ impl SiteExplorer {
             return Ok(true);
         }
 
-        if let Some(nic_mode) = dpu_endpoint.report.nic_mode() {
-            // DPU's in NIC mode do not have full redfish functionality,
-            // for example, we will not be able to retrieve the base GUID
-            // from the redfish response. Skip the next check because the DPUs
-            // in NIC mode will not expose a pf0 interface to the host.
-            if nic_mode == NicMode::Nic {
+        match dpu_endpoint.report.nic_mode() {
+            Some(NicMode::Nic) => {
+                // DPU's in NIC mode do not have full redfish functionality,
+                // for example, we will not be able to retrieve the base GUID
+                // from the redfish response. Skip the next check because the DPUs
+                // in NIC mode will not expose a pf0 interface to the host.
                 tracing::info!(
                     "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
                     dpu_endpoint.address
                 );
                 return Ok(true);
             }
-        } else {
-            tracing::error!(
-                "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
-                dpu_endpoint.address
-            );
-            metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
-            return Ok(false);
+            Some(NicMode::Dpu) => {}
+            None if dpu_endpoint.report.dpu_pairing_serial_number().is_some() => {
+                tracing::warn!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without a Redfish DPU/NIC mode; continuing because it has a host-pairing serial",
+                    dpu_endpoint.address
+                );
+            }
+            None => {
+                tracing::error!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
+                    dpu_endpoint.address
+                );
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
+                return Ok(false);
+            }
         }
 
-        // This is a bluefield in DPU mode
+        // This is a BlueField that should be pairable as a managed DPU. BF4 may
+        // not report mode, so host pairing and the PF MAC check decide whether
+        // it can continue.
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -3111,7 +3212,9 @@ impl SiteExplorer {
                 // Preserve existing BF3 part-number heuristics when the operator
                 // hasn't explicitly chosen a mode. Missing part numbers only
                 // disable this heuristic fallback; explicit modes above do not
-                // require a part number.
+                // require a part number. BF4 does not currently
+                // expose a reliable DPU/NIC mode signal over Redfish, so the
+                // default path does not infer or reconfigure BF4 mode,
                 dpu_part_number.and_then(|dpu_part_number| {
                     if is_bf3_supernic_part_number(dpu_part_number) {
                         Some(NicMode::Nic)

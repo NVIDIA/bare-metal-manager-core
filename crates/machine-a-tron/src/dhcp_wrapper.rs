@@ -89,8 +89,6 @@ pub enum DhcpRelayError {
     ClientApiError(#[from] ClientApiError),
     #[error("Invalid DHCP record: {0}")]
     InvalidDhcpRecord(String),
-    #[error("Cannot send host DHCP from DPU as relay: {0}")]
-    DpuRelayError(String),
 }
 
 impl From<tonic::Status> for DhcpRelayError {
