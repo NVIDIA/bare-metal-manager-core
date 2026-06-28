@@ -26,7 +26,7 @@ use carbide_test_harness::test_support::default_config;
 use model::site_explorer::{PreingestionState, TimeSyncResetPhase};
 use rpc::forge::DhcpDiscovery;
 
-mod common;
+use crate::common;
 
 /// Test that when BMC time is in sync, preingestion proceeds normally with firmware checks
 #[sqlx_test]

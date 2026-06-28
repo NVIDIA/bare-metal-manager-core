@@ -9,6 +9,10 @@ authors.workspace = true
 [lib]
 name = "carbide_site_explorer"
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [features]
 default = []
 test-support = []
