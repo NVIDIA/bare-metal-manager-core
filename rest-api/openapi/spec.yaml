@@ -20332,9 +20332,8 @@ components:
           description: Host ID within the tray
         dpfEnabled:
           type: boolean
-          description: >-
-            When true, this host is eligible for DPF-based provisioning (requires site-level
-            DPF to be enabled). Unset stored values are treated as true.
+          description: |-
+            When true, this host is eligible for DPF-based provisioning.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines

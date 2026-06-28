@@ -225,8 +225,8 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 				SlotID:                   apiRequest.SlotID,
 				TrayIdx:                  apiRequest.TrayIdx,
 				HostID:                   apiRequest.HostID,
-				Labels:                   apiRequest.Labels,
 				DpfEnabled:               apiRequest.DpfEnabled,
+				Labels:                   apiRequest.Labels,
 				CreatedBy:                dbUser.ID,
 			},
 		)

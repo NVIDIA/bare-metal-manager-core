@@ -81,15 +81,6 @@ type ExpectedMachineCredentials struct {
 	Password *string
 }
 
-// EffectiveDpfEnabled returns the DPF-enabled flag for API display. A nil
-// stored value means unset, which Core treats as true on create and read.
-func EffectiveDpfEnabled(v *bool) bool {
-	if v == nil {
-		return true
-	}
-	return *v
-}
-
 // ToProto builds the workflow proto for this ExpectedMachine. BMC
 // credentials are passed in because they aren't persisted on the record;
 // labels are read from em.Labels.

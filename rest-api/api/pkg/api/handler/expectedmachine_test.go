@@ -2244,7 +2244,9 @@ func TestCreateExpectedMachineHandler_DpfEnabledForwardedToWorkflow(t *testing.T
 	var apiResponse model.APIExpectedMachine
 	err = json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 	assert.Nil(t, err)
-	assert.False(t, apiResponse.DpfEnabled)
+	if assert.NotNil(t, apiResponse.DpfEnabled) {
+		assert.False(t, *apiResponse.DpfEnabled)
+	}
 }
 
 // TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow is a regression test for the

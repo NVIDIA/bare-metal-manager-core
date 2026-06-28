@@ -59,7 +59,7 @@ type ExpectedMachine struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
-	// When true, this host is eligible for DPF-based provisioning (requires site-level DPF to be enabled). Unset stored values are treated as true.
+	// When true, this host is eligible for DPF-based provisioning.
 	DpfEnabled *bool             `json:"dpfEnabled,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was created
