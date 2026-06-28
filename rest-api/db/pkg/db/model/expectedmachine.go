@@ -66,8 +66,8 @@ type ExpectedMachine struct {
 	SlotID                   *int32    `bun:"slot_id"`
 	TrayIdx                  *int32    `bun:"tray_idx"`
 	HostID                   *int32    `bun:"host_id"`
-	Labels                   Labels    `bun:"labels,type:jsonb"`
 	DpfEnabled               *bool     `bun:"dpf_enabled"`
+	Labels                   Labels    `bun:"labels,type:jsonb"`
 	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	CreatedBy                uuid.UUID `bun:"type:uuid,notnull"`
@@ -122,9 +122,7 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	}
 	if em.DpfEnabled != nil {
 		proto.IsDpfEnabled = em.DpfEnabled
-		proto.DpfEnabled = *em.DpfEnabled
 	}
-
 	if creds.Username != nil {
 		proto.BmcUsername = *creds.Username
 	}
