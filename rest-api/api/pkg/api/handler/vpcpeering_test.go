@@ -875,23 +875,23 @@ func TestGetVpcPeeringHandler_Handle(t *testing.T) {
 	cfg := common.GetTestConfig()
 
 	tests := []struct {
-		name                 string
-		reqOrgName           string
-		peeringID            string
-		user                 *cdbm.User
-		includeRelations     []string
-		expectedStatus       int
-		expectedID           string
-		validateTenantInfo   bool
-		expectVpc1TenantID   string
-		expectVpc1TenantOrg  string
-		expectVpc2TenantID   string
-		expectVpc2TenantOrg  string
-		expectNoVpcSummaries bool
-		validatePeeringTenant   bool
-		expectPeeringTenantID   string
-		expectPeeringTenantOrg  string
-		expectNoPeeringTenant   bool
+		name                   string
+		reqOrgName             string
+		peeringID              string
+		user                   *cdbm.User
+		includeRelations       []string
+		expectedStatus         int
+		expectedID             string
+		validateTenantInfo     bool
+		expectVpc1TenantID     string
+		expectVpc1TenantOrg    string
+		expectVpc2TenantID     string
+		expectVpc2TenantOrg    string
+		expectNoVpcSummaries   bool
+		validatePeeringTenant  bool
+		expectPeeringTenantID  string
+		expectPeeringTenantOrg string
+		expectNoPeeringTenant  bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -997,75 +997,75 @@ func TestGetVpcPeeringHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
-			name:             "tenant info present when Vpc1 and Vpc2 included for same-tenant peering",
-			reqOrgName:       tnOrg1,
-			peeringID:        vp12.ID.String(),
-			user:             tnu1,
-			includeRelations: []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName},
-			expectedStatus:   http.StatusOK,
-			expectedID:       vp12.ID.String(),
-			validateTenantInfo: true,
+			name:                "tenant info present when Vpc1 and Vpc2 included for same-tenant peering",
+			reqOrgName:          tnOrg1,
+			peeringID:           vp12.ID.String(),
+			user:                tnu1,
+			includeRelations:    []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName},
+			expectedStatus:      http.StatusOK,
+			expectedID:          vp12.ID.String(),
+			validateTenantInfo:  true,
 			expectVpc1TenantID:  tn1.ID.String(),
 			expectVpc1TenantOrg: tnOrg1,
 			expectVpc2TenantID:  tn1.ID.String(),
 			expectVpc2TenantOrg: tnOrg1,
 		},
 		{
-			name:             "tenant info present when Vpc1 and Vpc2 included for cross-tenant peering",
-			reqOrgName:       tnOrg1,
-			peeringID:        vp14.ID.String(),
-			user:             tnu1,
-			includeRelations: []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName},
-			expectedStatus:   http.StatusOK,
-			expectedID:       vp14.ID.String(),
-			validateTenantInfo: true,
+			name:                "tenant info present when Vpc1 and Vpc2 included for cross-tenant peering",
+			reqOrgName:          tnOrg1,
+			peeringID:           vp14.ID.String(),
+			user:                tnu1,
+			includeRelations:    []string{cdbm.Vpc1RelationName, cdbm.Vpc2RelationName},
+			expectedStatus:      http.StatusOK,
+			expectedID:          vp14.ID.String(),
+			validateTenantInfo:  true,
 			expectVpc1TenantID:  tn1.ID.String(),
 			expectVpc1TenantOrg: tnOrg1,
 			expectVpc2TenantID:  tn2.ID.String(),
 			expectVpc2TenantOrg: tnOrg2,
 		},
 		{
-			name:                 "vpc summaries absent when includeRelation omitted",
-			reqOrgName:           tnOrg1,
-			peeringID:            vp12.ID.String(),
-			user:                 tnu1,
-			expectedStatus:       http.StatusOK,
-			expectedID:           vp12.ID.String(),
-			expectNoVpcSummaries: true,
-			expectNoPeeringTenant: true,
-		},
-		{
-			name:                  "peering tenant summary present when Tenant included for tenant-created peering",
+			name:                  "vpc summaries absent when includeRelation omitted",
 			reqOrgName:            tnOrg1,
 			peeringID:             vp12.ID.String(),
 			user:                  tnu1,
-			includeRelations:      []string{cdbm.TenantRelationName},
 			expectedStatus:        http.StatusOK,
 			expectedID:            vp12.ID.String(),
-			validatePeeringTenant: true,
-			expectPeeringTenantID: tn1.ID.String(),
+			expectNoVpcSummaries:  true,
+			expectNoPeeringTenant: true,
+		},
+		{
+			name:                   "peering tenant summary present when Tenant included for tenant-created peering",
+			reqOrgName:             tnOrg1,
+			peeringID:              vp12.ID.String(),
+			user:                   tnu1,
+			includeRelations:       []string{cdbm.TenantRelationName},
+			expectedStatus:         http.StatusOK,
+			expectedID:             vp12.ID.String(),
+			validatePeeringTenant:  true,
+			expectPeeringTenantID:  tn1.ID.String(),
 			expectPeeringTenantOrg: tnOrg1,
 		},
 		{
-			name:             "peering tenant summary present when Tenant included for provider tenant admin peering",
-			reqOrgName:       ipOrg2,
-			peeringID:        vp78.ID.String(),
-			user:             ipu2,
-			includeRelations: []string{cdbm.TenantRelationName},
-			expectedStatus:   http.StatusOK,
-			expectedID:       vp78.ID.String(),
-			validatePeeringTenant: true,
-			expectPeeringTenantID: tnProvider.ID.String(),
+			name:                   "peering tenant summary present when Tenant included for provider tenant admin peering",
+			reqOrgName:             ipOrg2,
+			peeringID:              vp78.ID.String(),
+			user:                   ipu2,
+			includeRelations:       []string{cdbm.TenantRelationName},
+			expectedStatus:         http.StatusOK,
+			expectedID:             vp78.ID.String(),
+			validatePeeringTenant:  true,
+			expectPeeringTenantID:  tnProvider.ID.String(),
 			expectPeeringTenantOrg: ipOrg2,
 		},
 		{
-			name:                 "peering tenant summary absent for provider-created peering even when Tenant included",
-			reqOrgName:           tnOrg1,
-			peeringID:            vp14.ID.String(),
-			user:                 tnu1,
-			includeRelations:     []string{cdbm.TenantRelationName},
-			expectedStatus:       http.StatusOK,
-			expectedID:           vp14.ID.String(),
+			name:                  "peering tenant summary absent for provider-created peering even when Tenant included",
+			reqOrgName:            tnOrg1,
+			peeringID:             vp14.ID.String(),
+			user:                  tnu1,
+			includeRelations:      []string{cdbm.TenantRelationName},
+			expectedStatus:        http.StatusOK,
+			expectedID:            vp14.ID.String(),
 			expectNoPeeringTenant: true,
 		},
 	}
