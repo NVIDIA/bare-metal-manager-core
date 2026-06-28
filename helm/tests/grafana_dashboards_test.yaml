@@ -18,7 +18,7 @@ tests:
           of: ConfigMap
       - equal:
           path: metadata.name
-          value: test-nico-grafana-dashboards
+          value: nico-system-test-nico-grafana-dashboards
       - equal:
           path: metadata.namespace
           value: nico-system

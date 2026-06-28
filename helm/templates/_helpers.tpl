@@ -6,10 +6,12 @@ Create the chart name and version as used by the chart label.
 {{- end -}}
 
 {{/*
-Create a release-scoped name for the packaged Grafana dashboards.
+Create a namespace- and release-scoped name for the packaged Grafana
+dashboards. The dashboard ConfigMap may be installed into a shared monitoring
+namespace, where release name alone is not necessarily unique.
 */}}
 {{- define "nico.grafanaDashboardsName" -}}
-{{- printf "%s-grafana-dashboards" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s-grafana-dashboards" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
