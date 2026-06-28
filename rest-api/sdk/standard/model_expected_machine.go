@@ -59,8 +59,9 @@ type ExpectedMachine struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Machines
-	Labels map[string]string `json:"labels,omitempty"`
+	// When true, this host is eligible for DPF-based provisioning (requires site-level DPF to be enabled). Unset stored values are treated as true.
+	DpfEnabled *bool             `json:"dpfEnabled,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was created
 	Created *time.Time `json:"created,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was last updated
@@ -781,6 +782,38 @@ func (o *ExpectedMachine) UnsetHostId() {
 	o.HostId.Unset()
 }
 
+// GetDpfEnabled returns the DpfEnabled field value if set, zero value otherwise.
+func (o *ExpectedMachine) GetDpfEnabled() bool {
+	if o == nil || IsNil(o.DpfEnabled) {
+		var ret bool
+		return ret
+	}
+	return *o.DpfEnabled
+}
+
+// GetDpfEnabledOk returns a tuple with the DpfEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ExpectedMachine) GetDpfEnabledOk() (*bool, bool) {
+	if o == nil || IsNil(o.DpfEnabled) {
+		return nil, false
+	}
+	return o.DpfEnabled, true
+}
+
+// HasDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachine) HasDpfEnabled() bool {
+	if o != nil && !IsNil(o.DpfEnabled) {
+		return true
+	}
+
+	return false
+}
+
+// SetDpfEnabled gets a reference to the given bool and assigns it to the DpfEnabled field.
+func (o *ExpectedMachine) SetDpfEnabled(v bool) {
+	o.DpfEnabled = &v
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *ExpectedMachine) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -940,6 +973,9 @@ func (o ExpectedMachine) ToMap() (map[string]interface{}, error) {
 	}
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
+	}
+	if !IsNil(o.DpfEnabled) {
+		toSerialize["dpfEnabled"] = o.DpfEnabled
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

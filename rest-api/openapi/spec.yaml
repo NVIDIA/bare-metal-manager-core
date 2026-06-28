@@ -20236,6 +20236,7 @@ components:
           skuId: lenovo.sr650v2.cpu.1
           machineId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
           rackId: rack-01
+          dpfEnabled: true
           manufacturer: Lenovo
           labels:
             environment: production
@@ -20329,6 +20330,11 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        dpfEnabled:
+          type: boolean
+          description: >-
+            When true, this host is eligible for DPF-based provisioning (requires site-level
+            DPF to be enabled). Unset stored values are treated as true.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines
@@ -20361,6 +20367,7 @@ components:
             - DPU-002
           skuId: lenovo.sr650v2.cpu.1
           rackId: rack-01
+          dpfEnabled: true
           manufacturer: Lenovo
           labels:
             environment: production
@@ -20451,6 +20458,13 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        dpfEnabled:
+          type:
+            - boolean
+            - 'null'
+          description: >-
+            When true, this host is eligible for DPF-based provisioning (requires site-level
+            DPF to be enabled). Omit on create to use the default (true).
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines
@@ -20475,6 +20489,7 @@ components:
           chassisSerialNumber: CHASSIS-54321
           skuId: sku-xyz789
           rackId: rack-02
+          dpfEnabled: false
           manufacturer: Lenovo
           labels:
             environment: staging
@@ -20576,6 +20591,13 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        dpfEnabled:
+          type:
+            - boolean
+            - 'null'
+          description: >-
+            When true, this host is eligible for DPF-based provisioning (requires site-level
+            DPF to be enabled). Omit on update to preserve the existing value.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines

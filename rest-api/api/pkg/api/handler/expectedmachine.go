@@ -226,6 +226,7 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 				TrayIdx:                  apiRequest.TrayIdx,
 				HostID:                   apiRequest.HostID,
 				Labels:                   apiRequest.Labels,
+				DpfEnabled:               apiRequest.DpfEnabled,
 				CreatedBy:                dbUser.ID,
 			},
 		)
@@ -703,6 +704,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 				TrayIdx:                  apiRequest.TrayIdx,
 				HostID:                   apiRequest.HostID,
 				Labels:                   apiRequest.Labels,
+				DpfEnabled:               apiRequest.DpfEnabled,
 			},
 		)
 		if err != nil {
@@ -1113,6 +1115,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 			TrayIdx:                  machineReq.TrayIdx,
 			HostID:                   machineReq.HostID,
 			Labels:                   machineReq.Labels,
+			DpfEnabled:               machineReq.DpfEnabled,
 			CreatedBy:                dbUser.ID,
 		})
 	}
@@ -1548,6 +1551,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			TrayIdx:                  machineReq.TrayIdx,
 			HostID:                   machineReq.HostID,
 			Labels:                   machineReq.Labels,
+			DpfEnabled:               machineReq.DpfEnabled,
 		})
 	}
 

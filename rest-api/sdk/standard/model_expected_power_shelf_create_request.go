@@ -51,8 +51,7 @@ type ExpectedPowerShelfCreateRequest struct {
 	// Tray index within the rack
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
-	HostId NullableInt32 `json:"hostId,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Power Shelves
+	HostId NullableInt32     `json:"hostId,omitempty"`
 	Labels map[string]string `json:"labels,omitempty"`
 }
 

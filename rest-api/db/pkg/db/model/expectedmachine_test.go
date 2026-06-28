@@ -96,6 +96,20 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 		assert.Equal(t, Labels{"env": "prod"}, em.Labels)
 	})
 
+	t.Run("populates dpfEnabled from is_dpf_enabled", func(t *testing.T) {
+		em := &ExpectedMachine{}
+		enabled := false
+		em.FromProto(&cwssaws.ExpectedMachine{
+			Id:              &cwssaws.UUID{Value: id.String()},
+			BmcMacAddress:   "aa:bb",
+			IsDpfEnabled:    &enabled,
+		}, nil)
+
+		if assert.NotNil(t, em.DpfEnabled) {
+			assert.False(t, *em.DpfEnabled)
+		}
+	})
+
 	t.Run("nil linkedMachineID leaves MachineID nil", func(t *testing.T) {
 		em := &ExpectedMachine{}
 		em.FromProto(&cwssaws.ExpectedMachine{
@@ -116,6 +130,57 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 		assert.Nil(t, em.RackID)
 	})
+}
+
+func TestExpectedMachine_ToProto(t *testing.T) {
+	id := uuid.New()
+	enabled := true
+	disabled := false
+
+	t.Run("sets is_dpf_enabled when stored", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:              id,
+			BmcMacAddress:   "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+			DpfEnabled:      &enabled,
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		if assert.NotNil(t, proto.IsDpfEnabled) {
+			assert.True(t, *proto.IsDpfEnabled)
+		}
+		assert.True(t, proto.DpfEnabled)
+	})
+
+	t.Run("omits is_dpf_enabled when unset", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  id,
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		assert.Nil(t, proto.IsDpfEnabled)
+		assert.False(t, proto.DpfEnabled)
+	})
+
+	t.Run("forwards false value", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  id,
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+			DpfEnabled:          &disabled,
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		if assert.NotNil(t, proto.IsDpfEnabled) {
+			assert.False(t, *proto.IsDpfEnabled)
+		}
+		assert.False(t, proto.DpfEnabled)
+	})
+}
+
+func TestEffectiveDpfEnabled(t *testing.T) {
+	assert.True(t, EffectiveDpfEnabled(nil))
+	assert.True(t, EffectiveDpfEnabled(cutil.GetPtr(true)))
+	assert.False(t, EffectiveDpfEnabled(cutil.GetPtr(false)))
 }
 
 // reset the tables needed for ExpectedMachine tests

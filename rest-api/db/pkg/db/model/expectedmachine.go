@@ -67,6 +67,7 @@ type ExpectedMachine struct {
 	TrayIdx                  *int32    `bun:"tray_idx"`
 	HostID                   *int32    `bun:"host_id"`
 	Labels                   Labels    `bun:"labels,type:jsonb"`
+	DpfEnabled               *bool     `bun:"dpf_enabled"`
 	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	CreatedBy                uuid.UUID `bun:"type:uuid,notnull"`
@@ -78,6 +79,15 @@ type ExpectedMachine struct {
 type ExpectedMachineCredentials struct {
 	Username *string
 	Password *string
+}
+
+// EffectiveDpfEnabled returns the DPF-enabled flag for API display. A nil
+// stored value means unset, which Core treats as true on create and read.
+func EffectiveDpfEnabled(v *bool) bool {
+	if v == nil {
+		return true
+	}
+	return *v
 }
 
 // ToProto builds the workflow proto for this ExpectedMachine. BMC
@@ -118,6 +128,10 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	}
 	if em.HostID != nil {
 		proto.HostId = em.HostID
+	}
+	if em.DpfEnabled != nil {
+		proto.IsDpfEnabled = em.DpfEnabled
+		proto.DpfEnabled = *em.DpfEnabled
 	}
 
 	if creds.Username != nil {
@@ -183,6 +197,7 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
 	em.Labels.FromProto(proto.Metadata.GetLabels())
+	em.DpfEnabled = proto.IsDpfEnabled
 }
 
 // ExpectedMachineCreateInput input parameters for Create method
@@ -204,6 +219,7 @@ type ExpectedMachineCreateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	DpfEnabled               *bool
 	CreatedBy                uuid.UUID
 }
 
@@ -225,6 +241,7 @@ type ExpectedMachineUpdateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	DpfEnabled               *bool
 }
 
 // ExpectedMachineClearInput input parameters for Clear method
@@ -366,6 +383,7 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
 			Labels:                   input.Labels,
+			DpfEnabled:               input.DpfEnabled,
 			CreatedBy:                input.CreatedBy,
 		}
 		expectedMachines = append(expectedMachines, em)
@@ -662,6 +680,10 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		if input.HostID != nil {
 			em.HostID = input.HostID
 			columnsSet["host_id"] = true
+		}
+		if input.DpfEnabled != nil {
+			em.DpfEnabled = input.DpfEnabled
+			columnsSet["dpf_enabled"] = true
 		}
 
 		expectedMachines = append(expectedMachines, em)

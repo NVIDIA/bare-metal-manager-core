@@ -57,6 +57,8 @@ type APIExpectedMachineCreateRequest struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// DpfEnabled marks whether this host is eligible for DPF-based provisioning
+	DpfEnabled *bool `json:"dpfEnabled"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -140,6 +142,8 @@ type APIExpectedMachineUpdateRequest struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// DpfEnabled marks whether this host is eligible for DPF-based provisioning
+	DpfEnabled *bool `json:"dpfEnabled"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -248,6 +252,8 @@ type APIExpectedMachine struct {
 	HostID *int32 `json:"hostId"`
 	// Labels is the labels of the expected machine
 	Labels map[string]string `json:"labels"`
+	// DpfEnabled indicates whether this host is eligible for DPF-based provisioning
+	DpfEnabled bool `json:"dpfEnabled"`
 	// Created indicates the ISO datetime string for when the ExpectedMachine was created
 	Created time.Time `json:"created"`
 	// Updated indicates the ISO datetime string for when the ExpectedMachine was last updated
@@ -274,6 +280,7 @@ func NewAPIExpectedMachine(dibp *cdbm.ExpectedMachine) *APIExpectedMachine {
 		TrayIdx:                  dibp.TrayIdx,
 		HostID:                   dibp.HostID,
 		Labels:                   dibp.Labels,
+		DpfEnabled:               cdbm.EffectiveDpfEnabled(dibp.DpfEnabled),
 		Created:                  dibp.Created,
 		Updated:                  dibp.Updated,
 	}
