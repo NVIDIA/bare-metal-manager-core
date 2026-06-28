@@ -145,10 +145,7 @@ func TestExpectedMachine_ToProto(t *testing.T) {
 			DpfEnabled:          &enabled,
 		}
 		proto := em.ToProto(ExpectedMachineCredentials{})
-		if assert.NotNil(t, proto.IsDpfEnabled) {
-			assert.True(t, *proto.IsDpfEnabled)
-		}
-		assert.True(t, proto.DpfEnabled)
+		assert.True(t, *proto.IsDpfEnabled)
 	})
 
 	t.Run("omits is_dpf_enabled when unset", func(t *testing.T) {
