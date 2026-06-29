@@ -45,6 +45,9 @@ pub struct NvLinkConfig {
     /// TLS server name (SNI / cert verification hostname) for NMX-C HTTPS. Defaults to the endpoint URL host if unset.
     #[serde(default)]
     pub nmx_c_tls_authority: Option<String>,
+    /// TCP port for NMX-C endpoints derived from switch NVOS IP. Defaults to the production NMX-C port.
+    #[serde(default)]
+    pub nmx_c_endpoint_port: Option<u16>,
     /// Set to true if NMX-C doesn't adhere to security requirements. Defaults to false.
     pub allow_insecure: bool,
 
@@ -135,6 +138,7 @@ impl Default for NvLinkConfig {
             nmx_c_tls_client_cert_path: None,
             nmx_c_tls_client_key_path: None,
             nmx_c_tls_authority: None,
+            nmx_c_endpoint_port: None,
             allow_insecure: false,
             nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
         }
@@ -160,6 +164,7 @@ mod test {
                 nmx_c_tls_client_cert_path: None,
                 nmx_c_tls_client_key_path: None,
                 nmx_c_tls_authority: None,
+                nmx_c_endpoint_port: None,
                 allow_insecure: true,
                 nmx_c_certificate_rotation: NmxCCertificateRotationConfig::default(),
             }

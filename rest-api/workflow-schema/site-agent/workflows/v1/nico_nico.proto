@@ -286,6 +286,8 @@ service Forge {
   // Gets the latest Site Exploration report
   // DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
+  // Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+  rpc GetSiteExplorerLastRun(google.protobuf.Empty) returns (site_explorer.SiteExplorerLastRunResponse);
   // Clear the last known error for the BMC
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
   // IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -3937,6 +3939,7 @@ message ExpireDhcpLeaseRequest {
 enum ExpireDhcpLeaseStatus {
   EXPIRE_DHCP_LEASE_STATUS_RELEASED = 0;
   EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND = 1;
+  EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED = 2;
 }
 
 message ExpireDhcpLeaseResponse {

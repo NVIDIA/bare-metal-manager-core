@@ -141,7 +141,7 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 		tenantOrg = &tenant.Org
 	} else {
 		tenantOrg = apiRequest.TenantOrg
-		tenants, serr := tnDAO.GetAllByOrg(ctx, nil, *tenantOrg, nil)
+		tenants, _, serr := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{*tenantOrg}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			logger.Warn().Err(err).Msg("error retrieving tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Tenant specified in request", nil)

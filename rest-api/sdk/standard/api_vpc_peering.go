@@ -319,6 +319,9 @@ type ApiGetAllVpcPeeringRequest struct {
 	pageSize        *int32
 	orderBy         *string
 	isMultiTenant   *bool
+	status          *string
+	vpcId           *string
+	peerTenantId    *string
 	includeRelation *string
 }
 
@@ -349,6 +352,24 @@ func (r ApiGetAllVpcPeeringRequest) OrderBy(orderBy string) ApiGetAllVpcPeeringR
 // Optional filter by peering tenancy type (single-tenant or multi-tenant).
 func (r ApiGetAllVpcPeeringRequest) IsMultiTenant(isMultiTenant bool) ApiGetAllVpcPeeringRequest {
 	r.isMultiTenant = &isMultiTenant
+	return r
+}
+
+// Optional filter by peering status. Repeat the parameter to match multiple statuses.
+func (r ApiGetAllVpcPeeringRequest) Status(status string) ApiGetAllVpcPeeringRequest {
+	r.status = &status
+	return r
+}
+
+// Optional filter by VPC ID involved in the peering as either vpc1 or vpc2. Repeat the parameter to match multiple VPCs.
+func (r ApiGetAllVpcPeeringRequest) VpcId(vpcId string) ApiGetAllVpcPeeringRequest {
+	r.vpcId = &vpcId
+	return r
+}
+
+// Optional filter by tenant ID of a VPC involved in the peering. Repeat the parameter to match multiple tenants.
+func (r ApiGetAllVpcPeeringRequest) PeerTenantId(peerTenantId string) ApiGetAllVpcPeeringRequest {
+	r.peerTenantId = &peerTenantId
 	return r
 }
 
@@ -423,6 +444,15 @@ func (a *VPCPeeringAPIService) GetAllVpcPeeringExecute(r ApiGetAllVpcPeeringRequ
 	}
 	if r.isMultiTenant != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "isMultiTenant", r.isMultiTenant, "form", "")
+	}
+	if r.status != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "status", r.status, "form", "")
+	}
+	if r.vpcId != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "vpcId", r.vpcId, "form", "")
+	}
+	if r.peerTenantId != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "peerTenantId", r.peerTenantId, "form", "")
 	}
 	if r.includeRelation != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "includeRelation", r.includeRelation, "form", "")

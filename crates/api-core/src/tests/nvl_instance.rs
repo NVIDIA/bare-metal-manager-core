@@ -60,6 +60,7 @@ const SWITCH_BMC_STATIC_IP: std::net::IpAddr =
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 1, 50));
 const SWITCH_NVOS_STATIC_IP: std::net::IpAddr =
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+const NMXC_SIMULATOR_PORT: u16 = 9601;
 
 #[crate::sqlx_test]
 async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx::PgPool) {
@@ -2116,6 +2117,7 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
         if with_mtls {
             nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
             nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
@@ -2425,6 +2427,7 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
         nvlink_config.allow_insecure = true;
     }
 
@@ -2586,6 +2589,7 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
         nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
         nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
         nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());

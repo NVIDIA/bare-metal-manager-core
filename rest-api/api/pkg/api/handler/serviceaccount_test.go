@@ -20,6 +20,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 func TestServiceAccountHandler_GetCurrent(t *testing.T) {
@@ -124,7 +126,7 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 				ips, ipErr := ipDAO.GetAllByOrg(ctx, nil, org1, nil)
 				require.NoError(t, ipErr)
 				require.Len(t, ips, 1)
-				tns, tnErr := tnDAO.GetAllByOrg(ctx, nil, org1, nil)
+				tns, _, tnErr := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org1}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				require.NoError(t, tnErr)
 				require.Len(t, tns, 1)
 

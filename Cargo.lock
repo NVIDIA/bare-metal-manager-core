@@ -1897,17 +1897,18 @@ dependencies = [
  "eyre",
  "futures-util",
  "hex",
- "md5 0.8.0",
  "regex",
  "reqwest 0.13.4",
  "reqwest-middleware",
  "reqwest-tracing",
  "serde",
+ "sha2 0.11.0",
  "sqlx",
  "temp-dir",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -6845,12 +6846,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
-name = "md5"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae960838283323069879657ca3de837e9f7bbb4c7bf6ea7f1b290d5e9476d2e0"
-
-[[package]]
 name = "memchr"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9543,7 +9538,7 @@ dependencies = [
  "internal-russh-num-bigint",
  "keccak",
  "log",
- "md5 0.7.0",
+ "md5",
  "ml-kem",
  "module-lattice",
  "num-bigint",

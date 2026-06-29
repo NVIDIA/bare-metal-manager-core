@@ -20,6 +20,7 @@ use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 
 use regex::Regex;
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
 use crate::site_explorer::EndpointExplorationReport;
@@ -205,13 +206,57 @@ pub struct FirmwareEntry {
     pub scout: Option<ScoutConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Serialize, Default)]
 pub struct FirmwareFileArtifact {
-    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     pub sha256: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Deserialize)]
+struct FirmwareFileArtifactWire {
+    #[serde(default)]
+    filename: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    sha256: String,
+}
+
+// Transitional validation while firmware metadata supports both local artifacts
+// and URL-based artifacts. Once metadata is fully URL-based, `url` should
+// become required and `filename` can be removed (and this impl block too).
+impl<'de> Deserialize<'de> for FirmwareFileArtifact {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = FirmwareFileArtifactWire::deserialize(deserializer)?;
+        if !firmware_file_artifact_location_is_set(&wire.filename)
+            && !firmware_file_artifact_location_is_set(&wire.url)
+        {
+            return Err(de::Error::custom(
+                "firmware files[] artifact must set filename or url",
+            ));
+        }
+
+        Ok(Self {
+            filename: wire.filename,
+            url: wire.url,
+            sha256: wire.sha256,
+        })
+    }
+}
+
+fn firmware_file_artifact_location_is_set(value: &Option<String>) -> bool {
+    value
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScoutConfig {
     /// Legacy script metadata accepted for backwards-compatible config parsing.
     /// Scout script selection is inferred from the PXE script registry.
@@ -276,6 +321,18 @@ impl FirmwareEntry {
         ret
     }
 
+    pub fn artifact_count(&self) -> usize {
+        if !self.files.is_empty() {
+            self.files.len()
+        } else if !self.filenames.is_empty() {
+            self.filenames.len()
+        } else if self.filename.is_some() || self.url.is_some() {
+            1
+        } else {
+            0
+        }
+    }
+
     pub fn get_filename(&self, pos: u32) -> PathBuf {
         let pos = pos.try_into().unwrap_or(usize::MAX);
         let filename = if self.filenames.is_empty() {
@@ -324,5 +381,137 @@ pub enum AgentUpgradePolicyChoice {
 impl Display for AgentUpgradePolicyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self, f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_count_prefers_files_then_legacy_fields() {
+        let files_count = FirmwareEntry {
+            files: vec![
+                FirmwareFileArtifact {
+                    filename: Some("first.bin".to_string()),
+                    url: None,
+                    sha256: "abc123".to_string(),
+                },
+                FirmwareFileArtifact {
+                    filename: Some("second.bin".to_string()),
+                    url: None,
+                    sha256: "def456".to_string(),
+                },
+            ],
+            filenames: vec!["legacy.bin".to_string()],
+            filename: Some("single-legacy.bin".to_string()),
+            ..FirmwareEntry::default()
+        };
+        assert_eq!(files_count.artifact_count(), 2);
+
+        let filenames_count = FirmwareEntry {
+            filenames: vec!["first.bin".to_string(), "second.bin".to_string()],
+            filename: Some("single-legacy.bin".to_string()),
+            ..FirmwareEntry::default()
+        };
+        assert_eq!(filenames_count.artifact_count(), 2);
+
+        let filename_count = FirmwareEntry {
+            filename: Some("single-legacy.bin".to_string()),
+            ..FirmwareEntry::default()
+        };
+        assert_eq!(filename_count.artifact_count(), 1);
+
+        let url_count = FirmwareEntry {
+            url: Some("https://firmware.example.invalid/fw.bin".to_string()),
+            ..FirmwareEntry::default()
+        };
+        assert_eq!(url_count.artifact_count(), 1);
+
+        assert_eq!(FirmwareEntry::default().artifact_count(), 0);
+    }
+
+    #[test]
+    fn firmware_file_artifact_deserializes_when_filename_or_url_is_set() {
+        let cases = [
+            (
+                r#"
+filename = "/opt/nico/firmware/fw.bin"
+sha256 = "abc123"
+"#,
+                (Some("/opt/nico/firmware/fw.bin"), None),
+            ),
+            (
+                r#"
+url = "https://firmware.example.invalid/fw.bin"
+sha256 = "def456"
+"#,
+                (None, Some("https://firmware.example.invalid/fw.bin")),
+            ),
+        ];
+
+        for (input, (expected_filename, expected_url)) in cases {
+            let artifact = toml::from_str::<FirmwareFileArtifact>(input).unwrap();
+
+            assert_eq!(artifact.filename.as_deref(), expected_filename);
+            assert_eq!(artifact.url.as_deref(), expected_url);
+        }
+    }
+
+    #[test]
+    fn firmware_file_artifact_deserialization_requires_filename_or_url() {
+        let invalid_artifacts = [
+            r#"
+sha256 = "abc123"
+"#,
+            r#"
+filename = ""
+sha256 = "abc123"
+"#,
+            r#"
+url = "  "
+sha256 = "abc123"
+"#,
+            r#"
+filename = " "
+url = ""
+sha256 = "abc123"
+"#,
+        ];
+
+        for input in invalid_artifacts {
+            let error = toml::from_str::<FirmwareFileArtifact>(input).unwrap_err();
+
+            assert!(
+                error
+                    .to_string()
+                    .contains("firmware files[] artifact must set filename or url")
+            );
+        }
+    }
+
+    #[test]
+    fn firmware_deserialization_rejects_files_artifact_without_location() {
+        let input = r#"
+model = "DGXH100"
+vendor = "Nvidia"
+
+[components.cx7]
+current_version_reported_as = "^CX7_[0-9]+$"
+
+[[components.cx7.known_firmware]]
+version = "28.47.2682"
+
+[[components.cx7.known_firmware.files]]
+sha256 = "abc123"
+"#;
+
+        let error = toml::from_str::<Firmware>(input).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("firmware files[] artifact must set filename or url")
+        );
     }
 }
