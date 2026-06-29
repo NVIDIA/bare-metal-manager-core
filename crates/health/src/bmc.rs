@@ -74,6 +74,19 @@ enum CircuitState {
     },
 }
 
+/// What a batch-oriented collector should do this iteration, derived from the
+/// endpoint's circuit state via [`BmcClient::collector_sweep`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectorSweep {
+    /// Circuit closed — run the full batch as normal.
+    Full,
+    /// Backoff window elapsed — send a single probe to test reachability instead
+    /// of the full fan-out, so a still-dead BMC costs one request, not hundreds.
+    Probe,
+    /// Circuit open within the backoff window — skip entirely.
+    Skip,
+}
+
 pub type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
 pub trait CredentialProvider: Send + Sync {
@@ -246,10 +259,12 @@ impl BmcClient {
     /// Run a BMC operation through the connection circuit breaker.
     ///
     /// Fast-fails (without touching the network) while the circuit is open, and
-    /// updates the breaker based on the outcome: a success closes the circuit,
-    /// while a connect-level failure trips it. Non-connection failures (auth,
-    /// 404s, decode errors, …) pass through untouched — they are not the BMC
-    /// being unreachable, so they must not open the circuit.
+    /// updates the breaker based on the outcome. A connect-level failure trips
+    /// it. Any other outcome — a success, or a non-connection error such as a
+    /// 404/auth/decode — means the BMC actually answered, so it closes the
+    /// circuit. Closing on a non-connection error matters for the half-open
+    /// probe: without it a reachable-but-erroring BMC would stay fast-failed
+    /// until the probe deadline.
     async fn guarded<T>(
         &self,
         op: impl std::future::Future<Output = Result<T, HealthError>>,
@@ -263,6 +278,9 @@ impl BmcClient {
             Err(error) => {
                 if is_connection_error(&error) {
                     self.trip_circuit(&error);
+                } else {
+                    // The BMC responded (just not happily); it is reachable.
+                    self.note_reachable();
                 }
                 Err(error)
             }
@@ -363,20 +381,34 @@ impl BmcClient {
         self.circuit_tripped.store(true, Ordering::Release);
     }
 
-    /// Whether the circuit is currently blocking requests. Lets callers (e.g. the
-    /// sensor sweep) skip a whole batch of work — and its log spam — instead of
-    /// fast-failing each request individually. Returns `false` when the open
-    /// window has elapsed so the next sweep can probe and self-heal.
-    pub fn circuit_blocks_requests(&self) -> bool {
-        // Fast path: a closed circuit blocks nothing.
+    /// What a batch-oriented caller (e.g. the sensor sweep) should do this
+    /// iteration, so it can avoid both the request flood and its log spam:
+    /// run the full batch, send a single probe, or skip entirely. Reading this
+    /// once up front — rather than letting each request fast-fail individually —
+    /// keeps a dead endpoint from re-emitting a per-request burst every time the
+    /// backoff window elapses.
+    pub fn collector_sweep(&self) -> CollectorSweep {
+        // Fast path: a closed circuit runs normally and never takes the lock.
         if !self.circuit_tripped.load(Ordering::Acquire) {
-            return false;
+            return CollectorSweep::Full;
         }
         let state = self.circuit.lock().expect("circuit mutex poisoned");
         match *state {
-            CircuitState::Closed => false,
-            CircuitState::Open { until, .. } => Instant::now() < until,
-            CircuitState::Probing { deadline, .. } => Instant::now() < deadline,
+            CircuitState::Closed => CollectorSweep::Full,
+            CircuitState::Open { until, .. } => {
+                if Instant::now() < until {
+                    CollectorSweep::Skip
+                } else {
+                    CollectorSweep::Probe
+                }
+            }
+            CircuitState::Probing { deadline, .. } => {
+                if Instant::now() < deadline {
+                    CollectorSweep::Skip
+                } else {
+                    CollectorSweep::Probe
+                }
+            }
         }
     }
 
@@ -577,6 +609,14 @@ impl Bmc for BmcClient {
             .guarded(async { self.inner.stream(uri).await.map_err(HealthError::from) })
             .await
         {
+            // Only stream *establishment* runs through the breaker. Per-item
+            // errors on the returned long-lived stream (e.g. a mid-stream SSE
+            // disconnect) are intentionally not fed back into it: streaming
+            // collectors own a reconnect loop with their own exponential backoff,
+            // and the breaker is scoped to the periodic-collector request flood —
+            // many short requests against a dead endpoint — not a single
+            // long-lived connection. Routing item errors here would also couple
+            // log-stream health to sensor/discovery collection.
             Ok(stream) => Ok(Box::pin(stream.map_err(HealthError::from))),
             Err(error) => Err(self
                 .refresh_auth_if_needed(error, credential_generation)
@@ -783,14 +823,19 @@ mod tests {
         let client =
             Arc::new(BmcClient::new(reqwest(), addr, provider, None, 10).expect("constructor ok"));
 
-        assert!(!client.circuit_blocks_requests(), "circuit starts closed");
+        assert_eq!(
+            client.collector_sweep(),
+            CollectorSweep::Full,
+            "circuit starts closed"
+        );
 
         // Any real Redfish read against the closed port fails to connect.
         let result = nv_redfish::ServiceRoot::new(client.clone()).await;
         assert!(result.is_err(), "connecting to a closed port must fail");
 
-        assert!(
-            client.circuit_blocks_requests(),
+        assert_eq!(
+            client.collector_sweep(),
+            CollectorSweep::Skip,
             "a genuine connect failure must be classified as a connection error and open the breaker"
         );
     }
@@ -800,12 +845,12 @@ mod tests {
         let client = test_client();
 
         // Starts closed: requests flow.
-        assert!(!client.circuit_blocks_requests());
+        assert_eq!(client.collector_sweep(), CollectorSweep::Full);
         assert!(client.check_circuit().is_ok());
 
         // A connect-level failure opens the circuit.
         client.trip_circuit(&dummy_error());
-        assert!(client.circuit_blocks_requests());
+        assert_eq!(client.collector_sweep(), CollectorSweep::Skip);
         assert!(
             client.check_circuit().is_err(),
             "open circuit must fast-fail"
@@ -813,8 +858,51 @@ mod tests {
 
         // A success closes it again.
         client.note_reachable();
-        assert!(!client.circuit_blocks_requests());
+        assert_eq!(client.collector_sweep(), CollectorSweep::Full);
         assert!(client.check_circuit().is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_connection_error_during_probe_closes_circuit() {
+        let client = test_client();
+
+        // An open window that has elapsed: the next caller through `guarded`
+        // becomes the half-open probe.
+        client.set_circuit_for_test(CircuitState::Open {
+            until: Instant::now() - Duration::from_secs(1),
+            backoff: CIRCUIT_INITIAL_BACKOFF,
+        });
+
+        // The probe reaches the BMC and gets a real (non-connection) error.
+        let result: Result<(), HealthError> = client
+            .guarded(async {
+                Err(HealthError::BmcError(Box::new(bmc_status_error(
+                    http::StatusCode::NOT_FOUND,
+                ))))
+            })
+            .await;
+        assert!(result.is_err());
+
+        assert_eq!(
+            client.collector_sweep(),
+            CollectorSweep::Full,
+            "a non-connection response proves reachability and must close the circuit, \
+             not leave it half-open until the probe deadline"
+        );
+    }
+
+    #[test]
+    fn collector_sweep_probes_once_window_elapses() {
+        let client = test_client();
+        client.set_circuit_for_test(CircuitState::Open {
+            until: Instant::now() - Duration::from_secs(1),
+            backoff: CIRCUIT_INITIAL_BACKOFF,
+        });
+        assert_eq!(
+            client.collector_sweep(),
+            CollectorSweep::Probe,
+            "an elapsed backoff window should admit a single probe, not a full sweep"
+        );
     }
 
     #[test]
@@ -863,7 +951,7 @@ mod tests {
         );
         // ...and everyone else keeps fast-failing while the probe is in flight.
         assert!(client.check_circuit().is_err());
-        assert!(client.circuit_blocks_requests());
+        assert_eq!(client.collector_sweep(), CollectorSweep::Skip);
     }
 
     #[test]

@@ -2047,6 +2047,36 @@ mod explored_mlx_device_tests {
     }
 
     #[test]
+    fn missing_vendor_decodes_legacy_unit_variant() {
+        // Records written before `observed` was added are stored as the bare
+        // internally-tagged unit form. They must still deserialize, defaulting
+        // `observed` to None.
+        let legacy: EndpointExplorationError =
+            serde_json::from_str(r#"{"Type":"MissingVendor"}"#).expect("legacy form must decode");
+        assert_eq!(
+            legacy,
+            EndpointExplorationError::MissingVendor { observed: None }
+        );
+    }
+
+    #[test]
+    fn missing_vendor_round_trips_with_observed() {
+        // New records carry the observed Vendor/Oem string and round-trip.
+        let with_observed = EndpointExplorationError::MissingVendor {
+            observed: Some("SomeNewVendor".to_string()),
+        };
+        let json = serde_json::to_string(&with_observed).expect("serialize");
+        let decoded: EndpointExplorationError = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, with_observed);
+
+        // And the absent case round-trips too.
+        let absent = EndpointExplorationError::MissingVendor { observed: None };
+        let json = serde_json::to_string(&absent).expect("serialize");
+        let decoded: EndpointExplorationError = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, absent);
+    }
+
+    #[test]
     fn dpu_part_number_reads_card1_part_number() {
         assert_eq!(
             dpu_report_with_card1_part_number(Some("900-9D3B6-00CV-AA0")).dpu_part_number(),
