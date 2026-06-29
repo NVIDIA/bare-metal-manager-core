@@ -142,7 +142,7 @@ func TestExpectedMachine_ToProto(t *testing.T) {
 			ID:                  id,
 			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
 			ChassisSerialNumber: "CSN-1",
-			IsDpfEnabled:          &enabled,
+			IsDpfEnabled:        &enabled,
 		}
 		proto := em.ToProto(ExpectedMachineCredentials{})
 		assert.True(t, *proto.IsDpfEnabled)
@@ -164,7 +164,7 @@ func TestExpectedMachine_ToProto(t *testing.T) {
 			ID:                  id,
 			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
 			ChassisSerialNumber: "CSN-1",
-			IsDpfEnabled:          &disabled,
+			IsDpfEnabled:        &disabled,
 		}
 		proto := em.ToProto(ExpectedMachineCredentials{})
 		if assert.NotNil(t, proto.IsDpfEnabled) {
