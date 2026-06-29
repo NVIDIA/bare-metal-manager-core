@@ -621,9 +621,11 @@ fn read_block_sysfs_attr(devname: &str, attr: &str) -> Option<String> {
         .map(|value| value.trim().to_string())
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum BlockDeviceCleanupSkipReason {
     Hidden,
     Removable { removable: String },
+    ZeroSize,
     UsbTransport,
 }
 
@@ -634,27 +636,48 @@ impl std::fmt::Display for BlockDeviceCleanupSkipReason {
             Self::Removable { removable } => {
                 write!(f, "removable block device (removable={removable})")
             }
+            Self::ZeroSize => write!(f, "zero-size block device"),
             Self::UsbTransport => write!(f, "USB transport block device"),
         }
     }
 }
 
-fn block_device_cleanup_skip_reason(devname: &str) -> Option<BlockDeviceCleanupSkipReason> {
-    if read_block_sysfs_attr(devname, "hidden").is_some_and(|value| value == "1") {
+fn block_device_skip_reason_from_attrs(
+    hidden: Option<&str>,
+    removable: Option<&str>,
+    size: Option<&str>,
+    is_usb: impl FnOnce() -> bool,
+) -> Option<BlockDeviceCleanupSkipReason> {
+    if hidden == Some("1") {
         return Some(BlockDeviceCleanupSkipReason::Hidden);
     }
 
-    if let Some(removable) = read_block_sysfs_attr(devname, "removable")
+    if let Some(removable) = removable
         && removable != "0"
     {
-        return Some(BlockDeviceCleanupSkipReason::Removable { removable });
+        return Some(BlockDeviceCleanupSkipReason::Removable {
+            removable: removable.to_string(),
+        });
     }
 
-    if is_usb_device(devname) {
+    if size == Some("0") {
+        return Some(BlockDeviceCleanupSkipReason::ZeroSize);
+    }
+
+    if is_usb() {
         return Some(BlockDeviceCleanupSkipReason::UsbTransport);
     }
 
     None
+}
+
+fn block_device_cleanup_skip_reason(devname: &str) -> Option<BlockDeviceCleanupSkipReason> {
+    block_device_skip_reason_from_attrs(
+        read_block_sysfs_attr(devname, "hidden").as_deref(),
+        read_block_sysfs_attr(devname, "removable").as_deref(),
+        read_block_sysfs_attr(devname, "size").as_deref(),
+        || is_usb_device(devname),
+    )
 }
 
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
@@ -1390,5 +1413,70 @@ mod tests {
     fn test_sata_dev_re_does_not_match_nvme() {
         assert!(!SD_DEV_RE.is_match("/dev/nvme0"));
         assert!(!SD_DEV_RE.is_match("/dev/nvme0n1"));
+    }
+
+    #[test]
+    fn test_block_device_skip_reason_from_attrs() {
+        struct Case {
+            name: &'static str,
+            hidden: Option<&'static str>,
+            removable: Option<&'static str>,
+            size: Option<&'static str>,
+            is_usb: bool,
+            expected: Option<BlockDeviceCleanupSkipReason>,
+        }
+
+        let cases = [
+            Case {
+                name: "hidden device is skipped",
+                hidden: Some("1"),
+                removable: Some("0"),
+                size: Some("1000"),
+                is_usb: false,
+                expected: Some(BlockDeviceCleanupSkipReason::Hidden),
+            },
+            Case {
+                name: "removable device is skipped",
+                hidden: Some("0"),
+                removable: Some("1"),
+                size: Some("1000"),
+                is_usb: false,
+                expected: Some(BlockDeviceCleanupSkipReason::Removable {
+                    removable: "1".to_string(),
+                }),
+            },
+            Case {
+                name: "zero-size device is skipped",
+                hidden: Some("0"),
+                removable: Some("0"),
+                size: Some("0"),
+                is_usb: false,
+                expected: Some(BlockDeviceCleanupSkipReason::ZeroSize),
+            },
+            Case {
+                name: "normal non-zero size device is cleaned",
+                hidden: Some("0"),
+                removable: Some("0"),
+                size: Some("1000"),
+                is_usb: false,
+                expected: None,
+            },
+            Case {
+                name: "usb device is skipped as fallback",
+                hidden: Some("0"),
+                removable: Some("0"),
+                size: Some("1000"),
+                is_usb: true,
+                expected: Some(BlockDeviceCleanupSkipReason::UsbTransport),
+            },
+        ];
+
+        for case in cases {
+            let actual =
+                block_device_skip_reason_from_attrs(case.hidden, case.removable, case.size, || {
+                    case.is_usb
+                });
+            assert_eq!(actual, case.expected, "case: {}", case.name);
+        }
     }
 }

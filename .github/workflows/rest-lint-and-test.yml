@@ -107,10 +107,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve OpenAPI comparison base
+        id: openapi-base
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          MERGE_BASE="$(git merge-base HEAD origin/main)"
+
+          echo "merge_base=${MERGE_BASE}" >> "${GITHUB_OUTPUT}"
+          echo "Comparing OpenAPI changes against merge-base ${MERGE_BASE}"
+
       - name: Check OpenAPI breaking changes
         uses: oasdiff/oasdiff-action/breaking@a8c7f0e5649d20d623edb5b38446d3ab3d82d43c
         with:
-          base: 'origin/main:rest-api/openapi/spec.yaml'
+          base: '${{ steps.openapi-base.outputs.merge_base }}:rest-api/openapi/spec.yaml'
           revision: ':rest-api/openapi/spec.yaml'
           fail-on: ERR
           # Allowlist the intentional one-time rename of the BMC credential

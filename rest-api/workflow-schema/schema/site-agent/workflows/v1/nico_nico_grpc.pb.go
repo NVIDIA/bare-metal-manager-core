@@ -159,6 +159,7 @@ const (
 	Forge_GetSwitchNvosCredentials_FullMethodName                           = "/forge.Forge/GetSwitchNvosCredentials"
 	Forge_GetAllManagedHostNetworkStatus_FullMethodName                     = "/forge.Forge/GetAllManagedHostNetworkStatus"
 	Forge_GetSiteExplorationReport_FullMethodName                           = "/forge.Forge/GetSiteExplorationReport"
+	Forge_GetSiteExplorerLastRun_FullMethodName                             = "/forge.Forge/GetSiteExplorerLastRun"
 	Forge_ClearSiteExplorationError_FullMethodName                          = "/forge.Forge/ClearSiteExplorationError"
 	Forge_IsBmcInManagedHost_FullMethodName                                 = "/forge.Forge/IsBmcInManagedHost"
 	Forge_BmcCredentialStatus_FullMethodName                                = "/forge.Forge/BmcCredentialStatus"
@@ -701,6 +702,8 @@ type ForgeClient interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(ctx context.Context, in *GetSiteExplorationRequest, opts ...grpc.CallOption) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(ctx context.Context, in *ClearSiteExplorationErrorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -2639,6 +2642,16 @@ func (c *forgeClient) GetSiteExplorationReport(ctx context.Context, in *GetSiteE
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SiteExplorationReport)
 	err := c.cc.Invoke(ctx, Forge_GetSiteExplorationReport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiteExplorerLastRunResponse)
+	err := c.cc.Invoke(ctx, Forge_GetSiteExplorerLastRun_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6059,6 +6072,8 @@ type ForgeServer interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -7042,6 +7057,9 @@ func (UnimplementedForgeServer) GetAllManagedHostNetworkStatus(context.Context, 
 }
 func (UnimplementedForgeServer) GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorationReport not implemented")
+}
+func (UnimplementedForgeServer) GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorerLastRun not implemented")
 }
 func (UnimplementedForgeServer) ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearSiteExplorationError not implemented")
@@ -10464,6 +10482,24 @@ func _Forge_GetSiteExplorationReport_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).GetSiteExplorationReport(ctx, req.(*GetSiteExplorationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetSiteExplorerLastRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetSiteExplorerLastRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16749,6 +16785,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSiteExplorationReport",
 			Handler:    _Forge_GetSiteExplorationReport_Handler,
+		},
+		{
+			MethodName: "GetSiteExplorerLastRun",
+			Handler:    _Forge_GetSiteExplorerLastRun_Handler,
 		},
 		{
 			MethodName: "ClearSiteExplorationError",

@@ -56,9 +56,8 @@ type Machine struct {
 	// Health information about the machine
 	Health *MachineHealth `json:"health,omitempty"`
 	// Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
-	Metadata *MachineMetadata `json:"metadata,omitempty"`
-	// User-specified Machine labels
-	Labels map[string]string `json:"labels,omitempty"`
+	Metadata *MachineMetadata  `json:"metadata,omitempty"`
+	Labels   map[string]string `json:"labels,omitempty"`
 	// Status represents the status of the machine
 	Status *MachineStatus `json:"status,omitempty"`
 	// Indicates whether the machine is usable by or currently in use by a tenant.
