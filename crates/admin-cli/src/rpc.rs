@@ -1167,6 +1167,81 @@ impl ApiClient {
         Ok(self.0.create_network_segment(request).await?)
     }
 
+    pub async fn create_flat_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
+        Ok(self
+            .0
+            .create_vpc(VpcCreationRequest {
+                vni: None,
+                routing_profile_type: None,
+                tenant_organization_id: "devenv_test_org".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
+                id: Some(vpc_id),
+                metadata: Some(rpc::Metadata {
+                    name: name.to_string(),
+                    description: "Flat VPC for zero-DPU HostInband segments".to_string(),
+                    labels: vec![],
+                }),
+                network_security_group_id: None,
+                default_nvlink_logical_partition_id: None,
+            })
+            .await?)
+    }
+
+    pub async fn create_host_inband_segment(
+        &self,
+        id: NetworkSegmentId,
+        vpc_id: VpcId,
+        name: String,
+        prefix: String,
+        gateway: Option<String>,
+        reserve_first: i32,
+    ) -> CarbideCliResult<NetworkSegment> {
+        // Without a subdomain_id link the machine_dhcp_records view's inner
+        // join on `domains` drops every interface created on this segment,
+        // and Kea can't issue OFFERs. Require exactly one domain rather than
+        // silently creating a segment that cannot DHCP or binding to an
+        // arbitrary domain when several exist.
+        let mut domain_ids = self
+            .get_domains(None)
+            .await?
+            .domains
+            .into_iter()
+            .filter_map(|d| d.id);
+        let subdomain_id = match (domain_ids.next(), domain_ids.next()) {
+            (Some(id), None) => Some(id),
+            (None, _) => {
+                return Err(CarbideCliError::GenericError(
+                    "no domain available for HostInband segment, create a domain first".to_string(),
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(CarbideCliError::GenericError(
+                    "multiple domains found, cannot pick one for the HostInband segment"
+                        .to_string(),
+                ));
+            }
+        };
+        let request = NetworkSegmentCreationRequest {
+            vpc_id: Some(vpc_id),
+            name,
+            subdomain_id,
+            mtu: Some(1500),
+            prefixes: vec![NetworkPrefix {
+                id: None,
+                prefix,
+                gateway,
+                reserve_first,
+                // computed by the server, ignored on create
+                free_ip_count: 1,
+                svi_ip: None,
+            }],
+            segment_type: NetworkSegmentType::HostInband as i32,
+            id: Some(id),
+        };
+        Ok(self.0.create_network_segment(request).await?)
+    }
+
     // Fetch from Carbide and return a vector of Dpa interface IDs
     async fn get_dpa_ids(&self) -> CarbideCliResult<rpc::DpaInterfaceIdList> {
         Ok(self.0.get_all_dpa_interface_ids().await?)
