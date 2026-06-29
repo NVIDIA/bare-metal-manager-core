@@ -7553,7 +7553,7 @@ message AstraConfig {
 
 message AstraAttachment {
   string mac_address = 1;
-  int32 vni = 2;
+  uint32 vni = 2;
   string subnet_ipv4 = 3;
   int32 subnet_mask = 4;
   optional SpxAttachmentType attachment_type = 5;

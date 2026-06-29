@@ -46746,7 +46746,7 @@ func (x *AstraConfig) GetAstraAttachments() []*AstraAttachment {
 type AstraAttachment struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	MacAddress        string                 `protobuf:"bytes,1,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`
-	Vni               int32                  `protobuf:"varint,2,opt,name=vni,proto3" json:"vni,omitempty"`
+	Vni               uint32                 `protobuf:"varint,2,opt,name=vni,proto3" json:"vni,omitempty"`
 	SubnetIpv4        string                 `protobuf:"bytes,3,opt,name=subnet_ipv4,json=subnetIpv4,proto3" json:"subnet_ipv4,omitempty"`
 	SubnetMask        int32                  `protobuf:"varint,4,opt,name=subnet_mask,json=subnetMask,proto3" json:"subnet_mask,omitempty"`
 	AttachmentType    *SpxAttachmentType     `protobuf:"varint,5,opt,name=attachment_type,json=attachmentType,proto3,enum=forge.SpxAttachmentType,oneof" json:"attachment_type,omitempty"`
@@ -46794,7 +46794,7 @@ func (x *AstraAttachment) GetMacAddress() string {
 	return ""
 }
 
-func (x *AstraAttachment) GetVni() int32 {
+func (x *AstraAttachment) GetVni() uint32 {
 	if x != nil {
 		return x.Vni
 	}
@@ -62895,7 +62895,7 @@ const file_nico_proto_rawDesc = "" +
 	"\x0fAstraAttachment\x12\x1f\n" +
 	"\vmac_address\x18\x01 \x01(\tR\n" +
 	"macAddress\x12\x10\n" +
-	"\x03vni\x18\x02 \x01(\x05R\x03vni\x12\x1f\n" +
+	"\x03vni\x18\x02 \x01(\rR\x03vni\x12\x1f\n" +
 	"\vsubnet_ipv4\x18\x03 \x01(\tR\n" +
 	"subnetIpv4\x12\x1f\n" +
 	"\vsubnet_mask\x18\x04 \x01(\x05R\n" +

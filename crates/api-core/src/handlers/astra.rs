@@ -149,7 +149,7 @@ pub(crate) async fn get_astra_config(
             // Now we can create the Astra attachment and add it to the Astra config.
             let astra_attachment = AstraAttachment {
                 mac_address: dpa_interface.mac_address.to_string(),
-                vni: dpa_vni,
+                vni: dpa_vni as u32,
                 subnet_ipv4: subnet_ip.to_string(),
                 subnet_mask,
                 attachment_type: Some(SpxAttachmentType::Physical as i32),
