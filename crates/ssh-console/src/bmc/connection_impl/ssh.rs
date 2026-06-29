@@ -516,6 +516,7 @@ async fn trigger_and_await_sol_console(
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
                             && let Some(fallback_commands) = fallback_activate_commands
                             && next_fallback_command_index < fallback_commands.len()
+                            && prompt_buf.len() > skip_data_read_len
                             && prompt_buf.windows(bmc_prompt.len()).any(|window| window == bmc_prompt)
                         {
                             let fallback_command = fallback_commands[next_fallback_command_index];
