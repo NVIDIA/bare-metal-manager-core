@@ -209,6 +209,24 @@ Output formatting and pagination flags live on individual commands, not on the r
 
 Run `nicocli <command> --help` for the full per-command flag list, including spec-derived query parameters and body fields.
 
+### Bootstrap site prerequisites from a manifest
+
+`nicocli site bootstrap` creates or verifies the REST resources needed to use a Site. It initializes the Provider and Tenant, then processes the Site, IP Blocks, Instance Types, Allocations, VPCs, VPC Prefixes, and optional Instances in dependency order.
+
+Start from the [example manifest](examples/site-prerequisites.yaml), replace the organization and resource values, and run:
+
+```bash
+nicocli site bootstrap \
+  --file cli/examples/site-prerequisites.yaml \
+  --output-file site-prerequisites.resolved.yaml
+```
+
+The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the created or existing Site ID, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
+
+The command looks up resources by a recorded ID first, then by exact name and scope. Matching resources are reused, while a matching resource whose returned configuration differs from the request stops the workflow with a drift error. The output file preserves the requests and records every resolved resource ID, so it can be replayed after an interrupted run or against a replacement installation. If a recorded ID does not exist in the target installation, the command falls back to name-and-scope discovery before creating the resource.
+
+Provider and Tenant organization initialization uses the same token as the rest of the command, so that token must have the required role in both organizations. `provider.org` may be omitted when the Provider organization already comes from `--org`, `NICO_ORG`, or the selected CLI config. Site registration and machine readiness are external asynchronous steps; if a dependent REST operation is not ready yet, complete that step and rerun the same manifest.
+
 ## Authentication
 
 ```bash
