@@ -1896,6 +1896,15 @@ system_events_enabled = false
     fn test_nmxt_dangerous_tls_skip_defaults_false_and_parses_true() {
         assert!(!NmxtCollectorConfig::default().dangerously_skip_tls_verification);
 
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+"#;
         let enabled = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -1907,15 +1916,28 @@ enabled = false
 dangerously_skip_tls_verification = true
 "#;
 
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(enabled))
-            .extract()
-            .expect("failed to parse enabled NMX-T TLS flag");
-        let Configurable::Enabled(nmxt) = config.collectors.nmxt else {
-            panic!("nmxt config should be enabled");
-        };
-        assert!(nmxt.dangerously_skip_tls_verification);
+        for (toml, expected) in [(omitted, false), (enabled, true)] {
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(toml))
+                .extract()
+                .expect("failed to parse NMX-T TLS flag");
+            let Configurable::Enabled(nmxt) = config.collectors.nmxt else {
+                panic!("nmxt config should be enabled");
+            };
+            assert_eq!(nmxt.dangerously_skip_tls_verification, expected);
+        }
+    }
+
+    #[test]
+    fn test_example_config_documents_platform_environment_fan_toggle() {
+        let toml_content = include_str!("../example/config.example.toml");
+
+        assert!(
+            toml_content
+                .lines()
+                .any(|line| line == "platform_environment_fan_enabled = true")
+        );
     }
 
     #[test]

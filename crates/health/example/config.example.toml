@@ -225,6 +225,7 @@ system_health_enabled = true
 cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
+platform_environment_fan_enabled = true
 platform_environment_temperature_enabled = true
 platform_environment_status_enabled = true
 

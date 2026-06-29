@@ -773,7 +773,7 @@ fn numeric_interface_leaf(elems: &[&PathElem]) -> Option<NumericLeaf> {
                 "state",
                 "plr-xmit-retry-events-within-t-sec-max",
             ],
-            name: "interface_plr_xmit_retry_codes_within_minute",
+            name: "interface_plr_xmit_retry_events_within_minute",
             unit: "count",
         },
         NumericLeafMapping {
@@ -889,13 +889,20 @@ fn logical_port_to_state(state: Option<&str>) -> &'static str {
 /// ("1X,2X,4X"); each token is parsed as `<n>X` and the maximum lane count is
 /// returned. Returns None when no token matches the `<n>X` shape so unknown
 /// widths are not exported.
+fn parse_finite_non_negative(value: &str) -> Option<f64> {
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
 fn link_width_to_f64(width: Option<&str>) -> Option<f64> {
     let w = width?;
     w.split(',')
         .filter_map(|tok| {
             tok.trim()
                 .strip_suffix(['X', 'x'])
-                .and_then(|digits| digits.parse::<f64>().ok())
+                .and_then(parse_finite_non_negative)
         })
         .reduce(f64::max)
 }
@@ -913,14 +920,14 @@ fn link_speed_to_gbps(speed: Option<&str>) -> Option<f64> {
         .or_else(|| s.strip_suffix("Mbps"))
         .or_else(|| s.strip_suffix('M'))
     {
-        return mbps.trim().parse::<f64>().ok().map(|v| v / 1000.0);
+        return parse_finite_non_negative(mbps.trim()).map(|v| v / 1000.0);
     }
     // "<n>G" Gbps suffix
     if let Some(gbps) = s.strip_suffix(['G', 'g']) {
-        return gbps.trim().parse::<f64>().ok();
+        return parse_finite_non_negative(gbps.trim());
     }
     // base case numeric implicit Gbps
-    s.parse::<f64>().ok()
+    parse_finite_non_negative(s)
 }
 
 /// Log when an interface leaf that matched a known mapping but value wasn't caught.
@@ -2042,7 +2049,7 @@ mod tests {
                     "state",
                     "plr-xmit-retry-events-within-t-sec-max",
                 ],
-                "interface_plr_xmit_retry_codes_within_minute",
+                "interface_plr_xmit_retry_events_within_minute",
                 "count",
             ),
             (
@@ -2401,6 +2408,9 @@ mod tests {
         assert_eq!(link_width_to_f64(Some("1X, 2X")), Some(2.0));
         // partially-unrecognized composites still yield the max of the valid lanes
         assert_eq!(link_width_to_f64(Some("2X,foo")), Some(2.0));
+        assert_eq!(link_width_to_f64(Some("-1X")), None);
+        assert_eq!(link_width_to_f64(Some("NaNX")), None);
+        assert_eq!(link_width_to_f64(Some("infX")), None);
         assert_eq!(link_width_to_f64(Some("VL0-VL7")), None);
         assert_eq!(link_width_to_f64(Some("")), None);
         assert_eq!(link_width_to_f64(None), None);
@@ -2419,6 +2429,10 @@ mod tests {
         // defensive: Mb/s and M suffix -> divide by 1000
         assert_eq!(link_speed_to_gbps(Some("1000Mb/s")), Some(1.0));
         assert_eq!(link_speed_to_gbps(Some("1000M")), Some(1.0));
+        assert_eq!(link_speed_to_gbps(Some("-1000M")), None);
+        assert_eq!(link_speed_to_gbps(Some("NaN")), None);
+        assert_eq!(link_speed_to_gbps(Some("inf")), None);
+        assert_eq!(link_speed_to_gbps(Some("-1")), None);
         // unrecognized -> None
         assert_eq!(link_speed_to_gbps(Some("hdr")), None);
         assert_eq!(link_speed_to_gbps(Some("")), None);

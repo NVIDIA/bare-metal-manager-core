@@ -77,7 +77,9 @@ fn diagnostic_opcode_to_f64(code: &str) -> f64 {
 /// NVUE reports fan max-speed as a string (e.g. "33000"). Parse it to RPM.
 /// Returns None when the field is absent or unparseable.
 fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
-    max_speed.and_then(|s| s.trim().parse::<f64>().ok())
+    max_speed
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 /// NVUE reports temps (current/max/crit) as Celsius strings (e.g. "105.00").
@@ -636,6 +638,9 @@ mod tests {
         assert_eq!(fan_max_speed_to_f64(Some("33000")), Some(33000.0));
         assert_eq!(fan_max_speed_to_f64(Some(" 33000 ")), Some(33000.0));
         assert_eq!(fan_max_speed_to_f64(Some("6000")), Some(6000.0));
+        assert_eq!(fan_max_speed_to_f64(Some("NaN")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("inf")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("-1")), None);
         assert_eq!(fan_max_speed_to_f64(Some("not-a-number")), None);
         assert_eq!(fan_max_speed_to_f64(Some("")), None);
         assert_eq!(fan_max_speed_to_f64(None), None);
