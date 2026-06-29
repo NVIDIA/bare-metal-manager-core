@@ -1,0 +1,69 @@
+name: Create Feature Branch
+
+on:
+  issue_comment:
+    types:
+      - created
+
+jobs:
+  create-feat-branch:
+    if: startsWith(github.event.comment.body, '/feature-branch ')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create feature branch with empty commit
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          REQUESTER: ${{ github.event.comment.user.login }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME=$(echo "${COMMENT_BODY}" | sed 's|^/feature-branch ||' | tr -d '[:space:]')
+
+          if [[ -z "${BRANCH_NAME}" ]]; then
+            echo "No branch name provided"
+            exit 1
+          fi
+
+          FULL_BRANCH="feat/${BRANCH_NAME}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          TAG_PREFIX=$(git describe --tags --long HEAD | sed 's/-g[0-9a-f]*$//')
+          FEAT_SLUG=$(echo "${FULL_BRANCH}" | tr '/' '-')
+          TAG="${TAG_PREFIX}-${FEAT_SLUG}"
+
+          git checkout -b "${FULL_BRANCH}"
+          COMMIT_MSG="feat: initialize ${FULL_BRANCH}"
+          COMMIT_MSG+=$'\n\n'
+          COMMIT_MSG+="Requested by @${REQUESTER} on issue #${ISSUE_NUMBER}"
+          git commit --allow-empty -m "${COMMIT_MSG}"
+
+          git tag "${TAG}"
+          git push origin "${FULL_BRANCH}" "${TAG}"
+
+          BRANCH_URL="https://github.com/${REPOSITORY}/tree/${FULL_BRANCH}"
+          COMMENT_BODY="Branch created: [${FULL_BRANCH}](${BRANCH_URL})"
+          COMMENT_BODY+=$'\n\n'
+          COMMENT_BODY+="To check out locally:"
+          COMMENT_BODY+=$'\n'
+          COMMENT_BODY+='```'
+          COMMENT_BODY+=$'\n'
+          COMMENT_BODY+="git fetch upstream && git checkout -b ${FULL_BRANCH} upstream/${FULL_BRANCH}"
+          COMMENT_BODY+=$'\n'
+          COMMENT_BODY+='```'
+          gh issue comment "${ISSUE_NUMBER}" --body "${COMMENT_BODY}"
