@@ -102,6 +102,24 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             });
         };
 
+        // If the endpoint's connection circuit breaker is open, the BMC is known
+        // to be unreachable. Skip the whole sensor fan-out rather than firing one
+        // request per sensor (each blocking for a connect timeout and logging a
+        // warning). When the backoff window elapses the breaker stops blocking,
+        // so the next sweep runs and one fetch probes for recovery. See NVBug
+        // 6036327.
+        if self.endpoint.bmc.circuit_blocks_requests() {
+            tracing::debug!(
+                bmc_addr = ?self.endpoint.addr,
+                "BMC connection circuit is open; skipping sensor iteration"
+            );
+            return Ok(IterationResult {
+                refresh_triggered: false,
+                entity_count: None,
+                fetch_failures: 0,
+            });
+        }
+
         tracing::debug!(
             bmc_addr = ?self.endpoint.addr,
             generation = inventory.generation,
@@ -199,6 +217,23 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         let sensor = match sensor_link.fetch().await {
             Ok(s) => s,
             Err(e) => {
+                // When the endpoint's connection circuit breaker is blocking, this
+                // failure is a symptom of the BMC being unreachable — either a
+                // breaker fast-fail or the single recovery probe timing out — not a
+                // problem with this sensor. Log it quietly and don't inflate the
+                // fetch-failure count; otherwise a dead BMC emits a warning per
+                // sensor every time the backoff window elapses and a sweep probes.
+                // The breaker logs one warning of its own when it opens. See NVBug
+                // 6036327.
+                if self.endpoint.bmc.circuit_blocks_requests() {
+                    tracing::debug!(
+                        sensor_id = %sensor_link.odata_id(),
+                        entity_type = entity.entity_type(),
+                        error = ?e,
+                        "Skipping sensor fetch failure; BMC connection circuit is open"
+                    );
+                    return 0;
+                }
                 fetch_failures.fetch_add(1, Ordering::Relaxed);
                 tracing::warn!(
                     sensor_id = %sensor_link.odata_id(),

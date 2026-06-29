@@ -922,7 +922,11 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::MissingCredentials { .. } => "missing_credentials",
         EndpointExplorationError::SetCredentials { .. } => "set_credentials",
         EndpointExplorationError::MissingRedfish { .. } => "missing_redfish",
-        EndpointExplorationError::MissingVendor => "missing_vendor",
+        // Distinguish a BMC that reported no vendor at all (commonly transient,
+        // still initializing) from one that reported a vendor we don't support,
+        // so the two failure modes can be alerted on separately. See NVBug 6036327.
+        EndpointExplorationError::MissingVendor { observed: None } => "vendor_not_reported",
+        EndpointExplorationError::MissingVendor { observed: Some(_) } => "vendor_unrecognized",
         EndpointExplorationError::AvoidLockout => "avoid_lockout",
         EndpointExplorationError::Other { .. } => "other",
         EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {

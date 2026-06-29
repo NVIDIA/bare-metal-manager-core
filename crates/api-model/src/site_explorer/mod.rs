@@ -1196,8 +1196,19 @@ pub enum EndpointExplorationError {
     /// This field just exists here until site-explorer updates existing records
     #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
     MissingRedfish { uri: Option<String> },
-    #[error("BMC vendor field is not populated. Unsupported BMC.")]
-    MissingVendor,
+    /// The BMC's Redfish ServiceRoot (`/redfish/v1`) did not yield a vendor we
+    /// recognize. `observed` is the raw vendor string we read from the root —
+    /// the `Vendor` field, falling back to the first `Oem` key. `None` means the
+    /// BMC reported neither, which is commonly transient while the BMC is still
+    /// initializing/syncing (exploration will retry). `Some(value)` means the BMC
+    /// reported a vendor we don't support yet — `value` is what it sent.
+    #[error(
+        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed Vendor/Oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
+    )]
+    MissingVendor {
+        #[serde(default)]
+        observed: Option<String>,
+    },
     #[error(
         "Site explorer will not explore this endpoint to avoid lockout: it could not login previously"
     )]

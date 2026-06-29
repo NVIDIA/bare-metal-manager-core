@@ -139,8 +139,19 @@ impl RedfishClient {
         match service_root.vendor() {
             Some(vendor) if vendor != RedfishVendor::Unknown => Ok(vendor),
             _ => {
-                tracing::info!("No recognized vendor for BMC at {bmc_ip_address}");
-                Err(EndpointExplorationError::MissingVendor)
+                // Capture the raw vendor string the ServiceRoot actually reported
+                // (the `Vendor` field, falling back to the first `Oem` key) so the
+                // recorded exploration error says *what* we read and *where* from.
+                // `None` here means the BMC reported neither — usually transient
+                // while it is still initializing; `Some(_)` means a vendor we don't
+                // recognize yet. See NVBug 6036327.
+                let observed = service_root.vendor_string();
+                tracing::info!(
+                    %bmc_ip_address,
+                    observed_vendor = ?observed,
+                    "BMC ServiceRoot did not report a recognized vendor"
+                );
+                Err(EndpointExplorationError::MissingVendor { observed })
             }
         }
     }
@@ -273,6 +284,14 @@ impl RedfishClient {
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
+                // Defensive guard: callers in the explorer resolve the vendor via
+                // `get_redfish_vendor`, which rejects `Unknown` (as `MissingVendor`)
+                // before we ever get here, so this arm is not reachable from the
+                // live exploration path. Note that an unrecognized *raw* vendor
+                // string is already collapsed to `Unknown` by libredfish, so the
+                // original name is unavailable at this point — the meaningful
+                // capture happens in `get_redfish_vendor`. If this ever fires it
+                // signals an internal logic error rather than a parsed vendor.
                 return Err(EndpointExplorationError::UnsupportedVendor {
                     vendor: vendor.to_string(),
                 });
