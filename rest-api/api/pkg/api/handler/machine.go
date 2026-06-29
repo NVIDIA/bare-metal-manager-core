@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -2032,11 +2033,6 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site detail for Machine, DB error", nil)
 	}
 
-	// Check Site is Registered
-	if site.Status != cdbm.SiteStatusRegistered {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine's Site is not in Registered state, unable to retrieve DPU information", nil)
-	}
-
 	// Validate role: Provider Admins, or privileged Tenant Admins
 	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, true)
 	if apiError != nil {
@@ -2066,6 +2062,10 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Machine's Site", nil)
 	}
 
+	if site.Status != cdbm.SiteStatusRegistered {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine's Site is not in Registered state, unable to retrieve DPU information", nil)
+	}
+
 	// Get Machine interfaces to find attached DPU machine IDs
 	miDAO := cdbm.NewMachineInterfaceDAO(gadmh.dbSession)
 	machineInterfaces, _, err := miDAO.GetAll(ctx, nil, cdbm.MachineInterfaceFilterInput{
@@ -2078,20 +2078,22 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 
 	apiDpuMachines := []model.APIDpuMachine{}
 
-	dpuMachineIDs := []string{}
+	dpuMachineIDSet := goset.NewSet[string]()
 	for _, mi := range machineInterfaces {
 		if mi.AttachedDPUMachineID != nil && *mi.AttachedDPUMachineID != "" {
-			dpuMachineIDs = append(dpuMachineIDs, *mi.AttachedDPUMachineID)
+			dpuMachineIDSet.Add(*mi.AttachedDPUMachineID)
 		}
 	}
 
 	// Return empty response if no DPUs are attached. This is checked before
 	// acquiring the Site's Temporal client so the endpoint answers from the DB
 	// instead of failing with a 500 when the Site client pool is unavailable.
-	if len(dpuMachineIDs) == 0 {
+	if dpuMachineIDSet.Cardinality() == 0 {
 		logger.Info().Str("MachineID", mID).Msg("No DPUs found for requested Machine")
 		return c.JSON(http.StatusOK, apiDpuMachines)
 	}
+
+	dpuMachineIDs := dpuMachineIDSet.ToSlice()
 
 	// Get Temporal client for Site
 	stc, err := gadmh.scp.GetClientByID(machine.SiteID)
