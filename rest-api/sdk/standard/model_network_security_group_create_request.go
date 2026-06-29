@@ -24,6 +24,8 @@ var _ MappedNullable = &NetworkSecurityGroupCreateRequest{}
 
 // NetworkSecurityGroupCreateRequest Request data to create a Network Security Group
 type NetworkSecurityGroupCreateRequest struct {
+	// Optional user-specified UUID for the Network Security Group
+	Id *string `json:"id,omitempty"`
 	// Name of the Network Security Group
 	Name string `json:"name"`
 	// Description of the Network Security Group
@@ -33,8 +35,9 @@ type NetworkSecurityGroupCreateRequest struct {
 	// Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
 	StatefulEgress *bool `json:"statefulEgress,omitempty"`
 	// Rules that belong to the Network Security Group
-	Rules  []NetworkSecurityGroupRule `json:"rules,omitempty"`
-	Labels map[string]string          `json:"labels,omitempty"`
+	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
+	// User-defined key-value labels for the Network Security Group
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type _NetworkSecurityGroupCreateRequest NetworkSecurityGroupCreateRequest
@@ -56,6 +59,38 @@ func NewNetworkSecurityGroupCreateRequest(name string, siteId string) *NetworkSe
 func NewNetworkSecurityGroupCreateRequestWithDefaults() *NetworkSecurityGroupCreateRequest {
 	this := NetworkSecurityGroupCreateRequest{}
 	return &this
+}
+
+// GetId returns the Id field value if set, zero value otherwise.
+func (o *NetworkSecurityGroupCreateRequest) GetId() string {
+	if o == nil || IsNil(o.Id) {
+		var ret string
+		return ret
+	}
+	return *o.Id
+}
+
+// GetIdOk returns a tuple with the Id field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NetworkSecurityGroupCreateRequest) GetIdOk() (*string, bool) {
+	if o == nil || IsNil(o.Id) {
+		return nil, false
+	}
+	return o.Id, true
+}
+
+// HasId returns a boolean if a field has been set.
+func (o *NetworkSecurityGroupCreateRequest) HasId() bool {
+	if o != nil && !IsNil(o.Id) {
+		return true
+	}
+
+	return false
+}
+
+// SetId gets a reference to the given string and assigns it to the Id field.
+func (o *NetworkSecurityGroupCreateRequest) SetId(v string) {
+	o.Id = &v
 }
 
 // GetName returns the Name field value
@@ -255,6 +290,9 @@ func (o NetworkSecurityGroupCreateRequest) MarshalJSON() ([]byte, error) {
 
 func (o NetworkSecurityGroupCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
+	if !IsNil(o.Id) {
+		toSerialize["id"] = o.Id
+	}
 	toSerialize["name"] = o.Name
 	if o.Description.IsSet() {
 		toSerialize["description"] = o.Description.Get()

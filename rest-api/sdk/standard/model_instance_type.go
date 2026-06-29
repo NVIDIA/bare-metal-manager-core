@@ -34,7 +34,8 @@ type InstanceType struct {
 	// ID of the Infrastructure Provider that owns the Instance Type
 	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
 	// ID of the Site that owns the Instance Type
-	SiteId *string           `json:"siteId,omitempty"`
+	SiteId *string `json:"siteId,omitempty"`
+	// User-defined key-value labels for the Instance Type
 	Labels map[string]string `json:"labels,omitempty"`
 	// List of capabilities that are supported by the Machine's of this Instance Type
 	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`

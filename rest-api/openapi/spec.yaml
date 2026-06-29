@@ -22027,7 +22027,8 @@ components:
     NetworkSecurityGroupCreateRequest:
       type: object
       examples:
-        - name: Spark VPC Firewall
+        - id: 2a21cf79-ea5e-4d28-b585-2e78948fcefb
+          name: Spark VPC Firewall
           description: Security policies for machines in Spark VPC
           siteId: 188a8f32-0001-45cf-b243-f62720a22cc4
           rules:
@@ -22044,6 +22045,10 @@ components:
             flavor: coconut
       description: Request data to create a Network Security Group
       properties:
+        id:
+          type: string
+          format: uuid
+          description: Optional user-specified UUID for the Network Security Group
         name:
           type: string
           description: 'Name of the Network Security Group'

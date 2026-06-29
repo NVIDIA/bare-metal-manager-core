@@ -162,6 +162,24 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	// Get our DB DAO object ready.
 	nsgDAO := cdbm.NewNetworkSecurityGroupDAO(cnsgh.dbSession)
 
+	var networkSecurityGroupID *string
+	if apiRequest.ID != nil {
+		requestedNetworkSecurityGroupID := apiRequest.ID.String()
+		networkSecurityGroupID = &requestedNetworkSecurityGroupID
+
+		_, total, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{NetworkSecurityGroupIDs: []string{requestedNetworkSecurityGroupID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.DefaultLimit)}, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error checking for NetworkSecurityGroup ID uniqueness")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for existing Network Security Group", nil)
+		}
+		if total > 0 {
+			logger.Warn().Str("tenantId", tenant.ID.String()).Str("id", requestedNetworkSecurityGroupID).Msg("network security group with same ID already exists")
+			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "A Network Security Group with specified ID already exists", validation.Errors{
+				"id": errors.New(requestedNetworkSecurityGroupID),
+			})
+		}
+	}
+
 	// Check if an NSG already exists for the given name and Site ID
 	// Another case where we might want to leave this to NICo
 	// and simply return the error and map the response code from
@@ -197,8 +215,6 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		rules[i] = &cdbm.NetworkSecurityGroupRule{NetworkSecurityGroupRuleAttributes: rule.ToProto()}
 	}
 
-	networkSecurityGroupID := uuid.NewString()
-
 	sdDAO := cdbm.NewStatusDetailDAO(cnsgh.dbSession)
 
 	// timeoutResp lets the closure signal an outer-scope handler — TerminateWorkflowOnTimeOut
@@ -217,7 +233,7 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 				TenantID:               tenant.ID,
 				TenantOrg:              tenant.Org,
 				SiteID:                 site.ID,
-				NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupID),
+				NetworkSecurityGroupID: networkSecurityGroupID,
 				StatefulEgress:         apiRequest.StatefulEgress,
 				Rules:                  rules,
 				Labels:                 apiRequest.Labels,
@@ -226,6 +242,12 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 			},
 		)
 		if derr != nil {
+			if networkSecurityGroupID != nil && (&cdb.PostgresErrorChecker{}).IsUniqueConstraintError(derr) {
+				logger.Warn().Err(derr).Str("id", *networkSecurityGroupID).Msg("network security group with specified ID already exists")
+				return cutil.NewAPIError(http.StatusConflict, "A Network Security Group with specified ID already exists", validation.Errors{
+					"id": errors.New(*networkSecurityGroupID),
+				})
+			}
 			logger.Error().Err(derr).Msg("unable to create NetworkSecurityGroup record in DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed creating Network Security Group record, DB error", nil)
 		}
