@@ -50,9 +50,7 @@ use rpc::site_explorer::{
 };
 use tonic::Request;
 
-use crate::env::Env;
-
-mod env;
+use crate::env::{self, Env};
 
 const LAST_RUN_MISSING_CREDENTIAL_KEY: &str = "machines/bmc/site/root";
 const LAST_RUN_MISSING_CREDENTIAL_CATEGORY: &str = "missing_credentials";

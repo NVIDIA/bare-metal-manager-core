@@ -955,6 +955,7 @@ async fn test_network_security_group_delete(
             id: instance.id,
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .unwrap();

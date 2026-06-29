@@ -699,6 +699,7 @@ generate-sdk:
 		-i $(OPENAPI_SPEC) \
 		-g go \
 		-o sdk/standard \
+		-t openapi/templates/go \
 		--package-name standard \
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
 		--global-property=apis,models,supportingFiles

@@ -114,12 +114,22 @@ pub struct StaticBmcEndpoint {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticMachineEndpoint {
+    /// Stable NICo machine ID for this BMC endpoint.
     pub id: String,
+
+    /// Optional chassis serial to emit as machine telemetry metadata.
     pub serial: Option<String>,
+
+    /// Optional uniform GPU driver version to emit for local/static validation.
+    pub driver_version: Option<String>,
+
     #[serde(alias = "physical_slot_number")]
     pub slot_number: Option<i32>,
+
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional NVLink domain UUID associated with this machine.
     pub nvlink_domain_uuid: Option<String>,
 }
 
@@ -2051,7 +2061,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:11"
 username = "admin"
 password = "pass"
-machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", driver_version = "570.82", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 "#;
 
         let config: Config = Figment::new()
@@ -2067,6 +2077,7 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(machine.slot_number, Some(15));
         assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
         assert_eq!(
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")

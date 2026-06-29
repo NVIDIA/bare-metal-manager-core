@@ -58,6 +58,7 @@ func AllCommands() []Command {
 
 		{Name: "machine list", Description: "List machines", Run: cmdMachineList},
 		{Name: "machine get", Description: "Get machine details", Run: cmdMachineGet},
+		{Name: "machine dpu get", Description: "Get DPU machines attached to a host machine", Run: cmdMachineDpuGet},
 
 		{Name: "operating-system list", Description: "List operating systems", Run: cmdOSList},
 		{Name: "operating-system get", Description: "Get operating system details", Run: cmdOSGet},
@@ -3050,6 +3051,24 @@ func cmdMachineGet(s *Session, args []string) error {
 		return err
 	}
 	printMachineHealthSummary(os.Stdout, body)
+	return printDetailJSON(os.Stdout, body)
+}
+
+// cmdMachineDpuGet prints the DPU machines attached to a host machine.
+func cmdMachineDpuGet(s *Session, args []string) error {
+	item, err := s.Resolver.ResolveWithArgs(context.Background(), "machine", "Machine", args)
+	if err != nil {
+		return err
+	}
+	LogCmd(s, "machine", "dpu get", item.ID)
+	body, _, err := s.Client.Do("GET", apiPath(s, "machine/{id}/dpu"), map[string]string{"id": item.ID}, nil, nil)
+	if err != nil {
+		return err
+	}
+	var dpus []json.RawMessage
+	if err := json.Unmarshal(body, &dpus); err == nil {
+		fmt.Fprintf(os.Stdout, "%d DPU(s) attached\n", len(dpus))
+	}
 	return printDetailJSON(os.Stdout, body)
 }
 

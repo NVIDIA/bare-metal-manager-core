@@ -56,7 +56,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   5,
+		"machine":                   6,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,

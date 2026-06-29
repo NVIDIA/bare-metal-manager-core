@@ -36,7 +36,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::DpuData;
-use crate::errors::{ModelError, ModelResult};
+use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, OperatorError};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
@@ -1207,7 +1207,11 @@ pub enum EndpointExplorationError {
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
-    #[error("VikingFWInventoryForbiddenError: {details}")]
+    /// A known, intermittent HTTP 403 from the firmware-inventory endpoint on
+    /// DGX H100 BMCs ("Viking" is the internal code name). The variant name is
+    /// kept for backward-compatible serialization of stored reports; new
+    /// operator-facing text uses the real product name.
+    #[error("DGX H100 firmware inventory request was forbidden: {details}")]
     #[serde(rename_all = "PascalCase")]
     VikingFWInventoryForbiddenError {
         details: String,
@@ -1239,6 +1243,12 @@ pub enum EndpointExplorationError {
 }
 
 impl EndpointExplorationError {
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: ErrorCode =
+        ErrorCode::nico(ErrorSubsystem::Dpu, 134);
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str = "No action needed: site explorer automatically force-restarts the DPU to clear this \
+         known UEFI/BMC race and re-explores on its next run (~2 min). It escalates to a BMC \
+         reset if the empty BIOS attributes persist.";
+
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
             || matches!(self, EndpointExplorationError::AvoidLockout)
@@ -1274,6 +1284,91 @@ impl EndpointExplorationError {
             EndpointExplorationError::IntermittentUnauthorized {
                 consecutive_count, ..
             } => Some(*consecutive_count),
+            _ => None,
+        }
+    }
+}
+
+impl OperatorError for EndpointExplorationError {
+    fn operator_error_code(&self) -> ErrorCode {
+        // Every code in this module is a site-explorer code, so the subsystem is
+        // assumed rather than repeated per arm.
+        use ErrorSubsystem::SiteExplorer;
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. } => {
+                ErrorCode::nico(SiteExplorer, 100)
+            }
+            EndpointExplorationError::ConnectionRefused { .. } => {
+                ErrorCode::nico(SiteExplorer, 101)
+            }
+            EndpointExplorationError::Unreachable { .. } => ErrorCode::nico(SiteExplorer, 102),
+            EndpointExplorationError::UnsupportedVendor { .. } => {
+                ErrorCode::nico(SiteExplorer, 120)
+            }
+            EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
+            EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
+            EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {
+                ErrorCode::nico(SiteExplorer, 131)
+            }
+            EndpointExplorationError::Unauthorized { .. } => ErrorCode::nico(SiteExplorer, 140),
+            EndpointExplorationError::MissingCredentials { .. } => {
+                ErrorCode::nico(SiteExplorer, 141)
+            }
+            EndpointExplorationError::SecretsEngineError { .. } => {
+                ErrorCode::nico(SiteExplorer, 142)
+            }
+            EndpointExplorationError::SetCredentials { .. } => ErrorCode::nico(SiteExplorer, 143),
+            EndpointExplorationError::AvoidLockout => ErrorCode::nico(SiteExplorer, 144),
+            EndpointExplorationError::IntermittentUnauthorized { .. } => {
+                ErrorCode::nico(SiteExplorer, 145)
+            }
+            EndpointExplorationError::Other { .. } => ErrorCode::nico(SiteExplorer, 199),
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+            }
+        }
+    }
+
+    fn operator_mitigation(&self) -> Option<&'static str> {
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. }
+            | EndpointExplorationError::ConnectionRefused { .. }
+            | EndpointExplorationError::Unreachable { .. } => Some(
+                "Verify endpoint network reachability and that the BMC Redfish service is listening.",
+            ),
+            EndpointExplorationError::UnsupportedVendor { .. }
+            | EndpointExplorationError::MissingVendor => Some(
+                "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
+                 Compatibility List \
+                 (https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list); \
+                 an unsupported or unidentified BMC cannot be explored.",
+            ),
+            EndpointExplorationError::Unauthorized { .. }
+            | EndpointExplorationError::MissingCredentials { .. }
+            | EndpointExplorationError::SecretsEngineError { .. }
+            | EndpointExplorationError::SetCredentials { .. }
+            | EndpointExplorationError::AvoidLockout => Some(
+                "Set or correct this endpoint's BMC credentials with the Admin CLI \
+                 (`nico-admin-cli credential add-bmc`), then re-explore it with \
+                 `nico-admin-cli site-explorer refresh <bmc-ip>`.",
+            ),
+            EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
+                "Transient: site explorer retries automatically on its next run (~2 min), or \
+                 force one now with `nico-admin-cli site-explorer refresh <bmc-ip>`. If \
+                 unauthorized responses persist across runs, correct the BMC credentials with \
+                 `nico-admin-cli credential add-bmc`.",
+            ),
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+            }
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
+                "No immediate action needed: site explorer treats this DGX H100 \
+                 firmware-inventory response as transient and retries on its next run (~2 min). \
+                 Force one now with `nico-admin-cli site-explorer refresh <bmc-ip>` if needed. \
+                 For general DGX H100/H200 Redfish API information, see \
+                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html.",
+            ),
             _ => None,
         }
     }
@@ -2269,6 +2364,94 @@ mod tests {
             boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
+    }
+
+    #[test]
+    fn dpu_bios_error_schema_contains_operator_action() {
+        let error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+            details: "DPU BMC BIOS attributes not ready".to_string(),
+            response_body: None,
+            response_code: None,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(
+            schema.error_code,
+            EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+        );
+        assert_eq!(
+            schema.mitigation.as_deref(),
+            Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+        );
+        assert!(
+            schema
+                .text
+                .contains("Invalid Redfish response for DPU BIOS")
+        );
+    }
+
+    #[test]
+    fn intermittent_unauthorized_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::IntermittentUnauthorized {
+            details: "temporary unauthorized response".to_string(),
+            response_body: None,
+            response_code: Some(401),
+            consecutive_count: 1,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(
+            schema.error_code,
+            ErrorCode::nico(ErrorSubsystem::SiteExplorer, 145)
+        );
+        assert_eq!(schema.error_code.to_string(), "NICO-SITEEXPLORER-145");
+        // The mitigation answers "how do I retry?" and "what does escalate mean?"
+        // with concrete Admin CLI commands.
+        let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
+    }
+
+    #[test]
+    fn unsupported_vendor_error_schema_points_at_hcl() {
+        const HCL_URL: &str = "https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list";
+
+        value_scenarios!(
+            run = |error: EndpointExplorationError| error
+                .operator_error_schema()
+                .mitigation
+                .is_some_and(|mitigation| mitigation.contains(HCL_URL));
+            "vendor errors" {
+                EndpointExplorationError::UnsupportedVendor {
+                    vendor: "unknown".to_string(),
+                } => true,
+                EndpointExplorationError::MissingVendor => true,
+            }
+        );
+    }
+
+    #[test]
+    fn dgx_h100_fw_inventory_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::VikingFWInventoryForbiddenError {
+            details: "HTTP 403 at /redfish/v1/UpdateService/FirmwareInventory".to_string(),
+            response_body: None,
+            response_code: Some(403),
+        };
+
+        let serialized = serde_json::to_value(&error).expect("error serializes");
+        let schema = error.operator_error_schema();
+        let mitigation = schema.mitigation.expect("has a mitigation");
+
+        assert!(schema.text.contains("DGX H100"));
+        assert!(!schema.text.contains("Viking"));
+        assert_eq!(serialized["Type"], "VikingFWInventoryForbiddenError");
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("general DGX H100/H200 Redfish API information"));
+        assert!(
+            mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html")
+        );
     }
 
     /// `find_version` locates the firmware version matching a component regex,

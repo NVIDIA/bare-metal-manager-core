@@ -450,6 +450,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");

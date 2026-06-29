@@ -77,6 +77,7 @@ nras = { path = "../nras" }
 spancounter = { path = "../spancounter" }
 state-controller = { path = "../state-controller" }
 sqlx-query-tracing = { path = "../sqlx-query-tracing" }
+trace-propagation = { path = "../trace-propagation" }
 
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 arc-swap = { workspace = true }
@@ -133,6 +134,8 @@ reqwest = { workspace = true, default-features = false, features = [
   "rustls",
   "stream",
 ] }
+reqwest-middleware = { workspace = true }
+reqwest-tracing = { workspace = true }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
 rustls = { workspace = true }
