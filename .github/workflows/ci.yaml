@@ -34,6 +34,7 @@ env:
   FF_USE_FASTZIP: "true"
   GIT_SUBMODULE_STRATEGY: recursive
 
+
 jobs:
   changes:
     name: Detect Core CI Gate
@@ -839,7 +840,7 @@ jobs:
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
       scan: true
-      download_artifacts: true # Download boot and ephemeral artifacts for packaging
+      download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
@@ -870,7 +871,7 @@ jobs:
       push: ${{ !contains(github.ref, 'pull-request/') }}
       load: true
       scan: true
-      download_artifacts: true # Download boot and ephemeral artifacts for packaging
+      download_artifacts: true  # Download boot and ephemeral artifacts for packaging
       build_args: |
         {
           "VERSION": "${{ needs.prepare.outputs.version }}",
@@ -896,14 +897,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history for secret scanning
+          fetch-depth: 0  # Full history for secret scanning
 
       - name: Run TruffleHog Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
-          extra-args: "--results=verified,unknown --only-verified"
-          post-pr-comment: "false"
-          fail-on-findings: "true"
+          extra-args: '--results=verified,unknown --only-verified'
+          post-pr-comment: 'false'
+          fail-on-findings: 'true'
 
   security-codeql-scan:
     name: CodeQL Security Analysis
@@ -923,17 +924,19 @@ jobs:
       - name: Run CodeQL Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
-          languages: "rust"
-          build-mode: "none"
-          category: "/language:rust"
-          upload-sarif: "false" # Disable upload until GHAS is enabled, such as the repo be public
-          post-pr-comment: "false"
-          fail-on-findings: "true" # Enforce quality gate
-          fail-on-severity: "error" # Only fail on critical/high severity issues
+          languages: 'rust'
+          build-mode: 'none'
+          category: '/language:rust'
+          upload-sarif: 'false'  # Disable upload until GHAS is enabled, such as the repo be public
+          post-pr-comment: 'false'
+          fail-on-findings: 'true'  # Enforce quality gate
+          fail-on-severity: 'error' # Only fail on critical/high severity issues
+
 
   # ============================================================================
   # BUILD STAGE - Machine Validation
   # ============================================================================
+
 
   build-release-machine-validation-runner:
     needs:
@@ -949,7 +952,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: true # load to daemon so the Grype scan can read it on PR builds
+      load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
 
@@ -967,7 +970,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: true # load to daemon so the Grype scan can read it on PR builds
+      load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
 
@@ -991,7 +994,7 @@ jobs:
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: true # load to daemon so the Grype scan can read it on PR builds
+      load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
 
@@ -1176,8 +1179,8 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
   build-push-helm-chart:
     needs:
@@ -1195,7 +1198,7 @@ jobs:
           chart-path: helm
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1213,8 +1216,8 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm-prereqs
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
   build-push-helm-prereqs-chart:
     needs:
@@ -1232,7 +1235,7 @@ jobs:
           chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1404,29 +1407,29 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-otelcol
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
       - name: Validate nico-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dpu-agent
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
       - name: Validate nico-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dhcp-server
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
       - name: Validate nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-fmds
-          lint: "true"
-          template: "true"
+          lint: 'true'
+          template: 'true'
 
   build-push-bluefield-helm-charts:
     needs:
@@ -1444,7 +1447,7 @@ jobs:
           chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1455,7 +1458,7 @@ jobs:
           chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1466,7 +1469,7 @@ jobs:
           chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1477,7 +1480,7 @@ jobs:
           chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
-          lint: "false"
+          lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
@@ -1607,7 +1610,7 @@ jobs:
     steps:
       - uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan-aggregate@739847ddf00fda38916504ef84e1f504eac3158f
         with:
-          post-pr-comment: "true"
+          post-pr-comment: 'true'
 
   # ============================================================================
   # NOTIFICATION STAGE
