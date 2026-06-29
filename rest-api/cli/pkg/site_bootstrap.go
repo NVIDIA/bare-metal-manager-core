@@ -675,7 +675,49 @@ func (bootstrap *siteBootstrap) discoverExistingResources(api bootstrapResourceA
 }
 
 func (bootstrap *siteBootstrap) discoverExistingResource(api bootstrapResourceAPI, alias string, resource *bootstrapExistingResource) (map[string]any, error) {
-	resolvedValue, err := bootstrap.references.resolve(resource.Match)
+	bootstrap.client.Org = api.organization(bootstrap.manifest)
+
+	if resource.ID != "" {
+		response, err := api.getResource(bootstrap.client, resource.ID)
+		if err == nil {
+			if len(resource.Match) > 0 {
+				match, matchErr := bootstrap.resolveExistingResourceMatch(api, alias, resource.Match)
+				if matchErr != nil {
+					return nil, matchErr
+				}
+				if !bootstrapValueMatches(match, response) {
+					return nil, fmt.Errorf("%w: existing %s %q does not match the manifest selector", errBootstrapDrift, api.displayName, alias)
+				}
+			}
+			fmt.Fprintf(bootstrap.progress, "resolved %s %s (%s)\n", api.displayName, alias, resource.ID)
+			return response, nil
+		}
+		if !isBootstrapNotFound(err) || len(resource.Match) == 0 {
+			return nil, fmt.Errorf("retrieving %s %q by ID %q: %w", api.displayName, alias, resource.ID, err)
+		}
+	}
+
+	match, err := bootstrap.resolveExistingResourceMatch(api, alias, resource.Match)
+	if err != nil {
+		return nil, err
+	}
+	response, found, err := api.findMatching(bootstrap.client, match)
+	if err != nil {
+		return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
+	}
+	if !found {
+		return nil, fmt.Errorf("%w: %s %q is not available yet; wait for Site fabric-prefix inventory and rerun", errInvalidBootstrapResource, api.displayName, alias)
+	}
+	resource.ID, err = bootstrapResponseID(response)
+	if err != nil {
+		return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
+	}
+	fmt.Fprintf(bootstrap.progress, "resolved %s %s (%s)\n", api.displayName, alias, resource.ID)
+	return response, nil
+}
+
+func (bootstrap *siteBootstrap) resolveExistingResourceMatch(api bootstrapResourceAPI, alias string, selector map[string]any) (map[string]any, error) {
+	resolvedValue, err := bootstrap.references.resolve(selector)
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s %q match: %w", api.displayName, alias, err)
 	}
@@ -683,33 +725,7 @@ func (bootstrap *siteBootstrap) discoverExistingResource(api bootstrapResourceAP
 	if !ok {
 		return nil, fmt.Errorf("resolving %s %q match: %w: expected an object", api.displayName, alias, errInvalidBootstrapResource)
 	}
-	bootstrap.client.Org = api.organization(bootstrap.manifest)
-
-	var response map[string]any
-	if resource.ID != "" {
-		response, err = api.getResource(bootstrap.client, resource.ID)
-		if err != nil {
-			return nil, fmt.Errorf("retrieving %s %q by ID %q: %w", api.displayName, alias, resource.ID, err)
-		}
-		if !bootstrapValueMatches(match, response) {
-			return nil, fmt.Errorf("%w: existing %s %q does not match the manifest selector", errBootstrapDrift, api.displayName, alias)
-		}
-	} else {
-		var found bool
-		response, found, err = api.findMatching(bootstrap.client, match)
-		if err != nil {
-			return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
-		}
-		if !found {
-			return nil, fmt.Errorf("%w: %s %q is not available yet; wait for Site fabric-prefix inventory and rerun", errInvalidBootstrapResource, api.displayName, alias)
-		}
-		resource.ID, err = bootstrapResponseID(response)
-		if err != nil {
-			return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
-		}
-	}
-	fmt.Fprintf(bootstrap.progress, "resolved %s %s (%s)\n", api.displayName, alias, resource.ID)
-	return response, nil
+	return match, nil
 }
 
 func (api bootstrapResourceAPI) organization(manifest *sitePrerequisiteManifest) string {

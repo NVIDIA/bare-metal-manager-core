@@ -399,6 +399,46 @@ func TestBootstrapSitePrerequisitesWaitsForAutoCreatedSiteIPBlock(t *testing.T) 
 	assert.NotContains(t, api.postOrder, "provider-org/ipblock")
 }
 
+func TestDiscoverExistingResourceByIDOnly(t *testing.T) {
+	api := newBootstrapTestAPI()
+	api.addSiteIPBlock("provider-org")
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := completeBootstrapTestManifest()
+	resource := &bootstrapExistingResource{ID: "site-ipblock-1"}
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+
+	response, err := bootstrap.discoverExistingResource(bootstrap.operations.siteIPBlock, "fabric", resource)
+	require.NoError(t, err)
+	assert.Equal(t, "site-ipblock-1", response["id"])
+	assert.Equal(t, []string{"provider-org/ipblock/site-ipblock-1"}, api.getOrder)
+}
+
+func TestDiscoverExistingResourceFallsBackFromStaleIDToMatch(t *testing.T) {
+	api := newBootstrapTestAPI()
+	api.addSiteIPBlock("provider-org")
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := completeBootstrapTestManifest()
+	resource := manifest.SiteIPBlocks["fabric"]
+	resource.ID = "stale-site-ipblock"
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+	bootstrap.references["site"] = map[string]any{"id": "site-1"}
+
+	response, err := bootstrap.discoverExistingResource(bootstrap.operations.siteIPBlock, "fabric", resource)
+	require.NoError(t, err)
+	assert.Equal(t, "site-ipblock-1", response["id"])
+	assert.Equal(t, "site-ipblock-1", resource.ID)
+	assert.Equal(t, []string{
+		"provider-org/ipblock/stale-site-ipblock",
+		"provider-org/ipblock",
+	}, api.getOrder)
+}
+
 func TestSiteBootstrapCommandWritesReplayableManifest(t *testing.T) {
 	api := newBootstrapTestAPI()
 	server := httptest.NewServer(api)
