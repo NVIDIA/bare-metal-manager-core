@@ -532,6 +532,15 @@ async fn trigger_and_await_sol_console(
                             prompt_buf.clear();
                         }
 
+                        if fallback_activate_commands
+                            .is_some_and(|commands| next_fallback_command_index == commands.len())
+                            && let Some(prompt_offset) = prompt_buf
+                                .windows(bmc_prompt.len())
+                                .rposition(|window| window == bmc_prompt)
+                        {
+                            prompt_buf.drain(..prompt_offset + bmc_prompt.len());
+                        }
+
                         let waiting_for_fallback_prompt = fallback_activate_commands
                             .is_some_and(|commands| next_fallback_command_index < commands.len());
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
