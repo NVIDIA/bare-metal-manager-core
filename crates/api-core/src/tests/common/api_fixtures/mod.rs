@@ -184,6 +184,7 @@ pub struct TestEnvOverrides {
     pub redfish_overrides: Option<RedfishOverrides>,
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
+    pub dhcp_lease_expiry_handling: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1303,6 +1304,10 @@ pub async fn create_test_env_with_overrides(
 
     config.compute_allocation_enforcement =
         overrides.compute_allocation_enforcement.unwrap_or_default();
+
+    if let Some(val) = overrides.dhcp_lease_expiry_handling {
+        config.dhcp_lease_expiry_handling = val;
+    }
 
     let config = Arc::new(config);
 

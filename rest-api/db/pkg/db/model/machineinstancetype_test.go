@@ -52,7 +52,7 @@ func testMachineInstanceTypeBuildInstanceType(t *testing.T, dbSession *db.Sessio
 	return ip, site, ins
 }
 
-func TestMachineInstanceTypeSQLDAO_CreateFromParams(t *testing.T) {
+func TestMachineInstanceTypeSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceTypeInitDB(t)
 	defer dbSession.Close()
@@ -102,9 +102,10 @@ func TestMachineInstanceTypeSQLDAO_CreateFromParams(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			for _, i := range tc.mis {
-				mi, err := mitsd.CreateFromParams(
-					ctx, nil, i.MachineID, i.InstanceTypeID,
-				)
+				mi, err := mitsd.Create(ctx, nil, MachineInstanceTypeCreateInput{
+					MachineID:      i.MachineID,
+					InstanceTypeID: i.InstanceTypeID,
+				})
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, mi)
@@ -155,9 +156,10 @@ func testMachineInstanceTypePopulateDB(t *testing.T) (int, [5]string, []*Instanc
 
 	// Create Machine Instance Types
 	for i := 0; i < instanceTypeCount*instanceTypeCount; i++ {
-		mit, err := mitsd.CreateFromParams(
-			ctx, nil, machineIDs[i], instanceTypes[i/instanceTypeCount].ID,
-		)
+		mit, err := mitsd.Create(ctx, nil, MachineInstanceTypeCreateInput{
+			MachineID:      machineIDs[i],
+			InstanceTypeID: instanceTypes[i/instanceTypeCount].ID,
+		})
 		assert.Nil(t, err)
 		machineInstanceTypes = append(machineInstanceTypes, mit)
 	}
@@ -238,7 +240,9 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 	// Verify GetAll by Instance Type ID
 	for i := 0; i < numInstances; i++ {
-		nv, _, err := mitsd.GetAll(ctx, nil, nil, []uuid.UUID{inst[i].ID}, []string{InstanceTypeRelationName}, nil, nil, nil)
+		nv, _, err := mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{
+			InstanceTypeIDs: []uuid.UUID{inst[i].ID},
+		}, paginator.PageInput{}, []string{InstanceTypeRelationName})
 		assert.Nil(t, err)
 		assert.NotNil(t, nv)
 		assert.Equal(t, len(nv), numInstances)
@@ -258,7 +262,9 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 	// Verify GetAll by Machine ID
 	for i := 0; i < numInstances*numInstances; i++ {
-		nv, _, err := mitsd.GetAll(ctx, nil, &machineID[i], nil, nil, nil, nil, nil)
+		nv, _, err := mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{
+			MachineID: &machineID[i],
+		}, paginator.PageInput{}, nil)
 		assert.Nil(t, err)
 		assert.NotNil(t, nv)
 		assert.Equal(t, len(nv), 1)
@@ -277,7 +283,7 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	}
 
 	// Verify GetAll, no filters
-	nv, _, err := mitsd.GetAll(ctx, nil, nil, nil, nil, nil, cutil.GetPtr(50), nil)
+	nv, _, err := mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{}, paginator.PageInput{Limit: cutil.GetPtr(50)}, nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, nv)
 	assert.Equal(t, len(nv), numInstances*numInstances)
@@ -290,13 +296,13 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	}
 
 	// Verify GetAll, no filters, offset
-	nv, total, err := mitsd.GetAll(ctx, nil, nil, nil, nil, cutil.GetPtr(10), nil, nil)
+	nv, total, err := mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{}, paginator.PageInput{Offset: cutil.GetPtr(10)}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, numInstances*numInstances-10, len(nv))
 	assert.Equal(t, numInstances*numInstances, total)
 
 	// Verify GetAll, no filters, limit
-	nv, total, err = mitsd.GetAll(ctx, nil, nil, nil, nil, nil, cutil.GetPtr(10), nil)
+	nv, total, err = mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{}, paginator.PageInput{Limit: cutil.GetPtr(10)}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, 10, len(nv))
 	assert.Equal(t, numInstances*numInstances, total)
@@ -306,13 +312,13 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		Field: "created",
 		Order: paginator.OrderDescending,
 	}
-	nv, total, err = mitsd.GetAll(ctx, nil, nil, nil, nil, nil, nil, orderBy)
+	nv, total, err = mitsd.GetAll(ctx, nil, MachineInstanceTypeFilterInput{}, paginator.PageInput{OrderBy: orderBy}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, paginator.DefaultLimit, len(nv))
 	assert.Equal(t, numInstances*numInstances, total)
 }
 
-func TestMachineInstanceTypeSQLDAO_UpdateFromParams(t *testing.T) {
+func TestMachineInstanceTypeSQLDAO_Update(t *testing.T) {
 	numInstances, _, inst, machineID, machineInstanceTypes := testMachineInstanceTypePopulateDB(t)
 	ctx := context.Background()
 	dbSession := testInstanceTypeInitDB(t)
@@ -324,7 +330,10 @@ func TestMachineInstanceTypeSQLDAO_UpdateFromParams(t *testing.T) {
 
 	// 1st instance type [0-num] set to instanceType 2
 	for i := 0; i < numInstances; i++ {
-		mi, err := mitsd.UpdateFromParams(ctx, nil, machineInstanceTypes[i].ID, nil, &inst[1].ID)
+		mi, err := mitsd.Update(ctx, nil, MachineInstanceTypeUpdateInput{
+			MachineInstanceTypeID: machineInstanceTypes[i].ID,
+			InstanceTypeID:        &inst[1].ID,
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, mi)
 		assert.Equal(t, mi.MachineID, machineID[i])
@@ -342,7 +351,10 @@ func TestMachineInstanceTypeSQLDAO_UpdateFromParams(t *testing.T) {
 
 	// 1st machine id [0-num] set to machine id 2
 	for i := 0; i < numInstances; i++ {
-		mi, err := mitsd.UpdateFromParams(ctx, nil, machineInstanceTypes[i].ID, &machineID[numInstances+i], nil)
+		mi, err := mitsd.Update(ctx, nil, MachineInstanceTypeUpdateInput{
+			MachineInstanceTypeID: machineInstanceTypes[i].ID,
+			MachineID:             &machineID[numInstances+i],
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, mi)
 		assert.Equal(t, mi.MachineID, machineID[numInstances+i])
@@ -360,7 +372,11 @@ func TestMachineInstanceTypeSQLDAO_UpdateFromParams(t *testing.T) {
 
 	// Set both machine id and instance type [0-num] to original
 	for i := 0; i < numInstances; i++ {
-		mi, err := mitsd.UpdateFromParams(ctx, nil, machineInstanceTypes[i].ID, &machineID[i], &inst[0].ID)
+		mi, err := mitsd.Update(ctx, nil, MachineInstanceTypeUpdateInput{
+			MachineInstanceTypeID: machineInstanceTypes[i].ID,
+			MachineID:             &machineID[i],
+			InstanceTypeID:        &inst[0].ID,
+		})
 		assert.Nil(t, err)
 		assert.NotNil(t, mi)
 		assert.Equal(t, mi.MachineID, machineID[i])
@@ -370,13 +386,16 @@ func TestMachineInstanceTypeSQLDAO_UpdateFromParams(t *testing.T) {
 	// Set to non-existent instanceType - foreign key violation
 	for i := 0; i < numInstances; i++ {
 		dummyUUID := uuid.New()
-		mi, err := mitsd.UpdateFromParams(ctx, nil, machineInstanceTypes[i].ID, nil, &dummyUUID)
+		mi, err := mitsd.Update(ctx, nil, MachineInstanceTypeUpdateInput{
+			MachineInstanceTypeID: machineInstanceTypes[i].ID,
+			InstanceTypeID:        &dummyUUID,
+		})
 		assert.NotNil(t, err)
 		assert.Nil(t, mi)
 	}
 }
 
-func TestMachineInstanceTypeSQLDAO_DeleteByID(t *testing.T) {
+func TestMachineInstanceTypeSQLDAO_Delete(t *testing.T) {
 	_, _, _, _, machineInstanceTypes := testMachineInstanceTypePopulateDB(t)
 	ctx := context.Background()
 	dbSession := testInstanceTypeInitDB(t)
@@ -413,7 +432,7 @@ func TestMachineInstanceTypeSQLDAO_DeleteByID(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			err := mitsd.DeleteByID(ctx, nil, tc.miID, tc.purge)
+			err := mitsd.Delete(ctx, nil, tc.miID, tc.purge)
 
 			if tc.expectedError {
 				assert.Error(t, err)

@@ -190,7 +190,13 @@ impl ScoutFirmwareScriptSelector {
 /// This keeps vendor/model strings case-insensitive while preventing path
 /// traversal or accidental nested directories from host inventory data.
 fn safe_lookup_key(value: &str) -> Option<String> {
-    let value = value.trim().to_ascii_lowercase();
+    let value = value
+        .trim()
+        .to_ascii_lowercase()
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>()
+        .join("_");
+
     if is_safe_path_segment(&value) {
         Some(value)
     } else {
@@ -200,9 +206,9 @@ fn safe_lookup_key(value: &str) -> Option<String> {
 
 /// Checks whether a value is safe to use as one filesystem path segment.
 ///
-/// "dgx h100" -> rejected
-/// "../dgxh100" -> rejected
 /// "dgxh100" -> allowed
+/// "poweredge_r760" -> allowed
+/// "../dgxh100" -> rejected
 fn is_safe_path_segment(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -379,6 +385,37 @@ mod tests {
         assert_eq!(
             script.url,
             "http://carbide-pxe.forge:8080/public/scout-firmware-scripts/nvidia/dgxh100/cx7/upgrade.sh"
+        );
+        assert_eq!(script.sha256, hex::encode(Sha256::digest(b"echo ok\n")));
+        assert_eq!(script.execution_timeout_seconds, 10);
+        assert_eq!(script.artifact_download_timeout_seconds, 20);
+    }
+
+    #[test]
+    fn normalizes_model_name_spaces_to_underscores() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let component_dir = tempdir.path().join("dell/poweredge_r760/bmc");
+        fs::create_dir_all(&component_dir).unwrap();
+        fs::write(component_dir.join(SCOUT_FIRMWARE_SCRIPT_FILE), "echo ok\n").unwrap();
+        fs::write(
+            component_dir.join(SCOUT_FIRMWARE_METADATA_FILE),
+            "execution_timeout_seconds = 10\nartifact_download_timeout_seconds = 20\n",
+        )
+        .unwrap();
+
+        let script = find_scout_script_in(
+            tempdir.path(),
+            TEST_PXE_PUBLIC_BASE_URL,
+            bmc_vendor::BMCVendor::Dell,
+            "PowerEdge R760",
+            FirmwareComponentType::Bmc,
+        )
+        .unwrap()
+        .expect("script should resolve");
+
+        assert_eq!(
+            script.url,
+            "http://carbide-pxe.forge:8080/public/scout-firmware-scripts/dell/poweredge_r760/bmc/upgrade.sh"
         );
         assert_eq!(script.sha256, hex::encode(Sha256::digest(b"echo ok\n")));
         assert_eq!(script.execution_timeout_seconds, 10);

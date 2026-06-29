@@ -1186,17 +1186,14 @@ impl SiteExplorer {
                 .map(|em| em.data.dpu_mode);
             DpuMode::resolve(declared, site_dpu_mode)
         };
-        // Match HOST and DPU using SerialNumber.
-        // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
+        // Match HOST and DPU using the serial Redfish reports for the same
+        // physical card. BF4 does not expose that serial on the DPU system
+        // object, so this uses `EndpointExplorationReport::dpu_pairing_serial_number`
+        // rather than reading `systems[0].serial_number` directly.
         let mut dpu_sn_to_endpoint = HashMap::new();
         for (_, ep) in explored_dpus {
-            if let Some(sn) = ep
-                .report
-                .systems
-                .first()
-                .and_then(|system| system.serial_number.as_ref())
-            {
-                dpu_sn_to_endpoint.insert(sn.trim().to_string(), ep);
+            if let Some(sn) = ep.report.dpu_pairing_serial_number() {
+                dpu_sn_to_endpoint.insert(sn.to_string(), ep);
             }
         }
 
@@ -2810,28 +2807,38 @@ impl SiteExplorer {
             return Ok(true);
         }
 
-        if let Some(nic_mode) = dpu_endpoint.report.nic_mode() {
-            // DPU's in NIC mode do not have full redfish functionality,
-            // for example, we will not be able to retrieve the base GUID
-            // from the redfish response. Skip the next check because the DPUs
-            // in NIC mode will not expose a pf0 interface to the host.
-            if nic_mode == NicMode::Nic {
+        match dpu_endpoint.report.nic_mode() {
+            Some(NicMode::Nic) => {
+                // DPU's in NIC mode do not have full redfish functionality,
+                // for example, we will not be able to retrieve the base GUID
+                // from the redfish response. Skip the next check because the DPUs
+                // in NIC mode will not expose a pf0 interface to the host.
                 tracing::info!(
                     "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
                     dpu_endpoint.address
                 );
                 return Ok(true);
             }
-        } else {
-            tracing::error!(
-                "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
-                dpu_endpoint.address
-            );
-            metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
-            return Ok(false);
+            Some(NicMode::Dpu) => {}
+            None if dpu_endpoint.report.dpu_pairing_serial_number().is_some() => {
+                tracing::warn!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without a Redfish DPU/NIC mode; continuing because it has a host-pairing serial",
+                    dpu_endpoint.address
+                );
+            }
+            None => {
+                tracing::error!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
+                    dpu_endpoint.address
+                );
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
+                return Ok(false);
+            }
         }
 
-        // This is a bluefield in DPU mode
+        // This is a BlueField that should be pairable as a managed DPU. BF4 may
+        // not report mode, so host pairing and the PF MAC check decide whether
+        // it can continue.
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -3205,7 +3212,9 @@ impl SiteExplorer {
                 // Preserve existing BF3 part-number heuristics when the operator
                 // hasn't explicitly chosen a mode. Missing part numbers only
                 // disable this heuristic fallback; explicit modes above do not
-                // require a part number.
+                // require a part number. BF4 does not currently
+                // expose a reliable DPU/NIC mode signal over Redfish, so the
+                // default path does not infer or reconfigure BF4 mode,
                 dpu_part_number.and_then(|dpu_part_number| {
                     if is_bf3_supernic_part_number(dpu_part_number) {
                         Some(NicMode::Nic)

@@ -29,9 +29,8 @@ type VpcUpdateRequest struct {
 	// ID of the Network Security Group to attach to the VPC
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
-	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
-	// Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.
-	Labels map[string]string `json:"labels,omitempty"`
+	NvLinkLogicalPartitionId NullableString    `json:"nvLinkLogicalPartitionId,omitempty"`
+	Labels                   map[string]string `json:"labels,omitempty"`
 }
 
 // NewVpcUpdateRequest instantiates a new VpcUpdateRequest object

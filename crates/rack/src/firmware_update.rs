@@ -56,7 +56,7 @@ pub async fn load_rack_firmware_inventory(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
 ) -> Result<RackFirmwareInventory> {
-    let (machine_ids, machine_topologies) = {
+    let (machine_ids, machine_topologies, bmc_ips) = {
         let mut txn = db_pool.begin().await?;
 
         let machine_ids = db_machine::find_machine_ids(
@@ -69,9 +69,20 @@ pub async fn load_rack_firmware_inventory(
         .await?;
         let machine_topologies =
             db_machine_topology::find_latest_by_machine_ids(txn.as_mut(), &machine_ids).await?;
+        // The BMC IP is live network state -- read it from machine_interfaces, not the
+        // discovery topology snapshot, so a released or changed lease can't surface a stale IP.
+        let bmc_ips: std::collections::HashMap<_, _> =
+            db_machine_topology::find_machine_bmc_pairs_by_machine_id(
+                txn.as_mut(),
+                machine_ids.clone(),
+            )
+            .await?
+            .into_iter()
+            .filter_map(|(id, ip)| ip.map(|ip| (id, ip)))
+            .collect();
 
         txn.commit().await?;
-        (machine_ids, machine_topologies)
+        (machine_ids, machine_topologies, bmc_ips)
     };
 
     let mut machines = Vec::with_capacity(machine_ids.len());
@@ -84,11 +95,9 @@ pub async fn load_rack_firmware_inventory(
             .bmc_info
             .mac
             .ok_or_else(|| eyre!("machine {} missing BMC MAC", machine_id))?;
-        let bmc_ip = topology
-            .topology()
-            .bmc_info
-            .ip
-            .ok_or_else(|| eyre!("machine {} missing BMC IP", machine_id))?;
+        let bmc_ip = bmc_ips
+            .get(machine_id)
+            .ok_or_else(|| eyre!("machine {} has no live BMC IP", machine_id))?;
         let (bmc_username, bmc_password) =
             fetch_bmc_credentials(credential_manager, bmc_mac).await?;
         machines.push(FirmwareUpgradeDeviceInfo {

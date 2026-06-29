@@ -54,6 +54,7 @@ const (
 	Forge_FindNetworkSegmentIds_FullMethodName                              = "/forge.Forge/FindNetworkSegmentIds"
 	Forge_FindNetworkSegmentsByIds_FullMethodName                           = "/forge.Forge/FindNetworkSegmentsByIds"
 	Forge_CreateNetworkSegment_FullMethodName                               = "/forge.Forge/CreateNetworkSegment"
+	Forge_AttachNetworkSegmentToVpc_FullMethodName                          = "/forge.Forge/AttachNetworkSegmentToVpc"
 	Forge_DeleteNetworkSegment_FullMethodName                               = "/forge.Forge/DeleteNetworkSegment"
 	Forge_NetworkSegmentsForVpc_FullMethodName                              = "/forge.Forge/NetworkSegmentsForVpc"
 	Forge_FindIBPartitionIds_FullMethodName                                 = "/forge.Forge/FindIBPartitionIds"
@@ -158,6 +159,7 @@ const (
 	Forge_GetSwitchNvosCredentials_FullMethodName                           = "/forge.Forge/GetSwitchNvosCredentials"
 	Forge_GetAllManagedHostNetworkStatus_FullMethodName                     = "/forge.Forge/GetAllManagedHostNetworkStatus"
 	Forge_GetSiteExplorationReport_FullMethodName                           = "/forge.Forge/GetSiteExplorationReport"
+	Forge_GetSiteExplorerLastRun_FullMethodName                             = "/forge.Forge/GetSiteExplorerLastRun"
 	Forge_ClearSiteExplorationError_FullMethodName                          = "/forge.Forge/ClearSiteExplorationError"
 	Forge_IsBmcInManagedHost_FullMethodName                                 = "/forge.Forge/IsBmcInManagedHost"
 	Forge_BmcCredentialStatus_FullMethodName                                = "/forge.Forge/BmcCredentialStatus"
@@ -170,6 +172,8 @@ const (
 	Forge_FindExploredEndpointsByIds_FullMethodName                         = "/forge.Forge/FindExploredEndpointsByIds"
 	Forge_FindExploredManagedHostIds_FullMethodName                         = "/forge.Forge/FindExploredManagedHostIds"
 	Forge_FindExploredManagedHostsByIds_FullMethodName                      = "/forge.Forge/FindExploredManagedHostsByIds"
+	Forge_FindExploredMlxDeviceHostIds_FullMethodName                       = "/forge.Forge/FindExploredMlxDeviceHostIds"
+	Forge_FindExploredMlxDevicesByIds_FullMethodName                        = "/forge.Forge/FindExploredMlxDevicesByIds"
 	Forge_UpdateMachineHardwareInfo_FullMethodName                          = "/forge.Forge/UpdateMachineHardwareInfo"
 	Forge_AdminForceDeleteMachine_FullMethodName                            = "/forge.Forge/AdminForceDeleteMachine"
 	Forge_AdminListResourcePools_FullMethodName                             = "/forge.Forge/AdminListResourcePools"
@@ -191,6 +195,7 @@ const (
 	Forge_GetMachineBootOverride_FullMethodName                             = "/forge.Forge/GetMachineBootOverride"
 	Forge_SetMachineBootOverride_FullMethodName                             = "/forge.Forge/SetMachineBootOverride"
 	Forge_ClearMachineBootOverride_FullMethodName                           = "/forge.Forge/ClearMachineBootOverride"
+	Forge_GetMachineBootInterfaces_FullMethodName                           = "/forge.Forge/GetMachineBootInterfaces"
 	Forge_GetNetworkTopology_FullMethodName                                 = "/forge.Forge/GetNetworkTopology"
 	Forge_FindNetworkDevicesByDeviceIds_FullMethodName                      = "/forge.Forge/FindNetworkDevicesByDeviceIds"
 	Forge_CreateCredential_FullMethodName                                   = "/forge.Forge/CreateCredential"
@@ -311,6 +316,10 @@ const (
 	Forge_GetMachineValidationExternalConfigs_FullMethodName                = "/forge.Forge/GetMachineValidationExternalConfigs"
 	Forge_AddUpdateMachineValidationExternalConfig_FullMethodName           = "/forge.Forge/AddUpdateMachineValidationExternalConfig"
 	Forge_GetMachineValidationRuns_FullMethodName                           = "/forge.Forge/GetMachineValidationRuns"
+	Forge_FindMachineValidationRunItemIds_FullMethodName                    = "/forge.Forge/FindMachineValidationRunItemIds"
+	Forge_FindMachineValidationRunItemsByIds_FullMethodName                 = "/forge.Forge/FindMachineValidationRunItemsByIds"
+	Forge_GetMachineValidationAttempt_FullMethodName                        = "/forge.Forge/GetMachineValidationAttempt"
+	Forge_HeartbeatMachineValidationRun_FullMethodName                      = "/forge.Forge/HeartbeatMachineValidationRun"
 	Forge_RemoveMachineValidationExternalConfig_FullMethodName              = "/forge.Forge/RemoveMachineValidationExternalConfig"
 	Forge_GetMachineValidationTests_FullMethodName                          = "/forge.Forge/GetMachineValidationTests"
 	Forge_AddMachineValidationTest_FullMethodName                           = "/forge.Forge/AddMachineValidationTest"
@@ -400,6 +409,7 @@ const (
 	Forge_GetNextRemediationForMachine_FullMethodName                       = "/forge.Forge/GetNextRemediationForMachine"
 	Forge_RemediationApplied_FullMethodName                                 = "/forge.Forge/RemediationApplied"
 	Forge_SetPrimaryDpu_FullMethodName                                      = "/forge.Forge/SetPrimaryDpu"
+	Forge_SetPrimaryInterface_FullMethodName                                = "/forge.Forge/SetPrimaryInterface"
 	Forge_CreateDpuExtensionService_FullMethodName                          = "/forge.Forge/CreateDpuExtensionService"
 	Forge_UpdateDpuExtensionService_FullMethodName                          = "/forge.Forge/UpdateDpuExtensionService"
 	Forge_DeleteDpuExtensionService_FullMethodName                          = "/forge.Forge/DeleteDpuExtensionService"
@@ -468,6 +478,7 @@ const (
 	Forge_FindOperatingSystemsByIds_FullMethodName                          = "/forge.Forge/FindOperatingSystemsByIds"
 	Forge_GetOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName    = "/forge.Forge/GetOperatingSystemCachableIpxeTemplateArtifacts"
 	Forge_UpdateOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName = "/forge.Forge/UpdateOperatingSystemCachableIpxeTemplateArtifacts"
+	Forge_ReWrapSecrets_FullMethodName                                      = "/forge.Forge/ReWrapSecrets"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -517,6 +528,7 @@ type ForgeClient interface {
 	FindNetworkSegmentIds(ctx context.Context, in *NetworkSegmentSearchFilter, opts ...grpc.CallOption) (*NetworkSegmentIdList, error)
 	FindNetworkSegmentsByIds(ctx context.Context, in *NetworkSegmentsByIdsRequest, opts ...grpc.CallOption) (*NetworkSegmentList, error)
 	CreateNetworkSegment(ctx context.Context, in *NetworkSegmentCreationRequest, opts ...grpc.CallOption) (*NetworkSegment, error)
+	AttachNetworkSegmentToVpc(ctx context.Context, in *AttachNetworkSegmentToVpcRequest, opts ...grpc.CallOption) (*NetworkSegment, error)
 	DeleteNetworkSegment(ctx context.Context, in *NetworkSegmentDeletionRequest, opts ...grpc.CallOption) (*NetworkSegmentDeletionResult, error)
 	// TODO: This functionality should get integrated into NetworkSegmentSearchFilter
 	NetworkSegmentsForVpc(ctx context.Context, in *VpcSearchQuery, opts ...grpc.CallOption) (*NetworkSegmentList, error)
@@ -690,6 +702,8 @@ type ForgeClient interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(ctx context.Context, in *GetSiteExplorationRequest, opts ...grpc.CallOption) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(ctx context.Context, in *ClearSiteExplorationErrorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -718,6 +732,12 @@ type ForgeClient interface {
 	// paginated APIs to get site explorer explored managed hosts
 	FindExploredManagedHostIds(ctx context.Context, in *ExploredManagedHostSearchFilter, opts ...grpc.CallOption) (*ExploredManagedHostIdList, error)
 	FindExploredManagedHostsByIds(ctx context.Context, in *ExploredManagedHostsByIdsRequest, opts ...grpc.CallOption) (*ExploredManagedHostList, error)
+	// Mellanox/BlueField device firmware, projected from explored Redfish PCIe
+	// inventory -- surfaces NIC firmware for DPUs operating in NIC mode. Paginated
+	// like the explored reads above: list the host BMC IPs carrying BlueField
+	// devices, then fetch their devices a page of hosts at a time.
+	FindExploredMlxDeviceHostIds(ctx context.Context, in *ExploredMlxDeviceHostSearchFilter, opts ...grpc.CallOption) (*ExploredMlxDeviceHostIdList, error)
+	FindExploredMlxDevicesByIds(ctx context.Context, in *ExploredMlxDevicesByIdsRequest, opts ...grpc.CallOption) (*ExploredMlxDeviceList, error)
 	UpdateMachineHardwareInfo(ctx context.Context, in *UpdateMachineHardwareInfoRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Force deletes a Machine and the associated DPU from NICo databases,
 	// with the intention of rediscovering the host later on.
@@ -767,6 +787,11 @@ type ForgeClient interface {
 	GetMachineBootOverride(ctx context.Context, in *MachineInterfaceId, opts ...grpc.CallOption) (*MachineBootOverride, error)
 	SetMachineBootOverride(ctx context.Context, in *MachineBootOverride, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ClearMachineBootOverride(ctx context.Context, in *MachineInterfaceId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Gather one machine's boot-interface view from every store that records it
+	// (owned interface rows, predictions, the explored endpoint default, and the
+	// retained post-deletion pairs), plus the effective boot interface the
+	// system would select. Read-only; built for troubleshooting and verification.
+	GetMachineBootInterfaces(ctx context.Context, in *GetMachineBootInterfacesRequest, opts ...grpc.CallOption) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(ctx context.Context, in *NetworkTopologyRequest, opts ...grpc.CallOption) (*NetworkTopologyData, error)
 	FindNetworkDevicesByDeviceIds(ctx context.Context, in *NetworkDeviceIdList, opts ...grpc.CallOption) (*NetworkTopologyData, error)
@@ -954,6 +979,14 @@ type ForgeClient interface {
 	AddUpdateMachineValidationExternalConfig(ctx context.Context, in *AddUpdateMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Machine-Validation executed list
 	GetMachineValidationRuns(ctx context.Context, in *MachineValidationRunListGetRequest, opts ...grpc.CallOption) (*MachineValidationRunList, error)
+	// Machine-Validation run item IDs
+	FindMachineValidationRunItemIds(ctx context.Context, in *MachineValidationRunItemSearchFilter, opts ...grpc.CallOption) (*MachineValidationRunItemIdList, error)
+	// Machine-Validation run items by IDs
+	FindMachineValidationRunItemsByIds(ctx context.Context, in *MachineValidationRunItemsByIdsRequest, opts ...grpc.CallOption) (*MachineValidationRunItemList, error)
+	// Machine-Validation attempt detail
+	GetMachineValidationAttempt(ctx context.Context, in *MachineValidationAttemptGetRequest, opts ...grpc.CallOption) (*MachineValidationAttempt, error)
+	// Machine-Validation run and active attempt heartbeat
+	HeartbeatMachineValidationRun(ctx context.Context, in *MachineValidationHeartbeatRequest, opts ...grpc.CallOption) (*MachineValidationHeartbeatResponse, error)
 	// Remove ExternalConfig
 	RemoveMachineValidationExternalConfig(ctx context.Context, in *RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Machine-Validation test list
@@ -1083,6 +1116,9 @@ type ForgeClient interface {
 	GetNextRemediationForMachine(ctx context.Context, in *GetNextRemediationForMachineRequest, opts ...grpc.CallOption) (*GetNextRemediationForMachineResponse, error)
 	RemediationApplied(ctx context.Context, in *RemediationAppliedRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	SetPrimaryDpu(ctx context.Context, in *SetPrimaryDpuRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Make any host interface (DPU or not) the primary / boot interface. This is
+	// the generic form of SetPrimaryDpu, which it deprecates.
+	SetPrimaryInterface(ctx context.Context, in *SetPrimaryInterfaceRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Extension service version management
 	CreateDpuExtensionService(ctx context.Context, in *CreateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*DpuExtensionService, error)
 	UpdateDpuExtensionService(ctx context.Context, in *UpdateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*DpuExtensionService, error)
@@ -1233,6 +1269,8 @@ type ForgeClient interface {
 	// Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
 	// and OS definition fields (including ipxe_definition_hash) unchanged.
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(ctx context.Context, in *UpdateOperatingSystemIpxeTemplateArtifactRequest, opts ...grpc.CallOption) (*IpxeTemplateArtifactList, error)
+	// Secrets management
+	ReWrapSecrets(ctx context.Context, in *ReWrapSecretsRequest, opts ...grpc.CallOption) (*ReWrapSecretsResponse, error)
 }
 
 type forgeClient struct {
@@ -1551,6 +1589,16 @@ func (c *forgeClient) CreateNetworkSegment(ctx context.Context, in *NetworkSegme
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NetworkSegment)
 	err := c.cc.Invoke(ctx, Forge_CreateNetworkSegment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) AttachNetworkSegmentToVpc(ctx context.Context, in *AttachNetworkSegmentToVpcRequest, opts ...grpc.CallOption) (*NetworkSegment, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NetworkSegment)
+	err := c.cc.Invoke(ctx, Forge_AttachNetworkSegmentToVpc_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2600,6 +2648,16 @@ func (c *forgeClient) GetSiteExplorationReport(ctx context.Context, in *GetSiteE
 	return out, nil
 }
 
+func (c *forgeClient) GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiteExplorerLastRunResponse)
+	err := c.cc.Invoke(ctx, Forge_GetSiteExplorerLastRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) ClearSiteExplorationError(ctx context.Context, in *ClearSiteExplorationErrorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -2714,6 +2772,26 @@ func (c *forgeClient) FindExploredManagedHostsByIds(ctx context.Context, in *Exp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExploredManagedHostList)
 	err := c.cc.Invoke(ctx, Forge_FindExploredManagedHostsByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindExploredMlxDeviceHostIds(ctx context.Context, in *ExploredMlxDeviceHostSearchFilter, opts ...grpc.CallOption) (*ExploredMlxDeviceHostIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExploredMlxDeviceHostIdList)
+	err := c.cc.Invoke(ctx, Forge_FindExploredMlxDeviceHostIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindExploredMlxDevicesByIds(ctx context.Context, in *ExploredMlxDevicesByIdsRequest, opts ...grpc.CallOption) (*ExploredMlxDeviceList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExploredMlxDeviceList)
+	err := c.cc.Invoke(ctx, Forge_FindExploredMlxDevicesByIds_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2924,6 +3002,16 @@ func (c *forgeClient) ClearMachineBootOverride(ctx context.Context, in *MachineI
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Forge_ClearMachineBootOverride_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetMachineBootInterfaces(ctx context.Context, in *GetMachineBootInterfacesRequest, opts ...grpc.CallOption) (*GetMachineBootInterfacesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMachineBootInterfacesResponse)
+	err := c.cc.Invoke(ctx, Forge_GetMachineBootInterfaces_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4130,6 +4218,46 @@ func (c *forgeClient) GetMachineValidationRuns(ctx context.Context, in *MachineV
 	return out, nil
 }
 
+func (c *forgeClient) FindMachineValidationRunItemIds(ctx context.Context, in *MachineValidationRunItemSearchFilter, opts ...grpc.CallOption) (*MachineValidationRunItemIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationRunItemIdList)
+	err := c.cc.Invoke(ctx, Forge_FindMachineValidationRunItemIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindMachineValidationRunItemsByIds(ctx context.Context, in *MachineValidationRunItemsByIdsRequest, opts ...grpc.CallOption) (*MachineValidationRunItemList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationRunItemList)
+	err := c.cc.Invoke(ctx, Forge_FindMachineValidationRunItemsByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetMachineValidationAttempt(ctx context.Context, in *MachineValidationAttemptGetRequest, opts ...grpc.CallOption) (*MachineValidationAttempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationAttempt)
+	err := c.cc.Invoke(ctx, Forge_GetMachineValidationAttempt_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) HeartbeatMachineValidationRun(ctx context.Context, in *MachineValidationHeartbeatRequest, opts ...grpc.CallOption) (*MachineValidationHeartbeatResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationHeartbeatResponse)
+	err := c.cc.Invoke(ctx, Forge_HeartbeatMachineValidationRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) RemoveMachineValidationExternalConfig(ctx context.Context, in *RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -5020,6 +5148,16 @@ func (c *forgeClient) SetPrimaryDpu(ctx context.Context, in *SetPrimaryDpuReques
 	return out, nil
 }
 
+func (c *forgeClient) SetPrimaryInterface(ctx context.Context, in *SetPrimaryInterfaceRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_SetPrimaryInterface_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateDpuExtensionService(ctx context.Context, in *CreateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*DpuExtensionService, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DpuExtensionService)
@@ -5703,6 +5841,16 @@ func (c *forgeClient) UpdateOperatingSystemCachableIpxeTemplateArtifacts(ctx con
 	return out, nil
 }
 
+func (c *forgeClient) ReWrapSecrets(ctx context.Context, in *ReWrapSecretsRequest, opts ...grpc.CallOption) (*ReWrapSecretsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReWrapSecretsResponse)
+	err := c.cc.Invoke(ctx, Forge_ReWrapSecrets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ForgeServer is the server API for Forge service.
 // All implementations should embed UnimplementedForgeServer
 // for forward compatibility.
@@ -5750,6 +5898,7 @@ type ForgeServer interface {
 	FindNetworkSegmentIds(context.Context, *NetworkSegmentSearchFilter) (*NetworkSegmentIdList, error)
 	FindNetworkSegmentsByIds(context.Context, *NetworkSegmentsByIdsRequest) (*NetworkSegmentList, error)
 	CreateNetworkSegment(context.Context, *NetworkSegmentCreationRequest) (*NetworkSegment, error)
+	AttachNetworkSegmentToVpc(context.Context, *AttachNetworkSegmentToVpcRequest) (*NetworkSegment, error)
 	DeleteNetworkSegment(context.Context, *NetworkSegmentDeletionRequest) (*NetworkSegmentDeletionResult, error)
 	// TODO: This functionality should get integrated into NetworkSegmentSearchFilter
 	NetworkSegmentsForVpc(context.Context, *VpcSearchQuery) (*NetworkSegmentList, error)
@@ -5923,6 +6072,8 @@ type ForgeServer interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -5951,6 +6102,12 @@ type ForgeServer interface {
 	// paginated APIs to get site explorer explored managed hosts
 	FindExploredManagedHostIds(context.Context, *ExploredManagedHostSearchFilter) (*ExploredManagedHostIdList, error)
 	FindExploredManagedHostsByIds(context.Context, *ExploredManagedHostsByIdsRequest) (*ExploredManagedHostList, error)
+	// Mellanox/BlueField device firmware, projected from explored Redfish PCIe
+	// inventory -- surfaces NIC firmware for DPUs operating in NIC mode. Paginated
+	// like the explored reads above: list the host BMC IPs carrying BlueField
+	// devices, then fetch their devices a page of hosts at a time.
+	FindExploredMlxDeviceHostIds(context.Context, *ExploredMlxDeviceHostSearchFilter) (*ExploredMlxDeviceHostIdList, error)
+	FindExploredMlxDevicesByIds(context.Context, *ExploredMlxDevicesByIdsRequest) (*ExploredMlxDeviceList, error)
 	UpdateMachineHardwareInfo(context.Context, *UpdateMachineHardwareInfoRequest) (*emptypb.Empty, error)
 	// Force deletes a Machine and the associated DPU from NICo databases,
 	// with the intention of rediscovering the host later on.
@@ -6000,6 +6157,11 @@ type ForgeServer interface {
 	GetMachineBootOverride(context.Context, *MachineInterfaceId) (*MachineBootOverride, error)
 	SetMachineBootOverride(context.Context, *MachineBootOverride) (*emptypb.Empty, error)
 	ClearMachineBootOverride(context.Context, *MachineInterfaceId) (*emptypb.Empty, error)
+	// Gather one machine's boot-interface view from every store that records it
+	// (owned interface rows, predictions, the explored endpoint default, and the
+	// retained post-deletion pairs), plus the effective boot interface the
+	// system would select. Read-only; built for troubleshooting and verification.
+	GetMachineBootInterfaces(context.Context, *GetMachineBootInterfacesRequest) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(context.Context, *NetworkTopologyRequest) (*NetworkTopologyData, error)
 	FindNetworkDevicesByDeviceIds(context.Context, *NetworkDeviceIdList) (*NetworkTopologyData, error)
@@ -6187,6 +6349,14 @@ type ForgeServer interface {
 	AddUpdateMachineValidationExternalConfig(context.Context, *AddUpdateMachineValidationExternalConfigRequest) (*emptypb.Empty, error)
 	// Machine-Validation executed list
 	GetMachineValidationRuns(context.Context, *MachineValidationRunListGetRequest) (*MachineValidationRunList, error)
+	// Machine-Validation run item IDs
+	FindMachineValidationRunItemIds(context.Context, *MachineValidationRunItemSearchFilter) (*MachineValidationRunItemIdList, error)
+	// Machine-Validation run items by IDs
+	FindMachineValidationRunItemsByIds(context.Context, *MachineValidationRunItemsByIdsRequest) (*MachineValidationRunItemList, error)
+	// Machine-Validation attempt detail
+	GetMachineValidationAttempt(context.Context, *MachineValidationAttemptGetRequest) (*MachineValidationAttempt, error)
+	// Machine-Validation run and active attempt heartbeat
+	HeartbeatMachineValidationRun(context.Context, *MachineValidationHeartbeatRequest) (*MachineValidationHeartbeatResponse, error)
 	// Remove ExternalConfig
 	RemoveMachineValidationExternalConfig(context.Context, *RemoveMachineValidationExternalConfigRequest) (*emptypb.Empty, error)
 	// Machine-Validation test list
@@ -6316,6 +6486,9 @@ type ForgeServer interface {
 	GetNextRemediationForMachine(context.Context, *GetNextRemediationForMachineRequest) (*GetNextRemediationForMachineResponse, error)
 	RemediationApplied(context.Context, *RemediationAppliedRequest) (*emptypb.Empty, error)
 	SetPrimaryDpu(context.Context, *SetPrimaryDpuRequest) (*emptypb.Empty, error)
+	// Make any host interface (DPU or not) the primary / boot interface. This is
+	// the generic form of SetPrimaryDpu, which it deprecates.
+	SetPrimaryInterface(context.Context, *SetPrimaryInterfaceRequest) (*emptypb.Empty, error)
 	// Extension service version management
 	CreateDpuExtensionService(context.Context, *CreateDpuExtensionServiceRequest) (*DpuExtensionService, error)
 	UpdateDpuExtensionService(context.Context, *UpdateDpuExtensionServiceRequest) (*DpuExtensionService, error)
@@ -6466,6 +6639,8 @@ type ForgeServer interface {
 	// Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
 	// and OS definition fields (including ipxe_definition_hash) unchanged.
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(context.Context, *UpdateOperatingSystemIpxeTemplateArtifactRequest) (*IpxeTemplateArtifactList, error)
+	// Secrets management
+	ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error)
 }
 
 // UnimplementedForgeServer should be embedded to have
@@ -6567,6 +6742,9 @@ func (UnimplementedForgeServer) FindNetworkSegmentsByIds(context.Context, *Netwo
 }
 func (UnimplementedForgeServer) CreateNetworkSegment(context.Context, *NetworkSegmentCreationRequest) (*NetworkSegment, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateNetworkSegment not implemented")
+}
+func (UnimplementedForgeServer) AttachNetworkSegmentToVpc(context.Context, *AttachNetworkSegmentToVpcRequest) (*NetworkSegment, error) {
+	return nil, status.Error(codes.Unimplemented, "method AttachNetworkSegmentToVpc not implemented")
 }
 func (UnimplementedForgeServer) DeleteNetworkSegment(context.Context, *NetworkSegmentDeletionRequest) (*NetworkSegmentDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteNetworkSegment not implemented")
@@ -6880,6 +7058,9 @@ func (UnimplementedForgeServer) GetAllManagedHostNetworkStatus(context.Context, 
 func (UnimplementedForgeServer) GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorationReport not implemented")
 }
+func (UnimplementedForgeServer) GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorerLastRun not implemented")
+}
 func (UnimplementedForgeServer) ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearSiteExplorationError not implemented")
 }
@@ -6915,6 +7096,12 @@ func (UnimplementedForgeServer) FindExploredManagedHostIds(context.Context, *Exp
 }
 func (UnimplementedForgeServer) FindExploredManagedHostsByIds(context.Context, *ExploredManagedHostsByIdsRequest) (*ExploredManagedHostList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindExploredManagedHostsByIds not implemented")
+}
+func (UnimplementedForgeServer) FindExploredMlxDeviceHostIds(context.Context, *ExploredMlxDeviceHostSearchFilter) (*ExploredMlxDeviceHostIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindExploredMlxDeviceHostIds not implemented")
+}
+func (UnimplementedForgeServer) FindExploredMlxDevicesByIds(context.Context, *ExploredMlxDevicesByIdsRequest) (*ExploredMlxDeviceList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindExploredMlxDevicesByIds not implemented")
 }
 func (UnimplementedForgeServer) UpdateMachineHardwareInfo(context.Context, *UpdateMachineHardwareInfoRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateMachineHardwareInfo not implemented")
@@ -6978,6 +7165,9 @@ func (UnimplementedForgeServer) SetMachineBootOverride(context.Context, *Machine
 }
 func (UnimplementedForgeServer) ClearMachineBootOverride(context.Context, *MachineInterfaceId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearMachineBootOverride not implemented")
+}
+func (UnimplementedForgeServer) GetMachineBootInterfaces(context.Context, *GetMachineBootInterfacesRequest) (*GetMachineBootInterfacesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMachineBootInterfaces not implemented")
 }
 func (UnimplementedForgeServer) GetNetworkTopology(context.Context, *NetworkTopologyRequest) (*NetworkTopologyData, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNetworkTopology not implemented")
@@ -7339,6 +7529,18 @@ func (UnimplementedForgeServer) AddUpdateMachineValidationExternalConfig(context
 func (UnimplementedForgeServer) GetMachineValidationRuns(context.Context, *MachineValidationRunListGetRequest) (*MachineValidationRunList, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMachineValidationRuns not implemented")
 }
+func (UnimplementedForgeServer) FindMachineValidationRunItemIds(context.Context, *MachineValidationRunItemSearchFilter) (*MachineValidationRunItemIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindMachineValidationRunItemIds not implemented")
+}
+func (UnimplementedForgeServer) FindMachineValidationRunItemsByIds(context.Context, *MachineValidationRunItemsByIdsRequest) (*MachineValidationRunItemList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindMachineValidationRunItemsByIds not implemented")
+}
+func (UnimplementedForgeServer) GetMachineValidationAttempt(context.Context, *MachineValidationAttemptGetRequest) (*MachineValidationAttempt, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMachineValidationAttempt not implemented")
+}
+func (UnimplementedForgeServer) HeartbeatMachineValidationRun(context.Context, *MachineValidationHeartbeatRequest) (*MachineValidationHeartbeatResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HeartbeatMachineValidationRun not implemented")
+}
 func (UnimplementedForgeServer) RemoveMachineValidationExternalConfig(context.Context, *RemoveMachineValidationExternalConfigRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveMachineValidationExternalConfig not implemented")
 }
@@ -7606,6 +7808,9 @@ func (UnimplementedForgeServer) RemediationApplied(context.Context, *Remediation
 func (UnimplementedForgeServer) SetPrimaryDpu(context.Context, *SetPrimaryDpuRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetPrimaryDpu not implemented")
 }
+func (UnimplementedForgeServer) SetPrimaryInterface(context.Context, *SetPrimaryInterfaceRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetPrimaryInterface not implemented")
+}
 func (UnimplementedForgeServer) CreateDpuExtensionService(context.Context, *CreateDpuExtensionServiceRequest) (*DpuExtensionService, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateDpuExtensionService not implemented")
 }
@@ -7809,6 +8014,9 @@ func (UnimplementedForgeServer) GetOperatingSystemCachableIpxeTemplateArtifacts(
 }
 func (UnimplementedForgeServer) UpdateOperatingSystemCachableIpxeTemplateArtifacts(context.Context, *UpdateOperatingSystemIpxeTemplateArtifactRequest) (*IpxeTemplateArtifactList, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateOperatingSystemCachableIpxeTemplateArtifacts not implemented")
+}
+func (UnimplementedForgeServer) ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReWrapSecrets not implemented")
 }
 func (UnimplementedForgeServer) testEmbeddedByValue() {}
 
@@ -8384,6 +8592,24 @@ func _Forge_CreateNetworkSegment_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).CreateNetworkSegment(ctx, req.(*NetworkSegmentCreationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_AttachNetworkSegmentToVpc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttachNetworkSegmentToVpcRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).AttachNetworkSegmentToVpc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_AttachNetworkSegmentToVpc_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).AttachNetworkSegmentToVpc(ctx, req.(*AttachNetworkSegmentToVpcRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -10260,6 +10486,24 @@ func _Forge_GetSiteExplorationReport_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_GetSiteExplorerLastRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetSiteExplorerLastRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_ClearSiteExplorationError_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ClearSiteExplorationErrorRequest)
 	if err := dec(in); err != nil {
@@ -10472,6 +10716,42 @@ func _Forge_FindExploredManagedHostsByIds_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).FindExploredManagedHostsByIds(ctx, req.(*ExploredManagedHostsByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindExploredMlxDeviceHostIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExploredMlxDeviceHostSearchFilter)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindExploredMlxDeviceHostIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindExploredMlxDeviceHostIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindExploredMlxDeviceHostIds(ctx, req.(*ExploredMlxDeviceHostSearchFilter))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindExploredMlxDevicesByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExploredMlxDevicesByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindExploredMlxDevicesByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindExploredMlxDevicesByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindExploredMlxDevicesByIds(ctx, req.(*ExploredMlxDevicesByIdsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -10850,6 +11130,24 @@ func _Forge_ClearMachineBootOverride_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).ClearMachineBootOverride(ctx, req.(*MachineInterfaceId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetMachineBootInterfaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMachineBootInterfacesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetMachineBootInterfaces(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetMachineBootInterfaces_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetMachineBootInterfaces(ctx, req.(*GetMachineBootInterfacesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -13014,6 +13312,78 @@ func _Forge_GetMachineValidationRuns_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindMachineValidationRunItemIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationRunItemSearchFilter)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindMachineValidationRunItemIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindMachineValidationRunItemIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindMachineValidationRunItemIds(ctx, req.(*MachineValidationRunItemSearchFilter))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindMachineValidationRunItemsByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationRunItemsByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindMachineValidationRunItemsByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindMachineValidationRunItemsByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindMachineValidationRunItemsByIds(ctx, req.(*MachineValidationRunItemsByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetMachineValidationAttempt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationAttemptGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetMachineValidationAttempt(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetMachineValidationAttempt_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetMachineValidationAttempt(ctx, req.(*MachineValidationAttemptGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_HeartbeatMachineValidationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationHeartbeatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).HeartbeatMachineValidationRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_HeartbeatMachineValidationRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).HeartbeatMachineValidationRun(ctx, req.(*MachineValidationHeartbeatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_RemoveMachineValidationExternalConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RemoveMachineValidationExternalConfigRequest)
 	if err := dec(in); err != nil {
@@ -14616,6 +14986,24 @@ func _Forge_SetPrimaryDpu_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_SetPrimaryInterface_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPrimaryInterfaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetPrimaryInterface(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetPrimaryInterface_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetPrimaryInterface(ctx, req.(*SetPrimaryInterfaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateDpuExtensionService_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateDpuExtensionServiceRequest)
 	if err := dec(in); err != nil {
@@ -15829,6 +16217,24 @@ func _Forge_UpdateOperatingSystemCachableIpxeTemplateArtifacts_Handler(srv inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ReWrapSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReWrapSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ReWrapSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ReWrapSecrets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ReWrapSecrets(ctx, req.(*ReWrapSecretsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -15959,6 +16365,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateNetworkSegment",
 			Handler:    _Forge_CreateNetworkSegment_Handler,
+		},
+		{
+			MethodName: "AttachNetworkSegmentToVpc",
+			Handler:    _Forge_AttachNetworkSegmentToVpc_Handler,
 		},
 		{
 			MethodName: "DeleteNetworkSegment",
@@ -16377,6 +16787,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_GetSiteExplorationReport_Handler,
 		},
 		{
+			MethodName: "GetSiteExplorerLastRun",
+			Handler:    _Forge_GetSiteExplorerLastRun_Handler,
+		},
+		{
 			MethodName: "ClearSiteExplorationError",
 			Handler:    _Forge_ClearSiteExplorationError_Handler,
 		},
@@ -16423,6 +16837,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindExploredManagedHostsByIds",
 			Handler:    _Forge_FindExploredManagedHostsByIds_Handler,
+		},
+		{
+			MethodName: "FindExploredMlxDeviceHostIds",
+			Handler:    _Forge_FindExploredMlxDeviceHostIds_Handler,
+		},
+		{
+			MethodName: "FindExploredMlxDevicesByIds",
+			Handler:    _Forge_FindExploredMlxDevicesByIds_Handler,
 		},
 		{
 			MethodName: "UpdateMachineHardwareInfo",
@@ -16507,6 +16929,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearMachineBootOverride",
 			Handler:    _Forge_ClearMachineBootOverride_Handler,
+		},
+		{
+			MethodName: "GetMachineBootInterfaces",
+			Handler:    _Forge_GetMachineBootInterfaces_Handler,
 		},
 		{
 			MethodName: "GetNetworkTopology",
@@ -16989,6 +17415,22 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_GetMachineValidationRuns_Handler,
 		},
 		{
+			MethodName: "FindMachineValidationRunItemIds",
+			Handler:    _Forge_FindMachineValidationRunItemIds_Handler,
+		},
+		{
+			MethodName: "FindMachineValidationRunItemsByIds",
+			Handler:    _Forge_FindMachineValidationRunItemsByIds_Handler,
+		},
+		{
+			MethodName: "GetMachineValidationAttempt",
+			Handler:    _Forge_GetMachineValidationAttempt_Handler,
+		},
+		{
+			MethodName: "HeartbeatMachineValidationRun",
+			Handler:    _Forge_HeartbeatMachineValidationRun_Handler,
+		},
+		{
 			MethodName: "RemoveMachineValidationExternalConfig",
 			Handler:    _Forge_RemoveMachineValidationExternalConfig_Handler,
 		},
@@ -17345,6 +17787,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_SetPrimaryDpu_Handler,
 		},
 		{
+			MethodName: "SetPrimaryInterface",
+			Handler:    _Forge_SetPrimaryInterface_Handler,
+		},
+		{
 			MethodName: "CreateDpuExtensionService",
 			Handler:    _Forge_CreateDpuExtensionService_Handler,
 		},
@@ -17611,6 +18057,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateOperatingSystemCachableIpxeTemplateArtifacts",
 			Handler:    _Forge_UpdateOperatingSystemCachableIpxeTemplateArtifacts_Handler,
+		},
+		{
+			MethodName: "ReWrapSecrets",
+			Handler:    _Forge_ReWrapSecrets_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

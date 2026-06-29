@@ -18,8 +18,9 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
-use rpc::machine_discovery::DiscoveryInfo;
+use rpc::machine_discovery::{DiscoveryInfo, DmiData, DpuData};
 use serde_json::json;
 
 use crate::{Callbacks, LogService, LogServices, hw, redfish};
@@ -122,7 +123,9 @@ impl Bluefield4<'_> {
                         .build(),
                 ),
                 log_services: Some(Arc::new(Bf4LogServices {
-                    event_log: DpuEventLog { entries: vec![] },
+                    event_log: DpuEventLog {
+                        entries: vec!["DPU Warm Reset".to_string()],
+                    },
                 })),
                 storage: Some(vec![]),
                 processors: Some(vec![]),
@@ -170,7 +173,28 @@ impl Bluefield4<'_> {
     }
 
     pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo::default()
+        DiscoveryInfo {
+            machine_type: CpuArchitecture::Aarch64.to_string(),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
+                CpuArchitecture::Aarch64,
+            )),
+            dmi_data: Some(DmiData {
+                board_name: "BlueField-4 DPU".into(),
+                product_serial: self.product_serial_number.to_string(),
+                board_serial: carbide_utils::DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER.into(),
+                chassis_serial: carbide_utils::DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER.into(),
+                product_name: "BlueField-4 DPU".into(),
+                sys_vendor: "Nvidia".into(),
+                ..Default::default()
+            }),
+            dpu_info: Some(DpuData {
+                part_number: self.part_number().into(),
+                part_description: format!("NVIDIA BlueField-4 {}", self.part_number()),
+                factory_mac_address: self.host_mac_address.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
     }
 
     fn part_number(&self) -> &'static str {

@@ -28,107 +28,118 @@ use measured_boot::site::{ImportResult, SiteModel};
 use measured_boot::{ToTable, set_summary};
 use serde::Serialize;
 
-use crate::attestation::measured_boot::global;
 use crate::attestation::measured_boot::site::args::{
-    ApproveMachine, ApproveProfile, CmdSite, Export, Import, RemoveMachine,
-    RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfile, RemoveProfileByApprovalId,
-    RemoveProfileByProfileId, TrustedMachine, TrustedProfile,
+    ApproveMachine, ApproveProfile, Export, Import, ListMachines, ListProfiles,
+    RemoveMachineByApprovalId, RemoveMachineByMachineId, RemoveProfileByApprovalId,
+    RemoveProfileByProfileId,
 };
-use crate::cli_output;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-/// dispatch matches + dispatches the correct command
-/// for this subcommand.
-pub async fn dispatch(
-    cmd: CmdSite,
-    cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
-    match cmd {
-        CmdSite::Import(local_args) => {
-            cli_output(
-                import(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdSite::Export(local_args) => {
-            let dest: crate::Destination = match &local_args.path {
-                Some(path) => crate::Destination::Path(path.clone()),
-                None => crate::Destination::Stdout(),
-            };
-            cli_output(
-                export(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                dest,
-            )?;
-        }
-        CmdSite::TrustedMachine(selector) => match selector {
-            TrustedMachine::Approve(local_args) => {
-                cli_output(
-                    approve_machine(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-            TrustedMachine::Remove(selector) => match selector {
-                RemoveMachine::ByApprovalId(local_args) => {
-                    cli_output(
-                        remove_machine_by_approval_id(cli.grpc_conn, local_args).await?,
-                        &cli.args.format,
-                        crate::Destination::Stdout(),
-                    )?;
-                }
-                RemoveMachine::ByMachineId(local_args) => {
-                    cli_output(
-                        remove_machine_by_machine_id(cli.grpc_conn, local_args).await?,
-                        &cli.args.format,
-                        crate::Destination::Stdout(),
-                    )?;
-                }
-            },
-            TrustedMachine::List(_) => {
-                cli_output(
-                    list_machines(cli.grpc_conn).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        },
-        CmdSite::TrustedProfile(selector) => match selector {
-            TrustedProfile::Approve(local_args) => {
-                cli_output(
-                    approve_profile(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-            TrustedProfile::Remove(selector) => match selector {
-                RemoveProfile::ByApprovalId(local_args) => {
-                    cli_output(
-                        remove_profile_by_approval_id(cli.grpc_conn, local_args).await?,
-                        &cli.args.format,
-                        crate::Destination::Stdout(),
-                    )?;
-                }
-                RemoveProfile::ByProfileId(local_args) => {
-                    cli_output(
-                        remove_profile_by_profile_id(cli.grpc_conn, local_args).await?,
-                        &cli.args.format,
-                        crate::Destination::Stdout(),
-                    )?;
-                }
-            },
-            TrustedProfile::List(_) => {
-                cli_output(
-                    list_profiles(cli.grpc_conn).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        },
+impl Run for Import {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            import(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
     }
-    Ok(())
+}
+
+impl Run for Export {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        let dest = match &self.path {
+            Some(p) => crate::Destination::Path(p.clone()),
+            None => crate::Destination::Stdout(),
+        };
+        crate::cli_output(
+            export(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            dest,
+        )
+    }
+}
+
+impl Run for ApproveMachine {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            approve_machine(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ListMachines {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_machines(&ctx.api_client).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for RemoveMachineByApprovalId {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            remove_machine_by_approval_id(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for RemoveMachineByMachineId {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            remove_machine_by_machine_id(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ApproveProfile {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            approve_profile(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ListProfiles {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_profiles(&ctx.api_client).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for RemoveProfileByApprovalId {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            remove_profile_by_approval_id(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for RemoveProfileByProfileId {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            remove_profile_by_profile_id(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
 }
 
 /// Import imports a serialized SiteModel back into the database.

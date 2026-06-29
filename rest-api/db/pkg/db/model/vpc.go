@@ -624,7 +624,7 @@ func (vsd VpcSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter VpcFilterInpu
 // Create a new Vpc from the given parameters
 func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput) (*Vpc, error) {
 	// Create a child span and set the attributes for current request
-	ctx, vpcDAOSpan := vsd.tracerSpan.CreateChildInCurrentContext(ctx, "VpcDAO.CreateFromParams")
+	ctx, vpcDAOSpan := vsd.tracerSpan.CreateChildInCurrentContext(ctx, "VpcDAO.Create")
 	if vpcDAOSpan != nil {
 		defer vpcDAOSpan.End()
 
@@ -673,7 +673,7 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 // Update updates an existing Vpc from the given parameters
 func (vsd VpcSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcUpdateInput) (*Vpc, error) {
 	// Create a child span and set the attributes for current request
-	ctx, vpcDAOSpan := vsd.tracerSpan.CreateChildInCurrentContext(ctx, "VpcDAO.UpdateFromParams")
+	ctx, vpcDAOSpan := vsd.tracerSpan.CreateChildInCurrentContext(ctx, "VpcDAO.Update")
 	if vpcDAOSpan != nil {
 		defer vpcDAOSpan.End()
 

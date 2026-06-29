@@ -555,7 +555,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				assert.Equal(t, cdbm.SSHKeyGroupSiteAssociationStatusError, tvskgsa.Status)
 
 				statusDetailDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
-				tvskgsast, _, err := statusDetailDAO.GetAllByEntityID(context.Background(), nil, tt.args.skgsaID.String(), nil, nil, nil)
+				tvskgsast, _, err := statusDetailDAO.GetAll(context.Background(), nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{tt.args.skgsaID.String()}}, cdbp.PageInput{})
 				assert.Nil(t, err)
 				assert.NotEqual(t, len(tvskgsast), 0)
 				// Verify the error message contains duplicate key constraint
@@ -578,7 +578,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 
 				if tt.args.IsSSHKeyGroupDeleting == nil {
 					statusDetailDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
-					tvskgsast, _, err := statusDetailDAO.GetAllByEntityID(context.Background(), nil, tt.args.skgsaID.String(), nil, nil, nil)
+					tvskgsast, _, err := statusDetailDAO.GetAll(context.Background(), nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{tt.args.skgsaID.String()}}, cdbp.PageInput{})
 					assert.Nil(t, err)
 					assert.NotEqual(t, len(tvskgsast), 0)
 					// For successful workflows (both create and update), message should be Synced

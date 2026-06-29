@@ -34,11 +34,12 @@ use carbide_uuid::measured_boot::MeasurementJournalId;
 use clap::Parser;
 use measured_boot::pcr::{PcrSet, parse_pcr_index_input};
 
+use crate::cfg::dispatch::Dispatch;
 use crate::errors::CarbideCliError;
 
 /// CmdJournal provides a container for the `journal` subcommand, which itself
 /// contains other subcommands for working with journals.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdJournal {
     #[clap(about = "Delete a journal entry.", visible_alias = "d")]
     Delete(Delete),

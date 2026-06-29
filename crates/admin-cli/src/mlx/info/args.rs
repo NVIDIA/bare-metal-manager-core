@@ -22,8 +22,10 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::mlx_device as mlx_device_pb;
 
+use crate::cfg::dispatch::Dispatch;
+
 // InfoCommand are the info subcommands.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

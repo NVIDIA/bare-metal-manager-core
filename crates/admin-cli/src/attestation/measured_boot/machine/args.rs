@@ -33,13 +33,14 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::measurement::parse_pcr_register_values;
 use crate::errors::CarbideCliError;
 
 /// CmdMachine provides a container for the `mock-machine`
 /// subcommand, which itself contains other subcommands
 /// for working with mock machines.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdMachine {
     #[clap(about = "Send measurements for a machine.", visible_alias = "a")]
     Attest(Attest),

@@ -42,12 +42,13 @@ use carbide_uuid::measured_boot::MeasurementReportId;
 use clap::Parser;
 use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
 
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::measurement::parse_pcr_register_values;
 
 // CmdReport provides a container for the `report`
 // subcommand, which itself contains other subcommands
 // for working with reports.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdReport {
     #[clap(
         about = "Create a new report with a given config.",
@@ -75,6 +76,7 @@ pub enum CmdReport {
         about = "Show reports in different ways.",
         visible_alias = "s"
     )]
+    #[dispatch]
     Show(ShowFor),
 
     #[clap(
@@ -82,6 +84,7 @@ pub enum CmdReport {
         about = "List reports by various ways.",
         visible_alias = "l"
     )]
+    #[dispatch]
     List(List),
 
     #[clap(
@@ -188,7 +191,7 @@ pub struct Revoke {
 }
 
 /// Show a report for an ID, reports for a machine, or all reports.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -212,8 +215,12 @@ pub enum ShowFor {
     Machine(ShowForMachine),
 
     #[clap(about = "Show all reports.")]
-    All,
+    All(ShowForAll),
 }
+
+/// ShowForAll shows all reports.
+#[derive(Parser, Debug)]
+pub struct ShowForAll {}
 
 /// Show a report for the given ID.
 #[derive(Parser, Debug)]
@@ -246,7 +253,7 @@ pub struct ShowForMachine {
 }
 
 /// List provides a few ways to list things.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

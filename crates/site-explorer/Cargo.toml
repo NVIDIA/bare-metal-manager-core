@@ -52,6 +52,7 @@ thiserror = { workspace = true }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+bmc-mock = { path = "../bmc-mock" }
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-model = { path = "../api-model", default-features = false, features = [
   "test-support",

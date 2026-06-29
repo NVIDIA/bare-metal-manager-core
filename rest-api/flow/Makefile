@@ -20,7 +20,7 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 # The protodefs are a bit unclean, and we need to make some tweaks to make them usable.
 	cd internal/nicoapi && ./tweak_protodefs.sh
 # Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
+	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.70.0
 # Clean old generated files before regenerating
 	rm -f internal/nicoapi/gen/*.pb.go
 	cd internal/nicoapi && buf generate
