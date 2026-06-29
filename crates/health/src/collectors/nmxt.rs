@@ -246,10 +246,6 @@ const NMXT_LABEL_MAP: &[NmxtLabel] = &[
         canonical: "device_id",
     }, // DEVICE-ID
     NmxtLabel {
-        source: "Status_Message",
-        canonical: "status_message",
-    }, // STATUS-MESSAGE
-    NmxtLabel {
         source: "local_reason_opcode",
         canonical: "local_reason_opcode",
     }, // LOCAL-REASON-OPCODE
@@ -476,17 +472,13 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
         let request_timeout = config.nmxt_config.request_timeout;
 
-        let http_client = reqwest::Client::builder()
-            .timeout(request_timeout)
-            // NMX-T switch endpoints serve a self-signed cert (same as the NVUE REST
-            // collector). Accepting invalid certs also avoids a native-root-CA load
-            // failure at client build time on minimal runtime images without
-            // ca-certificates, which otherwise surfaces as "builder error".
-            .danger_accept_invalid_certs(true)
-            .build()
-            .map_err(|e| {
-                HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
-            })?;
+        let mut http_client_builder = reqwest::Client::builder().timeout(request_timeout);
+        if config.nmxt_config.dangerously_skip_tls_verification {
+            http_client_builder = http_client_builder.danger_accept_invalid_certs(true);
+        }
+        let http_client = http_client_builder.build().map_err(|e| {
+            HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
+        })?;
 
         Ok(Self {
             endpoint,
@@ -809,7 +801,6 @@ Link_Down{Port_Number="1"} 5
             ("sw_revision", "revision"),
             ("Active_FEC", "fec_mode_active"),
             ("Device_ID", "device_id"),
-            ("Status_Message", "status_message"),
             ("local_reason_opcode", "local_reason_opcode"),
             ("Cable_PN", "cable_part_number"),
             ("Cable_SN", "cable_serial_number"),

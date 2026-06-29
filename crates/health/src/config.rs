@@ -917,6 +917,11 @@ pub struct NmxtCollectorConfig {
     /// Timeout for individual NMX-T HTTP requests.
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
+
+    /// Dangerously disable TLS certificate verification for NMX-T HTTPS requests.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
 }
 
 impl Default for NmxtCollectorConfig {
@@ -924,6 +929,7 @@ impl Default for NmxtCollectorConfig {
         Self {
             scrape_interval: Duration::from_secs(60),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
         }
     }
 }
@@ -1884,6 +1890,32 @@ system_events_enabled = false
         } else {
             panic!("nvue config should be enabled");
         }
+    }
+
+    #[test]
+    fn test_nmxt_dangerous_tls_skip_defaults_false_and_parses_true() {
+        assert!(!NmxtCollectorConfig::default().dangerously_skip_tls_verification);
+
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+dangerously_skip_tls_verification = true
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(enabled))
+            .extract()
+            .expect("failed to parse enabled NMX-T TLS flag");
+        let Configurable::Enabled(nmxt) = config.collectors.nmxt else {
+            panic!("nmxt config should be enabled");
+        };
+        assert!(nmxt.dangerously_skip_tls_verification);
     }
 
     #[test]

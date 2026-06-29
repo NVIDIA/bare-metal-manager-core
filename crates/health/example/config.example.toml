@@ -212,6 +212,9 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 [collectors.nmxt]
 scrape_interval = "1m"
 request_timeout = "30s"
+# Keep strict TLS certificate verification by default. Set true only when an
+# NMX-T HTTPS endpoint uses a certificate that cannot be verified normally.
+dangerously_skip_tls_verification = false
 
 [collectors.nvue.rest]
 poll_interval = "1m"

@@ -22,18 +22,7 @@ use dashmap::DashMap;
 
 use super::{CollectorEvent, DataSink, EventContext, MetricSample};
 use crate::HealthError;
-use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricLabel, MetricsManager};
-
-/// High-cardinality / free-text labels kept for OTLPSink but excluded from PrometheusSink
-const PROMETHEUS_EXCLUDED_LABELS: &[&str] = &["status_message"];
-
-fn filter_prometheus_labels(labels: &[MetricLabel]) -> Vec<MetricLabel> {
-    labels
-        .iter()
-        .filter(|(key, _)| !PROMETHEUS_EXCLUDED_LABELS.contains(&key.as_ref()))
-        .cloned()
-        .collect()
-}
+use crate::metrics::{CollectorRegistry, GaugeMetrics, GaugeReading, MetricsManager};
 
 pub struct PrometheusSink {
     collector_registry: Arc<CollectorRegistry>,
@@ -215,7 +204,7 @@ impl DataSink for PrometheusSink {
                             sample.unit.clone(),
                             sample.value,
                         )
-                        .with_labels(filter_prometheus_labels(&sample.labels)),
+                        .with_labels(sample.labels.clone()),
                     );
                 }
                 Err(error) => {
@@ -343,28 +332,5 @@ mod tests {
         assert_eq!(label_value("rack_id"), Some("RACK_2"));
         assert_eq!(label_value("switch_slot_number"), Some("7"));
         assert_eq!(label_value("switch_tray_index"), Some("3"));
-    }
-
-    // status_message is excluded from Prometheus series; other labels (e.g. port_num) are retained.
-    #[test]
-    fn test_filter_prometheus_labels_drops_status_message() {
-        let labels: Vec<MetricLabel> = vec![
-            (
-                std::borrow::Cow::Borrowed("status_message"),
-                "No issue was observed".to_string(),
-            ),
-            (std::borrow::Cow::Borrowed("port_num"), "11".to_string()),
-        ];
-
-        let filtered = filter_prometheus_labels(&labels);
-
-        assert!(
-            !filtered.iter().any(|(k, _)| k == "status_message"),
-            "status_message must be excluded from Prometheus series"
-        );
-        assert!(
-            filtered.iter().any(|(k, v)| k == "port_num" && v == "11"),
-            "non-excluded labels must be retained"
-        );
     }
 }
