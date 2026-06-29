@@ -301,6 +301,7 @@ impl MachineCreator {
                             interface: Some(rms::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
                                 mac_address: expected_machine.bmc_mac_address.to_string(),
+                                host_name: None,
                             }),
                             port: 443,
                             credentials: bmc_credentials.map(|(username, password)| {

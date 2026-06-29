@@ -39,7 +39,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvLinkManager;
+use carbide_nvlink_manager::{NvLinkManager, NvLinkManagerArgs};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -1383,14 +1383,17 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvLinkManager::new(
-        db_pool.clone(),
-        api_service.nmxc_client_pool.clone(),
-        meter.clone(),
-        carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health,
-        work_lock_manager_handle.clone(),
-    )
+    NvLinkManager::new(NvLinkManagerArgs {
+        db_pool: db_pool.clone(),
+        nmxc_client_pool: api_service.nmxc_client_pool.clone(),
+        meter: meter.clone(),
+        config: carbide_config.nvlink_config.clone().unwrap_or_default(),
+        host_health: carbide_config.host_health,
+        rms_client: api_service.rms_client.clone(),
+        credential_manager: api_service.credential_manager.clone(),
+        rack_profiles: carbide_config.rack_profiles.clone(),
+        work_lock_manager_handle: work_lock_manager_handle.clone(),
+    })
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {

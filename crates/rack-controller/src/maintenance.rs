@@ -2101,6 +2101,7 @@ pub async fn handle_maintenance(
                             switch_node_type,
                         )),
                         topology_type: topology_type.clone(),
+                        domain: None,
                     })
                     .await
                 {

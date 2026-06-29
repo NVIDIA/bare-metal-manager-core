@@ -2469,6 +2469,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-rack",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -2480,6 +2481,7 @@ dependencies = [
  "http",
  "libnmxc",
  "libnmxm",
+ "librms",
  "opentelemetry",
  "rand 0.10.1",
  "rcgen",
@@ -6624,7 +6626,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc04#ea1a14375cbc153ca096713daf184cb65a185538"
 dependencies = [
  "async-trait",
  "chrono",
@@ -11617,7 +11619,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc04#ea1a14375cbc153ca096713daf184cb65a185538"
 dependencies = [
  "async-trait",
  "heck",
