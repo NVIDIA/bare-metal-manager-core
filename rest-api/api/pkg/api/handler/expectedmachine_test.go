@@ -2204,7 +2204,7 @@ func TestCreateExpectedMachineHandler_DpfEnabledForwardedToWorkflow(t *testing.T
 		"siteId":              site.ID.String(),
 		"bmcMacAddress":       "00:AA:BB:CC:DD:EF",
 		"chassisSerialNumber": "DPF-TEST-CHASSIS-001",
-		"dpfEnabled":          false,
+		"isDpfEnabled":        false,
 	}
 	reqBody, err := json.Marshal(rawBody)
 	assert.Nil(t, err)
