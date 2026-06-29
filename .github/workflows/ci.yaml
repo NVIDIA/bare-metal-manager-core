@@ -1141,9 +1141,6 @@ jobs:
       - name: Check bans
         run: cargo make --no-workspace check-bans
 
-      - name: Check isolated package builds
-        run: cargo xtask check-isolated-package-builds
-
       - name: Check repository is clean
         run: bash scripts/check-repo-clean.sh "Core pre-build checks"
 

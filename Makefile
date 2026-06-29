@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Top-level Makefile for the rest-api/ Go services.
+# Top-level Makefile for selected Core workflows and the rest-api/ Go services.
 #
-# Thin discoverable entrypoint that delegates to rest-api/Makefile.
-# rest-api/Makefile continues to work directly; this file is an
-# additive convenience layer.
+# Thin discoverable entrypoint that delegates to cargo-make and
+# rest-api/Makefile. Both underlying entrypoints continue to work directly;
+# this file is an additive convenience layer.
 #
 # Run `make help` (default goal) for the inventory of targets.
 
@@ -38,11 +38,22 @@ help: ## Show this help and exit (default goal)
 	@echo "Container images (build from a clean clone):"
 	@grep -E '^images[a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
 	@echo ""
+	@echo "Core (Rust):"
+	@grep -E '^core/[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
+	@echo ""
 	@echo "Rest (Go services in rest-api/):"
 	@grep -E '^rest-[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "} {printf "  %-26s %s\n", $$1, $$2}'
 	@echo "  rest-api/<target>          Pass any target through to rest-api/Makefile"
 	@echo ""
 	@echo "  cat rest-api/Makefile      See all rest-api/ targets directly"
+
+# =============================================================================
+# Core (Rust; delegate to cargo-make)
+# =============================================================================
+
+.PHONY: core/check-isolated-package-builds
+core/check-isolated-package-builds: ## Check each Rust package independently with default features
+	cargo make --no-workspace check-isolated-package-builds
 
 # =============================================================================
 # Getting started (build host setup)
