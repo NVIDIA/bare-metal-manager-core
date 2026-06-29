@@ -1070,6 +1070,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTenantIdentityTokenDelegationHandler(dbSession, scp),
 		},
+		// Host Firmware Config endpoint (Provider Admin). Proxied to Core via
+		// UpsertHostFirmwareConfig.
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateOrUpdateHostFirmwareConfigHandler(dbSession, scp),
+		},
 	}
 
 	return apiRoutes

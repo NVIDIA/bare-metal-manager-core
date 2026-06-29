@@ -234,6 +234,22 @@ tags:
   - name: Metadata
     description: |-
       Metadata describes various system-level attributes of the API service.
+  - name: Host Firmware Config
+    description: |-
+      Host firmware configuration defines known firmware versions, artifact
+      locations, update ordering, and per-component defaults for a given
+      hardware vendor and model on a Site.
+
+      Provider Admins use PUT to create or merge host firmware config entries
+      in Core via `UpsertHostFirmwareConfig`. Configurations are keyed by
+      `(vendor, model)`; repeated PUTs merge firmware versions for
+      components already present and add new component types when supplied
+      together with an updated `ordering`. Returns `201 Created` on first
+      create and `200 OK` on subsequent updates.
+
+      User must have authorization role with `PROVIDER_ADMIN` suffix in the
+      URL `{org}`, and the Site must belong to the org's Infrastructure
+      Provider.
   - name: Tenant Identity
     description: |-
       Tenant identity (JWT-SVID issuance) and RFC 8693 token delegation.
@@ -12713,6 +12729,54 @@ paths:
         Retrieve a specific Audit Log Entry by ID
 
         User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix
+  '/v2/org/{org}/nico/firmware-config/host':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    put:
+      summary: Create or Update Host Firmware Config
+      tags:
+        - Host Firmware Config
+      operationId: create-or-update-host-firmware-config
+      description: |-
+        Create or update host firmware config for the org/site. The target Site
+        is specified by `siteId` in the request body.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostFirmwareConfigCreateOrUpdateRequest'
+      responses:
+        '200':
+          description: Host firmware config replaced/updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostFirmwareConfig'
+        '201':
+          description: Host firmware config created on first call
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostFirmwareConfig'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          description: Internal server error while loading the Tenant or Site, contacting the Core gRPC API, starting the Host Firmware Config create or update workflow, or after the workflow timed out and was terminated.
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/HostFirmwareConfigCoreUnavailable'
   '/v2/org/{org}/nico/site/{siteID}/tenant-identity/config':
     parameters:
       - schema:
@@ -13150,6 +13214,273 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    HostFirmwareArtifact:
+      type: object
+      title: HostFirmwareArtifact
+      description: Location of a firmware artifact used during host firmware updates.
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          minLength: 1
+          description: URL from which the firmware artifact can be downloaded.
+        sha256:
+          type: string
+          description: Optional SHA-256 digest of the artifact, in lowercase hex.
+      example:
+        url: https://firmware.example.invalid/28.47.2682/fw.bin
+        sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    HostFirmwareVersionConfig:
+      type: object
+      title: HostFirmwareVersionConfig
+      description: One known firmware version for a host firmware component.
+      required:
+        - version
+        - artifacts
+      properties:
+        version:
+          type: string
+          minLength: 1
+          description: Firmware version string reported by inventory and stored in Core.
+        default:
+          type: boolean
+          default: false
+          description: When `true`, marks this version as the default target for the component.
+        artifacts:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareArtifact'
+          description: Artifact locations used to install this firmware version.
+        installOnlySpecified:
+          type: boolean
+          default: false
+          description: When `true`, install only the artifacts explicitly listed for this version.
+        powerDrainsNeeded:
+          type: integer
+          minimum: 0
+          description: Optional number of power drains required after installing this version.
+        preUpdateResets:
+          type: boolean
+          default: false
+          description: When `true`, perform pre-update resets before installing this version.
+        preingestionExclusiveConfig:
+          type: boolean
+          description: |-
+            Optional. When `true`, this firmware version applies only during BMC
+            pre-ingestion. Omitted on update preserves the stored value; set to
+            `false` to clear a previously stored value.
+      example:
+        version: '28.47.2682'
+        default: true
+        artifacts:
+          - url: https://firmware.example.invalid/28.47.2682/fw.bin
+            sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+        installOnlySpecified: false
+        preUpdateResets: false
+        preingestionExclusiveConfig: false
+    HostFirmwareComponentConfig:
+      type: object
+      title: HostFirmwareComponentConfig
+      description: One component entry in a host firmware config upsert request.
+      required:
+        - type
+        - firmware
+      properties:
+        type:
+          $ref: '#/components/schemas/HostFirmwareComponentType'
+        firmware:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareVersionConfig'
+          description: Known firmware versions for this component. Versions are merged by version string on update.
+        preingestUpgradeWhenBelow:
+          type: string
+          minLength: 1
+          description: |-
+            Optional minimum firmware version required before BMC pre-ingestion can
+            complete. Omitted on update preserves the stored value.
+    HostFirmwareComponent:
+      type: object
+      title: HostFirmwareComponent
+      description: One component entry in a stored host firmware config response.
+      required:
+        - type
+        - firmware
+      properties:
+        type:
+          $ref: '#/components/schemas/HostFirmwareComponentType'
+        currentVersionDetectionRegEx:
+          type: string
+          readOnly: true
+          description: Inventory regex Core uses to match reported versions for this component.
+        preingestUpgradeWhenBelow:
+          type: string
+          readOnly: true
+          description: Minimum firmware version required before BMC pre-ingestion can complete.
+        firmware:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareVersionConfig'
+          description: Known firmware versions currently stored for this component.
+    HostFirmwareConfigCreateOrUpdateRequest:
+      type: object
+      title: HostFirmwareConfigCreateOrUpdateRequest
+      description: |-
+        Host firmware configuration upsert payload. Configurations are keyed by
+        `(vendor, model)` on the Site's Core instance. On first create,
+        `ordering` must list every component being configured. On update,
+        newly added components must also appear in `ordering`.
+      required:
+        - siteId
+        - vendor
+        - model
+        - components
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the host firmware config is stored.
+        vendor:
+          type: string
+          minLength: 1
+          description: Hardware vendor for the configuration (for example `Nvidia`, `Dell`).
+        model:
+          type: string
+          minLength: 1
+          description: Hardware model for the configuration (for example `DGXH100`).
+        components:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentConfig'
+          description: Component firmware entries to create or merge.
+        explicitStartNeeded:
+          type: boolean
+          description: |-
+            Optional. When `true`, host firmware updates for this vendor/model
+            require an explicit start. Omitted on update leaves the stored
+            value unchanged.
+        ordering:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentType'
+          description: |-
+            Update order for configured components. Required on first create.
+            Must include every configured component and must be updated when
+            adding a new component on subsequent PUTs.
+      examples:
+        - siteId: 00000000-0000-0000-0000-000000000001
+          vendor: Nvidia
+          model: DGXH100
+          explicitStartNeeded: true
+          ordering:
+            - Cx7
+            - BMC
+          components:
+            - type: Cx7
+              firmware:
+                - version: '28.47.2682'
+                  default: true
+                  installOnlySpecified: true
+                  powerDrainsNeeded: 1
+                  preUpdateResets: true
+                  artifacts:
+                    - url: https://firmware.example.invalid/28.47.2682/fw.bin
+                      sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    HostFirmwareConfig:
+      type: object
+      title: HostFirmwareConfig
+      description: Stored host firmware configuration returned after create or update.
+      required:
+        - vendor
+        - model
+        - components
+        - explicitStartNeeded
+        - ordering
+        - created
+        - updated
+      properties:
+        vendor:
+          type: string
+          readOnly: true
+          description: Hardware vendor for the configuration.
+        model:
+          type: string
+          readOnly: true
+          description: Hardware model for the configuration.
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponent'
+          description: Stored component firmware entries.
+        explicitStartNeeded:
+          type: boolean
+          readOnly: true
+          description: Whether host firmware updates require an explicit start.
+        ordering:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentType'
+          readOnly: true
+          description: Stored update order for configured components.
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When this vendor/model configuration was first created.
+        updated:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When this vendor/model configuration was last updated.
+      examples:
+        - vendor: Nvidia
+          model: DGXH100
+          explicitStartNeeded: true
+          ordering:
+            - Cx7
+            - BMC
+          components:
+            - type: BMC
+              firmware:
+              - version: '2.3.7'
+                default: true
+                installOnlySpecified: false
+                powerDrainsNeeded: 0
+                preUpdateResets: false
+                artifacts:
+                  - url: https://firmware.example.invalid/2.3.7/fw.bin
+                    sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+            - type: Cx7
+              firmware:
+                - version: '28.47.2682'
+                  default: true
+                  installOnlySpecified: true
+                  powerDrainsNeeded: 1
+                  preUpdateResets: true
+                  artifacts:
+                    - url: https://firmware.example.invalid/28.47.2682/fw.bin
+                      sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+          created: '2025-08-24T14:15:22Z'
+          updated: '2025-08-24T14:15:22Z'
+    HostFirmwareComponentType:
+      type: string
+      title: HostFirmwareComponentType
+      description: Host firmware component type exposed by the REST API.
+      enum:
+        - BMC
+        - CEC
+        - UEFI
+        - NIC
+        - CpldMb
+        - CpldPdb
+        - HgxBmc
+        - CombinedBmcUefi
+        - GPU
+        - Cx7
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -24380,6 +24711,12 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    HostFirmwareConfigCoreUnavailable:
+      description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
     TenantIdentityCoreUnavailable:
       description: |-
         Core gRPC API is unavailable, or site-level machine identity is
