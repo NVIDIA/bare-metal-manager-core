@@ -132,7 +132,7 @@ func (o *DpuExtensionServiceObservabilityPrometheus) UnmarshalJSON(data []byte) 
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

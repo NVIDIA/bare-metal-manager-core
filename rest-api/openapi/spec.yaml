@@ -3959,7 +3959,7 @@ paths:
       description: |-
         Create an Expected Rack to pre-register a rack expected to be discovered at a Site. The `rackId` is an operator-supplied string identifier (not a UUID) that uniquely identifies the rack within the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Racks if they have an account with the Site's Infrastructure Provider.
 
@@ -4008,7 +4008,7 @@ paths:
       description: |-
         Retrieve all Expected Racks.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
       parameters:
@@ -4084,7 +4084,7 @@ paths:
 
         Every entry in `expectedRacks` must reference the same `siteId` as the top-level `siteId`. `rackId` values must be unique within the request. The `expectedRacks` array may be empty to clear all Expected Racks for the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also replace Expected Racks if they have an account with the Site's Infrastructure Provider.
       requestBody:
@@ -4150,7 +4150,7 @@ paths:
       description: |-
         Delete all Expected Racks for a Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Racks.
 
@@ -4193,7 +4193,7 @@ paths:
       description: |-
         Retrieve a specific Expected Rack by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider.
       parameters:
@@ -4225,7 +4225,7 @@ paths:
       description: |-
         Update an existing Expected Rack identified by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Rack.
 
@@ -4270,7 +4270,7 @@ paths:
       description: |-
         Delete an existing Expected Rack identified by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Rack.
 
@@ -9187,6 +9187,93 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
+  '/v2/org/{org}/nico/machine/{machineId}/dpu':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the host Machine
+    get:
+      summary: Retrieve DPU Machines attached to a host Machine
+      description: |
+        Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+
+        The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
+
+        **Authorization:**
+
+        Access is restricted to users associated with the Machine's Site. Either of the following grants access:
+
+        * The caller's org has an Infrastructure Provider entity that owns the Machine's Site, and the user has authorization role with `PROVIDER_ADMIN` suffix on that org.
+        * The caller's org has a Tenant entity with `TargetedInstanceCreation` enabled and an active Tenant Account on the Machine's Site's Infrastructure Provider, and the user has authorization role with `TENANT_ADMIN` suffix on that org.
+      tags:
+        - Machine
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DpuMachine'
+              examples:
+                Example 1:
+                  value:
+                    - id: fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20
+                      infrastructureProviderId: e94bcfda-f6cb-42e4-80ec-516811e5abbf
+                      siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                      hostMachineId: fm200hkq8xncf7tgm9plurt4smono52pqvv2gxt97pyk2398qjk2a73qjf64
+                      dpuAgentVersion: 1.0.0
+                      state: Ready
+                      labels:
+                        env: prod
+                      dpuNetworkConfig:
+                        asn: 65001
+                        vniDevice: pf0hpf
+                        managedHostConfigVersion: v1.2.3
+                        useAdminNetwork: true
+                        instanceNetworkConfigVersion: v2.0.1
+                        remoteId: host-machine-123
+                        vpcIsolationBehavior: VPC_ISOLATION_MUTUAL
+                        statefulAclsEnabled: true
+                        enableDhcp: false
+                        isPrimaryDpu: true
+                        datacenterAsn: 65000
+                        dhcpServers:
+                          - 192.168.1.1
+                        routeServers:
+                          - 192.168.2.1
+                        managedHostConfig:
+                          loopbackIp: 10.0.0.1
+                        tenantInterfaces:
+                          - functionType: VIRTUAL_FUNCTION
+                            vlanId: 100
+                            vni: 5000
+                            gateway: 192.168.10.1
+                            ip: 192.168.10.10
+                            interfacePrefix: eth0
+                            prefix: 192.168.10.0/24
+                            fqdn: tenant-vm.example.com
+                            vpcVni: 6000
+                            isL2Segment: false
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-dpu-machines
   '/v2/org/{org}/nico/machine/gpu/stats':
     parameters:
       - schema:
@@ -19307,6 +19394,15 @@ components:
           items:
             $ref: '#/components/schemas/MachineInterface'
           description: 'List of admin interfaces of the machine'
+        associatedDpuMachineIds:
+          type: array
+          items:
+            type: string
+          description: 'IDs of the DPU Machines attached to this host Machine'
+          readOnly: true
+        placementInRack:
+          $ref: '#/components/schemas/PlacementInRack'
+          description: 'Physical placement of the Machine within its Rack, when known'
         maintenanceMessage:
           type:
             - string
@@ -19950,6 +20046,26 @@ components:
           items:
             type: string
           description: 'Classifications for this alert, category or impact'
+    PlacementInRack:
+      title: PlacementInRack
+      type: object
+      description: Physical placement of a Machine within its Rack
+      examples:
+        - slotNumber: 1
+          trayIndex: 0
+      properties:
+        slotNumber:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: Rack slot the Machine occupies
+        trayIndex:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: Index of the Machine's tray within its slot
     MachineNetworkInterface:
       title: MachineNetworkInterface
       type: object
@@ -23708,6 +23824,443 @@ components:
           type: string
           description: 'URL of the SPIFFE JSON Web Key Set used to verify SPIFFE JWT-SVIDs'
           format: uri
+    DpuMachine:
+      title: DpuMachine
+      type: object
+      description: A DPU Machine with its complete network configuration sent to the DPU agent.
+      properties:
+        id:
+          type: string
+          description: ID of the DPU Machine (matches the host Machine ID for the DPU as reported by NICo Core)
+        infrastructureProviderId:
+          type: string
+          format: uuid
+          description: ID of the Infrastructure Provider that owns the host Machine
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that the host Machine belongs to
+        hostMachineId:
+          type: string
+          description: ID of the host Machine that this DPU is attached to
+        dpuAgentVersion:
+          type: string
+          description: Version of the DPU agent running on the DPU
+        bmcInfo:
+          $ref: '#/components/schemas/MachineBMCInfo'
+          description: BMC (Baseboard Management Controller) information for the DPU
+        dmiData:
+          $ref: '#/components/schemas/MachineDMIData'
+          description: DMI (Desktop Management Interface) data reported for the DPU
+        interfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuMachineInterface'
+          description: Interfaces reported on the DPU
+        softwareComponents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuMachineSoftwareComponent'
+          description: Software components reported on the DPU
+        health:
+          $ref: '#/components/schemas/MachineHealth'
+          description: Health information for the DPU
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Labels associated with the DPU
+        state:
+          type: string
+          description: Lifecycle state of the DPU as reported by NICo Core
+        dpuNetworkConfig:
+          $ref: '#/components/schemas/DpuNetworkConfig'
+          description: Complete network configuration sent to the DPU agent
+        lastRebooted:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Last reboot timestamp reported by NICo Core
+        placementInRack:
+          $ref: '#/components/schemas/PlacementInRack'
+          description: 'Physical placement of the DPU Machine within its Rack, when known'
+      required:
+        - id
+        - infrastructureProviderId
+        - siteId
+        - hostMachineId
+        - state
+        - dpuNetworkConfig
+    DpuMachineInterface:
+      title: DpuMachineInterface
+      type: object
+      description: An interface reported on a DPU Machine
+      properties:
+        id:
+          type: string
+          description: Interface ID
+        machineId:
+          type: string
+          description: ID of the Machine the interface belongs to
+        segmentId:
+          type: string
+          description: Network segment ID
+        hostname:
+          type: string
+          description: Hostname of the interface
+        primaryInterface:
+          type: boolean
+          description: Whether this is the primary interface
+        macAddress:
+          type: string
+          description: MAC address of the interface
+        address:
+          type: array
+          items:
+            type: string
+          description: IP addresses assigned to the interface
+        vendor:
+          type:
+            - string
+            - 'null'
+          description: Vendor of the interface
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the interface was first observed
+        lastDhcp:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp of the last DHCP lease for the interface
+        isBmc:
+          type: boolean
+          description: Whether this interface is a BMC interface
+    DpuMachineSoftwareComponent:
+      title: DpuMachineSoftwareComponent
+      type: object
+      description: A software component reported on a DPU Machine
+      properties:
+        name:
+          type: string
+          description: Name of the software component
+        version:
+          type: string
+          description: Version of the software component
+        url:
+          type: string
+          description: URL where the software component can be obtained
+    DpuNetworkConfig:
+      title: DpuNetworkConfig
+      type: object
+      description: Complete network configuration for a DPU Machine sent to the DPU agent
+      properties:
+        asn:
+          type: integer
+          format: uint32
+          description: Autonomous System Number for BGP routing
+        dhcpServers:
+          type: array
+          items:
+            type: string
+          description: List of DHCP server IP addresses
+        vniDevice:
+          type: string
+          description: VNI device name
+        managedHostConfig:
+          $ref: '#/components/schemas/ManagedHostNetworkConfig'
+          description: Network configuration applied to the managed host
+        managedHostConfigVersion:
+          type: string
+          description: Version of the managed host configuration
+        useAdminNetwork:
+          type: boolean
+          description: Whether to use the admin network
+        adminInterface:
+          $ref: '#/components/schemas/DpuInterfaceConfig'
+          description: Admin network interface configuration for the DPU
+        tenantInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuInterfaceConfig'
+          description: List of tenant interface configurations
+        instanceNetworkConfigVersion:
+          type:
+            - string
+            - 'null'
+          description: Version of the instance network configuration
+        instanceId:
+          type:
+            - string
+            - 'null'
+          description: ID of the associated instance
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          description: Type of network virtualization
+        vpcVni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: VPC VNI identifier
+        routeServers:
+          type: array
+          items:
+            type: string
+          description: List of route server IP addresses
+        remoteId:
+          type: string
+          description: Remote identifier for the managed host
+        deprecatedDenyPrefixes:
+          type: array
+          items:
+            type: string
+          description: Deprecated list of denied IP prefixes
+        dpuNetworkPingerType:
+          type:
+            - string
+            - 'null'
+          description: Type of network pinger to use
+        denyPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of denied IP prefixes
+        siteFabricPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of site fabric IP prefixes
+        vpcIsolationBehavior:
+          type: string
+          description: VPC isolation behavior setting
+        statefulAclsEnabled:
+          type: boolean
+          description: Whether stateful ACLs are enabled
+        enableDhcp:
+          type: boolean
+          description: Whether DHCP is enabled
+        hostInterfaceId:
+          type:
+            - string
+            - 'null'
+          description: ID of the host interface
+        minDpuFunctioningLinks:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Minimum number of functioning DPU links required
+        isPrimaryDpu:
+          type: boolean
+          description: Whether this is the primary DPU
+        internetL3Vni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Layer 3 VNI used for internet access
+        datacenterAsn:
+          type: integer
+          format: uint32
+          description: Datacenter Autonomous System Number
+        anycastSitePrefixes:
+          type: array
+          items:
+            type: string
+          description: List of anycast site IP prefixes
+        tenantHostAsn:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Autonomous System Number for the tenant host
+        siteGlobalVpcVni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Site-global VPC VNI identifier
+      required:
+        - asn
+        - vniDevice
+        - managedHostConfigVersion
+        - useAdminNetwork
+        - remoteId
+        - vpcIsolationBehavior
+        - statefulAclsEnabled
+        - enableDhcp
+        - isPrimaryDpu
+        - datacenterAsn
+    ManagedHostNetworkConfig:
+      title: ManagedHostNetworkConfig
+      type: object
+      description: Network configuration for the managed host
+      properties:
+        loopbackIp:
+          type: string
+          description: Loopback IP address
+        quarantineState:
+          $ref: '#/components/schemas/ManagedHostQuarantineState'
+      required:
+        - loopbackIp
+    ManagedHostQuarantineState:
+      title: ManagedHostQuarantineState
+      type: object
+      description: Quarantine state for the managed host
+      properties:
+        mode:
+          type: string
+          description: Quarantine mode
+        reason:
+          type:
+            - string
+            - 'null'
+          description: Reason for quarantine
+      required:
+        - mode
+    DpuInterfaceConfig:
+      title: DpuInterfaceConfig
+      type: object
+      description: Interface configuration for DPU networking
+      properties:
+        functionType:
+          type: string
+          description: Function type (e.g. PHYSICAL_FUNCTION, VIRTUAL_FUNCTION)
+        vlanId:
+          type: integer
+          format: uint32
+          description: VLAN ID
+        vni:
+          type: integer
+          format: uint32
+          description: VXLAN Network Identifier
+        gateway:
+          type: string
+          description: Gateway IP address
+        ip:
+          type: string
+          description: Interface IP address
+        interfacePrefix:
+          type: string
+          description: Interface name prefix
+        virtualFunctionId:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Virtual function ID if applicable
+        vpcPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of VPC IP prefixes
+        prefix:
+          type: string
+          description: IP prefix for the interface
+        fqdn:
+          type: string
+          description: Fully qualified domain name
+        bootUrl:
+          type:
+            - string
+            - 'null'
+          description: Boot URL for PXE/iPXE boot
+        vpcVni:
+          type: integer
+          format: uint32
+          description: VPC VXLAN Network Identifier
+        sviIp:
+          type:
+            - string
+            - 'null'
+          description: Switch virtual interface (SVI) IP address
+        tenantVrfLoopbackIp:
+          type:
+            - string
+            - 'null'
+          description: Tenant VRF loopback IP address
+        isL2Segment:
+          type: boolean
+          description: Whether the interface is an L2 segment
+        vpcPeerPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of peered VPC IP prefixes
+        vpcPeerVnis:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of peered VPC VNIs
+        mtu:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Maximum transmission unit (MTU) for the interface
+        networkSecurityGroup:
+          $ref: '#/components/schemas/InterfaceNetworkSecurityGroupConfig'
+          description: Network security group configuration resolved on the interface
+      required:
+        - functionType
+        - vlanId
+        - vni
+        - gateway
+        - ip
+        - interfacePrefix
+        - prefix
+        - fqdn
+        - vpcVni
+        - isL2Segment
+    InterfaceNetworkSecurityGroupConfig:
+      title: InterfaceNetworkSecurityGroupConfig
+      type: object
+      description: Network security group configuration resolved on a DPU interface
+      properties:
+        id:
+          type: string
+          description: ID of the Network Security Group
+        version:
+          type: string
+          description: Version of the Network Security Group
+        source:
+          type: string
+          description: Source of the Network Security Group configuration
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolvedNetworkSecurityGroupRule'
+          description: Resolved rules for the Network Security Group
+      required:
+        - id
+        - version
+        - source
+    ResolvedNetworkSecurityGroupRule:
+      title: ResolvedNetworkSecurityGroupRule
+      type: object
+      description: A network security group rule with its source and destination prefixes resolved
+      properties:
+        rule:
+          $ref: '#/components/schemas/NetworkSecurityGroupRule'
+          description: The underlying Network Security Group rule
+        srcPrefixes:
+          type: array
+          items:
+            type: string
+          description: Resolved source IP prefixes for the rule
+        dstPrefixes:
+          type: array
+          items:
+            type: string
+          description: Resolved destination IP prefixes for the rule
   securitySchemes:
     JWTBearerToken:
       type: http

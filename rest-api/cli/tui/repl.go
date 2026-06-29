@@ -36,6 +36,7 @@ var argResourceMap = map[string]string{
 	"allocation delete":             "allocation",
 	"audit get":                     "audit",
 	"machine get":                   "machine",
+	"machine dpu get":               "machine",
 	"ip-block get":                  "ip-block",
 	"ip-block update":               "ip-block",
 	"ip-block delete":               "ip-block",
