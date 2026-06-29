@@ -519,14 +519,12 @@ jobs:
         && contains('success,skipped', needs.build-container-aarch64.result)
         && contains('success,skipped', needs.build-runtime-container-aarch64.result)
         && contains('success,skipped', needs.check-rest-core-proto-sync.result)
-        && contains('success,skipped', needs.lint-police.result)
       }}
     needs:
       - prepare
       - build-container-aarch64
       - build-runtime-container-aarch64
       - check-rest-core-proto-sync
-      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
@@ -587,7 +585,6 @@ jobs:
         && contains('success,skipped', needs.build-container-x86_64.result)
         && contains('success,skipped', needs.build-runtime-container-x86_64.result)
         && contains('success,skipped', needs.check-rest-core-proto-sync.result)
-        && contains('success,skipped', needs.lint-police.result)
       }}
     needs:
       - prepare
