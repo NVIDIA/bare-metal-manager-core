@@ -161,6 +161,32 @@ async fn test_ssh_console() -> eyre::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_ssh_console_lenovo_sr650_sol_fallback() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::LenovoSr650Ssh]).await? else {
+        return Ok(());
+    };
+
+    let handle = ssh_console_test_helper::spawn(env.mock_api_server.addr.port(), None).await?;
+
+    env.run_baseline_assertions(
+        handle.addr,
+        "new-ssh-console Lenovo SR650",
+        &[BaselineTestAssertion::ConnectAsMachineId],
+        || None,
+        false,
+    )
+    .await?;
+
+    handle.spawn_handle.shutdown_and_wait().await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ssh_console_reconnect() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");

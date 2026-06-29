@@ -45,8 +45,6 @@ use crate::bmc::vendor::SshBmcVendor;
 
 static RUSSH_CLIENT_CONFIG: LazyLock<Arc<russh::client::Config>> =
     LazyLock::new(russh_client_config);
-const LENOVO_SOL_PRIMARY_FAILURE: &[u8] = b"The command line contains extraneous arguments";
-const LENOVO_SOL_FALLBACK_ACTIVATE_COMMAND: &[u8] = b"console kill\nconsole start";
 
 /// Connect to a BMC one time, returning a [`Handle`]. Will not retry on connection errors.
 pub async fn spawn(
@@ -446,9 +444,10 @@ async fn trigger_and_await_sol_console(
     // itself echoing back, plus the prompt length) before continuing. (If we let the client use the
     // console before this, we get false positives about seeing a bmc prompt while we're supposed to
     // be in the console.)
-    let mut activate_command = activate_command;
     let mut skip_data_read_len = bmc_prompt.len() + activate_command.len();
-    let mut lenovo_fallback_sent = false;
+    let mut fallback_activate_sent = false;
+    let mut fallback_activate_commands: Option<&'static [&'static [u8]]> = None;
+    let mut next_fallback_command_index = 0;
 
     let mut activation_step = SerialConsoleActivationStep::WaitingForBmcPrompt;
     loop {
@@ -467,18 +466,16 @@ async fn trigger_and_await_sol_console(
 
                         if matches!(activation_step, SerialConsoleActivationStep::WaitingForBmcPrompt) {
                             // Do we see the bmc prompt?
-                            if bytes_contains(&prompt_buf, bmc_prompt) {
+                            if prompt_buf.windows(bmc_prompt.len()).any(|window| window == bmc_prompt) {
                                 // We saw the prompt, send the serial activate command (`connect com1`,
                                 // etc) one byte at a time: This seems to work better with some
                                 // consoles.
-                                for byte in activate_command {
-                                    ssh_client_channel
-                                        .data([*byte].as_slice())
-                                        .await
-                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending serial activate command to BMC", error })?;
-                                }
-                                ssh_client_channel.data(b"\n".as_slice()).await
-                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending data to BMC", error })?;
+                                send_command_bytewise(
+                                    ssh_client_channel,
+                                    activate_command,
+                                    "sending serial activate command to BMC",
+                                )
+                                .await?;
                                 activation_step = SerialConsoleActivationStep::ActivateSent;
                                 // Clear the prompt
                                 prompt_buf.clear();
@@ -490,33 +487,55 @@ async fn trigger_and_await_sol_console(
                         // get false positives about seeing a bmc prompt while we're supposed to be
                         // in the console.)
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
-                            && bmc_vendor == SshBmcVendor::Lenovo
-                            && !lenovo_fallback_sent
-                            && should_run_lenovo_sol_fallback(&prompt_buf, bmc_prompt)
+                            && let Some(fallback_commands) = bmc_vendor
+                                .fallback_serial_activate_commands_if_needed(
+                                    &prompt_buf,
+                                    fallback_activate_sent,
+                                )
                         {
                             tracing::info!(
                                 %machine_id,
-                                "Lenovo primary SOL activation failed, trying console start fallback"
+                                "Primary SOL activation failed, trying fallback"
                             );
-                            activate_command = LENOVO_SOL_FALLBACK_ACTIVATE_COMMAND;
-                            skip_data_read_len = bmc_prompt.len() + activate_command.len();
+                            fallback_activate_sent = true;
+                            fallback_activate_commands = Some(fallback_commands);
+                            next_fallback_command_index = 0;
+                            let fallback_command = fallback_commands[next_fallback_command_index];
+                            next_fallback_command_index += 1;
+                            skip_data_read_len = bmc_prompt.len() + fallback_command.len();
                             timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-                            for byte in activate_command {
-                                ssh_client_channel
-                                    .data([*byte].as_slice())
-                                    .await
-                                .map_err(|error| ConsoleActivateError::Request { phase: "sending serial activate command to BMC", error })?;
-                            }
-                            ssh_client_channel.data(b"\n".as_slice()).await
-                                .map_err(|error| ConsoleActivateError::Request { phase: "sending data to BMC", error })?;
-                            lenovo_fallback_sent = true;
+                            send_command_bytewise(
+                                ssh_client_channel,
+                                fallback_command,
+                                "sending fallback serial activate command to BMC",
+                            )
+                            .await?;
                             prompt_buf.clear();
                         }
 
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
-                            && should_accept_sol_activation_output(
-                                bmc_vendor,
-                                lenovo_fallback_sent,
+                            && let Some(fallback_commands) = fallback_activate_commands
+                            && next_fallback_command_index < fallback_commands.len()
+                            && prompt_buf.windows(bmc_prompt.len()).any(|window| window == bmc_prompt)
+                        {
+                            let fallback_command = fallback_commands[next_fallback_command_index];
+                            next_fallback_command_index += 1;
+                            skip_data_read_len = bmc_prompt.len() + fallback_command.len();
+                            timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                            send_command_bytewise(
+                                ssh_client_channel,
+                                fallback_command,
+                                "sending fallback serial activate command to BMC",
+                            )
+                            .await?;
+                            prompt_buf.clear();
+                        }
+
+                        let waiting_for_fallback_prompt = fallback_activate_commands
+                            .is_some_and(|commands| next_fallback_command_index < commands.len());
+                        if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
+                            && !waiting_for_fallback_prompt
+                            && bmc_vendor.should_accept_sol_activation_output(
                                 &prompt_buf,
                                 skip_data_read_len,
                             ) {
@@ -570,24 +589,25 @@ enum SerialConsoleActivationStep {
     ActivateSent,
 }
 
-fn should_run_lenovo_sol_fallback(prompt_buf: &[u8], bmc_prompt: &[u8]) -> bool {
-    bytes_contains(prompt_buf, LENOVO_SOL_PRIMARY_FAILURE) && bytes_contains(prompt_buf, bmc_prompt)
-}
-
-fn should_accept_sol_activation_output(
-    bmc_vendor: SshBmcVendor,
-    lenovo_fallback_sent: bool,
-    prompt_buf: &[u8],
-    skip_data_read_len: usize,
-) -> bool {
-    let lenovo_primary_failure_pending = bmc_vendor == SshBmcVendor::Lenovo
-        && !lenovo_fallback_sent
-        && bytes_contains(prompt_buf, LENOVO_SOL_PRIMARY_FAILURE);
-    !lenovo_primary_failure_pending && prompt_buf.len() > skip_data_read_len
-}
-
-fn bytes_contains(buf: &[u8], pat: &[u8]) -> bool {
-    !pat.is_empty() && buf.windows(pat.len()).any(|window| window == pat)
+async fn send_command_bytewise(
+    ssh_client_channel: &mut Channel<russh::client::Msg>,
+    command: &[u8],
+    phase: &'static str,
+) -> Result<(), ConsoleActivateError> {
+    for byte in command {
+        ssh_client_channel
+            .data([*byte].as_slice())
+            .await
+            .map_err(|error| ConsoleActivateError::Request { phase, error })?;
+    }
+    ssh_client_channel
+        .data(b"\n".as_slice())
+        .await
+        .map_err(|error| ConsoleActivateError::Request {
+            phase: "sending data to BMC",
+            error,
+        })?;
+    Ok(())
 }
 
 /// Returns `true` if `buf` contains the byte sequence `pat` anywhere
@@ -653,56 +673,6 @@ fn test_ringbuf_contains() {
     assert!(ringbuf_contains(&rb, b"")); // empty always true
     assert!(!ringbuf_contains(&rb, b"rustacean")); // longer than buf
     assert!(!ringbuf_contains(&rb, b"aean")); // non-contiguous
-}
-
-#[test]
-fn lenovo_primary_failure_without_prompt_waits_instead_of_succeeding() {
-    let bmc_prompt = SshBmcVendor::Lenovo.bmc_prompt().unwrap();
-    let activate_command = SshBmcVendor::Lenovo.serial_activate_command().unwrap();
-    let skip_data_read_len = bmc_prompt.len() + activate_command.len();
-    let output = b"console kill 1\r\nThe command line contains extraneous arguments\r\n";
-
-    assert!(output.len() > skip_data_read_len);
-    assert!(!should_run_lenovo_sol_fallback(output, bmc_prompt));
-    assert!(!should_accept_sol_activation_output(
-        SshBmcVendor::Lenovo,
-        false,
-        output,
-        skip_data_read_len,
-    ));
-}
-
-#[test]
-fn lenovo_primary_failure_with_prompt_runs_fallback() {
-    let bmc_prompt = SshBmcVendor::Lenovo.bmc_prompt().unwrap();
-    let output = b"console kill 1\r\nThe command line contains extraneous arguments\r\nsystem>";
-
-    assert!(should_run_lenovo_sol_fallback(output, bmc_prompt));
-}
-
-#[test]
-fn lenovo_fallback_output_succeeds_by_byte_count() {
-    let bmc_prompt = SshBmcVendor::Lenovo.bmc_prompt().unwrap();
-    let skip_data_read_len = bmc_prompt.len() + LENOVO_SOL_FALLBACK_ACTIVATE_COMMAND.len();
-    let output = b"console kill\r\nSession on channel 1 is terminated\r\nsystem> console start\r\n";
-
-    assert!(output.len() > skip_data_read_len);
-    assert!(should_accept_sol_activation_output(
-        SshBmcVendor::Lenovo,
-        true,
-        output,
-        skip_data_read_len,
-    ));
-}
-
-#[test]
-fn non_lenovo_activation_still_succeeds_by_byte_count() {
-    assert!(should_accept_sol_activation_output(
-        SshBmcVendor::Dell,
-        false,
-        b"connect com2\r\nready",
-        b"connect com2".len(),
-    ));
 }
 
 #[derive(Clone)]

@@ -45,6 +45,7 @@ pub struct Credentials {
 pub enum PromptBehavior {
     Dell,
     Dpu,
+    LenovoSr650,
 }
 
 pub async fn spawn(
@@ -202,9 +203,10 @@ impl MockSshHandler {
                     format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()),
                 )?;
             }
-            ConsoleState::Bmc => {
-                session.data(channel, "\nracadm>>")?;
-            }
+            ConsoleState::Bmc => match self.prompt_behavior {
+                PromptBehavior::LenovoSr650 => session.data(channel, "\nsystem>")?,
+                _ => session.data(channel, "\nracadm>>")?,
+            },
             ConsoleState::NoShell => {
                 // Do nothing
             }
@@ -256,7 +258,7 @@ impl server::Handler for MockSshHandler {
     ) -> StdResult<(), Self::Error> {
         tracing::debug!("shell_request");
         match self.prompt_behavior {
-            PromptBehavior::Dell => {
+            PromptBehavior::Dell | PromptBehavior::LenovoSr650 => {
                 self.console_state = ConsoleState::Bmc;
             }
             PromptBehavior::Dpu => {
@@ -314,11 +316,33 @@ impl server::Handler for MockSshHandler {
             ConsoleState::Bmc => {
                 if data == b"\n" || data == b"\r\n" || data == b"\r" {
                     let command = std::mem::take(&mut self.buffer);
-                    if command.starts_with(b"connect com2") {
-                        tracing::info!(
-                            "Got `connect com2` in bmc propmt, simulating system console"
-                        );
-                        self.console_state = ConsoleState::SystemConsole;
+                    match self.prompt_behavior {
+                        PromptBehavior::Dell if command.starts_with(b"connect com2") => {
+                            tracing::info!(
+                                "Got `connect com2` in bmc prompt, simulating system console"
+                            );
+                            self.console_state = ConsoleState::SystemConsole;
+                        }
+                        PromptBehavior::LenovoSr650 if command.starts_with(b"console kill 1") => {
+                            tracing::info!(
+                                "Got unsupported Lenovo `console kill 1`, simulating BMC error"
+                            );
+                            session.data(
+                                channel,
+                                "\r\nThe command line contains extraneous arguments\r\n",
+                            )?;
+                        }
+                        PromptBehavior::LenovoSr650 if command.starts_with(b"console kill") => {
+                            tracing::info!(
+                                "Got Lenovo `console kill`, simulating terminated SOL session"
+                            );
+                            session.data(channel, "\r\nSession on channel 1 is terminated\r\n")?;
+                        }
+                        PromptBehavior::LenovoSr650 if command.starts_with(b"console start") => {
+                            tracing::info!("Got Lenovo `console start`, simulating system console");
+                            self.console_state = ConsoleState::SystemConsole;
+                        }
+                        _ => {}
                     }
                     self.print_prompt(session, channel)?;
                 } else {
