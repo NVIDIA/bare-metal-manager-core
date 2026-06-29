@@ -532,21 +532,30 @@ async fn trigger_and_await_sol_console(
                             prompt_buf.clear();
                         }
 
-                        if fallback_activate_commands
-                            .is_some_and(|commands| next_fallback_command_index == commands.len())
-                            && let Some(prompt_offset) = prompt_buf
-                                .windows(bmc_prompt.len())
-                                .rposition(|window| window == bmc_prompt)
-                        {
-                            prompt_buf.drain(..prompt_offset + bmc_prompt.len());
-                        }
-
                         let waiting_for_fallback_prompt = fallback_activate_commands
                             .is_some_and(|commands| next_fallback_command_index < commands.len());
+                        let fallback_sequence_complete = fallback_activate_commands
+                            .is_some_and(|commands| next_fallback_command_index == commands.len());
+                        let activation_output = if fallback_sequence_complete
+                            && let Some(fallback_commands) = fallback_activate_commands
+                        {
+                            let final_fallback_command = fallback_commands[fallback_commands.len() - 1];
+                            prompt_buf
+                                .windows(final_fallback_command.len())
+                                .rposition(|window| window == final_fallback_command)
+                                .map(|command_offset| &prompt_buf[command_offset..])
+                        } else {
+                            Some(prompt_buf.as_slice())
+                        };
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
                             && !waiting_for_fallback_prompt
+                            && let Some(activation_output) = activation_output
+                            && !(fallback_sequence_complete
+                                && activation_output
+                                    .windows(bmc_prompt.len())
+                                    .any(|window| window == bmc_prompt))
                             && bmc_vendor.should_accept_sol_activation_output(
-                                &prompt_buf,
+                                activation_output,
                                 skip_data_read_len,
                             ) {
                             tracing::debug!(%machine_id, "confirmed serial activate command sent, letting client use console");
