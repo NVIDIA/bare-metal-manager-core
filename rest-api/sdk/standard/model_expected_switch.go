@@ -48,8 +48,7 @@ type ExpectedSwitch struct {
 	// Tray index within the rack
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
-	HostId NullableInt32 `json:"hostId,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Switches
+	HostId NullableInt32     `json:"hostId,omitempty"`
 	Labels map[string]string `json:"labels,omitempty"`
 	// ISO 8601 datetime when the Expected Switch was created
 	Created *time.Time `json:"created,omitempty"`

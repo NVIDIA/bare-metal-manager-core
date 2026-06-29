@@ -167,7 +167,7 @@ impl UnknownMetric {
         if name != self.name {
             return Err(MetricsParsingError::NameMismatch {
                 help_name: self.name,
-                type_name: type_str.to_string(),
+                type_name: name.to_string(),
             });
         }
 
@@ -648,6 +648,22 @@ build_info{build_date="real-date",git_sha="real-sha",role="api"} 1
             "other attributes are left alone" {
                 "role" => Some("\"api\"".to_string()),
             }
+        );
+    }
+
+    #[test]
+    fn name_mismatch_error_reports_type_line_name() {
+        let error = "# HELP metric help\n# TYPE other counter\n"
+            .parse::<ParsedPrometheusMetrics>()
+            .expect_err("mismatched HELP/TYPE names should fail to parse");
+        let message = error.to_string();
+        assert!(
+            message.contains("HELP line is for metric metric"),
+            "error should name the HELP-line metric: {message}"
+        );
+        assert!(
+            message.contains("TYPE line is for other"),
+            "error should name the TYPE-line metric, not its type: {message}"
         );
     }
 }

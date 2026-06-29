@@ -48,12 +48,13 @@ use measured_boot::records::MeasurementBundleState;
 use crate::attestation::measured_boot::global::cmds::{
     IdNameIdentifier, IdentifierType, get_identifier,
 };
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::measurement::parse_pcr_register_values;
 use crate::errors::CarbideCliError;
 
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdBundle {
     #[clap(
         about = "Create a new bundle with a given values, for a given profile ID.",
@@ -78,6 +79,7 @@ pub enum CmdBundle {
         about = "Get closest bundle to a report.",
         visible_alias = "g"
     )]
+    #[dispatch]
     FindClosestMatch(FindClosestMatch),
 
     #[clap(
@@ -85,6 +87,7 @@ pub enum CmdBundle {
         about = "List bundles by various ways.",
         visible_alias = "l"
     )]
+    #[dispatch]
     List(List),
 }
 
@@ -272,7 +275,7 @@ impl IdNameIdentifier for SetState {
 }
 
 /// List provides a few ways to list things.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -339,7 +342,7 @@ impl IdNameIdentifier for ListMachines {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

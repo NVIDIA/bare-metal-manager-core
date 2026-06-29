@@ -6,6 +6,7 @@ syntax = "proto3";
 package v1;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -82,6 +83,15 @@ service Flow {
     rpc DisassociateRuleFromRack(DisassociateRuleFromRackRequest) returns (google.protobuf.Empty);
     rpc GetRackRuleAssociation(GetRackRuleAssociationRequest) returns (GetRackRuleAssociationResponse);
     rpc ListRackRuleAssociations(ListRackRuleAssociationsRequest) returns (ListRackRuleAssociationsResponse);
+
+    // Operation runs
+    rpc CreateOperationRun(CreateOperationRunRequest) returns (CreateOperationRunResponse);
+    rpc GetOperationRun(GetOperationRunRequest) returns (GetOperationRunResponse);
+    rpc ListOperationRuns(ListOperationRunsRequest) returns (ListOperationRunsResponse);
+    rpc ListOperationRunTargets(ListOperationRunTargetsRequest) returns (ListOperationRunTargetsResponse);
+    rpc PauseOperationRun(PauseOperationRunRequest) returns (OperationRun);
+    rpc ResumeOperationRun(ResumeOperationRunRequest) returns (OperationRun);
+    rpc CancelOperationRun(CancelOperationRunRequest) returns (OperationRun);
 }
 
 message UUID {
@@ -285,6 +295,26 @@ message ComponentTargets {
 // ComponentTypes contains one or more component type filters
 message ComponentTypes {
     repeated ComponentType types = 1;
+}
+
+// ComponentFilter is a reusable unresolved component filter. It describes
+// selection criteria, not the concrete components selected after planning.
+message ComponentFilter {
+    oneof filter {
+        ComponentTypes   types      = 1;
+        ComponentTargets components = 2;
+    }
+}
+
+// ComponentsByType is the resolved component set selected for execution.
+message ComponentsByType {
+    repeated ComponentsForType groups = 1;
+}
+
+// ComponentsForType contains resolved component UUIDs of one component type.
+message ComponentsForType {
+    ComponentType type = 1;
+    repeated UUID component_ids = 2;
 }
 
 // RackTarget identifies a rack and optionally filters by component type.
@@ -1088,4 +1118,386 @@ message CheckScheduleConflictsRequest {
 // An empty list means no conflicts were detected.
 message CheckScheduleConflictsResponse {
     repeated TaskSchedule conflicts = 1;
+}
+
+// ─── Operation Runs ─────────────────────────────────────────────────────────
+
+// CreateOperationRunRequest creates a durable rollout over a selected set of
+// rack execution targets. The operation request's target_spec and target_scope,
+// when present, define the candidate scope that selector is applied to. When
+// omitted, the service builds the candidate scope from all qualified racks that
+// are applicable to the operation.
+message CreateOperationRunRequest {
+    string name = 1;
+    string description = 2;
+    // Required. Reusable rollout configuration for target selection,
+    // execution policy, and operation template.
+    OperationRunConfiguration configuration = 3;
+}
+
+message CreateOperationRunResponse {
+    UUID id = 1;
+}
+
+// OperationRunConfiguration is the create-time configuration that can be
+// returned on detailed OperationRun responses.
+message OperationRunConfiguration {
+    OperationRunSelector selector = 1;
+    OperationRunOptions options = 2;
+    OperationRunOperation operation = 3;
+}
+
+message GetOperationRunRequest {
+    UUID id = 1;
+    // When true, Flow computes derived stats from operation_run_target rows
+    // and returns OperationRun.stats.
+    bool include_stats = 2;
+}
+
+message GetOperationRunResponse {
+    OperationRun operation_run = 1;
+}
+
+// ListOperationRunsRequest lists operation runs, newest first by default.
+message ListOperationRunsRequest {
+    OperationRunFilter filter = 1;
+    optional Pagination pagination = 2;
+}
+
+message ListOperationRunsResponse {
+    repeated OperationRunSummary operation_runs = 1;
+    int32 total = 2;
+}
+
+message OperationRunFilter {
+    // Optional name query. Name is a human label and is not unique.
+    StringQueryInfo name = 1;
+    // Empty means all states. Each entry matches by AND-ing the fields set on
+    // that entry; the entries compose with OR.
+    repeated OperationRunStateFilter states = 2;
+    // Empty means all operation kinds. A kind with no code matches all codes
+    // for the operation type.
+    repeated OperationKind operation_kinds = 3;
+}
+
+message OperationRunStateFilter {
+    optional OperationRunStatus status = 1;
+    optional OperationRunStatusReason reason = 2;
+}
+
+enum OperationRunTargetPhaseScope {
+    OPERATION_RUN_TARGET_PHASE_SCOPE_UNKNOWN = 0;
+    // Default. Targets in the latest materialized phase.
+    OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE = 1;
+    // Targets in materialized phases before the current phase.
+    OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES = 2;
+    // All materialized targets through the current phase.
+    OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_AND_COMPLETED_PHASES = 3;
+}
+
+// ListOperationRunTargetsRequest lists materialized rack execution targets for
+// one operation run. status UNKNOWN means no target-status filter is applied.
+// phase_scope UNKNOWN defaults to CURRENT_PHASE.
+message ListOperationRunTargetsRequest {
+    UUID operation_run_id = 1;
+    OperationRunTargetStatus status = 2;
+    optional Pagination pagination = 3;
+    OperationRunTargetPhaseScope phase_scope = 4;
+}
+
+message ListOperationRunTargetsResponse {
+    repeated OperationRunTarget targets = 1;
+    int32 total = 2;
+}
+
+message PauseOperationRunRequest {
+    UUID id = 1;
+}
+
+message ResumeOperationRunRequest {
+    UUID id = 1;
+}
+
+message CancelOperationRunRequest {
+    UUID id = 1;
+    string reason = 2;
+}
+
+message OperationRunSelector {
+    oneof selector {
+        PercentageSelector percentage = 1;
+    }
+}
+
+message PercentageSelector {
+    // Required. Valid range: 1..100.
+    int32 percentage = 1;
+
+    // Optional. If omitted, the service generates one and stores it so the
+    // selected cohort is deterministic and auditable.
+    string seed = 2;
+}
+
+message OperationRunOptions {
+    // Required. Maximum number of operation-run targets that may have active
+    // child tasks at the same time.
+    int32 max_concurrent_targets = 1;
+
+    // Required. Composable safety gates for the rollout.
+    OperationRunSafetyPolicy safety_policy = 2;
+
+    // Optional. If omitted or partially specified, the service stores and
+    // returns the effective default policy for the operation type/code.
+    OperationRunConflictPolicy conflict_policy = 3;
+
+    // Optional. If omitted, the service stores and returns the default random
+    // ordering policy with a generated seed.
+    OperationRunOrderingPolicy ordering_policy = 4;
+
+    // Optional. If omitted, the run has one phase containing all selected
+    // rack execution targets.
+    OperationRunPhasePolicy phase_policy = 5;
+}
+
+message OperationRunSafetyPolicy {
+    // Gates compose with OR: the dispatcher pauses the run when any gate
+    // crosses its configured threshold.
+    repeated OperationRunSafetyGate gates = 1;
+}
+
+message OperationRunSafetyGate {
+    oneof gate {
+        OperationRunFailureRateGate failure_rate = 1;
+        OperationRunFailureCountGate failure_count = 2;
+    }
+}
+
+message OperationRunFailureRateGate {
+    // Optional. Default: CURRENT_PHASE.
+    OperationRunSafetyGateScope scope = 1;
+
+    // Required. Valid range: 1..100. The dispatcher pauses when
+    // failed_targets / planned_targets reaches this threshold for the scope.
+    int32 failure_threshold_percent = 2;
+}
+
+message OperationRunFailureCountGate {
+    // Optional. Default: CURRENT_PHASE.
+    OperationRunSafetyGateScope scope = 1;
+
+    // Required. The dispatcher pauses when failed_targets reaches this count
+    // for the scope.
+    int32 failure_threshold_count = 2;
+}
+
+enum OperationRunSafetyGateScope {
+    OPERATION_RUN_SAFETY_GATE_SCOPE_UNKNOWN = 0;
+    OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE = 1;
+    OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN = 2;
+}
+
+message OperationRunOrderingPolicy {
+    oneof ordering {
+        OperationRunRandomOrdering random = 1;
+        // Reserved for a later implementation. The first implementation keeps
+        // this API branch but rejects it as unsupported.
+        OperationRunPhysicalLocationOrdering physical_location = 3;
+    }
+}
+
+message OperationRunRandomOrdering {
+    // Optional. If omitted, the service generates one and stores it.
+    string seed = 1;
+}
+
+message OperationRunPhysicalLocationOrdering {
+    enum Strategy {
+        STRATEGY_UNKNOWN = 0;
+        STRATEGY_ROW_BY_ROW = 1;
+        STRATEGY_ONE_PER_ROW_ROUND_ROBIN = 2;
+    }
+
+    Strategy strategy = 1;
+}
+
+message OperationRunPhasePolicy {
+    oneof plan {
+        EqualOperationRunPhases equal = 1;
+        PercentageOperationRunPhases percentage = 2;
+        CountOperationRunPhases count = 3;
+    }
+
+    // Optional. Default: manual phase advancement.
+    OperationRunPhaseAdvancePolicy advance_policy = 4;
+}
+
+message EqualOperationRunPhases {
+    // Required. Example: 10 means ten roughly equal phases.
+    int32 phase_count = 1;
+}
+
+message PercentageOperationRunPhases {
+    repeated OperationRunPercentagePhase phases = 1;
+}
+
+message OperationRunPercentagePhase {
+    // Required. Valid range: 1..100. Percentage phase values must sum to 100.
+    int32 percentage = 1;
+}
+
+message CountOperationRunPhases {
+    // Counts for phases before the generated final phase. The generated final
+    // phase covers the remaining candidate scope after all targets assigned by
+    // these defined count phases.
+    repeated OperationRunCountPhase phases = 1;
+}
+
+message OperationRunCountPhase {
+    // Required. Must be greater than 0.
+    int32 count = 1;
+}
+
+message OperationRunPhaseAdvancePolicy {
+    // When false, a completed phase pauses with PHASE_GATE and waits for
+    // ResumeOperationRun. When true, the dispatcher advances to the next phase
+    // automatically as long as global safety gates are not tripped.
+    bool auto_advance = 1;
+}
+
+message OperationRunConflictPolicy {
+    oneof strategy {
+        OperationRunConflictRetryPolicy retry = 1;
+    }
+}
+
+message OperationRunConflictRetryPolicy {
+    // Optional. Missing values are filled from operation-specific defaults.
+    google.protobuf.Duration retry_timeout = 1;
+    google.protobuf.Duration initial_retry_delay = 2;
+    google.protobuf.Duration max_retry_delay = 3;
+}
+
+message OperationRunTargetScope {
+    // Prior operation runs whose materialized rack execution targets should be
+    // excluded from this run's candidate scope. The base scope is the embedded
+    // operation target_spec when present; otherwise it is the default
+    // qualified/applicable scope.
+    repeated UUID exclude_operation_run_ids = 1;
+
+    // Restricts components when the embedded operation target_spec is omitted
+    // and the planner uses the default qualified/applicable rack scope. Omit to
+    // target all applicable components in the default scope. This must not be
+    // set together with an explicit operation target_spec.
+    ComponentFilter default_scope_component_filter = 2;
+}
+
+message OperationRunOperation {
+    oneof operation {
+        // In CreateOperationRun, target_spec is optional and defines candidate
+        // scope before selector is applied. In the existing UpgradeFirmware RPC,
+        // target_spec remains required and means "run exactly on these targets".
+        UpgradeFirmwareRequest upgrade_firmware = 1;
+    }
+
+    // Optional exclusions applied after the embedded operation target_spec (or
+    // default qualified scope) is resolved.
+    OperationRunTargetScope target_scope = 2;
+}
+
+enum OperationRunStatus {
+    OPERATION_RUN_STATUS_UNKNOWN = 0;
+    OPERATION_RUN_STATUS_PENDING = 1;
+    OPERATION_RUN_STATUS_RUNNING = 2;
+    OPERATION_RUN_STATUS_PAUSED = 3;
+    OPERATION_RUN_STATUS_COMPLETED = 4;
+    OPERATION_RUN_STATUS_CANCELLED = 5;
+    OPERATION_RUN_STATUS_FAILED = 6;
+}
+
+enum OperationRunStatusReason {
+    OPERATION_RUN_STATUS_REASON_UNKNOWN = 0;
+    OPERATION_RUN_STATUS_REASON_NONE = 1;
+    OPERATION_RUN_STATUS_REASON_OPERATOR_PAUSED = 2;
+    OPERATION_RUN_STATUS_REASON_PHASE_GATE = 3;
+    OPERATION_RUN_STATUS_REASON_SAFETY_GATE = 4;
+    OPERATION_RUN_STATUS_REASON_CONFLICT_RETRY_TIMEOUT = 5;
+}
+
+message OperationRunState {
+    OperationRunStatus status = 1;
+    OperationRunStatusReason reason = 2;
+}
+
+message OperationKind {
+    OperationType type = 1;
+    optional string code = 2;
+}
+
+message OperationRun {
+    OperationRunSummary summary = 1;
+    OperationRunConfiguration configuration = 2;
+    // Present only when the request asks Flow to compute derived stats.
+    OperationRunStats stats = 3;
+}
+
+// OperationRunSummary is the lightweight representation returned by
+// ListOperationRuns. It intentionally omits the full configuration and
+// target-derived phase stats; callers can use GetOperationRun for those details.
+message OperationRunSummary {
+    UUID id = 1;
+    string name = 2;
+    string description = 3;
+    OperationKind operation_kind = 4;
+    OperationRunState state = 5;
+    string status_message = 6;
+    int32 total_phases = 7;
+    google.protobuf.Timestamp created_at = 8;
+    google.protobuf.Timestamp updated_at = 9;
+    optional google.protobuf.Timestamp started_at = 10;
+    optional google.protobuf.Timestamp finished_at = 11;
+}
+
+message OperationRunStats {
+    OperationRunPhaseStats current_phase_stats = 1;
+    OperationRunPhaseStats cumulative_phase_stats = 2;
+}
+
+message OperationRunPhaseStats {
+    // For current_phase_stats, this is the current phase index. For
+    // cumulative_phase_stats, this is the latest included phase index.
+    int32 phase_index = 1;
+    int32 selected_targets = 2;
+    OperationRunTargetOutcomeCounts outcome_counts = 3;
+}
+
+message OperationRunTargetOutcomeCounts {
+    int32 completed = 1;
+    int32 failed = 2;
+    int32 terminated = 3;
+    int32 skipped = 4;
+}
+
+enum OperationRunTargetStatus {
+    OPERATION_RUN_TARGET_STATUS_UNKNOWN = 0;
+    OPERATION_RUN_TARGET_STATUS_PENDING = 1;
+    OPERATION_RUN_TARGET_STATUS_BLOCKED = 2;
+    OPERATION_RUN_TARGET_STATUS_SUBMITTED = 3;
+    OPERATION_RUN_TARGET_STATUS_COMPLETED = 4;
+    OPERATION_RUN_TARGET_STATUS_FAILED = 5;
+    OPERATION_RUN_TARGET_STATUS_TERMINATED = 6;
+    OPERATION_RUN_TARGET_STATUS_SKIPPED = 7;
+}
+
+message OperationRunTarget {
+    UUID id = 1;
+    UUID operation_run_id = 2;
+    UUID rack_id = 3;
+    int32 sequence_index = 4;
+    int32 phase_index = 5;
+    UUID task_id = 6;  // absent until a child task has been submitted
+    OperationRunTargetStatus status = 7;
+    string message = 8;
+    ComponentsByType components_by_type = 9;
+    google.protobuf.Timestamp created_at = 10;
+    google.protobuf.Timestamp updated_at = 11;
 }

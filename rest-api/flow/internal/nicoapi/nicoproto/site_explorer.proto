@@ -91,6 +91,36 @@ message SiteExplorationReport {
   repeated ExploredEndpoint endpoints = 1;
   // The managed-hosts which have been explored
   repeated ExploredManagedHost managed_hosts = 2;
+  // Metadata about the latest site explorer run
+  optional SiteExplorerLastRun last_run = 3;
+}
+
+message SiteExplorerLastRunResponse {
+  // Metadata about the latest site explorer run, if site explorer has run
+  optional SiteExplorerLastRun last_run = 1;
+}
+
+message SiteExplorerLastRun {
+  // When the run started
+  string started_at = 1;
+  // When the run finished
+  string finished_at = 2;
+  // Whether the run completed successfully
+  bool success = 3;
+  // Error string for a failed run
+  optional string error = 4;
+  // Number of endpoint exploration attempts made during the run
+  int64 endpoint_explorations = 5;
+  // Number of successful endpoint explorations during the run
+  int64 endpoint_explorations_success = 6;
+  // Number of endpoint exploration errors during the run
+  int64 endpoint_explorations_failed = 7;
+  // Failure category for a failed run
+  optional string failure_category = 8;
+  // When the most recent successful run finished
+  optional string last_successful_finished_at = 9;
+  // When the most recent failed run finished
+  optional string last_failed_finished_at = 10;
 }
 
 message ExploredEndpointSearchFilter {
