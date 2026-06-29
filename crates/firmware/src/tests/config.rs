@@ -240,6 +240,10 @@ power_drains_needed = 1
 filename = "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/cx7.bin"
 sha256 = "abc123"
 
+[[components.cx7.known_firmware.files]]
+url = "https://firmware.example.invalid/cx7.bin"
+sha256 = "def456"
+
 [components.cx7.known_firmware.scout]
 execution_timeout_seconds = 1800
 artifact_download_timeout_seconds = 600
@@ -259,7 +263,16 @@ artifact_download_timeout_seconds = 600
     let firmware = cx7.known_firmware.first().unwrap();
     assert_eq!(firmware.version, "28.47.2682");
     assert_eq!(firmware.power_drains_needed, Some(1));
-    assert_eq!(firmware.files.len(), 1);
+    assert_eq!(firmware.files.len(), 2);
+    assert_eq!(
+        firmware.files[0].filename.as_deref(),
+        Some("/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/cx7.bin")
+    );
+    assert_eq!(firmware.files[1].filename, None);
+    assert_eq!(
+        firmware.files[1].url.as_deref(),
+        Some("https://firmware.example.invalid/cx7.bin")
+    );
 
     let scout = firmware.scout.as_ref().unwrap();
     assert_eq!(scout.execution_timeout_seconds, 1800);

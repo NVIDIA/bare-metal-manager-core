@@ -60,7 +60,7 @@ tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.32.1"
 
 # NV-Redfish
-nv-redfish = { version = "0.10.3" }
+nv-redfish = { version = "0.10.4" }
 
 ########
 # MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
@@ -157,7 +157,6 @@ local-ip-address = "0.6.3"
 log = "0.4.19"
 lru = "0.18.0"
 mac_address = "1.1"
-md5 = "0.8"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 mime = "0.3"

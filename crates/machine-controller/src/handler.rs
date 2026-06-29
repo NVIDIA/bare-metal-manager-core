@@ -20,7 +20,6 @@
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
 use std::net::IpAddr;
-use std::path::{Component, Path};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -106,6 +105,7 @@ use crate::config::{
 };
 use crate::context::{MachineStateHandlerContextObjects, MachineStateHandlerServices};
 use crate::dpf::DpfOperations;
+use crate::handler::firmware_artifact::ResolvedFirmwareArtifactSource;
 use crate::health_report::{
     create_host_update_health_report_dpufw, create_host_update_health_report_hostfw,
 };
@@ -117,6 +117,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 pub mod attestation;
 mod bios_config;
 mod dpf;
+mod firmware_artifact;
 mod helpers;
 mod machine_validation;
 mod power;
@@ -179,37 +180,6 @@ fn scout_firmware_upgrade_deadline(
         .min(MAX_DEADLINE_DURATION_SECONDS);
 
     started_at + Duration::seconds(deadline_seconds)
-}
-
-fn firmware_artifact_url(
-    pxe_public_base_url: &str,
-    firmware_dir: &Path,
-    path: &str,
-) -> Result<String, StateHandlerError> {
-    let relative = Path::new(path).strip_prefix(firmware_dir).map_err(|_| {
-        StateHandlerError::GenericError(eyre!(
-            "firmware artifact path {path} is outside firmware directory {}",
-            firmware_dir.display()
-        ))
-    })?;
-
-    if !relative
-        .components()
-        .all(|component| matches!(component, Component::Normal(_)))
-    {
-        return Err(StateHandlerError::GenericError(eyre!(
-            "firmware artifact path {path} contains unsafe path components"
-        )));
-    }
-
-    let relative = relative.to_str().ok_or_else(|| {
-        StateHandlerError::GenericError(eyre!("firmware artifact path {path} is not valid UTF-8"))
-    })?;
-
-    Ok(format!(
-        "{}/public/firmware/{relative}",
-        pxe_public_base_url.trim_end_matches('/')
-    ))
 }
 
 /// Reachability params to check if DPU is up or not.
@@ -1864,10 +1834,7 @@ impl MachineStateHandler {
                 );
             }
             ManagedHostState::Failed { .. }
-                if is_unassigned_dpu_reprovision_host_boot_failure(
-                    managed_state,
-                    host_machine_id,
-                ) =>
+                if is_reprovision_restartable_failure(managed_state, host_machine_id) =>
             {
                 set_managed_host_topology_update_needed(
                     ctx.pending_db_writes,
@@ -1875,7 +1842,7 @@ impl MachineStateHandler {
                     &dpus_for_reprov,
                 );
 
-                // Host boot repair failures leave the host in top-level Failed; restart must
+                // These failures leave the host in top-level Failed; restart must
                 // reconstruct the reprovision map instead of trying to advance from Failed.
                 next_state = Some(
                     ReprovisionState::next_substate_based_on_bfb_support(
@@ -1912,10 +1879,11 @@ impl MachineStateHandler {
     }
 }
 
-fn is_unassigned_dpu_reprovision_host_boot_failure(
+fn is_reprovision_restartable_failure(
     managed_state: &ManagedHostState,
     host_machine_id: &MachineId,
 ) -> bool {
+    // BiosSetupFailed is always attributed to the host itself.
     matches!(
         managed_state,
         ManagedHostState::Failed {
@@ -1928,6 +1896,18 @@ fn is_unassigned_dpu_reprovision_host_boot_failure(
                 },
             ..
         } if machine_id == host_machine_id
+    ) ||
+    // DpfProvisioning may be attributed to a specific DPU (e.g. DPU entered
+    // error phase), so we do not guard on machine_id or source here.
+    matches!(
+        managed_state,
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning { .. },
+                ..
+            },
+            ..
+        }
     )
 }
 
@@ -8328,16 +8308,13 @@ impl HostUpgradeState {
                             .artifact_download_timeout_seconds,
                         file_artifacts: to_install
                             .files
-                            .into_iter()
-                            .map(|f| {
-                                Ok(FileArtifact {
-                                    url: firmware_artifact_url(
-                                        pxe_public_base_url,
-                                        firmware_dir,
-                                        &f.filename,
-                                    )?,
-                                    sha256: f.sha256,
-                                })
+                            .iter()
+                            .map(|artifact| {
+                                firmware_artifact::resolve_scout_file_artifact(
+                                    pxe_public_base_url,
+                                    firmware_dir,
+                                    artifact,
+                                )
                             })
                             .collect::<Result<Vec<_>, StateHandlerError>>()?,
                     };
@@ -8759,20 +8736,46 @@ impl HostUpgradeState {
         let snapshot = &state.host_snapshot;
         let to_install = fw_info.to_install;
         let component_type = fw_info.component_type;
+        let artifact = firmware_artifact::resolve_firmware_artifact(
+            &ctx.services
+                .site_config
+                .firmware_global
+                .firmware_download_cache_directory,
+            to_install,
+            *fw_info.firmware_number,
+        )?;
 
-        if !self.downloader.available(
-            &to_install.get_filename(*fw_info.firmware_number),
-            &to_install.get_url(),
-            &to_install.get_checksum(),
-        ) {
-            tracing::debug!(
-                "{} is being downloaded from {}, update deferred",
-                to_install.get_filename(*fw_info.firmware_number).display(),
-                to_install.get_url()
-            );
+        match &artifact.source {
+            ResolvedFirmwareArtifactSource::Remote { url, sha256 } => {
+                if !self.downloader.available(&artifact.local_path, url, sha256) {
+                    tracing::debug!(
+                        "{} is being downloaded from {}, update deferred",
+                        artifact.local_path.display(),
+                        url
+                    );
 
-            return Ok(StateHandlerOutcome::do_nothing());
-        }
+                    return Ok(StateHandlerOutcome::do_nothing());
+                }
+            }
+            ResolvedFirmwareArtifactSource::Local => {
+                if !artifact.local_path.exists() {
+                    let reason = format!(
+                        "firmware artifact {} for machine {} is not present and no firmware artifact URL is configured",
+                        artifact.local_path.display(),
+                        snapshot.id
+                    );
+                    tracing::warn!("{reason}");
+                    return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                        HostReprovisionState::FailedFirmwareUpgrade {
+                            firmware_type: *component_type,
+                            report_time: Some(Utc::now()),
+                            reason: Some(reason),
+                        },
+                        state.managed_state.get_host_repro_retry_count(),
+                    )));
+                }
+            }
+        };
 
         let Ok(_active) = self.upload_limiter.try_acquire() else {
             tracing::debug!(
@@ -8826,7 +8829,7 @@ impl HostUpgradeState {
         }
 
         let machine_id = state.host_snapshot.id.to_string();
-        let filename = to_install.get_filename(*fw_info.firmware_number);
+        let filename = artifact.local_path;
         let redfish_component_type: libredfish::model::update_service::ComponentType =
             match to_install.install_only_specified {
                 false => libredfish::model::update_service::ComponentType::Unknown,
@@ -9033,9 +9036,12 @@ impl HostUpgradeState {
                                 component_info.known_firmware.iter().find(|&x| x.default)
                         {
                             let firmware_number = firmware_number.unwrap_or(0) + 1;
-                            if firmware_number
-                                < selected_firmware.filenames.len().try_into().unwrap_or(0)
-                            {
+                            let has_more_artifacts = usize::try_from(firmware_number)
+                                .map(|firmware_number| {
+                                    firmware_number < selected_firmware.artifact_count()
+                                })
+                                .unwrap_or(false);
+                            if has_more_artifacts {
                                 tracing::debug!(
                                     "Moving {:?} chain step {} on {} to CheckingFirmware",
                                     selected_firmware,
@@ -11517,49 +11523,6 @@ mod tests {
     }
 
     #[test]
-    fn firmware_artifact_url_uses_path_relative_to_firmware_directory() {
-        let url = firmware_artifact_url(
-            "http://carbide-pxe.forge:8080/",
-            Path::new("/opt/nico/firmware"),
-            "/opt/nico/firmware/nvidia/dgxh100/cx7/cx7.bin",
-        )
-        .unwrap();
-
-        assert_eq!(
-            url,
-            "http://carbide-pxe.forge:8080/public/firmware/nvidia/dgxh100/cx7/cx7.bin"
-        );
-    }
-
-    #[test]
-    fn firmware_artifact_url_rejects_unsafe_paths() {
-        let unsafe_cases = [
-            (
-                // A sibling directory with the same string prefix is not inside the firmware root.
-                "/opt/nico/firmware2/nvidia/dgxh100/cx7/cx7.bin",
-                "is outside firmware directory /opt/nico/firmware",
-            ),
-            (
-                // A path under the firmware root still cannot traverse back out with `..`.
-                "/opt/nico/firmware/../cx7.bin",
-                "contains unsafe path components",
-            ),
-        ];
-
-        for (path, expected_error) in unsafe_cases {
-            let Err(error) = firmware_artifact_url(
-                "http://carbide-pxe.forge:8080",
-                Path::new("/opt/nico/firmware"),
-                path,
-            ) else {
-                panic!("expected unsafe path {path} to be rejected");
-            };
-
-            assert!(error.to_string().contains(expected_error));
-        }
-    }
-
-    #[test]
     fn need_host_fw_upgrade_checks_all_matching_cx7_inventories() {
         let firmware_type = FirmwareComponentType::Cx7;
         let target_version = "28.47.2682";
@@ -11702,5 +11665,60 @@ mod tests {
 
         let cycle = get_reboot_cycle(expected_time, state_change_time, wait_period).unwrap();
         assert_eq!(cycle, 30);
+    }
+
+    #[test]
+    fn is_reprovision_restartable_failure_matches_expected_causes() {
+        let host_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        let make_failed = |cause: FailureCause, machine_id: MachineId| ManagedHostState::Failed {
+            details: FailureDetails {
+                cause,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id,
+            retry_count: 0,
+        };
+
+        // BiosSetupFailed on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(
+                FailureCause::BiosSetupFailed { err: "bios".into() },
+                host_id
+            ),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, host_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning attributed to a DPU → still restartable (no machine_id guard)
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, dpu_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host with any FailureSource → restartable
+        assert!(is_reprovision_restartable_failure(
+            &ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning { err: "dpf".into() },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: host_id,
+                retry_count: 0,
+            },
+            &host_id,
+        ));
     }
 }

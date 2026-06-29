@@ -74,6 +74,49 @@ Top-level `global:` values are automatically passed to all subcharts.
 | `global.spiffe.trustDomain` | SPIFFE trust domain for mTLS | `nico.local` |
 | `global.labels` | Common labels applied to all resources | See `values.yaml` |
 
+### Grafana Dashboards
+
+The chart packages three dashboards built from NICo's exported Prometheus
+metrics: a site overview, object lifecycle diagnostics, and API performance.
+They are disabled by default because this chart does not install Grafana.
+The source JSON files live in [`dashboards/`](./dashboards/) and can also be
+imported into Grafana directly.
+
+To expose the dashboards to a Grafana dashboard sidecar in the release
+namespace:
+
+```yaml
+grafanaDashboards:
+  enabled: true
+```
+
+The default `grafana_dashboard: "1"` label matches the dashboard-sidecar
+selector used by `kube-prometheus-stack`. The chart also adds the conventional
+`grafana_folder: NICo` annotation; configure the Grafana sidecar's
+`folderAnnotation` setting if it does not already read that key. If Grafana
+watches a different namespace or selector, configure them explicitly:
+
+```yaml
+grafanaDashboards:
+  enabled: true
+  namespace: monitoring
+  folder: Infrastructure/NICo
+  folderAnnotation: grafana_folder
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+```
+
+The target namespace must exist before Helm runs, and the Helm identity must be
+allowed to create ConfigMaps there. The Grafana sidecar must also watch that
+namespace; for `kube-prometheus-stack`, configure
+`grafana.sidecar.dashboards.searchNamespace` accordingly.
+
+Each dashboard provides a Prometheus data-source selector, a NICo scrape-job
+selector, and an editable metric-prefix variable. The prefix defaults to
+`carbide`, which is the prefix currently emitted by NICo. Set it to `nico` (or
+another configured value) when using the `alt_metric_prefix` site setting.
+
 ### Subchart Enable/Disable Flags
 
 Each subchart can be independently enabled or disabled. All core NICo services are enabled by default. Infrastructure services (`unbound`) that may already be provided by the environment are disabled by default.

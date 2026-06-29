@@ -800,6 +800,29 @@ pub(crate) async fn update_phone_home_last_contact(
     request: Request<rpc::InstancePhoneHomeLastContactRequest>,
 ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
     log_request_data(&request);
+
+    // Extract the calling machine's ID from the SPIFFE certificate before consuming the request.
+    // When bypass_rbac is enabled (integration tests), the cert check is skipped: test tooling
+    // uses a generic TLS client cert that carries no SPIFFE identity.
+    let caller_machine_id = if api.runtime_config.bypass_rbac {
+        None
+    } else {
+        let id_str = request
+            .extensions()
+            .get::<crate::auth::AuthContext>()
+            .and_then(|ctx| ctx.get_spiffe_machine_id())
+            .ok_or_else(|| {
+                CarbideError::ClientCertificateMissingInformation(
+                    "phone-home request must include a valid machine SPIFFE certificate".into(),
+                )
+            })?;
+        Some(MachineId::from_str(id_str).map_err(|_| {
+            CarbideError::ClientCertificateMissingInformation(
+                "machine ID in SPIFFE certificate is invalid".into(),
+            )
+        })?)
+    };
+
     let request = request.into_inner();
     let instance_id = request
         .instance_id
@@ -809,13 +832,49 @@ pub(crate) async fn update_phone_home_last_contact(
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
+        .ok_or_else(|| {
+            // Return PermissionDenied (not NotFound) so callers cannot probe instance existence
+            // by observing which error they receive.
+            match &caller_machine_id {
+                Some(mid) => CarbideError::PermissionDeniedError(format!(
+                    "machine {mid} is not authorized to update phone-home for instance {instance_id}"
+                )),
+                None => CarbideError::NotFoundError {
+                    kind: "instance",
+                    id: instance_id.to_string(),
+                },
+            }
         })?;
 
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+
+    // Verify the caller is authorized: either the instance's host machine itself, or a DPU
+    // attached to that host. Phone-home calls originate from the DPU agent on the host.
+    // Skipped when bypass_rbac is enabled (caller_machine_id is None).
+    if let Some(ref caller_machine_id) = caller_machine_id {
+        let caller_is_host = *caller_machine_id == instance.machine_id;
+        let caller_is_attached_dpu = if caller_is_host {
+            false
+        } else {
+            db::machine::find_host_by_dpu_machine_id(&mut txn, caller_machine_id)
+                .await?
+                .is_some_and(|host| host.id == instance.machine_id)
+        };
+
+        if !caller_is_host && !caller_is_attached_dpu {
+            tracing::warn!(
+                %caller_machine_id,
+                instance_machine_id = %instance.machine_id,
+                %instance_id,
+                "phone-home denied: caller is not the instance host or an attached DPU",
+            );
+            return Err(CarbideError::PermissionDeniedError(format!(
+                "machine {caller_machine_id} is not authorized to update phone-home for instance {instance_id}"
+            ))
+            .into());
+        }
+    }
 
     let res = db::instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
 

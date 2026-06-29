@@ -2638,9 +2638,37 @@ paths:
         - schema:
             type: string
             enum:
+              - Pending
+              - Configuring
+              - Requested
+              - Ready
+              - Deleting
+              - Error
+          in: query
+          name: status
+          required: false
+          description: Optional filter by peering status. Repeat the parameter to match multiple statuses.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: vpcId
+          required: false
+          description: Optional filter by VPC ID involved in the peering as either vpc1 or vpc2. Repeat the parameter to match multiple VPCs.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: peerTenantId
+          required: false
+          description: Optional filter by tenant ID of a VPC involved in the peering. Repeat the parameter to match multiple tenants.
+        - schema:
+            type: string
+            enum:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -2729,6 +2757,7 @@ paths:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -14642,6 +14671,82 @@ components:
           type: string
           format: uuid
           description: ID of the Site where the peering exists
+    VpcPeeringTenantSummary:
+      title: VpcPeeringTenantSummary
+      type: object
+      description: Summarizes a Tenant in context of a VPC Peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the Tenant
+        org:
+          type: string
+          readOnly: true
+          description: Name of the org this tenant belongs to
+        orgDisplayName:
+          type:
+            - string
+            - 'null'
+          readOnly: true
+          description: Display name of the org the Tenant belongs to
+    VpcPeeringVpcSummary:
+      title: VpcPeeringVpcSummary
+      type: object
+      description: Summarizes a VPC in context of a VPC Peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the VPC
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the VPC
+        tenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant
+        tenant:
+          $ref: '#/components/schemas/VpcPeeringTenantSummary'
+          readOnly: true
+          description: Summary of the tenant
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ETHERNET_VIRTUALIZER
+            - FNN
+            - FLAT
+          description: Network virtualization type of the VPC
+        status:
+          $ref: '#/components/schemas/VpcStatus'
+          readOnly: true
+          description: Status of the VPC
+    TenantSummary:
+      title: TenantSummary
+      type: object
+      description: Summarizes a Tenant
+      properties:
+        org:
+          type: string
+          readOnly: true
+          description: Name of the org this tenant belongs to
+        orgDisplayName:
+          type:
+            - string
+            - 'null'
+          readOnly: true
+          description: Display name of the org the Tenant belongs to
+        capabilities:
+          $ref: '#/components/schemas/TenantCapabilities'
+          readOnly: true
+          description: Features that are enabled/disabled for Tenant
     VpcPeering:
       title: VpcPeering
       type: object
@@ -14657,16 +14762,37 @@ components:
           format: uuid
           readOnly: true
           description: ID of the first VPC in the peering
+        vpc1:
+          $ref: '#/components/schemas/VpcPeeringVpcSummary'
+          readOnly: true
+          description: Summary of the first VPC in the peering.
         vpc2Id:
           type: string
           format: uuid
           readOnly: true
           description: ID of the second VPC in the peering
+        vpc2:
+          $ref: '#/components/schemas/VpcPeeringVpcSummary'
+          readOnly: true
+          description: Summary of the second VPC in the peering.
         siteId:
           type: string
           format: uuid
           readOnly: true
           description: ID of the Site where the peering exists
+        site:
+          $ref: '#/components/schemas/SiteSummary'
+          readOnly: true
+          description: Summary of the Site where the peering exists.
+        tenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant that created the VPC peering.
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+          readOnly: true
+          description: Summary of the tenant that created the VPC peering.
         isMultiTenant:
           type: boolean
           readOnly: true

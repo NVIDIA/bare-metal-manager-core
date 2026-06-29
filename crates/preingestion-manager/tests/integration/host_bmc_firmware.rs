@@ -27,7 +27,7 @@ use carbide_test_harness::test_support::default_config;
 use model::site_explorer::{InitialResetPhase, PowerDrainState, PreingestionState};
 use rpc::forge::DhcpDiscovery;
 
-mod common;
+use crate::common;
 
 #[sqlx_test]
 async fn test_preingestion_bmc_upgrade(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {

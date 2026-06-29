@@ -418,7 +418,7 @@ func (uskh UpdateSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(uskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -586,7 +586,7 @@ func (gskh GetSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -706,7 +706,7 @@ func (gaskh GetAllSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gaskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -852,7 +852,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(dskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)

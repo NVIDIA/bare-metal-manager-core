@@ -9,6 +9,10 @@ authors.workspace = true
 [lib]
 name = "carbide_preingestion_manager"
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db" }

@@ -33,8 +33,6 @@ use rpc::forge::DhcpDiscovery;
 
 use crate::env::Env;
 
-mod env;
-
 fn expected_switch_fixture(
     bmc_mac: MacAddress,
     nvos_mac: MacAddress,

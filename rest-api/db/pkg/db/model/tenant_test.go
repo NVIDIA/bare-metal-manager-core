@@ -9,6 +9,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
@@ -206,7 +207,8 @@ func TestTenantSQLDAO_GetAllByOrg(t *testing.T) {
 			ipsd := TenantSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.GetAllByOrg(tt.args.ctx, nil, tt.args.org, nil)
+
+			got, _, err := ipsd.GetAll(ctx, nil, TenantFilterInput{Orgs: []string{org}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 			assert.NoError(t, err)
 
 			for i, tn := range tt.want {
@@ -453,6 +455,149 @@ func TestTenantSQLDAO_Update(t *testing.T) {
 				assert.True(t, span.SpanContext().IsValid())
 				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
 				assert.True(t, ok)
+			}
+		})
+	}
+}
+
+func TestTenantSQLDAO_GetAll(t *testing.T) {
+	ctx := context.Background()
+	dbSession := util.GetTestDBSession(t, false)
+	defer dbSession.Close()
+
+	err := dbSession.DB.ResetModel(ctx, (*Tenant)(nil))
+	require.NoError(t, err)
+
+	createdBy := uuid.New()
+	tenantAlphaOne := Tenant{
+		ID:             uuid.New(),
+		Name:           "tenant-alpha-one",
+		Org:            "org-alpha",
+		OrgDisplayName: cutil.GetPtr("Alpha Display"),
+		CreatedBy:      createdBy,
+	}
+	tenantAlphaTwo := Tenant{
+		ID:             uuid.New(),
+		Name:           "tenant-alpha-two",
+		Org:            "org-alpha",
+		OrgDisplayName: cutil.GetPtr("Beta Display"),
+		CreatedBy:      createdBy,
+	}
+	tenantBetaOne := Tenant{
+		ID:             uuid.New(),
+		Name:           "tenant-beta-one",
+		Org:            "org-beta",
+		OrgDisplayName: cutil.GetPtr("Alpha Display"),
+		CreatedBy:      createdBy,
+	}
+	tenantGamma := Tenant{
+		ID:        uuid.New(),
+		Name:      "tenant-gamma",
+		Org:       "org-gamma",
+		CreatedBy: createdBy,
+	}
+
+	tenants := []Tenant{tenantAlphaOne, tenantAlphaTwo, tenantBetaOne, tenantGamma}
+	_, err = dbSession.DB.NewInsert().Model(&tenants).Exec(ctx)
+	require.NoError(t, err)
+
+	tsd := NewTenantDAO(dbSession)
+	page := paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}
+
+	tests := []struct {
+		name          string
+		filter        TenantFilterInput
+		expectedCount int
+		expectedIDs   []uuid.UUID
+	}{
+		{
+			name:          "no filters returns all tenants",
+			filter:        TenantFilterInput{},
+			expectedCount: 4,
+			expectedIDs: []uuid.UUID{
+				tenantAlphaOne.ID,
+				tenantAlphaTwo.ID,
+				tenantBetaOne.ID,
+				tenantGamma.ID,
+			},
+		},
+		{
+			name:          "Orgs filter matches a single org",
+			filter:        TenantFilterInput{Orgs: []string{"org-alpha"}},
+			expectedCount: 2,
+			expectedIDs:   []uuid.UUID{tenantAlphaOne.ID, tenantAlphaTwo.ID},
+		},
+		{
+			name:          "Orgs filter matches multiple orgs",
+			filter:        TenantFilterInput{Orgs: []string{"org-alpha", "org-beta"}},
+			expectedCount: 3,
+			expectedIDs: []uuid.UUID{
+				tenantAlphaOne.ID,
+				tenantAlphaTwo.ID,
+				tenantBetaOne.ID,
+			},
+		},
+		{
+			name:          "Orgs filter with no matches returns empty",
+			filter:        TenantFilterInput{Orgs: []string{"org-missing"}},
+			expectedCount: 0,
+		},
+		{
+			name:          "OrgDisplayNames filter matches a single display name",
+			filter:        TenantFilterInput{OrgDisplayNames: []string{"Alpha Display"}},
+			expectedCount: 2,
+			expectedIDs:   []uuid.UUID{tenantAlphaOne.ID, tenantBetaOne.ID},
+		},
+		{
+			name:          "OrgDisplayNames filter matches multiple display names",
+			filter:        TenantFilterInput{OrgDisplayNames: []string{"Alpha Display", "Beta Display"}},
+			expectedCount: 3,
+			expectedIDs: []uuid.UUID{
+				tenantAlphaOne.ID,
+				tenantAlphaTwo.ID,
+				tenantBetaOne.ID,
+			},
+		},
+		{
+			name:          "OrgDisplayNames filter with no matches returns empty",
+			filter:        TenantFilterInput{OrgDisplayNames: []string{"Missing Display"}},
+			expectedCount: 0,
+		},
+		{
+			name: "Orgs and OrgDisplayNames filters are combined",
+			filter: TenantFilterInput{
+				Orgs:            []string{"org-alpha"},
+				OrgDisplayNames: []string{"Alpha Display"},
+			},
+			expectedCount: 1,
+			expectedIDs:   []uuid.UUID{tenantAlphaOne.ID},
+		},
+		{
+			name:          "TenantIDs filter matches requested tenants",
+			filter:        TenantFilterInput{TenantIDs: []uuid.UUID{tenantAlphaTwo.ID, tenantGamma.ID}},
+			expectedCount: 2,
+			expectedIDs:   []uuid.UUID{tenantAlphaTwo.ID, tenantGamma.ID},
+		},
+		{
+			name:          "empty TenantIDs filter returns empty",
+			filter:        TenantFilterInput{TenantIDs: []uuid.UUID{}},
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, total, err := tsd.GetAll(ctx, nil, tt.filter, page, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedCount, total)
+			assert.Len(t, got, tt.expectedCount)
+
+			if tt.expectedIDs != nil {
+				gotIDs := make([]uuid.UUID, len(got))
+				for i, tenant := range got {
+					gotIDs[i] = tenant.ID
+				}
+				assert.ElementsMatch(t, tt.expectedIDs, gotIDs)
 			}
 		})
 	}
