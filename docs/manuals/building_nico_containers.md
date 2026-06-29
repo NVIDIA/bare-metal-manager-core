@@ -4,7 +4,7 @@ This section provides instructions for building the containers for NVIDIA Infra 
 
 ## Installing Prerequisite Software
 
-You need an Ubuntu 24.04 host or VM with 150GB+ of free disk space (macOS is not supported).
+An Ubuntu 24.04 host or VM with at least 150GB of free disk space is required, and git and make must also be installed (macOS is not supported).
 
 Clone the repo and run the build-host bootstrap. It installs everything needed to build
 the containers and boot artifacts -- system packages, rustup, the mkosi/ipxe git
