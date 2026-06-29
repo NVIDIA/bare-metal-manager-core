@@ -66,7 +66,7 @@ RUN go build \
         ./cmd/cli
 
 # Final stage
-FROM nvcr.io/nvidia/distroless/go:v3.2.1 AS final
+FROM nvcr.io/nvidia/distroless/go:v4.0.8 AS final
 
 WORKDIR /app
 

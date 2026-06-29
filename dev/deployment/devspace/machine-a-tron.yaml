@@ -25,7 +25,7 @@ data:
     # machine-a-tron config generated from "just setup-k3s-env-ips"
     [machines.config]
     host_count = 10
-    dpu_per_host_count = 2
+    dpu_per_host_count = 0
     dpu_reboot_delay = 1 # in units of seconds
     host_reboot_delay = 1 # in units of seconds
     vpc_count = 0
