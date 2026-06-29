@@ -1078,11 +1078,11 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Select unallocated Machine for the requested instance type
-			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, apiRequest.InfiniBandInterfaces)
+			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, &apiRequest)
 			if err != nil {
 				var ibSelErr *common.InfiniBandMachineSelectionError
 				if errors.As(err, &ibSelErr) {
-					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), model.NewInfiniBandSuggestionValidationError(ibSelErr.SuggestedInfiniBandInterfaces))
+					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), common.NewInfiniBandAvailableValidationError(ibSelErr.AvailableInfiniBandInterfaces))
 				}
 				if err == common.ErrInstanceTypeMachineNotFound {
 					return cutil.NewAPIError(http.StatusBadRequest,

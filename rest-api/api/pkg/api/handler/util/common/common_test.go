@@ -2754,3 +2754,39 @@ func TestGetFlowUUIDPtr(t *testing.T) {
 		}
 	})
 }
+
+func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
+	deviceType := cdbm.MachineCapabilityDeviceType("")
+	machineIbCaps := []cdbm.MachineCapability{
+		{
+			Type:            cdbm.MachineCapabilityTypeInfiniBand,
+			Name:            "MT28908 Family [ConnectX-6]",
+			Vendor:          cutil.GetPtr("Mellanox Technologies"),
+			Count:           cutil.GetPtr(3),
+			DeviceType:      &deviceType,
+			InactiveDevices: []int{1, 3},
+		},
+	}
+
+	t.Run("satisfied when requested device instance is active on machine", func(t *testing.T) {
+		match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
+			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 0, IsPhysical: true},
+		})
+		assert.True(t, match.Satisfied)
+		assert.True(t, match.CountSatisfiable)
+		assert.Equal(t, []int{0, 2}, match.AvailableByDevice["MT28908 Family [ConnectX-6]"])
+	})
+
+	t.Run("not satisfied but count satisfiable when requested device instance is inactive on machine", func(t *testing.T) {
+		match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
+			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
+		})
+		assert.False(t, match.Satisfied)
+		assert.True(t, match.CountSatisfiable)
+
+		available := AvailableInfiniBandInterfaces([]cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
+			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
+		}, match.AvailableByDevice)
+		assert.Equal(t, 0, available[0].DeviceInstance)
+	})
+}
