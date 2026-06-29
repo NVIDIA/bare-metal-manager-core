@@ -594,7 +594,6 @@ jobs:
       - build-container-x86_64
       - build-runtime-container-x86_64
       - check-rest-core-proto-sync
-      - lint-police
     runs-on: linux-amd64-cpu16
     steps:
       - name: Checkout code
