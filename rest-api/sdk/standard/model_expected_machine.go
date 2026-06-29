@@ -60,8 +60,8 @@ type ExpectedMachine struct {
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
 	// When true, this host is eligible for DPF-based provisioning.
-	DpfEnabled *bool             `json:"dpfEnabled,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	IsDpfEnabled *bool             `json:"isDpfEnabled,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was created
 	Created *time.Time `json:"created,omitempty"`
 	// ISO 8601 datetime when the Expected Machine was last updated
@@ -782,36 +782,36 @@ func (o *ExpectedMachine) UnsetHostId() {
 	o.HostId.Unset()
 }
 
-// GetDpfEnabled returns the DpfEnabled field value if set, zero value otherwise.
-func (o *ExpectedMachine) GetDpfEnabled() bool {
-	if o == nil || IsNil(o.DpfEnabled) {
+// GetIsDpfEnabled returns the IsDpfEnabled field value if set, zero value otherwise.
+func (o *ExpectedMachine) GetIsDpfEnabled() bool {
+	if o == nil || IsNil(o.IsDpfEnabled) {
 		var ret bool
 		return ret
 	}
-	return *o.DpfEnabled
+	return *o.IsDpfEnabled
 }
 
-// GetDpfEnabledOk returns a tuple with the DpfEnabled field value if set, nil otherwise
+// GetIsDpfEnabledOk returns a tuple with the IsDpfEnabled field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ExpectedMachine) GetDpfEnabledOk() (*bool, bool) {
-	if o == nil || IsNil(o.DpfEnabled) {
+func (o *ExpectedMachine) GetIsDpfEnabledOk() (*bool, bool) {
+	if o == nil || IsNil(o.IsDpfEnabled) {
 		return nil, false
 	}
-	return o.DpfEnabled, true
+	return o.IsDpfEnabled, true
 }
 
-// HasDpfEnabled returns a boolean if a field has been set.
-func (o *ExpectedMachine) HasDpfEnabled() bool {
-	if o != nil && !IsNil(o.DpfEnabled) {
+// HasIsDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachine) HasIsDpfEnabled() bool {
+	if o != nil && !IsNil(o.IsDpfEnabled) {
 		return true
 	}
 
 	return false
 }
 
-// SetDpfEnabled gets a reference to the given bool and assigns it to the DpfEnabled field.
-func (o *ExpectedMachine) SetDpfEnabled(v bool) {
-	o.DpfEnabled = &v
+// SetIsDpfEnabled gets a reference to the given bool and assigns it to the IsDpfEnabled field.
+func (o *ExpectedMachine) SetIsDpfEnabled(v bool) {
+	o.IsDpfEnabled = &v
 }
 
 // GetLabels returns the Labels field value if set, zero value otherwise.
@@ -974,8 +974,8 @@ func (o ExpectedMachine) ToMap() (map[string]interface{}, error) {
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
 	}
-	if !IsNil(o.DpfEnabled) {
-		toSerialize["dpfEnabled"] = o.DpfEnabled
+	if !IsNil(o.IsDpfEnabled) {
+		toSerialize["isDpfEnabled"] = o.IsDpfEnabled
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

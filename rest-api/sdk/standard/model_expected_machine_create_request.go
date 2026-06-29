@@ -56,9 +56,9 @@ type ExpectedMachineCreateRequest struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
-	// When true, this host is eligible for DPF-based provisioning (requires site-level DPF to be enabled). Omit on create to use the default (true).
-	DpfEnabled NullableBool      `json:"dpfEnabled,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	// When true, this host is eligible for DPF-based provisioning.
+	IsDpfEnabled NullableBool      `json:"isDpfEnabled,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 }
 
 type _ExpectedMachineCreateRequest ExpectedMachineCreateRequest
@@ -704,47 +704,47 @@ func (o *ExpectedMachineCreateRequest) UnsetHostId() {
 	o.HostId.Unset()
 }
 
-// GetDpfEnabled returns the DpfEnabled field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *ExpectedMachineCreateRequest) GetDpfEnabled() bool {
-	if o == nil || IsNil(o.DpfEnabled.Get()) {
+// GetIsDpfEnabled returns the IsDpfEnabled field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *ExpectedMachineCreateRequest) GetIsDpfEnabled() bool {
+	if o == nil || IsNil(o.IsDpfEnabled.Get()) {
 		var ret bool
 		return ret
 	}
-	return *o.DpfEnabled.Get()
+	return *o.IsDpfEnabled.Get()
 }
 
-// GetDpfEnabledOk returns a tuple with the DpfEnabled field value if set, nil otherwise
+// GetIsDpfEnabledOk returns a tuple with the IsDpfEnabled field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *ExpectedMachineCreateRequest) GetDpfEnabledOk() (*bool, bool) {
+func (o *ExpectedMachineCreateRequest) GetIsDpfEnabledOk() (*bool, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.DpfEnabled.Get(), o.DpfEnabled.IsSet()
+	return o.IsDpfEnabled.Get(), o.IsDpfEnabled.IsSet()
 }
 
-// HasDpfEnabled returns a boolean if a field has been set.
-func (o *ExpectedMachineCreateRequest) HasDpfEnabled() bool {
-	if o != nil && o.DpfEnabled.IsSet() {
+// HasIsDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachineCreateRequest) HasIsDpfEnabled() bool {
+	if o != nil && o.IsDpfEnabled.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetDpfEnabled gets a reference to the given NullableBool and assigns it to the DpfEnabled field.
-func (o *ExpectedMachineCreateRequest) SetDpfEnabled(v bool) {
-	o.DpfEnabled.Set(&v)
+// SetIsDpfEnabled gets a reference to the given NullableBool and assigns it to the IsDpfEnabled field.
+func (o *ExpectedMachineCreateRequest) SetIsDpfEnabled(v bool) {
+	o.IsDpfEnabled.Set(&v)
 }
 
-// SetDpfEnabledNil sets the value for DpfEnabled to be an explicit nil
-func (o *ExpectedMachineCreateRequest) SetDpfEnabledNil() {
-	o.DpfEnabled.Set(nil)
+// SetIsDpfEnabledNil sets the value for IsDpfEnabled to be an explicit nil
+func (o *ExpectedMachineCreateRequest) SetIsDpfEnabledNil() {
+	o.IsDpfEnabled.Set(nil)
 }
 
-// UnsetDpfEnabled ensures that no value is present for DpfEnabled, not even an explicit nil
-func (o *ExpectedMachineCreateRequest) UnsetDpfEnabled() {
-	o.DpfEnabled.Unset()
+// UnsetIsDpfEnabled ensures that no value is present for IsDpfEnabled, not even an explicit nil
+func (o *ExpectedMachineCreateRequest) UnsetIsDpfEnabled() {
+	o.IsDpfEnabled.Unset()
 }
 
 // GetLabels returns the Labels field value if set, zero value otherwise.
@@ -831,8 +831,8 @@ func (o ExpectedMachineCreateRequest) ToMap() (map[string]interface{}, error) {
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
 	}
-	if o.DpfEnabled.IsSet() {
-		toSerialize["dpfEnabled"] = o.DpfEnabled.Get()
+	if o.IsDpfEnabled.IsSet() {
+		toSerialize["isDpfEnabled"] = o.IsDpfEnabled.Get()
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

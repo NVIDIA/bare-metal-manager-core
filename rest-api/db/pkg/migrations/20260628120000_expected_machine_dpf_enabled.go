@@ -18,7 +18,7 @@ func init() {
 			handlePanic(terr, "failed to begin transaction")
 		}
 
-		_, err := tx.Exec("ALTER TABLE expected_machine ADD COLUMN IF NOT EXISTS dpf_enabled BOOLEAN")
+		_, err := tx.Exec("ALTER TABLE expected_machine ADD COLUMN IF NOT EXISTS is_dpf_enabled BOOLEAN")
 		handleError(tx, err)
 
 		terr = tx.Commit()
@@ -26,7 +26,7 @@ func init() {
 			handlePanic(terr, "failed to commit transaction")
 		}
 
-		fmt.Print(" [up migration] Added dpf_enabled column to 'expected_machine'. ")
+		fmt.Print(" [up migration] Added is_dpf_enabled column to 'expected_machine'. ")
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		fmt.Print(" [down migration] No action taken")

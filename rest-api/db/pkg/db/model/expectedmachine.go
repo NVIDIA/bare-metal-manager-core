@@ -66,7 +66,7 @@ type ExpectedMachine struct {
 	SlotID                   *int32    `bun:"slot_id"`
 	TrayIdx                  *int32    `bun:"tray_idx"`
 	HostID                   *int32    `bun:"host_id"`
-	DpfEnabled               *bool     `bun:"dpf_enabled"`
+	IsDpfEnabled             *bool     `bun:"is_dpf_enabled"`
 	Labels                   Labels    `bun:"labels,type:jsonb"`
 	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
@@ -120,8 +120,8 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	if em.HostID != nil {
 		proto.HostId = em.HostID
 	}
-	if em.DpfEnabled != nil {
-		proto.IsDpfEnabled = em.DpfEnabled
+	if em.IsDpfEnabled != nil {
+		proto.IsDpfEnabled = em.IsDpfEnabled
 	}
 	if creds.Username != nil {
 		proto.BmcUsername = *creds.Username
@@ -186,7 +186,7 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
 	em.Labels.FromProto(proto.Metadata.GetLabels())
-	em.DpfEnabled = proto.IsDpfEnabled
+	em.IsDpfEnabled = proto.IsDpfEnabled
 }
 
 // ExpectedMachineCreateInput input parameters for Create method
@@ -208,7 +208,7 @@ type ExpectedMachineCreateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
-	DpfEnabled               *bool
+	IsDpfEnabled             *bool
 	CreatedBy                uuid.UUID
 }
 
@@ -230,7 +230,7 @@ type ExpectedMachineUpdateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
-	DpfEnabled               *bool
+	IsDpfEnabled             *bool
 }
 
 // ExpectedMachineClearInput input parameters for Clear method
@@ -372,7 +372,7 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
 			Labels:                   input.Labels,
-			DpfEnabled:               input.DpfEnabled,
+			IsDpfEnabled:             input.IsDpfEnabled,
 			CreatedBy:                input.CreatedBy,
 		}
 		expectedMachines = append(expectedMachines, em)
@@ -670,9 +670,9 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			em.HostID = input.HostID
 			columnsSet["host_id"] = true
 		}
-		if input.DpfEnabled != nil {
-			em.DpfEnabled = input.DpfEnabled
-			columnsSet["dpf_enabled"] = true
+		if input.IsDpfEnabled != nil {
+			em.IsDpfEnabled = input.IsDpfEnabled
+			columnsSet["is_dpf_enabled"] = true
 		}
 
 		expectedMachines = append(expectedMachines, em)

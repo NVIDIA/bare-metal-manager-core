@@ -2244,8 +2244,8 @@ func TestCreateExpectedMachineHandler_DpfEnabledForwardedToWorkflow(t *testing.T
 	var apiResponse model.APIExpectedMachine
 	err = json.Unmarshal(rec.Body.Bytes(), &apiResponse)
 	assert.Nil(t, err)
-	if assert.NotNil(t, apiResponse.DpfEnabled) {
-		assert.False(t, *apiResponse.DpfEnabled)
+	if assert.NotNil(t, apiResponse.IsDpfEnabled) {
+		assert.False(t, *apiResponse.IsDpfEnabled)
 	}
 }
 
