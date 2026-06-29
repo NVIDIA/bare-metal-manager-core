@@ -3549,4 +3549,14 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 			}
 		})
 	}
+
+	// Verify the Temporal mock expectations were actually exercised. In
+	// particular this asserts the timeout path invoked TerminateWorkflow, so
+	// regressions in timeout cleanup are caught instead of passing silently.
+	tsc.AssertExpectations(t)
+	wrun.AssertExpectations(t)
+	tscErr.AssertExpectations(t)
+	wrunErr.AssertExpectations(t)
+	tscTimeout.AssertExpectations(t)
+	wrunTimeout.AssertExpectations(t)
 }
