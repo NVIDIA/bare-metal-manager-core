@@ -90,6 +90,8 @@ func TestResolveBootstrapValue(t *testing.T) {
 		{name: "nested object", input: map[string]any{"siteId": "${site.id}"}, expected: map[string]any{"siteId": "site-1"}},
 		{name: "missing reference", input: "${vpcs.default.id}", errString: "does not exist"},
 		{name: "invalid array index", input: "${allocations.network.allocationConstraints.4.derivedResourceId}", errString: "does not exist"},
+		{name: "unclosed reference", input: "site-${site.id", errString: "malformed reference"},
+		{name: "unmatched closing brace", input: "site-${site.id}}", errString: "malformed reference"},
 	}
 
 	for _, test := range tests {
@@ -102,6 +104,80 @@ func TestResolveBootstrapValue(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), test.errString)
+		})
+	}
+}
+
+func TestEnsureBootstrapResourceRevalidatesResolvedRequest(t *testing.T) {
+	manifest := completeBootstrapTestManifest()
+	resource := &bootstrapResource{Request: map[string]any{"name": "${site}"}}
+	context := map[string]any{"site": map[string]any{"id": "site-1"}}
+	client := NewClient("http://invalid.example", "provider-org", "token", nil, false)
+
+	_, err := ensureBootstrapResource(client, manifest, bootstrapIPBlockEndpoint, "fabric", resource, context, new(bytes.Buffer))
+	require.ErrorIs(t, err, errInvalidBootstrapResource)
+	assert.Contains(t, err.Error(), "ipBlocks.fabric.request.name is required")
+}
+
+func TestEnsureBootstrapResourcePreservesDriftAfterConflict(t *testing.T) {
+	lookupCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+
+		switch request.Method {
+		case http.MethodGet:
+			lookupCount++
+			if lookupCount == 1 {
+				writeBootstrapTestJSON(response, []map[string]any{})
+				return
+			}
+			writeBootstrapTestJSON(response, []map[string]any{{
+				"id":          "site-existing",
+				"name":        "test-site",
+				"description": "different description",
+			}})
+		case http.MethodPost:
+			response.WriteHeader(http.StatusConflict)
+			writeBootstrapTestJSON(response, map[string]any{"message": "already exists"})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	manifest := completeBootstrapTestManifest()
+	manifest.Site.Request["description"] = "expected description"
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+
+	_, err := ensureBootstrapResource(client, manifest, bootstrapSiteEndpoint, "site", manifest.Site, nil, new(bytes.Buffer))
+	require.ErrorIs(t, err, errBootstrapDrift)
+	assert.Contains(t, err.Error(), "description is different description, want expected description")
+}
+
+func TestBootstrapScalarEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		left     any
+		right    any
+		expected bool
+	}{
+		{name: "same strings", left: "true", right: "true", expected: true},
+		{name: "string and boolean", left: "true", right: true, expected: false},
+		{name: "string and number", left: "1", right: 1, expected: false},
+		{name: "same booleans", left: true, right: true, expected: true},
+		{name: "different booleans", left: true, right: false, expected: false},
+		{name: "compatible integer types", left: int32(1), right: int64(1), expected: true},
+		{name: "integer and JSON number", left: uint(1), right: json.Number("1"), expected: true},
+		{name: "integer and decimal", left: 1, right: 1.0, expected: true},
+		{name: "different numbers", left: json.Number("1.5"), right: float64(2), expected: false},
+		{name: "invalid JSON numbers", left: json.Number("invalid"), right: json.Number("invalid"), expected: false},
+		{name: "both nil", expected: true},
+		{name: "one nil", right: "", expected: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.expected, bootstrapScalarEqual(test.left, test.right))
 		})
 	}
 }

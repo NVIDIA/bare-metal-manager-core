@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -420,6 +422,13 @@ func ensureBootstrapResource(client *Client, manifest *sitePrerequisiteManifest,
 	if !ok {
 		return nil, fmt.Errorf("resolving %s %q request: %w: expected an object", endpoint.displayName, alias, errInvalidBootstrapResource)
 	}
+	resourcePath := endpoint.category
+	if alias != endpoint.category {
+		resourcePath += "." + alias
+	}
+	if err := validateBootstrapResource(resourcePath, &bootstrapResource{Request: request}); err != nil {
+		return nil, fmt.Errorf("resolving %s %q request: %w", endpoint.displayName, alias, err)
+	}
 	name, _ := request["name"].(string)
 
 	org := manifest.Tenant.Org
@@ -473,12 +482,13 @@ func ensureBootstrapResource(client *Client, manifest *sitePrerequisiteManifest,
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
 			response, found, findErr := findBootstrapResource(client, endpoint, request)
 			if findErr == nil && found {
-				if verifyErr := verifyBootstrapResource(endpoint, alias, request, response); verifyErr == nil {
-					resource.ID, verifyErr = bootstrapResponseID(response)
-					if verifyErr == nil {
-						fmt.Fprintf(progress, "reused %s %s (%s) after a concurrent create\n", endpoint.displayName, name, resource.ID)
-						return response, nil
-					}
+				if verifyErr := verifyBootstrapResource(endpoint, alias, request, response); verifyErr != nil {
+					return nil, verifyErr
+				}
+				resource.ID, findErr = bootstrapResponseID(response)
+				if findErr == nil {
+					fmt.Fprintf(progress, "reused %s %s (%s) after a concurrent create\n", endpoint.displayName, name, resource.ID)
+					return response, nil
 				}
 			}
 		}
@@ -607,10 +617,45 @@ func bootstrapSubsetDifferences(expected, actual any, path string) []string {
 }
 
 func bootstrapScalarEqual(left, right any) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+	if left == nil {
+		return right == nil
 	}
-	return fmt.Sprint(left) == fmt.Sprint(right)
+	if right == nil {
+		return false
+	}
+	leftEncoded, leftIsNumber := bootstrapNumberString(left)
+	rightEncoded, rightIsNumber := bootstrapNumberString(right)
+	if leftIsNumber != rightIsNumber {
+		return false
+	}
+	if leftIsNumber {
+		leftNumber, leftIsValid := new(big.Rat).SetString(leftEncoded)
+		rightNumber, rightIsValid := new(big.Rat).SetString(rightEncoded)
+		if !leftIsValid || !rightIsValid {
+			return false
+		}
+		return leftNumber.Cmp(rightNumber) == 0
+	}
+	return reflect.TypeOf(left) == reflect.TypeOf(right) && reflect.DeepEqual(left, right)
+}
+
+func bootstrapNumberString(value any) (string, bool) {
+	if number, ok := value.(json.Number); ok {
+		return number.String(), true
+	}
+
+	reflected := reflect.ValueOf(value)
+	kind := reflected.Kind()
+	switch {
+	case kind >= reflect.Int && kind <= reflect.Int64:
+		return strconv.FormatInt(reflected.Int(), 10), true
+	case kind >= reflect.Uint && kind <= reflect.Uintptr:
+		return strconv.FormatUint(reflected.Uint(), 10), true
+	case kind == reflect.Float32 || kind == reflect.Float64:
+		return strconv.FormatFloat(reflected.Float(), 'g', -1, reflected.Type().Bits()), true
+	default:
+		return "", false
+	}
 }
 
 func bootstrapJoinPath(base, element string) string {
@@ -651,6 +696,16 @@ func resolveBootstrapValue(value any, context map[string]any) (any, error) {
 		return resolved, nil
 	case string:
 		matches := bootstrapRefPattern.FindAllStringSubmatchIndex(typed, -1)
+		lastMatchEnd := 0
+		for _, match := range matches {
+			if bootstrapReferenceSyntaxMalformed(typed[lastMatchEnd:match[0]]) {
+				return nil, fmt.Errorf("%w: malformed reference in %q", errBootstrapReference, typed)
+			}
+			lastMatchEnd = match[1]
+		}
+		if bootstrapReferenceSyntaxMalformed(typed[lastMatchEnd:]) {
+			return nil, fmt.Errorf("%w: malformed reference in %q", errBootstrapReference, typed)
+		}
 		if len(matches) == 0 {
 			return typed, nil
 		}
@@ -674,6 +729,10 @@ func resolveBootstrapValue(value any, context map[string]any) (any, error) {
 	default:
 		return value, nil
 	}
+}
+
+func bootstrapReferenceSyntaxMalformed(value string) bool {
+	return strings.Contains(value, "${") || strings.Contains(value, "}")
 }
 
 func lookupBootstrapReference(context map[string]any, reference string) (any, error) {
