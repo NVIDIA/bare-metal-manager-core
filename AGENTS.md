@@ -124,14 +124,27 @@ cargo make format-nightly      # Also sort imports
 > `carbide-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
 > for everything else.
 
-### Top-level Makefile (rest-api entrypoint)
+#### Affected-package CI
+
+When reviewing changes that add, remove, rename, or repurpose shared Rust build
+inputs, verify that `is_global_path()` in
+`crates/xtask/src/affected_packages.rs` remains up to date. Currently matched
+shared inputs include the root Cargo files and `Cargo.lock`, cargo-make files,
+Rust toolchain configuration, `.cargo/`, CI configuration, custom lint and xtask
+code, and `include/`. Add any newly introduced or repurposed shared generated or
+configuration directories to the predicate. If a changed path cannot be mapped
+safely to exactly one workspace package, affected-package selection must fall
+back to the full workspace.
+
+### Top-level Makefile entrypoints
 
 A top-level [`Makefile`](Makefile) at the repo root provides a thin
-discoverable entrypoint for the `rest-api/` Go services. It just
-delegates to `rest-api/Makefile`.
+discoverable entrypoint for selected Core workflows and the `rest-api/` Go
+services.
 
 ```bash
-make help                # default goal: list rest-* targets
+make help                # default goal: list available targets
+make core/check-affected # check affected Rust packages and workspace dependents
 make rest-build          # build rest-api Go binaries
 make rest-test           # run rest-api unit tests
 make rest-lint           # lint rest-api
@@ -142,8 +155,8 @@ make rest-kind-reset     # spin up the local kind dev cluster (~10 min)
 make rest-api/<target>   # pass any target through to rest-api/Makefile
 ```
 
-Core (Rust) tasks are not in this Makefile; use cargo and `cargo make`
-directly as documented above.
+Other Core (Rust) tasks use cargo and `cargo make` directly as documented
+above.
 
 ## Coding Conventions
 

@@ -1103,6 +1103,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # actions/checkout fetches only one commit by default; a depth of 0 removes
+          # that limit and fetches the full history. The `check-affected`
+          # cargo-make task needs that history to find HEAD's common ancestor with
+          # origin/main.
+          fetch-depth: 0
+
+      # The container can see the mounted workspace as owned by a different UID.
+      - name: Configure Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
@@ -1114,11 +1124,13 @@ jobs:
           sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
           createdb root
 
-      - name: Run clippy
-        run: cargo make --no-workspace clippy-flow
-
-      - name: Run carbide lints
-        run: cargo make carbide-lints
+      # `check-affected` selects packages and replaces separate CI steps for
+      # Clippy, carbide-lints, and isolated default-feature builds. Formatting,
+      # workspace dependency, license, and ban checks remain global below.
+      - name: Run affected Rust checks
+        env:
+          AFFECTED_BASE: origin/main
+        run: cargo make --no-workspace check-affected
 
       - name: Check TOML formatting
         run: taplo fmt --check || echo "Please format toml files"
@@ -1134,9 +1146,6 @@ jobs:
 
       - name: Check bans
         run: cargo make --no-workspace check-bans
-
-      - name: Check isolated package builds
-        run: cargo xtask check-isolated-package-builds
 
       - name: Check repository is clean
         run: bash scripts/check-repo-clean.sh "Core pre-build checks"

@@ -828,6 +828,50 @@ workspace = false
 description = "Check that workspace packages build independently with default features"
 script = ["cargo xtask check-isolated-package-builds"]
 
+[tasks.check-affected]
+workspace = false
+description = "Run compilation checks for changed Rust packages and their workspace dependents"
+script = '''
+set -eu
+
+base="${AFFECTED_BASE:-origin/main}"
+affected_packages="$(cargo xtask affected-packages --base "${base}")"
+
+if [ -z "${affected_packages}" ]; then
+  echo "No affected Rust packages were selected" >&2
+  exit 1
+fi
+
+echo "Affected Rust packages:"
+printf '  %s\n' "${affected_packages}"
+
+set --
+while IFS= read -r package; do
+  [ -n "${package}" ] || continue
+  set -- "$@" -p "${package}"
+done <<EOF
+${affected_packages}
+EOF
+
+# These checks use different feature sets and compiler drivers. Keep their Cargo
+# artifacts separate so one check does not invalidate another check's cache.
+target_dir="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
+
+echo "Checking isolated builds for affected packages"
+CARGO_TARGET_DIR="${target_dir}/isolated-checks" \
+  cargo xtask check-isolated-package-builds "$@"
+
+echo "Running Clippy for affected packages"
+cargo make --no-workspace install-clippy
+CARGO_TARGET_DIR="${target_dir}/clippy" \
+  cargo clippy --locked --all-targets --all-features "$@"
+
+echo "Running carbide-lints for affected packages"
+cargo make --no-workspace setup-carbide-lints
+CARGO_TARGET_DIR="${target_dir}/carbide-lints" \
+  cargo carbide-lints --all-targets --all-features "$@"
+'''
+
 [tasks.check-licenses]
 workspace = false
 description = "Check cargo-deny against licenses we're using to validate that we're not introducing new licenses inadvertently"
