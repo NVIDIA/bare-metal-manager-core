@@ -40,23 +40,25 @@ var (
 	errBootstrapDrift            = errors.New("site prerequisite resource drift")
 	errBootstrapClientRequired   = errors.New("REST client is required")
 	errBootstrapManifestRequired = errors.New("manifest is required")
+	errBootstrapSpecRequired     = errors.New("OpenAPI spec is required")
 )
 
 // sitePrerequisiteManifest is a declarative, replayable site bring-up plan.
-// Each resource request is passed through to its existing REST endpoint after
-// ${...} references have been resolved from resources earlier in the plan.
+// Managed resource requests are passed through to their existing REST
+// operations after ${...} references have been resolved. Site IP Blocks are
+// selected read-only after the Site reports its fabric-prefix inventory.
 type sitePrerequisiteManifest struct {
-	APIVersion    string                        `yaml:"apiVersion"`
-	Kind          string                        `yaml:"kind"`
-	Provider      bootstrapOrganization         `yaml:"provider"`
-	Tenant        bootstrapOrganization         `yaml:"tenant"`
-	Site          *bootstrapResource            `yaml:"site"`
-	IPBlocks      map[string]*bootstrapResource `yaml:"ipBlocks,omitempty"`
-	InstanceTypes map[string]*bootstrapResource `yaml:"instanceTypes,omitempty"`
-	Allocations   map[string]*bootstrapResource `yaml:"allocations,omitempty"`
-	VPCs          map[string]*bootstrapResource `yaml:"vpcs,omitempty"`
-	VPCPrefixes   map[string]*bootstrapResource `yaml:"vpcPrefixes,omitempty"`
-	Instances     map[string]*bootstrapResource `yaml:"instances,omitempty"`
+	APIVersion    string                                `yaml:"apiVersion"`
+	Kind          string                                `yaml:"kind"`
+	Provider      bootstrapOrganization                 `yaml:"provider"`
+	Tenant        bootstrapOrganization                 `yaml:"tenant"`
+	Site          *bootstrapResource                    `yaml:"site"`
+	SiteIPBlocks  map[string]*bootstrapExistingResource `yaml:"siteIpBlocks,omitempty"`
+	InstanceTypes map[string]*bootstrapResource         `yaml:"instanceTypes,omitempty"`
+	Allocations   map[string]*bootstrapResource         `yaml:"allocations,omitempty"`
+	VPCs          map[string]*bootstrapResource         `yaml:"vpcs,omitempty"`
+	VPCPrefixes   map[string]*bootstrapResource         `yaml:"vpcPrefixes,omitempty"`
+	Instances     map[string]*bootstrapResource         `yaml:"instances,omitempty"`
 }
 
 type bootstrapOrganization struct {
@@ -69,77 +71,61 @@ type bootstrapResource struct {
 	Request map[string]any `yaml:"request"`
 }
 
-type bootstrapEndpoint struct {
-	category       string
-	displayName    string
-	collectionPath string
-	itemPath       string
-	itemIDParam    string
-	providerScoped bool
+type bootstrapExistingResource struct {
+	ID    string         `yaml:"id,omitempty"`
+	Match map[string]any `yaml:"match,omitempty"`
 }
 
-var (
-	bootstrapSiteEndpoint = bootstrapEndpoint{
-		category:       "site",
-		displayName:    "site",
-		collectionPath: "/v2/org/{org}/nico/site",
-		itemPath:       "/v2/org/{org}/nico/site/{siteId}",
-		itemIDParam:    "siteId",
-		providerScoped: true,
-	}
-	bootstrapIPBlockEndpoint = bootstrapEndpoint{
-		category:       "ipBlocks",
-		displayName:    "IP block",
-		collectionPath: "/v2/org/{org}/nico/ipblock",
-		itemPath:       "/v2/org/{org}/nico/ipblock/{ipBlockId}",
-		itemIDParam:    "ipBlockId",
-		providerScoped: true,
-	}
-	bootstrapInstanceTypeEndpoint = bootstrapEndpoint{
-		category:       "instanceTypes",
-		displayName:    "instance type",
-		collectionPath: "/v2/org/{org}/nico/instance/type",
-		itemPath:       "/v2/org/{org}/nico/instance/type/{instanceTypeId}",
-		itemIDParam:    "instanceTypeId",
-		providerScoped: true,
-	}
-	bootstrapAllocationEndpoint = bootstrapEndpoint{
-		category:       "allocations",
-		displayName:    "allocation",
-		collectionPath: "/v2/org/{org}/nico/allocation",
-		itemPath:       "/v2/org/{org}/nico/allocation/{allocationId}",
-		itemIDParam:    "allocationId",
-		providerScoped: true,
-	}
-	bootstrapVPCEndpoint = bootstrapEndpoint{
-		category:       "vpcs",
-		displayName:    "VPC",
-		collectionPath: "/v2/org/{org}/nico/vpc",
-		itemPath:       "/v2/org/{org}/nico/vpc/{vpcId}",
-		itemIDParam:    "vpcId",
-	}
-	bootstrapVPCPrefixEndpoint = bootstrapEndpoint{
-		category:       "vpcPrefixes",
-		displayName:    "VPC prefix",
-		collectionPath: "/v2/org/{org}/nico/vpc-prefix",
-		itemPath:       "/v2/org/{org}/nico/vpc-prefix/{vpcPrefixId}",
-		itemIDParam:    "vpcPrefixId",
-	}
-	bootstrapInstanceEndpoint = bootstrapEndpoint{
-		category:       "instances",
-		displayName:    "instance",
-		collectionPath: "/v2/org/{org}/nico/instance",
-		itemPath:       "/v2/org/{org}/nico/instance/{instanceId}",
-		itemIDParam:    "instanceId",
-	}
-)
+type bootstrapResourceAPI struct {
+	category       string
+	displayName    string
+	providerScoped bool
+	list           resolvedOp
+	create         resolvedOp
+	get            resolvedOp
+	itemIDParam    string
+}
 
-func addSiteBootstrapCommand(commands []*urfavecli.Command) []*urfavecli.Command {
+type bootstrapResourceGroup struct {
+	api       bootstrapResourceAPI
+	resources map[string]*bootstrapResource
+}
+
+type siteBootstrapOperations struct {
+	serviceAccount resolvedOp
+	provider       resolvedOp
+	tenant         resolvedOp
+	site           bootstrapResourceAPI
+	siteIPBlock    bootstrapResourceAPI
+	instanceType   bootstrapResourceAPI
+	allocation     bootstrapResourceAPI
+	vpc            bootstrapResourceAPI
+	vpcPrefix      bootstrapResourceAPI
+	instance       bootstrapResourceAPI
+}
+
+type siteBootstrap struct {
+	client     *Client
+	manifest   *sitePrerequisiteManifest
+	progress   io.Writer
+	operations *siteBootstrapOperations
+	references bootstrapReferences
+}
+
+type bootstrapReferences map[string]any
+
+type bootstrapServiceAccount struct {
+	Enabled                  bool    `json:"enabled"`
+	InfrastructureProviderID *string `json:"infrastructureProviderId"`
+	TenantID                 *string `json:"tenantId"`
+}
+
+func addSiteBootstrapCommand(commands []*urfavecli.Command, spec *Spec) []*urfavecli.Command {
 	for _, command := range commands {
 		if command.Name != "site" {
 			continue
 		}
-		command.Subcommands = append(command.Subcommands, siteBootstrapCommand())
+		command.Subcommands = append(command.Subcommands, siteBootstrapCommand(spec))
 		sort.Slice(command.Subcommands, func(i, j int) bool {
 			return command.Subcommands[i].Name < command.Subcommands[j].Name
 		})
@@ -149,11 +135,11 @@ func addSiteBootstrapCommand(commands []*urfavecli.Command) []*urfavecli.Command
 	return append(commands, &urfavecli.Command{
 		Name:        "site",
 		Usage:       "site operations",
-		Subcommands: []*urfavecli.Command{siteBootstrapCommand()},
+		Subcommands: []*urfavecli.Command{siteBootstrapCommand(spec)},
 	})
 }
 
-func siteBootstrapCommand() *urfavecli.Command {
+func siteBootstrapCommand(spec *Spec) *urfavecli.Command {
 	return &urfavecli.Command{
 		Name:      "bootstrap",
 		Usage:     "Create or verify site prerequisite resources from a manifest",
@@ -204,7 +190,11 @@ func siteBootstrapCommand() *urfavecli.Command {
 				manifest.Provider.Org = client.Org
 			}
 
-			if err := bootstrapSitePrerequisites(client, manifest, stderr); err != nil {
+			bootstrap, err := newSiteBootstrap(spec, client, manifest, stderr)
+			if err != nil {
+				return fmt.Errorf("preparing site prerequisite bootstrap: %w", err)
+			}
+			if err := bootstrap.apply(); err != nil {
 				return fmt.Errorf("bootstrapping site prerequisites: %w", err)
 			}
 
@@ -214,6 +204,110 @@ func siteBootstrapCommand() *urfavecli.Command {
 			return nil
 		},
 	}
+}
+
+func newSiteBootstrap(spec *Spec, client *Client, manifest *sitePrerequisiteManifest, progress io.Writer) (*siteBootstrap, error) {
+	operations, err := newSiteBootstrapOperations(spec)
+	if err != nil {
+		return nil, err
+	}
+	if progress == nil {
+		progress = io.Discard
+	}
+	return &siteBootstrap{
+		client:     client,
+		manifest:   manifest,
+		progress:   progress,
+		operations: operations,
+		references: bootstrapReferences{},
+	}, nil
+}
+
+func newSiteBootstrapOperations(spec *Spec) (*siteBootstrapOperations, error) {
+	if spec == nil {
+		return nil, errBootstrapSpecRequired
+	}
+	index := newOperationIndex(spec)
+
+	serviceAccount, err := index.require("get-current-service-account")
+	if err != nil {
+		return nil, err
+	}
+	provider, err := index.require("get-current-infrastructure-provider")
+	if err != nil {
+		return nil, err
+	}
+	tenant, err := index.require("get-current-tenant")
+	if err != nil {
+		return nil, err
+	}
+
+	operations := new(siteBootstrapOperations)
+	operations.serviceAccount = serviceAccount
+	operations.provider = provider
+	operations.tenant = tenant
+	resources := []struct {
+		target         *bootstrapResourceAPI
+		category       string
+		displayName    string
+		listID         string
+		createID       string
+		getID          string
+		providerScoped bool
+	}{
+		{target: &operations.site, category: "site", displayName: "site", listID: "get-all-site", createID: "create-site", getID: "get-site", providerScoped: true},
+		{target: &operations.siteIPBlock, category: "siteIpBlocks", displayName: "site IP block", listID: "get-all-ipblock", createID: "", getID: "get-ipblock", providerScoped: true},
+		{target: &operations.instanceType, category: "instanceTypes", displayName: "instance type", listID: "get-all-instance-type", createID: "create-instance-type", getID: "get-instance-type", providerScoped: true},
+		{target: &operations.allocation, category: "allocations", displayName: "allocation", listID: "get-all-allocation", createID: "create-allocation", getID: "get-allocation", providerScoped: true},
+		{target: &operations.vpc, category: "vpcs", displayName: "VPC", listID: "get-all-vpc", createID: "create-vpc", getID: "get-vpc", providerScoped: false},
+		{target: &operations.vpcPrefix, category: "vpcPrefixes", displayName: "VPC prefix", listID: "get-all-vpc-prefix", createID: "create-vpc-prefix", getID: "get-vpc-prefix", providerScoped: false},
+		{target: &operations.instance, category: "instances", displayName: "instance", listID: "get-all-instance", createID: "create-instance", getID: "get-instance", providerScoped: false},
+	}
+	for _, resource := range resources {
+		*resource.target, err = index.bootstrapResourceAPI(
+			resource.category,
+			resource.displayName,
+			resource.listID,
+			resource.createID,
+			resource.getID,
+			resource.providerScoped,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return operations, nil
+}
+
+func (index operationIndex) bootstrapResourceAPI(category, displayName, listID, createID, getID string, providerScoped bool) (bootstrapResourceAPI, error) {
+	list, err := index.require(listID)
+	if err != nil {
+		return bootstrapResourceAPI{}, err
+	}
+	get, err := index.require(getID)
+	if err != nil {
+		return bootstrapResourceAPI{}, err
+	}
+	itemIDParam, err := get.resourceIDParameter()
+	if err != nil {
+		return bootstrapResourceAPI{}, err
+	}
+	var create resolvedOp
+	if createID != "" {
+		create, err = index.require(createID)
+		if err != nil {
+			return bootstrapResourceAPI{}, err
+		}
+	}
+	return bootstrapResourceAPI{
+		category:       category,
+		displayName:    displayName,
+		providerScoped: providerScoped,
+		list:           list,
+		create:         create,
+		get:            get,
+		itemIDParam:    itemIDParam,
+	}, nil
 }
 
 func readSitePrerequisiteManifest(filename string, stdin io.Reader) (*sitePrerequisiteManifest, error) {
@@ -277,15 +371,22 @@ func (manifest *sitePrerequisiteManifest) validate() error {
 	if manifest.Site == nil {
 		return fmt.Errorf("%w: site is required", errInvalidBootstrapManifest)
 	}
-	if err := validateBootstrapResource("site", manifest.Site); err != nil {
+	if err := manifest.Site.validate("site"); err != nil {
 		return err
+	}
+	for alias, resource := range manifest.SiteIPBlocks {
+		if !bootstrapAliasPattern.MatchString(alias) {
+			return fmt.Errorf("%w: siteIpBlocks alias %q must start with a letter and contain only letters, digits, underscores, or hyphens", errInvalidBootstrapManifest, alias)
+		}
+		if err := resource.validate("siteIpBlocks." + alias); err != nil {
+			return err
+		}
 	}
 
 	groups := []struct {
 		name      string
 		resources map[string]*bootstrapResource
 	}{
-		{name: "ipBlocks", resources: manifest.IPBlocks},
 		{name: "instanceTypes", resources: manifest.InstanceTypes},
 		{name: "allocations", resources: manifest.Allocations},
 		{name: "vpcs", resources: manifest.VPCs},
@@ -297,7 +398,7 @@ func (manifest *sitePrerequisiteManifest) validate() error {
 			if !bootstrapAliasPattern.MatchString(alias) {
 				return fmt.Errorf("%w: %s alias %q must start with a letter and contain only letters, digits, underscores, or hyphens", errInvalidBootstrapManifest, group.name, alias)
 			}
-			if err := validateBootstrapResource(group.name+"."+alias, resource); err != nil {
+			if err := resource.validate(group.name + "." + alias); err != nil {
 				return err
 			}
 		}
@@ -305,7 +406,7 @@ func (manifest *sitePrerequisiteManifest) validate() error {
 	return nil
 }
 
-func validateBootstrapResource(path string, resource *bootstrapResource) error {
+func (resource *bootstrapResource) validate(path string) error {
 	if resource == nil {
 		return fmt.Errorf("%w: %s must not be null", errInvalidBootstrapResource, path)
 	}
@@ -319,27 +420,64 @@ func validateBootstrapResource(path string, resource *bootstrapResource) error {
 	return nil
 }
 
-func bootstrapSitePrerequisites(client *Client, manifest *sitePrerequisiteManifest, progress io.Writer) error {
-	if client == nil {
+func (resource *bootstrapExistingResource) validate(path string) error {
+	if resource == nil {
+		return fmt.Errorf("%w: %s must not be null", errInvalidBootstrapResource, path)
+	}
+	if resource.ID == "" && len(resource.Match) == 0 {
+		return fmt.Errorf("%w: %s.id or %s.match is required", errInvalidBootstrapResource, path, path)
+	}
+	return nil
+}
+
+func (bootstrap *siteBootstrap) apply() error {
+	if bootstrap.client == nil {
 		return errBootstrapClientRequired
 	}
-	if manifest == nil {
+	if bootstrap.manifest == nil {
 		return errBootstrapManifestRequired
 	}
-	if manifest.Provider.Org == "" {
+	if bootstrap.manifest.Provider.Org == "" {
 		return fmt.Errorf("%w: provider.org is required when applying a manifest", errInvalidBootstrapManifest)
 	}
-	if progress == nil {
-		progress = io.Discard
-	}
 
-	originalOrg := client.Org
+	originalOrg := bootstrap.client.Org
 	defer func() {
-		client.Org = originalOrg
+		bootstrap.client.Org = originalOrg
 	}()
 
-	context := map[string]any{}
-	provider, err := bootstrapOrganizationCurrent(client, manifest.Provider.Org, "/v2/org/{org}/nico/infrastructure-provider/current", "provider", progress)
+	if err := bootstrap.initializeOrganizations(); err != nil {
+		return err
+	}
+
+	site, err := bootstrap.ensureResource(bootstrap.operations.site, "site", bootstrap.manifest.Site)
+	if err != nil {
+		return err
+	}
+	bootstrap.references["site"] = site
+
+	if err := bootstrap.discoverExistingResources(bootstrap.operations.siteIPBlock, bootstrap.manifest.SiteIPBlocks); err != nil {
+		return err
+	}
+	for _, group := range bootstrap.operations.managedGroups(bootstrap.manifest) {
+		if err := bootstrap.ensureResources(group.api, group.resources); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (bootstrap *siteBootstrap) initializeOrganizations() error {
+	manifest := bootstrap.manifest
+	initialized, err := bootstrap.initializeServiceAccount(manifest.Provider.Org)
+	if err != nil {
+		return err
+	}
+	if initialized {
+		return nil
+	}
+
+	provider, err := bootstrap.resolveCurrentOrganization(bootstrap.operations.provider, manifest.Provider.Org, "provider")
 	if err != nil {
 		return err
 	}
@@ -347,9 +485,9 @@ func bootstrapSitePrerequisites(client *Client, manifest *sitePrerequisiteManife
 	if err != nil {
 		return fmt.Errorf("resolving provider: %w", err)
 	}
-	context["provider"] = provider
+	bootstrap.references["provider"] = provider
 
-	tenant, err := bootstrapOrganizationCurrent(client, manifest.Tenant.Org, "/v2/org/{org}/nico/tenant/current", "tenant", progress)
+	tenant, err := bootstrap.resolveCurrentOrganization(bootstrap.operations.tenant, manifest.Tenant.Org, "tenant")
 	if err != nil {
 		return err
 	}
@@ -357,47 +495,49 @@ func bootstrapSitePrerequisites(client *Client, manifest *sitePrerequisiteManife
 	if err != nil {
 		return fmt.Errorf("resolving tenant: %w", err)
 	}
-	context["tenant"] = tenant
-
-	site, err := ensureBootstrapResource(client, manifest, bootstrapSiteEndpoint, "site", manifest.Site, context, progress)
-	if err != nil {
-		return err
-	}
-	context["site"] = site
-
-	groups := []struct {
-		endpoint  bootstrapEndpoint
-		resources map[string]*bootstrapResource
-	}{
-		{endpoint: bootstrapIPBlockEndpoint, resources: manifest.IPBlocks},
-		{endpoint: bootstrapInstanceTypeEndpoint, resources: manifest.InstanceTypes},
-		{endpoint: bootstrapAllocationEndpoint, resources: manifest.Allocations},
-		{endpoint: bootstrapVPCEndpoint, resources: manifest.VPCs},
-		{endpoint: bootstrapVPCPrefixEndpoint, resources: manifest.VPCPrefixes},
-		{endpoint: bootstrapInstanceEndpoint, resources: manifest.Instances},
-	}
-	for _, group := range groups {
-		resolved := map[string]any{}
-		context[group.endpoint.category] = resolved
-		aliases := make([]string, 0, len(group.resources))
-		for alias := range group.resources {
-			aliases = append(aliases, alias)
-		}
-		sort.Strings(aliases)
-		for _, alias := range aliases {
-			response, err := ensureBootstrapResource(client, manifest, group.endpoint, alias, group.resources[alias], context, progress)
-			if err != nil {
-				return err
-			}
-			resolved[alias] = response
-		}
-	}
+	bootstrap.references["tenant"] = tenant
 	return nil
 }
 
-func bootstrapOrganizationCurrent(client *Client, org, endpoint, displayName string, progress io.Writer) (map[string]any, error) {
-	client.Org = org
-	body, _, err := client.Do(http.MethodGet, endpoint, nil, nil, nil)
+func (bootstrap *siteBootstrap) initializeServiceAccount(org string) (bool, error) {
+	bootstrap.client.Org = org
+	body, _, err := bootstrap.operations.serviceAccount.execute(bootstrap.client, nil, nil, nil)
+	if err != nil {
+		return false, fmt.Errorf("resolving service account for org %q: %w", org, err)
+	}
+	var status bootstrapServiceAccount
+	if err := json.Unmarshal(body, &status); err != nil {
+		return false, fmt.Errorf("decoding service account for org %q: %w", org, err)
+	}
+	if !status.Enabled {
+		fmt.Fprintf(bootstrap.progress, "service account mode is not enabled for %s; resolving provider and tenant separately\n", org)
+		return false, nil
+	}
+	if bootstrap.manifest.Provider.Org != bootstrap.manifest.Tenant.Org {
+		return false, fmt.Errorf("%w: service account mode requires provider.org and tenant.org to match", errInvalidBootstrapManifest)
+	}
+	if status.InfrastructureProviderID == nil || *status.InfrastructureProviderID == "" || status.TenantID == nil || *status.TenantID == "" {
+		return false, fmt.Errorf("%w: enabled service account response for org %q is missing provider or tenant ID", errBootstrapResponse, org)
+	}
+
+	provider := map[string]any{"id": *status.InfrastructureProviderID, "org": org}
+	tenant := map[string]any{"id": *status.TenantID, "org": org}
+	bootstrap.manifest.Provider.ID = *status.InfrastructureProviderID
+	bootstrap.manifest.Tenant.ID = *status.TenantID
+	bootstrap.references["serviceAccount"] = map[string]any{
+		"enabled":                  true,
+		"infrastructureProviderId": *status.InfrastructureProviderID,
+		"tenantId":                 *status.TenantID,
+	}
+	bootstrap.references["provider"] = provider
+	bootstrap.references["tenant"] = tenant
+	fmt.Fprintf(bootstrap.progress, "resolved service account %s (provider %s, tenant %s)\n", org, *status.InfrastructureProviderID, *status.TenantID)
+	return true, nil
+}
+
+func (bootstrap *siteBootstrap) resolveCurrentOrganization(operation resolvedOp, org, displayName string) (map[string]any, error) {
+	bootstrap.client.Org = org
+	body, _, err := operation.execute(bootstrap.client, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s for org %q: %w", displayName, org, err)
 	}
@@ -409,112 +549,192 @@ func bootstrapOrganizationCurrent(client *Client, org, endpoint, displayName str
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s for org %q: %w", displayName, org, err)
 	}
-	fmt.Fprintf(progress, "resolved %s %s (%s)\n", displayName, org, id)
+	fmt.Fprintf(bootstrap.progress, "resolved %s %s (%s)\n", displayName, org, id)
 	return response, nil
 }
 
-func ensureBootstrapResource(client *Client, manifest *sitePrerequisiteManifest, endpoint bootstrapEndpoint, alias string, resource *bootstrapResource, context map[string]any, progress io.Writer) (map[string]any, error) {
-	resolvedValue, err := resolveBootstrapValue(resource.Request, context)
+func (operations *siteBootstrapOperations) managedGroups(manifest *sitePrerequisiteManifest) []bootstrapResourceGroup {
+	return []bootstrapResourceGroup{
+		{api: operations.instanceType, resources: manifest.InstanceTypes},
+		{api: operations.allocation, resources: manifest.Allocations},
+		{api: operations.vpc, resources: manifest.VPCs},
+		{api: operations.vpcPrefix, resources: manifest.VPCPrefixes},
+		{api: operations.instance, resources: manifest.Instances},
+	}
+}
+
+func (bootstrap *siteBootstrap) ensureResources(api bootstrapResourceAPI, resources map[string]*bootstrapResource) error {
+	resolved := map[string]any{}
+	bootstrap.references[api.category] = resolved
+	for _, alias := range sortedBootstrapAliases(resources) {
+		response, err := bootstrap.ensureResource(api, alias, resources[alias])
+		if err != nil {
+			return err
+		}
+		resolved[alias] = response
+	}
+	return nil
+}
+
+func (bootstrap *siteBootstrap) ensureResource(api bootstrapResourceAPI, alias string, resource *bootstrapResource) (map[string]any, error) {
+	resolvedValue, err := bootstrap.references.resolve(resource.Request)
 	if err != nil {
-		return nil, fmt.Errorf("resolving %s %q request: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("resolving %s %q request: %w", api.displayName, alias, err)
 	}
 	request, ok := resolvedValue.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("resolving %s %q request: %w: expected an object", endpoint.displayName, alias, errInvalidBootstrapResource)
+		return nil, fmt.Errorf("resolving %s %q request: %w: expected an object", api.displayName, alias, errInvalidBootstrapResource)
 	}
-	resourcePath := endpoint.category
-	if alias != endpoint.category {
-		resourcePath += "." + alias
-	}
-	if err := validateBootstrapResource(resourcePath, &bootstrapResource{Request: request}); err != nil {
-		return nil, fmt.Errorf("resolving %s %q request: %w", endpoint.displayName, alias, err)
+	if err := (&bootstrapResource{Request: request}).validate(api.manifestPath(alias)); err != nil {
+		return nil, fmt.Errorf("resolving %s %q request: %w", api.displayName, alias, err)
 	}
 	name, _ := request["name"].(string)
 
-	org := manifest.Tenant.Org
-	if endpoint.providerScoped {
-		org = manifest.Provider.Org
-	}
-	client.Org = org
+	bootstrap.client.Org = api.organization(bootstrap.manifest)
 
 	candidateID := resource.ID
 	if candidateID == "" {
 		candidateID, _ = request["id"].(string)
 	}
 	if candidateID != "" {
-		response, err := getBootstrapResource(client, endpoint, candidateID)
+		response, err := api.getResource(bootstrap.client, candidateID)
 		if err == nil {
-			if err := verifyBootstrapResource(endpoint, alias, request, response); err != nil {
+			if err := api.verify(alias, request, response); err != nil {
 				return nil, err
 			}
 			resource.ID = candidateID
-			fmt.Fprintf(progress, "reused %s %s (%s)\n", endpoint.displayName, name, candidateID)
+			fmt.Fprintf(bootstrap.progress, "reused %s %s (%s)\n", api.displayName, name, candidateID)
 			return response, nil
 		}
 		if !isBootstrapNotFound(err) {
-			return nil, fmt.Errorf("retrieving %s %q by ID %q: %w", endpoint.displayName, alias, candidateID, err)
+			return nil, fmt.Errorf("retrieving %s %q by ID %q: %w", api.displayName, alias, candidateID, err)
 		}
 	}
 
-	response, found, err := findBootstrapResource(client, endpoint, request)
+	response, found, err := api.findByName(bootstrap.client, request)
 	if err != nil {
-		return nil, fmt.Errorf("finding %s %q: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
 	}
 	if found {
-		if err := verifyBootstrapResource(endpoint, alias, request, response); err != nil {
+		if err := api.verify(alias, request, response); err != nil {
 			return nil, err
 		}
 		resource.ID, err = bootstrapResponseID(response)
 		if err != nil {
-			return nil, fmt.Errorf("finding %s %q: %w", endpoint.displayName, alias, err)
+			return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
 		}
-		fmt.Fprintf(progress, "reused %s %s (%s)\n", endpoint.displayName, name, resource.ID)
+		fmt.Fprintf(bootstrap.progress, "reused %s %s (%s)\n", api.displayName, name, resource.ID)
 		return response, nil
 	}
 
 	requestBody, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("encoding %s %q request: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("encoding %s %q request: %w", api.displayName, alias, err)
 	}
-	body, _, err := client.Do(http.MethodPost, endpoint.collectionPath, nil, nil, requestBody)
+	body, _, err := api.create.execute(bootstrap.client, nil, nil, requestBody)
 	if err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
-			response, found, findErr := findBootstrapResource(client, endpoint, request)
+			response, found, findErr := api.findByName(bootstrap.client, request)
 			if findErr == nil && found {
-				if verifyErr := verifyBootstrapResource(endpoint, alias, request, response); verifyErr != nil {
+				if verifyErr := api.verify(alias, request, response); verifyErr != nil {
 					return nil, verifyErr
 				}
 				resource.ID, findErr = bootstrapResponseID(response)
 				if findErr == nil {
-					fmt.Fprintf(progress, "reused %s %s (%s) after a concurrent create\n", endpoint.displayName, name, resource.ID)
+					fmt.Fprintf(bootstrap.progress, "reused %s %s (%s) after a concurrent create\n", api.displayName, name, resource.ID)
 					return response, nil
 				}
 			}
 		}
-		return nil, fmt.Errorf("creating %s %q: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("creating %s %q: %w", api.displayName, alias, err)
 	}
 	response, err = decodeBootstrapObject(body)
 	if err != nil {
-		return nil, fmt.Errorf("decoding created %s %q: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("decoding created %s %q: %w", api.displayName, alias, err)
 	}
 	resource.ID, err = bootstrapResponseID(response)
 	if err != nil {
-		return nil, fmt.Errorf("decoding created %s %q: %w", endpoint.displayName, alias, err)
+		return nil, fmt.Errorf("decoding created %s %q: %w", api.displayName, alias, err)
 	}
-	fmt.Fprintf(progress, "created %s %s (%s)\n", endpoint.displayName, name, resource.ID)
+	fmt.Fprintf(bootstrap.progress, "created %s %s (%s)\n", api.displayName, name, resource.ID)
 	return response, nil
 }
 
-func getBootstrapResource(client *Client, endpoint bootstrapEndpoint, id string) (map[string]any, error) {
-	body, _, err := client.Do(http.MethodGet, endpoint.itemPath, map[string]string{endpoint.itemIDParam: id}, nil, nil)
+func (bootstrap *siteBootstrap) discoverExistingResources(api bootstrapResourceAPI, resources map[string]*bootstrapExistingResource) error {
+	resolved := map[string]any{}
+	bootstrap.references[api.category] = resolved
+	for _, alias := range sortedBootstrapAliases(resources) {
+		response, err := bootstrap.discoverExistingResource(api, alias, resources[alias])
+		if err != nil {
+			return err
+		}
+		resolved[alias] = response
+	}
+	return nil
+}
+
+func (bootstrap *siteBootstrap) discoverExistingResource(api bootstrapResourceAPI, alias string, resource *bootstrapExistingResource) (map[string]any, error) {
+	resolvedValue, err := bootstrap.references.resolve(resource.Match)
+	if err != nil {
+		return nil, fmt.Errorf("resolving %s %q match: %w", api.displayName, alias, err)
+	}
+	match, ok := resolvedValue.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("resolving %s %q match: %w: expected an object", api.displayName, alias, errInvalidBootstrapResource)
+	}
+	bootstrap.client.Org = api.organization(bootstrap.manifest)
+
+	var response map[string]any
+	if resource.ID != "" {
+		response, err = api.getResource(bootstrap.client, resource.ID)
+		if err != nil {
+			return nil, fmt.Errorf("retrieving %s %q by ID %q: %w", api.displayName, alias, resource.ID, err)
+		}
+		if !bootstrapValueMatches(match, response) {
+			return nil, fmt.Errorf("%w: existing %s %q does not match the manifest selector", errBootstrapDrift, api.displayName, alias)
+		}
+	} else {
+		var found bool
+		response, found, err = api.findMatching(bootstrap.client, match)
+		if err != nil {
+			return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
+		}
+		if !found {
+			return nil, fmt.Errorf("%w: %s %q is not available yet; wait for Site fabric-prefix inventory and rerun", errInvalidBootstrapResource, api.displayName, alias)
+		}
+		resource.ID, err = bootstrapResponseID(response)
+		if err != nil {
+			return nil, fmt.Errorf("finding %s %q: %w", api.displayName, alias, err)
+		}
+	}
+	fmt.Fprintf(bootstrap.progress, "resolved %s %s (%s)\n", api.displayName, alias, resource.ID)
+	return response, nil
+}
+
+func (api bootstrapResourceAPI) organization(manifest *sitePrerequisiteManifest) string {
+	if api.providerScoped {
+		return manifest.Provider.Org
+	}
+	return manifest.Tenant.Org
+}
+
+func (api bootstrapResourceAPI) manifestPath(alias string) string {
+	if alias == api.category {
+		return api.category
+	}
+	return api.category + "." + alias
+}
+
+func (api bootstrapResourceAPI) getResource(client *Client, id string) (map[string]any, error) {
+	body, _, err := api.get.execute(client, map[string]string{api.itemIDParam: id}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	return decodeBootstrapObject(body)
 }
 
-func findBootstrapResource(client *Client, endpoint bootstrapEndpoint, request map[string]any) (map[string]any, bool, error) {
+func (api bootstrapResourceAPI) findByName(client *Client, request map[string]any) (map[string]any, bool, error) {
 	name, _ := request["name"].(string)
 	var matches []map[string]any
 	for page := 1; page <= bootstrapMaxPages; page++ {
@@ -523,7 +743,7 @@ func findBootstrapResource(client *Client, endpoint bootstrapEndpoint, request m
 			"pageNumber": strconv.Itoa(page),
 			"pageSize":   strconv.Itoa(bootstrapPageSize),
 		}
-		body, _, err := client.Do(http.MethodGet, endpoint.collectionPath, nil, query, nil)
+		body, _, err := api.list.execute(client, nil, query, nil)
 		if err != nil {
 			return nil, false, err
 		}
@@ -549,6 +769,73 @@ func findBootstrapResource(client *Client, endpoint bootstrapEndpoint, request m
 	return matches[0], true, nil
 }
 
+func (api bootstrapResourceAPI) findMatching(client *Client, match map[string]any) (map[string]any, bool, error) {
+	query := api.queryFromMatch(match)
+	var matches []map[string]any
+	for page := 1; page <= bootstrapMaxPages; page++ {
+		query["pageNumber"] = strconv.Itoa(page)
+		query["pageSize"] = strconv.Itoa(bootstrapPageSize)
+		body, _, err := api.list.execute(client, nil, query, nil)
+		if err != nil {
+			return nil, false, err
+		}
+		items, err := decodeBootstrapList(body)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, item := range items {
+			if bootstrapValueMatches(match, item) {
+				matches = append(matches, item)
+			}
+		}
+		if len(items) < bootstrapPageSize {
+			break
+		}
+	}
+	if len(matches) == 0 {
+		return nil, false, nil
+	}
+	if len(matches) > 1 {
+		return nil, false, fmt.Errorf("%w: multiple resources matched %s selector", errInvalidBootstrapResource, api.displayName)
+	}
+	return matches[0], true, nil
+}
+
+func (api bootstrapResourceAPI) queryFromMatch(match map[string]any) map[string]string {
+	query := map[string]string{}
+	for _, parameter := range api.list.parameters() {
+		if parameter.In != "query" {
+			continue
+		}
+		value, ok := match[parameter.Name]
+		if !ok {
+			continue
+		}
+		switch value.(type) {
+		case string, bool, json.Number, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+			query[parameter.Name] = fmt.Sprint(value)
+		}
+	}
+	return query
+}
+
+func (api bootstrapResourceAPI) verify(alias string, request, actual map[string]any) error {
+	differences := bootstrapSubsetDifferences(request, actual, "")
+	if len(differences) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: existing %s %q does not match the manifest request: %s", errBootstrapDrift, api.displayName, alias, strings.Join(differences, "; "))
+}
+
+func sortedBootstrapAliases[T any](resources map[string]T) []string {
+	aliases := make([]string, 0, len(resources))
+	for alias := range resources {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
 func bootstrapIdentityMatches(request, actual map[string]any) bool {
 	for _, field := range []string{"siteId", "tenantId", "vpcId"} {
 		expected, requested := request[field]
@@ -563,12 +850,34 @@ func bootstrapIdentityMatches(request, actual map[string]any) bool {
 	return true
 }
 
-func verifyBootstrapResource(endpoint bootstrapEndpoint, alias string, request, actual map[string]any) error {
-	differences := bootstrapSubsetDifferences(request, actual, "")
-	if len(differences) == 0 {
-		return nil
+func bootstrapValueMatches(expected, actual any) bool {
+	switch expectedValue := expected.(type) {
+	case map[string]any:
+		actualValue, ok := actual.(map[string]any)
+		if !ok {
+			return false
+		}
+		for key, value := range expectedValue {
+			observed, present := actualValue[key]
+			if !present || !bootstrapValueMatches(value, observed) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		actualValue, ok := actual.([]any)
+		if !ok || len(expectedValue) != len(actualValue) {
+			return false
+		}
+		for index, value := range expectedValue {
+			if !bootstrapValueMatches(value, actualValue[index]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return bootstrapScalarEqual(expected, actual)
 	}
-	return fmt.Errorf("%w: existing %s %q does not match the manifest request: %s", errBootstrapDrift, endpoint.displayName, alias, strings.Join(differences, "; "))
 }
 
 // bootstrapSubsetDifferences compares fields returned by the API with the
@@ -672,12 +981,12 @@ func bootstrapPath(path string) string {
 	return path
 }
 
-func resolveBootstrapValue(value any, context map[string]any) (any, error) {
+func (references bootstrapReferences) resolve(value any) (any, error) {
 	switch typed := value.(type) {
 	case map[string]any:
 		resolved := make(map[string]any, len(typed))
 		for key, item := range typed {
-			value, err := resolveBootstrapValue(item, context)
+			value, err := references.resolve(item)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", key, err)
 			}
@@ -687,7 +996,7 @@ func resolveBootstrapValue(value any, context map[string]any) (any, error) {
 	case []any:
 		resolved := make([]any, len(typed))
 		for index, item := range typed {
-			value, err := resolveBootstrapValue(item, context)
+			value, err := references.resolve(item)
 			if err != nil {
 				return nil, fmt.Errorf("item %d: %w", index, err)
 			}
@@ -710,14 +1019,14 @@ func resolveBootstrapValue(value any, context map[string]any) (any, error) {
 			return typed, nil
 		}
 		if len(matches) == 1 && matches[0][0] == 0 && matches[0][1] == len(typed) {
-			return lookupBootstrapReference(context, typed[matches[0][2]:matches[0][3]])
+			return references.lookup(typed[matches[0][2]:matches[0][3]])
 		}
 
 		var result strings.Builder
 		last := 0
 		for _, match := range matches {
 			result.WriteString(typed[last:match[0]])
-			resolved, err := lookupBootstrapReference(context, typed[match[2]:match[3]])
+			resolved, err := references.lookup(typed[match[2]:match[3]])
 			if err != nil {
 				return nil, err
 			}
@@ -735,12 +1044,12 @@ func bootstrapReferenceSyntaxMalformed(value string) bool {
 	return strings.Contains(value, "${") || strings.Contains(value, "}")
 }
 
-func lookupBootstrapReference(context map[string]any, reference string) (any, error) {
+func (references bootstrapReferences) lookup(reference string) (any, error) {
 	parts := strings.Split(reference, ".")
 	if len(parts) == 0 || parts[0] == "" {
 		return nil, fmt.Errorf("%w: empty reference %q", errBootstrapReference, reference)
 	}
-	var current any = context
+	var current any = map[string]any(references)
 	for _, part := range parts {
 		switch typed := current.(type) {
 		case map[string]any:

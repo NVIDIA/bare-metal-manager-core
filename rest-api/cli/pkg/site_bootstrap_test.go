@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +42,8 @@ site:
 		{name: "tenant org required", manifest: strings.Replace(valid, "tenant-org", "", 1), errString: "tenant.org is required"},
 		{name: "site required", manifest: strings.Replace(valid, "site:\n  request:\n    name: test-site\n", "", 1), errString: "site is required"},
 		{name: "resource name required", manifest: strings.Replace(valid, "name: test-site", "description: missing-name", 1), errString: "site.request.name is required"},
+		{name: "manual IP blocks are not supported", manifest: valid + "ipBlocks:\n  fabric:\n    request:\n      name: manual\n", errString: "field ipBlocks not found"},
+		{name: "site IP block selector required", manifest: valid + "siteIpBlocks:\n  fabric: {}\n", errString: "siteIpBlocks.fabric.id or siteIpBlocks.fabric.match is required"},
 		{name: "unknown field", manifest: valid + "unknown: true\n", errString: "field unknown not found"},
 		{name: "multiple documents", manifest: valid + "---\n{}\n", errString: "multiple YAML documents"},
 	}
@@ -82,27 +85,29 @@ func TestResolveBootstrapValue(t *testing.T) {
 		name      string
 		input     any
 		expected  any
+		errorIs   error
 		errString string
 	}{
 		{name: "whole value", input: "${site.id}", expected: "site-1"},
 		{name: "embedded value", input: "site-${site.id}", expected: "site-site-1"},
 		{name: "array traversal", input: "${allocations.network.allocationConstraints.0.derivedResourceId}", expected: "ipblock-derived-1"},
 		{name: "nested object", input: map[string]any{"siteId": "${site.id}"}, expected: map[string]any{"siteId": "site-1"}},
-		{name: "missing reference", input: "${vpcs.default.id}", errString: "does not exist"},
-		{name: "invalid array index", input: "${allocations.network.allocationConstraints.4.derivedResourceId}", errString: "does not exist"},
-		{name: "unclosed reference", input: "site-${site.id", errString: "malformed reference"},
-		{name: "unmatched closing brace", input: "site-${site.id}}", errString: "malformed reference"},
+		{name: "missing reference", input: "${vpcs.default.id}", errorIs: errBootstrapReference, errString: "does not exist"},
+		{name: "invalid array index", input: "${allocations.network.allocationConstraints.4.derivedResourceId}", errorIs: errBootstrapReference, errString: "does not exist"},
+		{name: "unclosed reference", input: "site-${site.id", errorIs: errBootstrapReference, errString: "malformed reference"},
+		{name: "unmatched closing brace", input: "site-${site.id}}", errorIs: errBootstrapReference, errString: "malformed reference"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			actual, err := resolveBootstrapValue(test.input, context)
+			actual, err := bootstrapReferences(context).resolve(test.input)
 			if test.errString == "" {
 				require.NoError(t, err)
 				assert.Equal(t, test.expected, actual)
 				return
 			}
 			require.Error(t, err)
+			require.ErrorIs(t, err, test.errorIs)
 			assert.Contains(t, err.Error(), test.errString)
 		})
 	}
@@ -113,21 +118,23 @@ func TestEnsureBootstrapResourceRevalidatesResolvedRequest(t *testing.T) {
 	resource := &bootstrapResource{Request: map[string]any{"name": "${site}"}}
 	context := map[string]any{"site": map[string]any{"id": "site-1"}}
 	client := NewClient("http://invalid.example", "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, new(bytes.Buffer))
+	bootstrap.references = context
 
-	_, err := ensureBootstrapResource(client, manifest, bootstrapIPBlockEndpoint, "fabric", resource, context, new(bytes.Buffer))
+	_, err := bootstrap.ensureResource(bootstrap.operations.instanceType, "compute", resource)
 	require.ErrorIs(t, err, errInvalidBootstrapResource)
-	assert.Contains(t, err.Error(), "ipBlocks.fabric.request.name is required")
+	assert.Contains(t, err.Error(), "instanceTypes.compute.request.name is required")
 }
 
 func TestEnsureBootstrapResourcePreservesDriftAfterConflict(t *testing.T) {
-	lookupCount := 0
+	requests := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
+		requests = append(requests, request.Method)
 
 		switch request.Method {
 		case http.MethodGet:
-			lookupCount++
-			if lookupCount == 1 {
+			if len(requests) == 1 {
 				writeBootstrapTestJSON(response, []map[string]any{})
 				return
 			}
@@ -148,10 +155,12 @@ func TestEnsureBootstrapResourcePreservesDriftAfterConflict(t *testing.T) {
 	manifest := completeBootstrapTestManifest()
 	manifest.Site.Request["description"] = "expected description"
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, new(bytes.Buffer))
 
-	_, err := ensureBootstrapResource(client, manifest, bootstrapSiteEndpoint, "site", manifest.Site, nil, new(bytes.Buffer))
+	_, err := bootstrap.ensureResource(bootstrap.operations.site, "site", manifest.Site)
 	require.ErrorIs(t, err, errBootstrapDrift)
 	assert.Contains(t, err.Error(), "description is different description, want expected description")
+	assert.Equal(t, []string{http.MethodGet, http.MethodPost, http.MethodGet}, requests)
 }
 
 func TestBootstrapScalarEqual(t *testing.T) {
@@ -184,18 +193,28 @@ func TestBootstrapScalarEqual(t *testing.T) {
 
 func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.put("provider-org", "ipblock", map[string]any{
+		"id":           "site-ipblock-1",
+		"name":         "site-fabric-ipv4-10-0-0-0-16",
+		"siteId":       "site-1",
+		"routingType":  "DatacenterOnly",
+		"prefix":       "10.0.0.0",
+		"prefixLength": 16,
+	})
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 
 	manifest := completeBootstrapTestManifest()
 	client := NewClient(server.URL, "original-org", "token", nil, false)
 	var progress bytes.Buffer
+	bootstrap := newTestSiteBootstrap(t, client, manifest, &progress)
 
-	require.NoError(t, bootstrapSitePrerequisites(client, manifest, &progress))
+	require.NoError(t, bootstrap.apply())
 	assert.Equal(t, "original-org", client.Org)
+	require.NotEmpty(t, api.getOrder)
+	assert.Equal(t, "provider-org/service-account/current", api.getOrder[0])
 	assert.Equal(t, []string{
 		"provider-org/site",
-		"provider-org/ipblock",
 		"provider-org/instance/type",
 		"provider-org/allocation",
 		"tenant-org/vpc",
@@ -205,7 +224,7 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 	assert.Equal(t, "provider-id", manifest.Provider.ID)
 	assert.Equal(t, "tenant-id", manifest.Tenant.ID)
 	assert.Equal(t, "site-1", manifest.Site.ID)
-	assert.Equal(t, "ipblock-1", manifest.IPBlocks["fabric"].ID)
+	assert.Equal(t, "site-ipblock-1", manifest.SiteIPBlocks["fabric"].ID)
 	assert.Equal(t, "instance-type-1", manifest.InstanceTypes["compute"].ID)
 	assert.Equal(t, "allocation-1", manifest.Allocations["network"].ID)
 	assert.Equal(t, "vpc-1", manifest.VPCs["tenant"].ID)
@@ -222,7 +241,8 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 
 	firstPostCount := len(api.postOrder)
 	progress.Reset()
-	require.NoError(t, bootstrapSitePrerequisites(client, manifest, &progress))
+	bootstrap = newTestSiteBootstrap(t, client, manifest, &progress)
+	require.NoError(t, bootstrap.apply())
 	assert.Len(t, api.postOrder, firstPostCount)
 	assert.Contains(t, progress.String(), "reused site test-site (site-1)")
 	assert.Contains(t, progress.String(), "reused instance worker-1 (instance-1)")
@@ -230,14 +250,16 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 
 func TestBootstrapSitePrerequisitesRecoversWhenRecordedIDIsMissing(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.addSiteIPBlock("provider-org")
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 
 	manifest := completeBootstrapTestManifest()
 	manifest.Site.ID = "site-from-another-installation"
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
 
-	require.NoError(t, bootstrapSitePrerequisites(client, manifest, nil))
+	require.NoError(t, bootstrap.apply())
 	assert.Equal(t, "site-1", manifest.Site.ID)
 	assert.Contains(t, api.postOrder, "provider-org/site")
 }
@@ -255,8 +277,9 @@ func TestBootstrapSitePrerequisitesRejectsExistingResourceDrift(t *testing.T) {
 	manifest := completeBootstrapTestManifest()
 	manifest.Site.Request["description"] = "expected description"
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
 
-	err := bootstrapSitePrerequisites(client, manifest, nil)
+	err := bootstrap.apply()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "existing site \"site\" does not match")
 	assert.Contains(t, err.Error(), "description is different description, want expected description")
@@ -286,28 +309,94 @@ func TestNewAppIncludesSiteBootstrapCommand(t *testing.T) {
 	assert.True(t, bootstrapCommandFound)
 }
 
-func TestSiteBootstrapEndpointsMatchEmbeddedSpec(t *testing.T) {
+func TestSiteBootstrapResolvesEmbeddedOpenAPIOperations(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+	operations, err := newSiteBootstrapOperations(spec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "get-current-service-account", operations.serviceAccount.op.OperationID)
+	assert.Equal(t, "create-site", operations.site.create.op.OperationID)
+	assert.Equal(t, "get-all-ipblock", operations.siteIPBlock.list.op.OperationID)
+	assert.Nil(t, operations.siteIPBlock.create.op)
+	assert.Equal(t, "create-instance", operations.instance.create.op.OperationID)
+}
+
+func TestSiteBootstrapUsesPathsFromOpenAPISpec(t *testing.T) {
 	spec, err := ParseSpec(openapi.Spec)
 	require.NoError(t, err)
 
-	for _, endpoint := range []bootstrapEndpoint{
-		bootstrapSiteEndpoint,
-		bootstrapIPBlockEndpoint,
-		bootstrapInstanceTypeEndpoint,
-		bootstrapAllocationEndpoint,
-		bootstrapVPCEndpoint,
-		bootstrapVPCPrefixEndpoint,
-		bootstrapInstanceEndpoint,
-	} {
-		collection, ok := spec.Paths[endpoint.collectionPath]
-		require.Truef(t, ok, "collection path %s is missing", endpoint.collectionPath)
-		assert.NotNilf(t, collection.Get, "collection GET %s is missing", endpoint.collectionPath)
-		assert.NotNilf(t, collection.Post, "collection POST %s is missing", endpoint.collectionPath)
+	const originalPath = "/v2/org/{org}/nico/site"
+	const replacementPath = "/custom/org/{org}/site"
+	pathItem := spec.Paths[originalPath]
+	delete(spec.Paths, originalPath)
+	spec.Paths[replacementPath] = pathItem
 
-		item, ok := spec.Paths[endpoint.itemPath]
-		require.Truef(t, ok, "item path %s is missing", endpoint.itemPath)
-		assert.NotNilf(t, item.Get, "item GET %s is missing", endpoint.itemPath)
+	operations, err := newSiteBootstrapOperations(spec)
+	require.NoError(t, err)
+	assert.Equal(t, replacementPath, operations.site.list.path)
+	assert.Equal(t, replacementPath, operations.site.create.path)
+}
+
+func TestBootstrapSitePrerequisitesUsesServiceAccountInitialization(t *testing.T) {
+	api := newBootstrapTestAPI()
+	api.serviceAccountEnabled = true
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := &sitePrerequisiteManifest{
+		APIVersion: sitePrerequisiteAPIVersion,
+		Kind:       sitePrerequisiteKind,
+		Provider:   bootstrapOrganization{Org: "service-org"},
+		Tenant:     bootstrapOrganization{Org: "service-org"},
+		Site:       &bootstrapResource{Request: map[string]any{"name": "service-site"}},
 	}
+	client := NewClient(server.URL, "service-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+
+	require.NoError(t, bootstrap.apply())
+	assert.Equal(t, "service-provider-id", manifest.Provider.ID)
+	assert.Equal(t, "service-tenant-id", manifest.Tenant.ID)
+	assert.Contains(t, api.getOrder, "service-org/service-account/current")
+	assert.NotContains(t, api.getOrder, "service-org/infrastructure-provider/current")
+	assert.NotContains(t, api.getOrder, "service-org/tenant/current")
+}
+
+func TestBootstrapSitePrerequisitesRejectsSplitOrganizationsInServiceAccountMode(t *testing.T) {
+	api := newBootstrapTestAPI()
+	api.serviceAccountEnabled = true
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := &sitePrerequisiteManifest{
+		APIVersion: sitePrerequisiteAPIVersion,
+		Kind:       sitePrerequisiteKind,
+		Provider:   bootstrapOrganization{Org: "provider-org"},
+		Tenant:     bootstrapOrganization{Org: "tenant-org"},
+		Site:       &bootstrapResource{Request: map[string]any{"name": "service-site"}},
+	}
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+
+	err := bootstrap.apply()
+	require.ErrorIs(t, err, errInvalidBootstrapManifest)
+	assert.Contains(t, err.Error(), "service account mode requires provider.org and tenant.org to match")
+	assert.Empty(t, api.postOrder)
+}
+
+func TestBootstrapSitePrerequisitesWaitsForAutoCreatedSiteIPBlock(t *testing.T) {
+	api := newBootstrapTestAPI()
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := completeBootstrapTestManifest()
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+
+	err := bootstrap.apply()
+	require.ErrorIs(t, err, errInvalidBootstrapResource)
+	assert.Contains(t, err.Error(), "wait for Site fabric-prefix inventory and rerun")
+	assert.NotContains(t, api.postOrder, "provider-org/ipblock")
 }
 
 func TestSiteBootstrapCommandWritesReplayableManifest(t *testing.T) {
@@ -362,14 +451,12 @@ func completeBootstrapTestManifest() *sitePrerequisiteManifest {
 		Site: &bootstrapResource{Request: map[string]any{
 			"name": "test-site",
 		}},
-		IPBlocks: map[string]*bootstrapResource{
-			"fabric": {Request: map[string]any{
-				"name":            "fabric-network",
-				"siteId":          "${site.id}",
-				"routingType":     "DatacenterOnly",
-				"prefix":          "10.0.0.0",
-				"prefixLength":    16,
-				"protocolVersion": "IPv4",
+		SiteIPBlocks: map[string]*bootstrapExistingResource{
+			"fabric": {Match: map[string]any{
+				"siteId":       "${site.id}",
+				"routingType":  "DatacenterOnly",
+				"prefix":       "10.0.0.0",
+				"prefixLength": 16,
 			}},
 		},
 		InstanceTypes: map[string]*bootstrapResource{
@@ -387,7 +474,7 @@ func completeBootstrapTestManifest() *sitePrerequisiteManifest {
 				"allocationConstraints": []any{
 					map[string]any{
 						"resourceType":    "IPBlock",
-						"resourceTypeId":  "${ipBlocks.fabric.id}",
+						"resourceTypeId":  "${siteIpBlocks.fabric.id}",
 						"constraintType":  "OnDemand",
 						"constraintValue": 24,
 					},
@@ -425,11 +512,23 @@ func completeBootstrapTestManifest() *sitePrerequisiteManifest {
 	}
 }
 
+func newTestSiteBootstrap(t *testing.T, client *Client, manifest *sitePrerequisiteManifest, progress io.Writer) *siteBootstrap {
+	t.Helper()
+
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+	bootstrap, err := newSiteBootstrap(spec, client, manifest, progress)
+	require.NoError(t, err)
+	return bootstrap
+}
+
 type bootstrapTestAPI struct {
-	resources   map[string]map[string]map[string]any
-	postOrder   []string
-	postBodies  map[string][]map[string]any
-	nextIDByKey map[string]int
+	resources             map[string]map[string]map[string]any
+	postOrder             []string
+	getOrder              []string
+	postBodies            map[string][]map[string]any
+	nextIDByKey           map[string]int
+	serviceAccountEnabled bool
 }
 
 func newBootstrapTestAPI() *bootstrapTestAPI {
@@ -448,6 +547,19 @@ func (api *bootstrapTestAPI) ServeHTTP(response http.ResponseWriter, request *ht
 		return
 	}
 	org, resourcePath := parts[0], parts[1]
+	if request.Method == http.MethodGet {
+		api.getOrder = append(api.getOrder, org+"/"+resourcePath)
+	}
+
+	if request.Method == http.MethodGet && resourcePath == "service-account/current" {
+		payload := map[string]any{"enabled": api.serviceAccountEnabled}
+		if api.serviceAccountEnabled {
+			payload["infrastructureProviderId"] = "service-provider-id"
+			payload["tenantId"] = "service-tenant-id"
+		}
+		writeBootstrapTestJSON(response, payload)
+		return
+	}
 
 	if request.Method == http.MethodGet && resourcePath == "infrastructure-provider/current" {
 		writeBootstrapTestJSON(response, map[string]any{"id": "provider-id", "org": org})
@@ -539,6 +651,17 @@ func (api *bootstrapTestAPI) collection(org, collection string) map[string]map[s
 
 func (api *bootstrapTestAPI) put(org, collection string, item map[string]any) {
 	api.collection(org, collection)[fmt.Sprint(item["id"])] = cloneBootstrapTestMap(item)
+}
+
+func (api *bootstrapTestAPI) addSiteIPBlock(org string) {
+	api.put(org, "ipblock", map[string]any{
+		"id":           "site-ipblock-1",
+		"name":         "site-fabric-ipv4-10-0-0-0-16",
+		"siteId":       "site-1",
+		"routingType":  "DatacenterOnly",
+		"prefix":       "10.0.0.0",
+		"prefixLength": 16,
+	})
 }
 
 func (api *bootstrapTestAPI) get(org, collection, id string) map[string]any {

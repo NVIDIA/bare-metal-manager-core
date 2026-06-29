@@ -5,6 +5,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,6 +17,11 @@ import (
 	cli "github.com/urfave/cli/v2"
 )
 
+var (
+	errOpenAPIOperationUnavailable = errors.New("OpenAPI operation is unavailable")
+	errOpenAPIResourceIDMissing    = errors.New("OpenAPI operation has no resource ID path parameter")
+)
+
 type resolvedOp struct {
 	tag        string
 	action     string
@@ -23,6 +29,42 @@ type resolvedOp struct {
 	path       string
 	op         *Operation
 	pathParams []Parameter
+}
+
+type operationIndex map[string]resolvedOp
+
+func newOperationIndex(spec *Spec) operationIndex {
+	index := make(operationIndex)
+	for _, operation := range collectOperations(spec) {
+		index[operation.op.OperationID] = operation
+	}
+	return index
+}
+
+func (index operationIndex) require(operationID string) (resolvedOp, error) {
+	operation, ok := index[operationID]
+	if !ok {
+		return resolvedOp{}, fmt.Errorf("%w: %q", errOpenAPIOperationUnavailable, operationID)
+	}
+	return operation, nil
+}
+
+func (operation resolvedOp) parameters() []Parameter {
+	parameters := append([]Parameter{}, operation.pathParams...)
+	return append(parameters, operation.op.Parameters...)
+}
+
+func (operation resolvedOp) resourceIDParameter() (string, error) {
+	for _, parameter := range operation.parameters() {
+		if parameter.In == "path" && parameter.Name != "org" {
+			return parameter.Name, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %q", errOpenAPIResourceIDMissing, operation.op.OperationID)
+}
+
+func (operation resolvedOp) execute(client *Client, pathParams, queryParams map[string]string, body []byte) ([]byte, http.Header, error) {
+	return client.Do(operation.method, operation.path, pathParams, queryParams, body)
 }
 
 // bodyField tracks a request body property for type-aware flag reading.
@@ -298,8 +340,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 
 	var argParams []string
 
-	allParams := append([]Parameter{}, ro.pathParams...)
-	allParams = append(allParams, ro.op.Parameters...)
+	allParams := ro.parameters()
 
 	for _, p := range allParams {
 		if p.Name == "org" {
@@ -426,7 +467,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 				return fetchAllPages(client, ro.method, ro.path, pathParams, queryParams, c.String("output"))
 			}
 
-			respBody, respHeaders, err := client.Do(ro.method, ro.path, pathParams, queryParams, body)
+			respBody, respHeaders, err := ro.execute(client, pathParams, queryParams, body)
 			if err != nil {
 				return err
 			}

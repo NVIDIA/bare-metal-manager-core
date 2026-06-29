@@ -31,7 +31,7 @@ func NewApp(specData []byte) (*cli.App, error) {
 	}
 
 	commands := BuildCommands(spec)
-	commands = addSiteBootstrapCommand(commands)
+	commands = addSiteBootstrapCommand(commands, spec)
 	commands = append(commands, LoginCommand())
 	commands = append(commands, InitCommand())
 	commands = append(commands, completionCommand())

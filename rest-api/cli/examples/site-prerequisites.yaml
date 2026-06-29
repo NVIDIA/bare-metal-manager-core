@@ -14,16 +14,16 @@ site:
     name: sjc4
     description: San Jose site 4
 
-ipBlocks:
+siteIpBlocks:
   fabric:
-    request:
-      name: sjc4-fabric
-      description: Tenant network pool for SJC4
+    # Site IP Blocks are created automatically from fabric prefixes reported
+    # by the Site. This selector discovers the existing block; it never posts
+    # a Provider-created IP Block. Rerun bootstrap if inventory is not ready.
+    match:
       siteId: "${site.id}"
       routingType: DatacenterOnly
       prefix: 10.40.0.0
       prefixLength: 16
-      protocolVersion: IPv4
 
 instanceTypes:
   compute:
@@ -48,7 +48,7 @@ allocations:
       siteId: "${site.id}"
       allocationConstraints:
         - resourceType: IPBlock
-          resourceTypeId: "${ipBlocks.fabric.id}"
+          resourceTypeId: "${siteIpBlocks.fabric.id}"
           constraintType: OnDemand
           constraintValue: 24
   compute:

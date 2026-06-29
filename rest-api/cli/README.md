@@ -211,7 +211,7 @@ Run `nicocli <command> --help` for the full per-command flag list, including spe
 
 ### Bootstrap site prerequisites from a manifest
 
-`nicocli site bootstrap` creates or verifies the REST resources needed to use a Site. It initializes the Provider and Tenant, then processes the Site, IP Blocks, Instance Types, Allocations, VPCs, VPC Prefixes, and optional Instances in dependency order.
+`nicocli site bootstrap` creates or verifies the REST resources needed to use a Site. It initializes the calling organization, then processes the Site, auto-created Site IP Blocks, Instance Types, Allocations, VPCs, VPC Prefixes, and optional Instances in dependency order.
 
 Start from the [example manifest](examples/site-prerequisites.yaml), replace the organization and resource values, and run:
 
@@ -221,11 +221,13 @@ nicocli site bootstrap \
   --output-file site-prerequisites.resolved.yaml
 ```
 
-The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the created or existing Site ID, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
+The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the created or existing Site ID, `${siteIpBlocks.fabric.id}` resolves to a Site IP Block selected from the fabric-prefix inventory, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
 
-The command looks up resources by a recorded ID first, then by exact name and scope. Matching resources are reused, while a matching resource whose returned configuration differs from the request stops the workflow with a drift error. The output file preserves the requests and records every resolved resource ID, so it can be replayed after an interrupted run or against a replacement installation. If a recorded ID does not exist in the target installation, the command falls back to name-and-scope discovery before creating the resource.
+Site IP Blocks are not created by this command. NICo automatically creates them from fabric prefixes reported by the Site; the manifest's `siteIpBlocks` entries are read-only selectors for those existing resources. If the Site inventory has not arrived yet, bootstrap stops with a rerun message instead of posting a Provider-owned IP Block.
 
-Provider and Tenant organization initialization uses the same token as the rest of the command, so that token must have the required role in both organizations. `provider.org` may be omitted when the Provider organization already comes from `--org`, `NICO_ORG`, or the selected CLI config. Site registration and machine readiness are external asynchronous steps; if a dependent REST operation is not ready yet, complete that step and rerun the same manifest.
+For managed resources, the command looks up a recorded ID first, then uses exact name and scope. Matching resources are reused, while a matching resource whose returned configuration differs from the request stops the workflow with a drift error. The output file preserves the requests, selectors, and resolved resource IDs so it can be replayed after an interrupted run or against a replacement installation. All requests use operation paths and methods resolved from the same embedded OpenAPI model that builds the regular CLI commands.
+
+Bootstrap first calls the Service Account endpoint for `provider.org`. In Service Account mode that single call initializes and returns both identities, and the Provider and Tenant organization names must match; otherwise bootstrap falls back to the Provider and Tenant current endpoints. Separate Provider and Tenant organizations use the same token, so it must have the required role in both organizations. `provider.org` may be omitted when the Provider organization already comes from `--org`, `NICO_ORG`, or the selected CLI config. Site registration, fabric-prefix inventory, and machine readiness are external asynchronous steps; if a dependency is not ready yet, complete that step and rerun the same manifest.
 
 ## Authentication
 
