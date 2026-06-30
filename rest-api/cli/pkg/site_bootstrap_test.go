@@ -20,8 +20,6 @@ import (
 
 func TestSitePrerequisiteManifestValidation(t *testing.T) {
 	valid := `
-apiVersion: nico.nvidia.com/v1alpha1
-kind: SitePrerequisites
 provider:
   org: provider-org
 tenant:
@@ -37,13 +35,11 @@ site:
 		errString string
 	}{
 		{name: "valid", manifest: valid},
-		{name: "wrong api version", manifest: strings.Replace(valid, sitePrerequisiteAPIVersion, "v1", 1), errString: "apiVersion must be"},
-		{name: "wrong kind", manifest: strings.Replace(valid, sitePrerequisiteKind, "Site", 1), errString: "kind must be"},
 		{name: "tenant org required", manifest: strings.Replace(valid, "tenant-org", "", 1), errString: "tenant.org is required"},
 		{name: "site required", manifest: strings.Replace(valid, "site:\n  request:\n    name: test-site\n", "", 1), errString: "site is required"},
 		{name: "resource name required", manifest: strings.Replace(valid, "name: test-site", "description: missing-name", 1), errString: "site.request.name is required"},
 		{name: "manual IP blocks are not supported", manifest: valid + "ipBlocks:\n  fabric:\n    request:\n      name: manual\n", errString: "field ipBlocks not found"},
-		{name: "site IP block selector required", manifest: valid + "siteIpBlocks:\n  fabric: {}\n", errString: "siteIpBlocks.fabric.id or siteIpBlocks.fabric.match is required"},
+		{name: "site IP block selector required", manifest: valid + "siteIpBlocks: {}\n", errString: "siteIpBlocks.id or siteIpBlocks.match is required"},
 		{name: "unknown field", manifest: valid + "unknown: true\n", errString: "field unknown not found"},
 		{name: "multiple documents", manifest: valid + "---\n{}\n", errString: "multiple YAML documents"},
 	}
@@ -224,7 +220,7 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 	assert.Equal(t, "provider-id", manifest.Provider.ID)
 	assert.Equal(t, "tenant-id", manifest.Tenant.ID)
 	assert.Equal(t, "site-1", manifest.Site.ID)
-	assert.Equal(t, "site-ipblock-1", manifest.SiteIPBlocks["fabric"].ID)
+	assert.Equal(t, "site-ipblock-1", manifest.SiteIPBlocks.ID)
 	assert.Equal(t, "instance-type-1", manifest.InstanceTypes["compute"].ID)
 	assert.Equal(t, "allocation-1", manifest.Allocations["network"].ID)
 	assert.Equal(t, "vpc-1", manifest.VPCs["tenant"].ID)
@@ -345,11 +341,9 @@ func TestBootstrapSitePrerequisitesUsesServiceAccountInitialization(t *testing.T
 	t.Cleanup(server.Close)
 
 	manifest := &sitePrerequisiteManifest{
-		APIVersion: sitePrerequisiteAPIVersion,
-		Kind:       sitePrerequisiteKind,
-		Provider:   bootstrapOrganization{Org: "service-org"},
-		Tenant:     bootstrapOrganization{Org: "service-org"},
-		Site:       &bootstrapResource{Request: map[string]any{"name": "service-site"}},
+		Provider: bootstrapOrganization{Org: "service-org"},
+		Tenant:   bootstrapOrganization{Org: "service-org"},
+		Site:     &bootstrapResource{Request: map[string]any{"name": "service-site"}},
 	}
 	client := NewClient(server.URL, "service-org", "token", nil, false)
 	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
@@ -369,11 +363,9 @@ func TestBootstrapSitePrerequisitesRejectsSplitOrganizationsInServiceAccountMode
 	t.Cleanup(server.Close)
 
 	manifest := &sitePrerequisiteManifest{
-		APIVersion: sitePrerequisiteAPIVersion,
-		Kind:       sitePrerequisiteKind,
-		Provider:   bootstrapOrganization{Org: "provider-org"},
-		Tenant:     bootstrapOrganization{Org: "tenant-org"},
-		Site:       &bootstrapResource{Request: map[string]any{"name": "service-site"}},
+		Provider: bootstrapOrganization{Org: "provider-org"},
+		Tenant:   bootstrapOrganization{Org: "tenant-org"},
+		Site:     &bootstrapResource{Request: map[string]any{"name": "service-site"}},
 	}
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
 	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
@@ -423,7 +415,7 @@ func TestDiscoverExistingResourceFallsBackFromStaleIDToMatch(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	manifest := completeBootstrapTestManifest()
-	resource := manifest.SiteIPBlocks["fabric"]
+	resource := manifest.SiteIPBlocks
 	resource.ID = "stale-site-ipblock"
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
 	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
@@ -445,8 +437,6 @@ func TestSiteBootstrapCommandWritesReplayableManifest(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	input := `
-apiVersion: nico.nvidia.com/v1alpha1
-kind: SitePrerequisites
 provider:
   org: provider-org
 tenant:
@@ -484,21 +474,17 @@ site:
 
 func completeBootstrapTestManifest() *sitePrerequisiteManifest {
 	return &sitePrerequisiteManifest{
-		APIVersion: sitePrerequisiteAPIVersion,
-		Kind:       sitePrerequisiteKind,
-		Provider:   bootstrapOrganization{Org: "provider-org"},
-		Tenant:     bootstrapOrganization{Org: "tenant-org"},
+		Provider: bootstrapOrganization{Org: "provider-org"},
+		Tenant:   bootstrapOrganization{Org: "tenant-org"},
 		Site: &bootstrapResource{Request: map[string]any{
 			"name": "test-site",
 		}},
-		SiteIPBlocks: map[string]*bootstrapExistingResource{
-			"fabric": {Match: map[string]any{
-				"siteId":       "${site.id}",
-				"routingType":  "DatacenterOnly",
-				"prefix":       "10.0.0.0",
-				"prefixLength": 16,
-			}},
-		},
+		SiteIPBlocks: &bootstrapExistingResource{Match: map[string]any{
+			"siteId":       "${site.id}",
+			"routingType":  "DatacenterOnly",
+			"prefix":       "10.0.0.0",
+			"prefixLength": 16,
+		}},
 		InstanceTypes: map[string]*bootstrapResource{
 			"compute": {Request: map[string]any{
 				"name":                "compute-large",
@@ -514,7 +500,7 @@ func completeBootstrapTestManifest() *sitePrerequisiteManifest {
 				"allocationConstraints": []any{
 					map[string]any{
 						"resourceType":    "IPBlock",
-						"resourceTypeId":  "${siteIpBlocks.fabric.id}",
+						"resourceTypeId":  "${siteIpBlocks.id}",
 						"constraintType":  "OnDemand",
 						"constraintValue": 24,
 					},

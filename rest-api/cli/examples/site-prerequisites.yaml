@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-apiVersion: nico.nvidia.com/v1alpha1
-kind: SitePrerequisites
+#
+# Example input for `nicocli site bootstrap`. Each `request` object is passed
+# to the corresponding REST operation and must contain only attributes allowed
+# by that operation's OpenAPI request schema.
 
 provider:
   org: provider-org
@@ -15,15 +16,14 @@ site:
     description: San Jose site 4
 
 siteIpBlocks:
-  fabric:
-    # Site IP Blocks are created automatically from fabric prefixes reported
-    # by the Site. This selector discovers the existing block; it never posts
-    # a Provider-created IP Block. Rerun bootstrap if inventory is not ready.
-    match:
-      siteId: "${site.id}"
-      routingType: DatacenterOnly
-      prefix: 10.40.0.0
-      prefixLength: 16
+  # Site IP Blocks are created automatically from fabric prefixes reported
+  # by the Site. This selector discovers the existing block; it never posts
+  # a Provider-created IP Block. Rerun bootstrap if inventory is not ready.
+  match:
+    siteId: "${site.id}"
+    routingType: DatacenterOnly
+    prefix: 10.40.0.0
+    prefixLength: 16
 
 instanceTypes:
   compute:
@@ -48,7 +48,7 @@ allocations:
       siteId: "${site.id}"
       allocationConstraints:
         - resourceType: IPBlock
-          resourceTypeId: "${siteIpBlocks.fabric.id}"
+          resourceTypeId: "${siteIpBlocks.id}"
           constraintType: OnDemand
           constraintValue: 24
   compute:

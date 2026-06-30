@@ -23,10 +23,8 @@ import (
 )
 
 const (
-	sitePrerequisiteAPIVersion = "nico.nvidia.com/v1alpha1"
-	sitePrerequisiteKind       = "SitePrerequisites"
-	bootstrapPageSize          = 100
-	bootstrapMaxPages          = 1000
+	bootstrapPageSize = 100
+	bootstrapMaxPages = 1000
 )
 
 var (
@@ -48,17 +46,15 @@ var (
 // operations after ${...} references have been resolved. Site IP Blocks are
 // selected read-only after the Site reports its fabric-prefix inventory.
 type sitePrerequisiteManifest struct {
-	APIVersion    string                                `yaml:"apiVersion"`
-	Kind          string                                `yaml:"kind"`
-	Provider      bootstrapOrganization                 `yaml:"provider"`
-	Tenant        bootstrapOrganization                 `yaml:"tenant"`
-	Site          *bootstrapResource                    `yaml:"site"`
-	SiteIPBlocks  map[string]*bootstrapExistingResource `yaml:"siteIpBlocks,omitempty"`
-	InstanceTypes map[string]*bootstrapResource         `yaml:"instanceTypes,omitempty"`
-	Allocations   map[string]*bootstrapResource         `yaml:"allocations,omitempty"`
-	VPCs          map[string]*bootstrapResource         `yaml:"vpcs,omitempty"`
-	VPCPrefixes   map[string]*bootstrapResource         `yaml:"vpcPrefixes,omitempty"`
-	Instances     map[string]*bootstrapResource         `yaml:"instances,omitempty"`
+	Provider      bootstrapOrganization         `yaml:"provider"`
+	Tenant        bootstrapOrganization         `yaml:"tenant"`
+	Site          *bootstrapResource            `yaml:"site"`
+	SiteIPBlocks  *bootstrapExistingResource    `yaml:"siteIpBlocks,omitempty"`
+	InstanceTypes map[string]*bootstrapResource `yaml:"instanceTypes,omitempty"`
+	Allocations   map[string]*bootstrapResource `yaml:"allocations,omitempty"`
+	VPCs          map[string]*bootstrapResource `yaml:"vpcs,omitempty"`
+	VPCPrefixes   map[string]*bootstrapResource `yaml:"vpcPrefixes,omitempty"`
+	Instances     map[string]*bootstrapResource `yaml:"instances,omitempty"`
 }
 
 type bootstrapOrganization struct {
@@ -359,12 +355,6 @@ func writeSitePrerequisiteManifest(filename string, stdout io.Writer, manifest *
 }
 
 func (manifest *sitePrerequisiteManifest) validate() error {
-	if manifest.APIVersion != sitePrerequisiteAPIVersion {
-		return fmt.Errorf("%w: apiVersion must be %q", errInvalidBootstrapManifest, sitePrerequisiteAPIVersion)
-	}
-	if manifest.Kind != sitePrerequisiteKind {
-		return fmt.Errorf("%w: kind must be %q", errInvalidBootstrapManifest, sitePrerequisiteKind)
-	}
 	if manifest.Tenant.Org == "" {
 		return fmt.Errorf("%w: tenant.org is required", errInvalidBootstrapManifest)
 	}
@@ -374,11 +364,8 @@ func (manifest *sitePrerequisiteManifest) validate() error {
 	if err := manifest.Site.validate("site"); err != nil {
 		return err
 	}
-	for alias, resource := range manifest.SiteIPBlocks {
-		if !bootstrapAliasPattern.MatchString(alias) {
-			return fmt.Errorf("%w: siteIpBlocks alias %q must start with a letter and contain only letters, digits, underscores, or hyphens", errInvalidBootstrapManifest, alias)
-		}
-		if err := resource.validate("siteIpBlocks." + alias); err != nil {
+	if manifest.SiteIPBlocks != nil {
+		if err := manifest.SiteIPBlocks.validate("siteIpBlocks"); err != nil {
 			return err
 		}
 	}
@@ -456,8 +443,12 @@ func (bootstrap *siteBootstrap) apply() error {
 	}
 	bootstrap.references["site"] = site
 
-	if err := bootstrap.discoverExistingResources(bootstrap.operations.siteIPBlock, bootstrap.manifest.SiteIPBlocks); err != nil {
-		return err
+	if bootstrap.manifest.SiteIPBlocks != nil {
+		siteIPBlock, err := bootstrap.discoverExistingResource(bootstrap.operations.siteIPBlock, "siteIpBlocks", bootstrap.manifest.SiteIPBlocks)
+		if err != nil {
+			return err
+		}
+		bootstrap.references["siteIpBlocks"] = siteIPBlock
 	}
 	for _, group := range bootstrap.operations.managedGroups(bootstrap.manifest) {
 		if err := bootstrap.ensureResources(group.api, group.resources); err != nil {
@@ -659,19 +650,6 @@ func (bootstrap *siteBootstrap) ensureResource(api bootstrapResourceAPI, alias s
 	}
 	fmt.Fprintf(bootstrap.progress, "created %s %s (%s)\n", api.displayName, name, resource.ID)
 	return response, nil
-}
-
-func (bootstrap *siteBootstrap) discoverExistingResources(api bootstrapResourceAPI, resources map[string]*bootstrapExistingResource) error {
-	resolved := map[string]any{}
-	bootstrap.references[api.category] = resolved
-	for _, alias := range sortedBootstrapAliases(resources) {
-		response, err := bootstrap.discoverExistingResource(api, alias, resources[alias])
-		if err != nil {
-			return err
-		}
-		resolved[alias] = response
-	}
-	return nil
 }
 
 func (bootstrap *siteBootstrap) discoverExistingResource(api bootstrapResourceAPI, alias string, resource *bootstrapExistingResource) (map[string]any, error) {

@@ -221,7 +221,7 @@ nicocli site bootstrap \
   --output-file site-prerequisites.resolved.yaml
 ```
 
-The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the created or existing Site ID, `${siteIpBlocks.fabric.id}` resolves to a Site IP Block selected from the fabric-prefix inventory, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
+The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the created or existing Site ID, `${siteIpBlocks.id}` resolves to a Site IP Block selected from the fabric-prefix inventory, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
 
 Site IP Blocks are not created by this command. NICo automatically creates them from fabric prefixes reported by the Site; the manifest's `siteIpBlocks` entries are read-only selectors for those existing resources. If the Site inventory has not arrived yet, bootstrap stops with a rerun message instead of posting a Provider-owned IP Block.
 
