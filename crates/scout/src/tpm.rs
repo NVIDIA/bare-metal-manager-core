@@ -90,8 +90,17 @@ pub(crate) fn tpm_present(tpm_path: &str) -> bool {
 }
 
 /// Clears the TPM storage hierarchies via TPM2_Clear (lockout authorization), after dictionary
-/// lockout setup.
+/// lockout setup. A host with no TPM has nothing to clear so the clear is skipped. A present TPM
+/// that fails to clear stays an error.
 pub(crate) fn clear_tpm(tpm_path: &str) -> Result<(), CarbideClientError> {
+    if !tpm_present(tpm_path) {
+        tracing::warn!(
+            tpm_path = ?tpm_path,
+            "clear_tpm: no TPM device, skipping TPM2_Clear"
+        );
+        return Ok(());
+    }
+
     set_tpm_max_auth_fail()?;
 
     let mut ctx = attest::create_context_from_path(tpm_path).map_err(|e| {
@@ -221,5 +230,11 @@ mod tests {
         assert!(tpm_present("/dev/null"));
         assert!(!tpm_present("device:/dev/forge_scout_nonexistent_tpm"));
         assert!(!tpm_present("/dev/forge_scout_nonexistent_tpm"));
+    }
+
+    #[test]
+    fn clear_tpm_skips_when_no_tpm_device() {
+        // A bogus /dev path reports no TPM, so clear_tpm returns Ok without running TPM2_Clear.
+        assert!(clear_tpm("/dev/forge_scout_nonexistent_tpm").is_ok());
     }
 }
