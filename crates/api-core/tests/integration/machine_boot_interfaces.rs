@@ -21,6 +21,10 @@
 //! boot interface plus a divergence flag. These tests seed the stores for one
 //! host and assert the gathered view.
 
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use mac_address::MacAddress;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
@@ -28,28 +32,36 @@ use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
-use crate::sqlx_test;
-use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
-use crate::tests::common::api_fixtures;
+async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
+    let env = TestHarness::builder(pool).build().await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default().with_dpu_count(1))
+        .build()
+        .await;
+    (env, host)
+}
 
 #[sqlx_test]
 async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
+    let (env, host) = init(pool).await;
 
     // A real ingested host gives us owned `machine_interfaces` rows, BMC
     // topology, and explored endpoints -- stores 1 and 3.
-    let host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
-            .await?;
-    let host_id = host.host_snapshot.id;
+    let host_id = host.host.id;
 
     // Read the owned rows the host ended up with: the primary is the effective
     // boot interface `pick_boot_interface` selects, and we reuse its MAC to
     // seed a retained record (store 4).
     let primary_mac = {
-        let mut txn = env.pool.begin().await?;
+        let mut txn = env.db_txn().await;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
@@ -74,7 +86,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
     // `find_records_by_macs` ignores the window, so the troubleshooting view
     // surfaces it even though `find_by_mac` would hide a stale record.
     {
-        let mut txn = env.pool.begin().await?;
+        let mut txn = env.db_txn().await;
         db::predicted_machine_interface::create(
             NewPredictedMachineInterface {
                 machine_id: &host_id,
@@ -129,7 +141,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
     }
 
     let report = env
-        .api
+        .api()
         .get_machine_boot_interfaces(tonic::Request::new(
             forge::GetMachineBootInterfacesRequest {
                 machine_id: Some(host_id),
@@ -219,15 +231,11 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
 async fn test_get_machine_boot_interfaces_agrees_when_only_owned_rows_exist(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
-
-    let host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
-            .await?;
-    let host_id = host.host_snapshot.id;
+    let (env, host) = init(pool).await;
+    let host_id = host.host.id;
 
     let report = env
-        .api
+        .api()
         .get_machine_boot_interfaces(tonic::Request::new(
             forge::GetMachineBootInterfacesRequest {
                 machine_id: Some(host_id),
