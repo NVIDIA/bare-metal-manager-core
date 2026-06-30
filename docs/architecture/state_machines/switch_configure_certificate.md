@@ -84,7 +84,7 @@ ScaleUpFabric manager and telemetry interface services). See
 
 ## Component Manager API
 
-CM exposes two methods used by the switch configuring handler:
+CM exposes two methods used by the switch configuration handler:
 
 | Method | Input | Output |
 |--------|-------|--------|
