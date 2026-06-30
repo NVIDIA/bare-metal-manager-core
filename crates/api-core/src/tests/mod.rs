@@ -97,7 +97,6 @@ mod set_primary_interface;
 mod site_explorer;
 mod sku;
 mod spdm;
-mod storage;
 mod switch;
 mod switch_find;
 mod switch_health;

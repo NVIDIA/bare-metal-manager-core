@@ -29,5 +29,6 @@ mod power_shelf_find;
 mod rack_find;
 mod route_servers;
 mod static_address_management;
+mod storage;
 mod switch_find;
 mod tenant_keyset_find;

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::{TestHarness, sqlx_test};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     // StorageClusterAttributes,
@@ -24,8 +25,6 @@ use rpc::forge::{
 };
 use tonic::Request;
 use uuid::Uuid;
-
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 
 // TODO: Fix tests for storage pool
 /*
@@ -189,11 +188,11 @@ async fn test_invalid_storage_pool_capacity(pool: sqlx::PgPool) -> Result<(), Bo
 }
  */
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_and_delete_os_image(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::default()).await;
+    let env = TestHarness::builder(pool).build().await;
 
     let image_attrs = OsImageAttributes {
         id: Some(rpc::Uuid {
@@ -216,7 +215,7 @@ async fn test_create_and_delete_os_image(
     };
 
     let request = Request::new(image_attrs.clone());
-    let response = env.api.create_os_image(request).await;
+    let response = env.api().create_os_image(request).await;
     let image = response.expect("Could not create OS image").into_inner();
 
     assert!(image.attributes.is_some(), "Image attributes should be set");
@@ -233,17 +232,17 @@ async fn test_create_and_delete_os_image(
     };
 
     let request = Request::new(delete_request);
-    let response = env.api.delete_os_image(request).await;
+    let response = env.api().delete_os_image(request).await;
     let _deletion_result = response.expect("Could not delete OS image").into_inner();
 
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_os_image_status_transitions(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::default()).await;
+    let env = TestHarness::builder(pool).build().await;
 
     let image_attrs = OsImageAttributes {
         id: Some(rpc::Uuid {
@@ -266,7 +265,7 @@ async fn test_os_image_status_transitions(
     };
 
     let request = Request::new(image_attrs.clone());
-    let response = env.api.create_os_image(request).await;
+    let response = env.api().create_os_image(request).await;
     let image = response.expect("Could not create OS image").into_inner();
 
     assert_eq!(
@@ -280,7 +279,7 @@ async fn test_os_image_status_transitions(
     updated_attrs.name = Some("in-progress-image".to_string());
 
     let request = Request::new(updated_attrs);
-    let response = env.api.update_os_image(request).await;
+    let response = env.api().update_os_image(request).await;
     let updated = response.expect("Could not update OS image").into_inner();
 
     // The status should not change unless the volume is created
