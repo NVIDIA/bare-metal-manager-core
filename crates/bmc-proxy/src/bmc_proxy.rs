@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::{AddrParseError, IpAddr};
+use std::net::{AddrParseError, IpAddr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -919,6 +919,26 @@ impl TryFrom<forge::BmcCredentials> for BmcCredentials {
     }
 }
 
+/// Format a host as a URI authority component, bracketing bare IPv6 literals
+/// and appending the port when present.
+///
+/// A bare IPv6 address such as `2001:db8::1` is not a valid URI authority — it
+/// must be bracketed (`[2001:db8::1]`). Without brackets, `http::uri::Authority`
+/// parsing (used by the caller to build the upstream URI) rejects the host, and
+/// an appended port is misparsed as part of the address. IPv4 addresses,
+/// hostnames, and already-bracketed IPv6 literals are left unchanged.
+fn build_authority(host: Cow<'_, str>, port: Option<u16>) -> Cow<'_, str> {
+    let host = if host.parse::<Ipv6Addr>().is_ok() {
+        Cow::Owned(format!("[{host}]"))
+    } else {
+        host
+    };
+    match port {
+        Some(port) => Cow::Owned(format!("{host}:{port}")),
+        None => host,
+    }
+}
+
 async fn create_client(
     ip: IpAddr,
     api_client: &ForgeApiClient,
@@ -944,10 +964,7 @@ async fn create_client(
 
     let credentials = get_bmc_credentials(ip, api_client, credential_cache).await?;
 
-    let base_authority = match (host, port) {
-        (host, Some(port)) => Cow::Owned(format!("{}:{}", host, port)),
-        (host, None) => host,
-    };
+    let base_authority = build_authority(host, port);
 
     let base_upstream_uri = Uri::builder()
         .scheme("https")
@@ -1040,6 +1057,7 @@ async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::collections::HashMap;
     use std::convert::Infallible;
     use std::net::{IpAddr, Ipv4Addr};
@@ -1063,10 +1081,10 @@ mod tests {
     use tokio_stream::iter;
 
     use super::{
-        BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, build_response,
-        copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
-        get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
-        parse_forwarded_host_value, request_principal_ids,
+        BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, build_authority,
+        build_response, copy_request_headers, create_client, evict_cached_credentials,
+        forwarded_header_value, get_http_client, ip_for_forwarded_target, is_hop_by_hop_header,
+        method_supports_body, parse_forwarded_host_value, request_principal_ids,
     };
 
     #[derive(Clone, Copy)]
@@ -1326,6 +1344,45 @@ mod tests {
             credentials: summarize_credentials(client.credentials),
         })
         .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn build_authority_brackets_ipv6() {
+        value_scenarios!(
+            run = |(host, port): (&str, Option<u16>)| {
+                let authority = build_authority(Cow::Borrowed(host), port).into_owned();
+                // The result is fed into `Uri::builder().authority(..)`, which
+                // rejects a bare IPv6 literal — guard that it always parses.
+                assert!(
+                    authority.parse::<http::uri::Authority>().is_ok(),
+                    "produced an invalid authority: {authority}"
+                );
+                authority
+            };
+            "IPv4 without port" {
+                ("192.0.2.5", None) => "192.0.2.5".to_string(),
+            }
+
+            "IPv4 with port" {
+                ("192.0.2.5", Some(443)) => "192.0.2.5:443".to_string(),
+            }
+
+            "bare IPv6 is bracketed" {
+                ("2001:db8::1", None) => "[2001:db8::1]".to_string(),
+            }
+
+            "bare IPv6 with port is bracketed" {
+                ("2001:db8::1", Some(443)) => "[2001:db8::1]:443".to_string(),
+            }
+
+            "already bracketed IPv6 is left unchanged" {
+                ("[2001:db8::1]", Some(443)) => "[2001:db8::1]:443".to_string(),
+            }
+
+            "hostname is left unchanged" {
+                ("bmc.example.com", Some(443)) => "bmc.example.com:443".to_string(),
+            }
+        );
     }
 
     #[test]
