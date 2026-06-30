@@ -15,46 +15,32 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
 use carbide_uuid::rack::RackId;
-use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeleteRackRequest, DeleteRackRequest};
 use tonic::Code;
 
-use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
-
-#[crate::sqlx_test]
-async fn test_find_rack_by_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-
-    let rack_id1: RackId = "Rack1".parse().unwrap();
-    let rack_id2: RackId = "Rack2".parse().unwrap();
-    let mut txn = env.pool.acquire().await.unwrap();
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id1.clone())
-        .persist(&mut txn)
-        .await
-        .unwrap();
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id2.clone())
-        .persist(&mut txn)
-        .await
-        .unwrap();
-    drop(txn);
+#[sqlx_test]
+async fn test_find_rack_by_id(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
+    let TestRack { id: rack_id1 } = env.create_rack().await;
+    let TestRack { id: rack_id2 } = env.create_rack().await;
 
     // Check the returned list of rack ids is what we expect.
     let rack_ids: Vec<RackId> = env
-        .api
+        .api()
         .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter::default()))
         .await
         .unwrap()
         .into_inner()
         .rack_ids;
-    assert_eq!(rack_ids, vec![rack_id1.clone(), rack_id2.clone()]);
+    assert_eq!(rack_ids.len(), 2);
+    assert!(rack_ids.contains(&rack_id1));
+    assert!(rack_ids.contains(&rack_id2));
 
     // Find the first Rack by its id; check core fields.
     let racks: Vec<rpc::forge::Rack> = env
-        .api
+        .api()
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id1.clone()],
         }))
@@ -83,7 +69,7 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
 
     // Find the second Rack by its id; check core fields.
     let racks: Vec<rpc::forge::Rack> = env
-        .api
+        .api()
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id2.clone()],
         }))
@@ -111,23 +97,13 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
     assert!(!racks[0].version.is_empty());
 }
 
-#[crate::sqlx_test]
-async fn test_force_delete_rack_success(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-
-    let rack_id: RackId = "ForceDeleteRack".parse().unwrap();
-    let mut txn = env.pool.acquire().await.unwrap();
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id.clone())
-        .persist(&mut txn)
-        .await
-        .unwrap();
-    drop(txn);
+#[sqlx_test]
+async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestRack { id: rack_id } = env.create_rack().await;
 
     let response = env
-        .api
+        .api()
         .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
             rack_id: Some(rack_id.clone()),
         }))
@@ -137,7 +113,7 @@ async fn test_force_delete_rack_success(
     assert_eq!(response.rack_id, rack_id.to_string());
 
     let racks = env
-        .api
+        .api()
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id.clone()],
         }))
@@ -150,15 +126,13 @@ async fn test_force_delete_rack_success(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_force_delete_rack_not_found(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_force_delete_rack_not_found(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
 
     let non_existent_id: RackId = "MissingRack".parse().unwrap();
     let result = env
-        .api
+        .api()
         .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
             rack_id: Some(non_existent_id),
         }))
@@ -170,29 +144,21 @@ async fn test_force_delete_rack_not_found(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_force_delete_rack_already_soft_deleted(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let env = TestHarness::builder(pool).build().await;
+    let TestRack { id: rack_id } = env.create_rack().await;
 
-    let rack_id: RackId = "SoftDeletedRack".parse().unwrap();
-    let mut txn = env.pool.acquire().await.unwrap();
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id.clone())
-        .persist(&mut txn)
-        .await
-        .unwrap();
-    drop(txn);
-
-    env.api
+    env.api()
         .delete_rack(tonic::Request::new(DeleteRackRequest {
             id: rack_id.to_string(),
         }))
         .await?;
 
     let response = env
-        .api
+        .api()
         .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
             rack_id: Some(rack_id.clone()),
         }))
@@ -202,7 +168,7 @@ async fn test_force_delete_rack_already_soft_deleted(
     assert_eq!(response.rack_id, rack_id.to_string());
 
     let racks = env
-        .api
+        .api()
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id],
         }))

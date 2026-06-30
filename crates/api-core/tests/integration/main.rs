@@ -25,6 +25,7 @@ mod ib_fabric_find;
 mod network_device;
 mod nvlink_domain_health;
 mod power_shelf_find;
+mod rack_find;
 mod route_servers;
 mod static_address_management;
 mod tenant_keyset_find;

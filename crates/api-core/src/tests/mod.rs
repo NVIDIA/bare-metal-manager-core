@@ -88,7 +88,6 @@ mod power_shelf;
 mod power_shelf_health;
 mod power_shelf_state_controller;
 mod preingestion_dpu_nic_mode;
-mod rack_find;
 mod rack_health;
 mod rack_state_controller;
 mod redfish_actions;
