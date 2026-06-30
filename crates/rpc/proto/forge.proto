@@ -695,6 +695,7 @@ service Forge {
   rpc UfmBrowse(UfmBrowseRequest) returns (UfmBrowseResponse);
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
+  rpc UpsertHostFirmwareConfig(UpsertHostFirmwareConfigRequest) returns (HostFirmwareConfigResponse);
 
   // Create A SKU to be assigned to a machine so the machine hardware can be validated.
   rpc CreateSku(SkuList) returns (SkuIdList);
@@ -7791,6 +7792,72 @@ message SetFirmwareUpdateTimeWindowRequest {
 }
 
 message SetFirmwareUpdateTimeWindowResponse {
+}
+
+message UpsertHostFirmwareConfigRequest {
+  reserved 6;
+  reserved "updated_by";
+
+  string vendor = 1;
+  string model = 2;
+  repeated UpsertHostFirmwareComponentConfig components = 3;
+  optional bool explicit_start_needed = 4;
+  repeated HostFirmwareComponentType ordering = 5;
+}
+
+enum HostFirmwareComponentType {
+  HOST_FIRMWARE_COMPONENT_TYPE_UNSPECIFIED = 0;
+  HOST_FIRMWARE_COMPONENT_TYPE_BMC = 1;
+  HOST_FIRMWARE_COMPONENT_TYPE_CEC = 2;
+  HOST_FIRMWARE_COMPONENT_TYPE_UEFI = 3;
+  HOST_FIRMWARE_COMPONENT_TYPE_NIC = 4;
+  HOST_FIRMWARE_COMPONENT_TYPE_CPLD_MB = 5;
+  HOST_FIRMWARE_COMPONENT_TYPE_CPLD_PDB = 6;
+  HOST_FIRMWARE_COMPONENT_TYPE_HGX_BMC = 7;
+  HOST_FIRMWARE_COMPONENT_TYPE_COMBINED_BMC_UEFI = 8;
+  HOST_FIRMWARE_COMPONENT_TYPE_GPU = 9;
+  HOST_FIRMWARE_COMPONENT_TYPE_CX7 = 10;
+}
+
+message UpsertHostFirmwareComponentConfig {
+  HostFirmwareComponentType type = 1;
+  repeated HostFirmwareVersionConfig firmware = 2;
+  optional string preingest_upgrade_when_below = 3;
+}
+
+message HostFirmwareComponentConfigResponse {
+  HostFirmwareComponentType type = 1;
+  optional string current_version_reported_as = 2;
+  repeated HostFirmwareVersionConfig firmware = 3;
+  optional string preingest_upgrade_when_below = 4;
+}
+
+message HostFirmwareVersionConfig {
+  string version = 1;
+  bool default = 2;
+  repeated HostFirmwareArtifact artifacts = 3;
+  bool install_only_specified = 4;
+  optional uint32 power_drains_needed = 5;
+  bool pre_update_resets = 6;
+  optional bool preingestion_exclusive_config = 7;
+}
+
+message HostFirmwareArtifact {
+  string url = 1;
+  optional string sha256 = 2;
+}
+
+message HostFirmwareConfigResponse {
+  reserved 8;
+  reserved "updated_by";
+
+  string vendor = 1;
+  string model = 2;
+  repeated HostFirmwareComponentConfigResponse components = 3;
+  bool explicit_start_needed = 4;
+  repeated HostFirmwareComponentType ordering = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
 }
 
 message ListHostFirmwareRequest {

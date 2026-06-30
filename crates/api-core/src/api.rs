@@ -2612,6 +2612,13 @@ impl Forge for Api {
         crate::handlers::firmware::get_desired_firmware_versions(self, request)
     }
 
+    async fn upsert_host_firmware_config(
+        &self,
+        request: Request<rpc::UpsertHostFirmwareConfigRequest>,
+    ) -> Result<Response<rpc::HostFirmwareConfigResponse>, Status> {
+        crate::handlers::firmware::upsert_host_firmware_config(self, request).await
+    }
+
     async fn create_sku(
         &self,
         request: Request<rpc::SkuList>,
