@@ -46,6 +46,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
+use crate::handlers::astra::{get_astra_config, process_astra_config_status};
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, cfg, ethernet_virtualization};
@@ -589,6 +590,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
     .into_iter()
     .collect::<Result<Vec<_>, _>>()?;
 
+    let astra_config = get_astra_config(api, &snapshot).await?;
+
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
@@ -747,6 +750,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             },
             None => None,
         },
+        astra_config,
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -946,6 +950,10 @@ pub(crate) async fn record_dpu_network_status(
     }
 
     txn.commit().await?;
+
+    if let Some(astra_config_status) = request.astra_config_status.as_ref() {
+        process_astra_config_status(api, &dpu_machine_id, astra_config_status).await?;
+    }
 
     // If this all worked and the DPU is healthy, we shouldn't emit a log line
     // If there is any error the report, the logging of the follow-up report is

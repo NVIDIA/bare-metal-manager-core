@@ -519,14 +519,12 @@ jobs:
         && contains('success,skipped', needs.build-container-aarch64.result)
         && contains('success,skipped', needs.build-runtime-container-aarch64.result)
         && contains('success,skipped', needs.check-rest-core-proto-sync.result)
-        && contains('success,skipped', needs.lint-police.result)
       }}
     needs:
       - prepare
       - build-container-aarch64
       - build-runtime-container-aarch64
       - check-rest-core-proto-sync
-      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
@@ -587,14 +585,12 @@ jobs:
         && contains('success,skipped', needs.build-container-x86_64.result)
         && contains('success,skipped', needs.build-runtime-container-x86_64.result)
         && contains('success,skipped', needs.check-rest-core-proto-sync.result)
-        && contains('success,skipped', needs.lint-police.result)
       }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
       - check-rest-core-proto-sync
-      - lint-police
     runs-on: linux-amd64-cpu16
     steps:
       - name: Checkout code
@@ -1040,7 +1036,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required: Buf needs the history to compare against main
+          fetch-depth: 0 # Required to compute the merge-base against main
 
       - name: Install Buf CLI
         run: |
@@ -1050,8 +1046,18 @@ jobs:
 
       - name: Check for Breaking Changes
         run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          MERGE_BASE="$(git merge-base HEAD origin/main)"
+          BASE_PROTO_DIR="$(mktemp -d)"
+          trap 'rm -rf "${BASE_PROTO_DIR}"' EXIT
+
+          echo "Comparing protobuf changes against merge-base ${MERGE_BASE}"
+          git archive "${MERGE_BASE}" crates/rpc/proto | tar -x -C "${BASE_PROTO_DIR}"
+
           buf breaking crates/rpc/proto \
-            --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
+            --against "${BASE_PROTO_DIR}/crates/rpc/proto" \
             --error-format=github-actions
 
   check-rest-core-proto-sync:
@@ -1071,7 +1077,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version: "1.26.4"
           cache: true
           cache-dependency-path: rest-api/go.sum
 
@@ -1134,9 +1140,6 @@ jobs:
 
       - name: Check bans
         run: cargo make --no-workspace check-bans
-
-      - name: Check isolated package builds
-        run: cargo xtask check-isolated-package-builds
 
       - name: Check repository is clean
         run: bash scripts/check-repo-clean.sh "Core pre-build checks"

@@ -161,7 +161,8 @@ impl NmxcClientPool {
 
     pub async fn create_client(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
         let channel = self.connect(&endpoint).await?;
-        let client = NmxControllerClient::new(channel).max_decoding_message_size(usize::MAX);
+        let client = NmxControllerClient::new(trace_propagation::TraceInjectService::new(channel))
+            .max_decoding_message_size(usize::MAX);
         let nmxc = NmxcApi::new(client);
         Ok(Box::new(nmxc))
     }

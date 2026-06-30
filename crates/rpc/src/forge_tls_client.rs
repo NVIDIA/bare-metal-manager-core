@@ -443,8 +443,10 @@ impl<'a> ForgeTlsClient<'a> {
             // We never make more than a single connection to carbide at a time.
             .pool_max_idle_per_host(2)
             .timer(TokioTimer::new())
-            .build(connector)
-            .boxed_clone();
+            .build(connector);
+        // Inject the issuing span's W3C trace context into every request this client sends
+        // (issue #2438). Wrapping before `boxed_clone` keeps the erased `BoxCloneService` type.
+        let hyper_client = trace_propagation::TraceInjectService::new(hyper_client).boxed_clone();
 
         let mut forge_client = ForgeClient::with_origin(hyper_client, uri);
 
@@ -640,8 +642,10 @@ impl<'a> ForgeTlsClient<'a> {
             // We never make more than a single connection to carbide at a time.
             .pool_max_idle_per_host(2)
             .timer(TokioTimer::new())
-            .build(connector)
-            .boxed_clone();
+            .build(connector);
+        // Inject the issuing span's W3C trace context into every request this client sends
+        // (issue #2438). Wrapping before `boxed_clone` keeps the erased `BoxCloneService` type.
+        let hyper_client = trace_propagation::TraceInjectService::new(hyper_client).boxed_clone();
 
         let mut nmx_c_client = NmxControllerClient::with_origin(hyper_client, uri);
 

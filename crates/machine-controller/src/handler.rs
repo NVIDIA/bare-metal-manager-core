@@ -1834,10 +1834,7 @@ impl MachineStateHandler {
                 );
             }
             ManagedHostState::Failed { .. }
-                if is_unassigned_dpu_reprovision_host_boot_failure(
-                    managed_state,
-                    host_machine_id,
-                ) =>
+                if is_reprovision_restartable_failure(managed_state, host_machine_id) =>
             {
                 set_managed_host_topology_update_needed(
                     ctx.pending_db_writes,
@@ -1845,7 +1842,7 @@ impl MachineStateHandler {
                     &dpus_for_reprov,
                 );
 
-                // Host boot repair failures leave the host in top-level Failed; restart must
+                // These failures leave the host in top-level Failed; restart must
                 // reconstruct the reprovision map instead of trying to advance from Failed.
                 next_state = Some(
                     ReprovisionState::next_substate_based_on_bfb_support(
@@ -1882,10 +1879,11 @@ impl MachineStateHandler {
     }
 }
 
-fn is_unassigned_dpu_reprovision_host_boot_failure(
+fn is_reprovision_restartable_failure(
     managed_state: &ManagedHostState,
     host_machine_id: &MachineId,
 ) -> bool {
+    // BiosSetupFailed is always attributed to the host itself.
     matches!(
         managed_state,
         ManagedHostState::Failed {
@@ -1898,6 +1896,18 @@ fn is_unassigned_dpu_reprovision_host_boot_failure(
                 },
             ..
         } if machine_id == host_machine_id
+    ) ||
+    // DpfProvisioning may be attributed to a specific DPU (e.g. DPU entered
+    // error phase), so we do not guard on machine_id or source here.
+    matches!(
+        managed_state,
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning { .. },
+                ..
+            },
+            ..
+        }
     )
 }
 
@@ -11655,5 +11665,60 @@ mod tests {
 
         let cycle = get_reboot_cycle(expected_time, state_change_time, wait_period).unwrap();
         assert_eq!(cycle, 30);
+    }
+
+    #[test]
+    fn is_reprovision_restartable_failure_matches_expected_causes() {
+        let host_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        let make_failed = |cause: FailureCause, machine_id: MachineId| ManagedHostState::Failed {
+            details: FailureDetails {
+                cause,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id,
+            retry_count: 0,
+        };
+
+        // BiosSetupFailed on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(
+                FailureCause::BiosSetupFailed { err: "bios".into() },
+                host_id
+            ),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, host_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning attributed to a DPU → still restartable (no machine_id guard)
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, dpu_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host with any FailureSource → restartable
+        assert!(is_reprovision_restartable_failure(
+            &ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning { err: "dpf".into() },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: host_id,
+                retry_count: 0,
+            },
+            &host_id,
+        ));
     }
 }

@@ -27,7 +27,7 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.16" }
-librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.9.0-rc1" }
+librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.9.0-mts-rc04" }
 ansi-to-html = "0.2.2"
 
 tokio = { version = "1", features = ["full", "tracing"] }
@@ -52,6 +52,7 @@ sqlx-macros-core = { version = "0.9" }
 
 opentelemetry = { version = "0.31.0", features = ["logs"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["logs", "rt-tokio"] }
+opentelemetry-http = "0.31.0"
 opentelemetry-otlp = { version = "0.31.1", features = ["metrics"] }
 opentelemetry-prometheus = "0.31.0"
 opentelemetry-semantic-conventions = "0.31.0"
@@ -60,7 +61,7 @@ tracing-appender = "0.2.4"
 tracing-opentelemetry = "0.32.1"
 
 # NV-Redfish
-nv-redfish = { version = "0.10.3" }
+nv-redfish = { version = "0.10.4" }
 
 ########
 # MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
@@ -194,6 +195,10 @@ ratatui = "0.30.0"
 rcgen = "0.14.7"
 regex = "1.11.2"
 reqwest = { default-features = false, version = "0.13.3" }
+reqwest-middleware = "0.5"
+reqwest-tracing = { version = "0.7", default-features = false, features = [
+  "opentelemetry_0_31",
+] }
 resolv-conf = "0.7.0"
 ringbuf = "0.5.0"
 rsa = "0.9.9"

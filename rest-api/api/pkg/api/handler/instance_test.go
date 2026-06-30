@@ -9745,14 +9745,54 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			assert.Nil(t, terr)
 			assert.Equal(t, cdbm.InstanceStatusTerminating, dinstance.Status)
 
-			if tt.verifyChildSpanner {
-				span := oteltrace.SpanFromContext(ec.Request().Context())
-				assert.True(t, span.SpanContext().IsValid())
+			sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+			statusDetails, _, serr := sdDAO.GetAll(context.Background(), nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{tt.args.reqInstance}}, cdbp.PageInput{})
+			require.NoError(t, serr)
+			require.NotEmpty(t, statusDetails)
+			require.NotNil(t, statusDetails[0].Message)
+
+			siteClient, scErr := tt.fields.scp.GetClientByID(dinstance.SiteID)
+			require.NoError(t, scErr)
+			mockSiteClient, ok := siteClient.(*tmocks.Client)
+			require.True(t, ok, "site temporal client should be a test mock")
+
+			var releaseReq *cwssaws.InstanceReleaseRequest
+			for i := len(mockSiteClient.Calls) - 1; i >= 0; i-- {
+				call := mockSiteClient.Calls[i]
+				if call.Method != "ExecuteWorkflow" || len(call.Arguments) <= 3 {
+					continue
+				}
+				wfName, ok := call.Arguments[2].(string)
+				if !ok || wfName != "DeleteInstanceV2" {
+					continue
+				}
+				req, ok := call.Arguments[3].(*cwssaws.InstanceReleaseRequest)
+				if !ok || req.GetId().GetValue() != tt.args.reqInstance {
+					continue
+				}
+				releaseReq = req
+				break
+			}
+			require.NotNil(t, releaseReq, "DeleteInstanceV2 workflow should have been called for this Instance")
+
+			require.NotNil(t, releaseReq.DeleteAttribution)
+			require.NotNil(t, releaseReq.DeleteAttribution.InitiatedBy)
+			assert.Equal(t, tt.args.reqOrg, releaseReq.DeleteAttribution.InitiatedBy.Org)
+			assert.Equal(t, tt.args.reqUser.ID.String(), releaseReq.DeleteAttribution.InitiatedBy.UserId)
+			assert.Equal(t, dinstance.TenantID.String(), releaseReq.DeleteAttribution.InitiatedBy.TenantId)
+
+			if tt.args.reqData != nil && tt.args.reqData.MachineHealthIssue != nil {
+				require.NotNil(t, releaseReq.Issue)
+				if tt.args.reqData.MachineHealthIssue.Details != nil {
+					assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Details, releaseReq.Issue.Details)
+				}
+				if tt.args.reqData.MachineHealthIssue.Summary != nil {
+					assert.Equal(t, *tt.args.reqData.MachineHealthIssue.Summary, releaseReq.Issue.Summary)
+				}
 			}
 		})
 	}
 }
-
 func TestNewCreateInstanceHandler(t *testing.T) {
 	type args struct {
 		dbSession *cdb.Session

@@ -3079,6 +3079,7 @@ mod tests {
             stateful_acls_enabled: true,
             instance: None,
             dpu_extension_services: vec![],
+            astra_config: None,
         }
     }
 
@@ -3571,6 +3572,7 @@ mod tests {
             stateful_acls_enabled: true,
             instance: None,
             dpu_extension_services: vec![],
+            astra_config: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;
@@ -3758,6 +3760,7 @@ mod tests {
             stateful_acls_enabled: false,
             instance: None,
             dpu_extension_services: vec![],
+            astra_config: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;

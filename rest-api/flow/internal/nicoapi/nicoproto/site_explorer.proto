@@ -7,6 +7,15 @@ package site_explorer;
 
 import "google/protobuf/duration.proto";
 
+message OperatorErrorSchema {
+  // Stable identifier for alerting and centralized log filtering.
+  string error_code = 1;
+  // Suggested operator action when NICo knows a specific mitigation.
+  optional string mitigation = 2;
+  // Human-readable problem description.
+  string text = 3;
+}
+
 // Data that we gathered about a particular endpoint during site exploration
 message EndpointExplorationReport {
   // The type of the endpoint
@@ -40,6 +49,8 @@ message EndpointExplorationReport {
   LockdownStatus lockdown_status = 18;
   // Parsed firmware component versions (e.g. {"bmc": "25.06-2", "uefi": "00000083", "hgxbmc": "97.00.B9.00.76"})
   map<string, string> firmware_versions = 19;
+  // Structured form of last_exploration_error for operator tooling.
+  optional OperatorErrorSchema last_exploration_error_schema = 20;
 }
 
 message ExploredEndpoint {

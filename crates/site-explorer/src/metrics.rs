@@ -20,10 +20,12 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
+use opentelemetry_sdk::metrics::{Aggregation, InstrumentKind};
 
 use super::config::SiteExplorerConfig;
 
@@ -304,6 +306,50 @@ impl SiteExplorationMetrics {
             .entry(signal.to_string())
             .or_default() += 1;
     }
+}
+
+/// Histogram bucket boundaries for site explorer duration metrics, in milliseconds.
+///
+/// Keeps the default OpenTelemetry millisecond buckets through 10 seconds for
+/// sub-second endpoint exploration timings, then extends the upper range to one
+/// hour so full site explorer iterations are not collapsed into `+Inf`.
+const SITE_EXPLORER_DURATION_HISTOGRAM_BOUNDARIES_MS: &[f64] = &[
+    0.0,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    75.0,
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    2_500.0,
+    5_000.0,
+    7_500.0,
+    10_000.0,
+    30_000.0,
+    60_000.0,
+    120_000.0,
+    300_000.0,
+    600_000.0,
+    1_800_000.0,
+    3_600_000.0,
+];
+
+/// Configures histogram buckets for site explorer latency metrics.
+pub fn site_explorer_latency_histogram_view(
+    name_filter: &'static str,
+) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(InstrumentKind::Histogram),
+        Aggregation::ExplicitBucketHistogram {
+            boundaries: SITE_EXPLORER_DURATION_HISTOGRAM_BOUNDARIES_MS.to_vec(),
+            record_min_max: true,
+        },
+    )
 }
 
 /// Instruments that are used by the Site Explorer
@@ -922,5 +968,99 @@ impl MetricHolder {
         metrics.site_explorer_phase_latency.clear();
         // And store the remaining metrics
         self.last_iteration_metrics.update(metrics);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+    use opentelemetry::metrics::MeterProvider;
+    use opentelemetry_sdk::metrics::SdkMeterProvider;
+    use prometheus::{Encoder, TextEncoder};
+
+    use super::*;
+
+    struct LatencyHistogramTestMeter {
+        meter_provider: SdkMeterProvider,
+        registry: prometheus::Registry,
+    }
+
+    impl LatencyHistogramTestMeter {
+        fn new(name_filter: &'static str) -> Self {
+            let registry = prometheus::Registry::new();
+            let metrics_exporter = opentelemetry_prometheus::exporter()
+                .with_registry(registry.clone())
+                .without_scope_info()
+                .without_target_info()
+                .build()
+                .unwrap();
+
+            let meter_provider = SdkMeterProvider::builder()
+                .with_reader(metrics_exporter)
+                .with_view(site_explorer_latency_histogram_view(name_filter).unwrap())
+                .build();
+
+            Self {
+                meter_provider,
+                registry,
+            }
+        }
+
+        fn export_metrics(&self) -> String {
+            let mut buffer = vec![];
+            let encoder = TextEncoder::new();
+            let metric_families = self.registry.gather();
+            encoder.encode(&metric_families, &mut buffer).unwrap();
+            String::from_utf8(buffer).unwrap()
+        }
+    }
+
+    #[test]
+    fn site_explorer_latency_histogram_views_build() {
+        scenarios!(
+            run = |name_filter: &'static str| {
+                site_explorer_latency_histogram_view(name_filter)
+                    .map(|_| ())
+                    .map_err(drop)
+            };
+            "iteration latency" {
+                "carbide_site_explorer_iteration_latency" => Yields(()),
+            }
+
+            "carbide site explorer latency glob" {
+                "carbide_site_explorer_*_latency" => Yields(()),
+            }
+
+            "endpoint exploration duration" {
+                "carbide_endpoint_exploration_duration" => Yields(()),
+            }
+        );
+    }
+
+    #[test]
+    fn site_explorer_latency_histogram_redistributes_observations_above_ten_seconds() {
+        let test_meter = LatencyHistogramTestMeter::new("carbide_site_explorer_iteration_latency");
+        let meter = test_meter.meter_provider.meter("site-explorer-test");
+        let histogram = meter
+            .f64_histogram("carbide_site_explorer_iteration_latency")
+            .with_unit("ms")
+            .build();
+
+        histogram.record(30_000.0, &[]);
+
+        let encoded = test_meter.export_metrics();
+        assert!(
+            encoded.contains(
+                r#"carbide_site_explorer_iteration_latency_milliseconds_bucket{le="30000"} 1"#
+            ),
+            "expected 30s observation in the 30000ms bucket, got:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains(
+                r#"carbide_site_explorer_iteration_latency_milliseconds_bucket{le="10000"} 1"#
+            ),
+            "30s observation should not land in the 10000ms bucket:\n{encoded}"
+        );
     }
 }

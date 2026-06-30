@@ -4902,7 +4902,7 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Prepare the delete/release request workflow object
-		releaseInstanceRequest := apiRequest.ToProto(instance)
+		releaseInstanceRequest := apiRequest.ToProto(instance, dbUser)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-delete-" + instance.ID.String(),

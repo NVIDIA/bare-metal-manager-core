@@ -55,6 +55,7 @@ async fn report_old_agent_version(env: &TestEnv, dpu_machine_id: MachineId) {
             last_dhcp_requests: vec![],
             dpu_extension_service_version: None,
             dpu_extension_services: vec![],
+            astra_config_status: None,
         }))
         .await
         .unwrap();
@@ -216,6 +217,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             last_dhcp_requests: vec![],
             dpu_extension_service_version: Some("V1-T1".to_string()),
             dpu_extension_services: vec![],
+            astra_config_status: None,
         }))
         .await
         .unwrap();
@@ -398,6 +400,7 @@ impl TestManagedHost {
                 last_dhcp_requests: vec![],
                 dpu_extension_service_version: Some("V1-T1".to_string()),
                 dpu_extension_services: vec![],
+                astra_config_status: None,
             }))
             .await
             .unwrap();

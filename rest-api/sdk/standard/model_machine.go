@@ -51,6 +51,10 @@ type Machine struct {
 	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`
 	// List of admin interfaces of the machine
 	MachineInterfaces []MachineInterface `json:"machineInterfaces,omitempty"`
+	// IDs of the DPU Machines attached to this host Machine
+	AssociatedDpuMachineIds []string `json:"associatedDpuMachineIds,omitempty"`
+	// Physical placement of the Machine within its Rack, when known
+	PlacementInRack *PlacementInRack `json:"placementInRack,omitempty"`
 	// If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
 	// Health information about the machine
@@ -623,6 +627,70 @@ func (o *Machine) SetMachineInterfaces(v []MachineInterface) {
 	o.MachineInterfaces = v
 }
 
+// GetAssociatedDpuMachineIds returns the AssociatedDpuMachineIds field value if set, zero value otherwise.
+func (o *Machine) GetAssociatedDpuMachineIds() []string {
+	if o == nil || IsNil(o.AssociatedDpuMachineIds) {
+		var ret []string
+		return ret
+	}
+	return o.AssociatedDpuMachineIds
+}
+
+// GetAssociatedDpuMachineIdsOk returns a tuple with the AssociatedDpuMachineIds field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Machine) GetAssociatedDpuMachineIdsOk() ([]string, bool) {
+	if o == nil || IsNil(o.AssociatedDpuMachineIds) {
+		return nil, false
+	}
+	return o.AssociatedDpuMachineIds, true
+}
+
+// HasAssociatedDpuMachineIds returns a boolean if a field has been set.
+func (o *Machine) HasAssociatedDpuMachineIds() bool {
+	if o != nil && !IsNil(o.AssociatedDpuMachineIds) {
+		return true
+	}
+
+	return false
+}
+
+// SetAssociatedDpuMachineIds gets a reference to the given []string and assigns it to the AssociatedDpuMachineIds field.
+func (o *Machine) SetAssociatedDpuMachineIds(v []string) {
+	o.AssociatedDpuMachineIds = v
+}
+
+// GetPlacementInRack returns the PlacementInRack field value if set, zero value otherwise.
+func (o *Machine) GetPlacementInRack() PlacementInRack {
+	if o == nil || IsNil(o.PlacementInRack) {
+		var ret PlacementInRack
+		return ret
+	}
+	return *o.PlacementInRack
+}
+
+// GetPlacementInRackOk returns a tuple with the PlacementInRack field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Machine) GetPlacementInRackOk() (*PlacementInRack, bool) {
+	if o == nil || IsNil(o.PlacementInRack) {
+		return nil, false
+	}
+	return o.PlacementInRack, true
+}
+
+// HasPlacementInRack returns a boolean if a field has been set.
+func (o *Machine) HasPlacementInRack() bool {
+	if o != nil && !IsNil(o.PlacementInRack) {
+		return true
+	}
+
+	return false
+}
+
+// SetPlacementInRack gets a reference to the given PlacementInRack and assigns it to the PlacementInRack field.
+func (o *Machine) SetPlacementInRack(v PlacementInRack) {
+	o.PlacementInRack = &v
+}
+
 // GetMaintenanceMessage returns the MaintenanceMessage field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *Machine) GetMaintenanceMessage() string {
 	if o == nil || IsNil(o.MaintenanceMessage.Get()) {
@@ -973,6 +1041,12 @@ func (o Machine) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.MachineInterfaces) {
 		toSerialize["machineInterfaces"] = o.MachineInterfaces
+	}
+	if !IsNil(o.AssociatedDpuMachineIds) {
+		toSerialize["associatedDpuMachineIds"] = o.AssociatedDpuMachineIds
+	}
+	if !IsNil(o.PlacementInRack) {
+		toSerialize["placementInRack"] = o.PlacementInRack
 	}
 	if o.MaintenanceMessage.IsSet() {
 		toSerialize["maintenanceMessage"] = o.MaintenanceMessage.Get()

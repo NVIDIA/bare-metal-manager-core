@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use tonic::transport::Channel;
+use trace_propagation::TraceInjectService;
 
 use crate::nmxc_model::nmx_controller_client::NmxControllerClient;
 use crate::response::check_server_header_success;
@@ -35,11 +36,11 @@ fn default_context() -> nmxc_model::Context {
 }
 
 pub struct NmxcApi {
-    client: NmxControllerClient<Channel>,
+    client: NmxControllerClient<TraceInjectService<Channel>>,
 }
 
 impl NmxcApi {
-    pub fn new(client: NmxControllerClient<Channel>) -> Self {
+    pub fn new(client: NmxControllerClient<TraceInjectService<Channel>>) -> Self {
         Self { client }
     }
 }

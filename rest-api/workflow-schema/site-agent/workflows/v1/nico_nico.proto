@@ -700,6 +700,8 @@ service Forge {
   rpc UfmBrowse(UfmBrowseRequest) returns (UfmBrowseResponse);
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
+  rpc UpsertHostFirmwareConfig(UpsertHostFirmwareConfigRequest) returns (HostFirmwareConfigResponse);
+  rpc DeleteHostFirmwareConfig(DeleteHostFirmwareConfigRequest) returns (google.protobuf.Empty);
 
   // Create A SKU to be assigned to a machine so the machine hardware can be validated.
   rpc CreateSku(SkuList) returns (SkuIdList);
@@ -3322,12 +3324,26 @@ message Issue {
   string details = 3; // Additional context about the issue
 }
 
+// Records who initiated an instance delete in the cloud API layer.
+message DeleteInitiatedBy {
+  string org = 1;
+  string org_display_name = 2;
+  string user_id = 3;
+  string tenant_id = 4;
+}
+
+message DeleteAttribution {
+  DeleteInitiatedBy initiated_by = 1;
+}
+
 message InstanceReleaseRequest {
   common.InstanceId id = 1;
   // Optional issue information if tenant is reporting a problem
   optional Issue issue = 2;
   // Optional flag indicating the call is from repair tenant (default: false)
   optional bool is_repair_tenant = 3;
+  // Optional cloud-side attribution for who initiated the delete
+  optional DeleteAttribution delete_attribution = 4;
 }
 
 message InstanceReleaseResult {
@@ -4267,6 +4283,8 @@ message ManagedHostNetworkConfigResponse {
   // The password the DPU should use when configuring a
   // BGP session with the its TOR
   optional string bgp_leaf_session_password = 118;
+
+  optional AstraConfig astra_config = 119;
 }
 
 message TrafficInterceptConfig {
@@ -5061,6 +5079,7 @@ message DpuNetworkStatus {
   // Extension service status reported by DPU
   optional string dpu_extension_service_version = 15;
   repeated DpuExtensionServiceStatusObservation dpu_extension_services = 16;
+  optional AstraConfigStatus astra_config_status = 17;
 }
 
 message LastDhcpRequest {
@@ -7556,6 +7575,55 @@ message MachineSpxAttachmentStatusObservation {
   optional google.protobuf.Timestamp observed_at = 5;
 }
 
+message AstraConfig {
+  repeated AstraAttachment astra_attachments = 1;
+}
+
+message AstraAttachment {
+  string mac_address = 1;
+  uint32 vni = 2;
+  string subnet_ipv4 = 3;
+  int32 subnet_mask = 4;
+  optional SpxAttachmentType attachment_type = 5;
+  optional int32 virtual_function_id = 6;
+  optional string network_name = 7; // Set if attachment_type is OVN
+  string revision = 8; // This is either spx_config_version from instance of network_config_version from dpa_interface
+}
+
+message AstraConfigStatus {
+  repeated AstraAttachmentStatus astra_attachments_status = 1;
+}
+
+message AstraAttachmentStatus {
+  string mac_address = 1;
+  int32 vni = 2;
+  string subnet_ipv4 = 3;
+  int32 subnet_mask = 4;
+  optional SpxAttachmentType attachment_type = 5;
+  optional int32 virtual_function_id = 6;
+  optional string network_name = 7; // Set if attachment_type is OVN
+  string revision = 8; // This is either spx_config_version from instance of network_config_version from dpa_interface
+  AstraStatus status = 9;
+}
+
+enum AstraPhase {
+  // PHASE_UNSPECIFIED represents an unspecified phase.
+  PHASE_UNSPECIFIED = 0;
+  // PHASE_PENDING represents a pending phase. it means the object was created but has not been processed.
+  PHASE_PENDING = 1;
+  // PHASE_READY represents a ready phase. it means the object is ready.
+  PHASE_READY = 2;
+  // PHASE_DELETING represents a deleting phase. it means the object is being deleted.
+  PHASE_DELETING = 3;
+  // PHASE_ERROR represents an error. it means the object is in an error state.
+  PHASE_ERROR = 4;
+}
+message AstraStatus {
+  AstraPhase phase = 1;
+  string reason = 2;
+  string message = 3;
+}
+
 message NVLinkGpu {
   reserved 1;
   reserved "nmx_m_id";
@@ -7742,6 +7810,77 @@ message SetFirmwareUpdateTimeWindowRequest {
 }
 
 message SetFirmwareUpdateTimeWindowResponse {
+}
+
+message UpsertHostFirmwareConfigRequest {
+  reserved 6;
+  reserved "updated_by";
+
+  string vendor = 1;
+  string model = 2;
+  repeated UpsertHostFirmwareComponentConfig components = 3;
+  optional bool explicit_start_needed = 4;
+  repeated HostFirmwareComponentType ordering = 5;
+}
+
+message DeleteHostFirmwareConfigRequest {
+  string vendor = 1;
+  string model = 2;
+}
+
+enum HostFirmwareComponentType {
+  HOST_FIRMWARE_COMPONENT_TYPE_UNSPECIFIED = 0;
+  HOST_FIRMWARE_COMPONENT_TYPE_BMC = 1;
+  HOST_FIRMWARE_COMPONENT_TYPE_CEC = 2;
+  HOST_FIRMWARE_COMPONENT_TYPE_UEFI = 3;
+  HOST_FIRMWARE_COMPONENT_TYPE_NIC = 4;
+  HOST_FIRMWARE_COMPONENT_TYPE_CPLD_MB = 5;
+  HOST_FIRMWARE_COMPONENT_TYPE_CPLD_PDB = 6;
+  HOST_FIRMWARE_COMPONENT_TYPE_HGX_BMC = 7;
+  HOST_FIRMWARE_COMPONENT_TYPE_COMBINED_BMC_UEFI = 8;
+  HOST_FIRMWARE_COMPONENT_TYPE_GPU = 9;
+  HOST_FIRMWARE_COMPONENT_TYPE_CX7 = 10;
+}
+
+message UpsertHostFirmwareComponentConfig {
+  HostFirmwareComponentType type = 1;
+  repeated HostFirmwareVersionConfig firmware = 2;
+  optional string preingest_upgrade_when_below = 3;
+}
+
+message HostFirmwareComponentConfigResponse {
+  HostFirmwareComponentType type = 1;
+  optional string current_version_reported_as = 2;
+  repeated HostFirmwareVersionConfig firmware = 3;
+  optional string preingest_upgrade_when_below = 4;
+}
+
+message HostFirmwareVersionConfig {
+  string version = 1;
+  bool default = 2;
+  repeated HostFirmwareArtifact artifacts = 3;
+  bool install_only_specified = 4;
+  optional uint32 power_drains_needed = 5;
+  bool pre_update_resets = 6;
+  optional bool preingestion_exclusive_config = 7;
+}
+
+message HostFirmwareArtifact {
+  string url = 1;
+  optional string sha256 = 2;
+}
+
+message HostFirmwareConfigResponse {
+  reserved 8;
+  reserved "updated_by";
+
+  string vendor = 1;
+  string model = 2;
+  repeated HostFirmwareComponentConfigResponse components = 3;
+  bool explicit_start_needed = 4;
+  repeated HostFirmwareComponentType ordering = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
 }
 
 message ListHostFirmwareRequest {

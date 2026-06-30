@@ -16,6 +16,7 @@ test-support = []
 [dependencies]
 carbide-api-db = { path = "../api-db" }
 carbide-api-model = { path = "../api-model" }
+carbide-rack = { path = "../rack" }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
@@ -30,6 +31,7 @@ duration-str = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
+librms = { workspace = true }
 opentelemetry = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }

@@ -47,7 +47,7 @@ CreateExpectedRack Create Expected Rack
 
 Create an Expected Rack to pre-register a rack expected to be discovered at a Site. The `rackId` is an operator-supplied string identifier (not a UUID) that uniquely identifies the rack within the Site.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Racks if they have an account with the Site's Infrastructure Provider.
 
@@ -192,7 +192,7 @@ DeleteAllExpectedRack Delete all Expected Racks
 
 Delete all Expected Racks for a Site.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Infrastructure Provider must own the Expected Racks.
 
@@ -316,7 +316,7 @@ DeleteExpectedRack Delete Expected Rack
 
 Delete an existing Expected Rack identified by its `id`.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Infrastructure Provider must own the Expected Rack.
 
@@ -484,7 +484,7 @@ GetAllExpectedRack Retrieve all Expected Racks
 
 Retrieve all Expected Racks.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
 
@@ -640,7 +640,7 @@ GetExpectedRack Retrieve Expected Rack
 
 Retrieve a specific Expected Rack by its `id`.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider.
 
@@ -795,7 +795,7 @@ Replace the full set of Expected Racks for a Site with the provided list. All ex
 
 Every entry in `expectedRacks` must reference the same `siteId` as the top-level `siteId`. `rackId` values must be unique within the request. The `expectedRacks` array may be empty to clear all Expected Racks for the Site.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also replace Expected Racks if they have an account with the Site's Infrastructure Provider.
 
@@ -937,7 +937,7 @@ UpdateExpectedRack Update Expected Rack
 
 Update an existing Expected Rack identified by its `id`.
 
-Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Infrastructure Provider must own the Expected Rack.
 

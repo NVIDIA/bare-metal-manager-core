@@ -1421,6 +1421,9 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
+        rms_sim.as_rms_client(),
+        composite_manager.clone(),
+        config.rack_profiles.clone(),
         api.work_lock_manager_handle.clone(),
     );
 
@@ -2261,6 +2264,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .instance
             .map(|instance| instance.dpu_extension_service_version),
         dpu_extension_services,
+        astra_config_status: None,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

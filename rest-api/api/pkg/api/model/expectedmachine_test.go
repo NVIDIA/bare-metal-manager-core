@@ -312,6 +312,27 @@ func TestNewAPIExpectedMachine(t *testing.T) {
 	}
 }
 
+func TestNewAPIExpectedMachine_DpfEnabled(t *testing.T) {
+	t.Run("nil stored value defaults to true", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{})
+		assert.Nil(t, got.IsDpfEnabled)
+	})
+
+	t.Run("stored false is returned", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{
+			IsDpfEnabled: cutil.GetPtr(false),
+		})
+		assert.False(t, *got.IsDpfEnabled)
+	})
+
+	t.Run("stored true is returned", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{
+			IsDpfEnabled: cutil.GetPtr(true),
+		})
+		assert.True(t, *got.IsDpfEnabled)
+	})
+}
+
 func TestNewAPIExpectedMachineWithNilFields(t *testing.T) {
 	dbEM := &cdbm.ExpectedMachine{
 		BmcMacAddress:            "00:11:22:33:44:55",

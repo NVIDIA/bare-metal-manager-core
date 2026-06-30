@@ -152,6 +152,22 @@ impl fmt::Display for FirmwareComponentType {
 }
 
 impl FirmwareComponentType {
+    pub fn slug(self) -> &'static str {
+        match self {
+            FirmwareComponentType::Bmc => "bmc",
+            FirmwareComponentType::Cec => "cec",
+            FirmwareComponentType::Uefi => "uefi",
+            FirmwareComponentType::Nic => "nic",
+            FirmwareComponentType::CpldMb => "cpldmb",
+            FirmwareComponentType::CpldPdb => "cpldpdb",
+            FirmwareComponentType::HGXBmc => "hgxbmc",
+            FirmwareComponentType::CombinedBmcUefi => "combinedbmcuefi",
+            FirmwareComponentType::Gpu => "gpu",
+            FirmwareComponentType::Cx7 => "cx7",
+            FirmwareComponentType::Unknown => "unknown",
+        }
+    }
+
     pub fn is_bmc(&self) -> bool {
         matches!(
             self,
