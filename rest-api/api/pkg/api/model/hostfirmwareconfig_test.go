@@ -98,6 +98,32 @@ func TestAPIHostFirmwareVersionConfig_ToProto_preingestionExclusiveConfig(t *tes
 	assert.True(t, *proto.PreingestionExclusiveConfig)
 }
 
+func TestAPIHostFirmwareConfigDeleteRequest_ToProto(t *testing.T) {
+	proto := APIHostFirmwareConfigDeleteRequest{
+		SiteID: "00000000-0000-0000-0000-000000000001",
+		Vendor: "Nvidia",
+		Model:  "DGXH100",
+	}.ToProto()
+
+	assert.Equal(t, "Nvidia", proto.Vendor)
+	assert.Equal(t, "DGXH100", proto.Model)
+}
+
+func TestAPIHostFirmwareConfigDeleteRequest_Validate(t *testing.T) {
+	valid := APIHostFirmwareConfigDeleteRequest{
+		SiteID: "00000000-0000-0000-0000-000000000001",
+		Vendor: "Nvidia",
+		Model:  "DGXH100",
+	}
+	assert.NoError(t, valid.Validate())
+
+	err := APIHostFirmwareConfigDeleteRequest{
+		SiteID: "00000000-0000-0000-0000-000000000001",
+		Vendor: "Nvidia",
+	}.Validate()
+	require.Error(t, err)
+}
+
 func TestAPIHostFirmwareConfig_FromProto_newFields(t *testing.T) {
 	preingest := "28.48.1000"
 	exclusive := true

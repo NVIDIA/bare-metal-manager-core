@@ -77,6 +77,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"stats":                     4,
 		"identity-config":           3,
 		"identity-token-delegation": 3,
+		"firmware-config":           2,
 	}
 
 	totalRouteCount := 0

@@ -247,6 +247,10 @@ tags:
       together with an updated `ordering`. Returns `201 Created` on first
       create and `200 OK` on subsequent updates.
 
+      Provider Admins use DELETE to remove a host firmware config entry from
+      Core via `DeleteHostFirmwareConfig`, keyed by `(vendor, model)`.
+      Returns `204 No Content` on success.
+
       User must have authorization role with `PROVIDER_ADMIN` suffix in the
       URL `{org}`, and the Site must belong to the org's Infrastructure
       Provider.
@@ -12773,7 +12777,38 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
         '500':
-          description: Internal server error while loading the Tenant or Site, contacting the Core gRPC API, starting the Host Firmware Config create or update workflow, or after the workflow timed out and was terminated.
+          description: Internal server error while loading the Provider or Site, contacting the Core gRPC API, starting the Host Firmware Config create or update workflow, or after the workflow timed out and was terminated.
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/HostFirmwareConfigCoreUnavailable'
+    delete:
+      summary: Delete Host Firmware Config
+      tags:
+        - Host Firmware Config
+      operationId: delete-host-firmware-config
+      description: |-
+        Delete host firmware config for the org/site. The target Site is
+        specified by `siteId` in the request body; the configuration is
+        keyed by `(vendor, model)`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostFirmwareConfigDeleteRequest'
+      responses:
+        '204':
+          description: Host firmware config deleted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          description: Internal server error while loading the Provider or Site, contacting the Core gRPC API, starting the Host Firmware Config delete workflow, or after the workflow timed out and was terminated.
           $ref: '#/components/responses/GenericHttpError'
         '503':
           $ref: '#/components/responses/HostFirmwareConfigCoreUnavailable'
@@ -13390,6 +13425,31 @@ components:
                   artifacts:
                     - url: https://firmware.example.invalid/28.47.2682/fw.bin
                       sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    HostFirmwareConfigDeleteRequest:
+      type: object
+      title: HostFirmwareConfigDeleteRequest
+      description: Host firmware configuration delete payload.
+      required:
+        - siteId
+        - vendor
+        - model
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the host firmware config is stored.
+        vendor:
+          type: string
+          minLength: 1
+          description: Hardware vendor for the configuration (for example `Nvidia`, `Dell`).
+        model:
+          type: string
+          minLength: 1
+          description: Hardware model for the configuration (for example `DGXH100`).
+      examples:
+        - siteId: 00000000-0000-0000-0000-000000000001
+          vendor: Nvidia
+          model: DGXH100
     HostFirmwareConfig:
       type: object
       title: HostFirmwareConfig

@@ -1077,6 +1077,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateHostFirmwareConfigHandler(dbSession, scp),
 		},
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteHostFirmwareConfigHandler(dbSession, scp),
+		},
 	}
 
 	return apiRoutes

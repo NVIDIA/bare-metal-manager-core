@@ -621,39 +621,70 @@ func TestAuthorizeProviderSiteForCore(t *testing.T) {
 
 	org := "test-provider-org"
 	user := TestBuildUser(t, dbSession, uuid.NewString(), org, []string{authz.ProviderAdminRole})
+	assert.NotNil(t, user)
 	ip := TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, user)
+	assert.NotNil(t, ip)
 	site := TestBuildSite(t, dbSession, ip, "Test Site", user)
+	assert.NotNil(t, site)
 
 	otherOrg := "other-provider-org"
 	otherUser := TestBuildUser(t, dbSession, uuid.NewString(), otherOrg, []string{authz.ProviderAdminRole})
+	assert.NotNil(t, otherUser)
 	otherIP := TestBuildInfrastructureProvider(t, dbSession, "Other Infrastructure Provider", otherOrg, otherUser)
+	assert.NotNil(t, otherIP)
 	otherSite := TestBuildSite(t, dbSession, otherIP, "Other Site", otherUser)
+	assert.NotNil(t, otherSite)
+
+	tenantOrg := "tenant-org"
+	tenantUser := TestBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{authz.TenantAdminRole})
+	assert.NotNil(t, tenantUser)
+	tenant := TestBuildTenant(t, dbSession, tenantOrg, "Tenant", tenantUser)
+	assert.NotNil(t, tenant)
+	tenantSite := TestBuildTenantSite(t, dbSession, tenant, site, user)
+	assert.NotNil(t, tenantSite)
 
 	scp := &stubSiteTemporalClientPool{client: &tmocks.Client{}}
+	authInput := func(org string, user *cdbm.User, siteID string) AuthorizeProviderSiteForCoreInput {
+		return AuthorizeProviderSiteForCoreInput{
+			Ctx:       ctx,
+			Logger:    logger,
+			DBSession: dbSession,
+			SCP:       scp,
+			Org:       org,
+			User:      user,
+			SiteID:    siteID,
+		}
+	}
 
 	t.Run("success", func(t *testing.T) {
-		client, siteID, apiErr := AuthorizeProviderSiteForCore(ctx, logger, dbSession, scp, org, user, site.ID.String())
+		client, siteID, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, site.ID.String()))
 		require.Nil(t, apiErr)
 		require.NotNil(t, client)
 		assert.Equal(t, site.ID.String(), siteID)
 	})
 
 	t.Run("nil user", func(t *testing.T) {
-		_, _, apiErr := AuthorizeProviderSiteForCore(ctx, logger, dbSession, scp, org, nil, site.ID.String())
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, nil, site.ID.String()))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
 	})
 
+	t.Run("user is not a provider admin", func(t *testing.T) {
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(tenantOrg, tenantUser, site.ID.String()))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusForbidden, apiErr.Code)
+	})
+
 	t.Run("site not found", func(t *testing.T) {
 		missingSiteID := uuid.NewString()
-		_, _, apiErr := AuthorizeProviderSiteForCore(ctx, logger, dbSession, scp, org, user, missingSiteID)
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, missingSiteID))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
 		assert.Contains(t, apiErr.Message, missingSiteID)
 	})
 
 	t.Run("site belongs to another provider", func(t *testing.T) {
-		_, _, apiErr := AuthorizeProviderSiteForCore(ctx, logger, dbSession, scp, org, user, otherSite.ID.String())
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, otherSite.ID.String()))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusForbidden, apiErr.Code)
 	})

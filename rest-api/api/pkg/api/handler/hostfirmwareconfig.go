@@ -17,8 +17,11 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-// NICo Core (forge.Forge) method proxied by this handler.
-const upsertHostFirmwareConfigMethod = "/forge.Forge/UpsertHostFirmwareConfig"
+// NICo Core (forge.Forge) methods proxied by this handler.
+const (
+	upsertHostFirmwareConfigMethod = "/forge.Forge/UpsertHostFirmwareConfig"
+	deleteHostFirmwareConfigMethod = "/forge.Forge/DeleteHostFirmwareConfig"
+)
 
 // CreateOrUpdateHostFirmwareConfigHandler handles PUT /firmware-config/host.
 type CreateOrUpdateHostFirmwareConfigHandler struct {
@@ -65,9 +68,15 @@ func (uhfch CreateOrUpdateHostFirmwareConfigHandler) Handle(c echo.Context) erro
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Host Firmware Config create/update request data", verr)
 	}
 
-	temporalClient, siteID, apiErr := common.AuthorizeProviderSiteForCore(
-		ctx, logger, uhfch.dbSession, uhfch.scp, org, dbUser, apiRequest.SiteID,
-	)
+	temporalClient, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
+		Ctx:       ctx,
+		Logger:    logger,
+		DBSession: uhfch.dbSession,
+		SCP:       uhfch.scp,
+		Org:       org,
+		User:      dbUser,
+		SiteID:    apiRequest.SiteID,
+	})
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
@@ -99,4 +108,82 @@ func (uhfch CreateOrUpdateHostFirmwareConfigHandler) Handle(c echo.Context) erro
 	}
 
 	return c.JSON(status, apiConfig)
+}
+
+// DeleteHostFirmwareConfigHandler handles DELETE /firmware-config/host.
+type DeleteHostFirmwareConfigHandler struct {
+	dbSession  *cdb.Session
+	scp        *sc.ClientPool
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewDeleteHostFirmwareConfigHandler returns a new DeleteHostFirmwareConfigHandler.
+func NewDeleteHostFirmwareConfigHandler(dbSession *cdb.Session, scp *sc.ClientPool) DeleteHostFirmwareConfigHandler {
+	return DeleteHostFirmwareConfigHandler{
+		dbSession:  dbSession,
+		scp:        scp,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Delete a HostFirmwareConfig
+// @Description Delete a HostFirmwareConfig keyed by vendor and model and site.
+// @Tags HostFirmwareConfig
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param message body model.APIHostFirmwareConfigDeleteRequest true "HostFirmwareConfig delete request"
+// @Success 204
+// @Failure 503 {object} util.APIError
+// @Router /v2/org/{org}/nico/firmware-config/host [delete]
+func (dhfch DeleteHostFirmwareConfigHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("HostFirmwareConfig", "Delete", c, dhfch.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	apiRequest := model.APIHostFirmwareConfigDeleteRequest{}
+	if err := c.Bind(&apiRequest); err != nil {
+		logger.Warn().Err(err).Msg("error binding request data into API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
+	}
+	if verr := apiRequest.Validate(); verr != nil {
+		logger.Warn().Err(verr).Msg("error validating Host Firmware Config delete request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Host Firmware Config delete request data", verr)
+	}
+
+	temporalClient, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
+		Ctx:       ctx,
+		Logger:    logger,
+		DBSession: dhfch.dbSession,
+		SCP:       dhfch.scp,
+		Org:       org,
+		User:      dbUser,
+		SiteID:    apiRequest.SiteID,
+	})
+
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
+	}
+
+	protoRequest := apiRequest.ToProto()
+
+	logger.Info().
+		Str("vendor", apiRequest.Vendor).
+		Str("model", apiRequest.Model).
+		Str("siteID", apiRequest.SiteID).
+		Msg("deleting Host Firmware Config via Core proxy")
+
+	code, err := common.ExecuteCoreGRPC(ctx, temporalClient, deleteHostFirmwareConfigMethod, protoRequest, nil, siteID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to delete Host Firmware Config")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf(
+			"Failed to delete Host Firmware Config: %s",
+			common.GRPCStatusMessage(err),
+		), nil)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }

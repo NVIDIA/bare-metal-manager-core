@@ -72,7 +72,15 @@ func (h CreateOrUpdateBMCCredentialHandler) Handle(c echo.Context) error {
 		apiReq.MacAddress = nil
 	}
 
-	stc, siteID, apiErr := common.AuthorizeProviderSiteForCore(ctx, logger, h.dbSession, h.scp, org, dbUser, apiReq.SiteID)
+	stc, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
+		Ctx:       ctx,
+		Logger:    logger,
+		DBSession: h.dbSession,
+		SCP:       h.scp,
+		Org:       org,
+		User:      dbUser,
+		SiteID:    apiReq.SiteID,
+	})
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}

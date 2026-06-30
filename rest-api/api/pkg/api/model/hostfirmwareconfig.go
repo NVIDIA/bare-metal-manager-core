@@ -127,6 +127,13 @@ type APIHostFirmwareConfigCreateOrUpdateRequest struct {
 	Ordering            []HostFirmwareComponentType      `json:"ordering"`
 }
 
+// APIHostFirmwareConfigDeleteRequest is the DELETE /firmware-config/host body.
+type APIHostFirmwareConfigDeleteRequest struct {
+	SiteID string `json:"siteId"`
+	Vendor string `json:"vendor"`
+	Model  string `json:"model"`
+}
+
 // Validate enforces the REST-layer contract before ToProto.
 func (req APIHostFirmwareConfigCreateOrUpdateRequest) Validate() error {
 	if err := validation.ValidateStruct(&req,
@@ -381,4 +388,23 @@ func validateHostFirmwareComponentType(componentType HostFirmwareComponentType) 
 		return fmt.Errorf("invalid component type %q", componentType)
 	}
 	return nil
+}
+
+// Validate enforces the REST-layer contract before ToProto.
+func (req APIHostFirmwareConfigDeleteRequest) Validate() error {
+	return validation.ValidateStruct(&req,
+		validation.Field(&req.SiteID,
+			validation.Required.Error(validationErrorValueRequired),
+			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&req.Vendor, validation.Required.Error(validationErrorValueRequired)),
+		validation.Field(&req.Model, validation.Required.Error(validationErrorValueRequired)),
+	)
+}
+
+// ToProto converts the validated request to forge.DeleteHostFirmwareConfigRequest.
+func (req APIHostFirmwareConfigDeleteRequest) ToProto() *cwssaws.DeleteHostFirmwareConfigRequest {
+	return &cwssaws.DeleteHostFirmwareConfigRequest{
+		Vendor: req.Vendor,
+		Model:  req.Model,
+	}
 }
