@@ -209,6 +209,88 @@ When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
 [`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
 
+### REST endpoint implementation patterns
+
+Before adding REST API code, find the nearest existing endpoint family and copy
+its shape. The central route list in `api/pkg/api/routes.go` already covers the
+main patterns:
+
+- Plain DB-backed resources use the resource triplet
+  `api/pkg/api/handler/<resource>.go`, `api/pkg/api/model/<resource>.go`, and
+  corresponding `*_test.go` files. VPC, Instance Type, SSH Key Group, Network
+  Security Group, and Operating System are good references for ordinary
+  create/get/list/update/delete surfaces.
+- Site-scoped cloud-to-site operations pass a site client pool into the handler
+  constructor (`scp *site.ClientPool`) and resolve the site before calling
+  Temporal or Core. VPC, Subnet, Expected Machine/Rack/Switch, Flow Rack/Tray,
+  Machine Validation, and Tenant Identity endpoints are the reference families.
+- Flow-backed inventory and task APIs use Flow request/response protobufs in the
+  API model layer and keep target-shape helpers next to the model or handler
+  that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
+- Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
+  use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
+  not create a bespoke Temporal workflow for a simple unary Core call. BMC
+  Credential is the reference for auth, site lookup, secret redaction, and a
+  password-free response.
+- Public discovery endpoints belong in `NewWellKnownRoutes`, not the normal
+  authenticated `NewAPIRoutes` list. The Tenant Identity `.well-known/*`
+  endpoints are security-sensitive because they are mounted before auth
+  middleware.
+
+Keep handlers thin and reuse the common surfaces already in the tree:
+
+1. Start handlers with `common.SetupHandler`, defer the span end, check the
+   request user, then validate org membership and roles with the authorization
+   helpers used by the neighboring handler.
+2. Bind request bodies into `api/pkg/api/model` DTOs and call `Validate` before
+   conversion or side effects. Keep syntactic and cross-field request rules in
+   `Validate`; keep auth, ownership, site readiness, and DB-backed checks in the
+   handler where context is available.
+3. Use lookup helpers such as `GetTenantForOrg`, `GetInfrastructureProviderForOrg`,
+   and `GetSiteFromIDString` instead of open-coding org/site/tenant resolution.
+   When adding list endpoints, reuse `pagination.PageRequest`,
+   `common.ValidateKnownQueryParams`, and `common.GetSearchQuery`.
+4. Put request-to-proto conversion on the API request type and entity-to-proto
+   conversion on the DB model, following the "Proto conversion methods" section
+   below. `ToProto` should trust prior validation instead of returning errors
+   for the same rules.
+5. Use `cdb.WithTx` or `cdb.WithTxResult` for write transactions, and translate
+   closure errors with `common.HandleTxError`. Return `cutil.NewAPIError` inside
+   a transaction closure and `cutil.NewAPIErrorResponse` outside it.
+6. For synchronous Temporal workflows, reuse the existing workflow ID,
+   timeout, task queue, `common.UnwrapWorkflowError`, and
+   `common.TerminateWorkflowOnTimeOut` patterns from the nearest handler instead
+   of inventing new error plumbing.
+7. Return curated REST models, not DB models, Core protobufs, Flow protobufs, or
+   secret-bearing request bodies. Log identifiers, method names, kinds, and
+   site IDs; do not log raw request bodies that may contain credentials.
+
+When registering a new route:
+
+- Add it to `NewAPIRoutes` with the existing `/org/:orgName/<apiName>` prefix
+  unless it is a system or public discovery route.
+- Keep literal/static routes such as `/batch`, `/stats`, `/validation`,
+  `/power`, and `.well-known/*` before parameterized `/:id` routes that could
+  otherwise capture them.
+- Update `api/pkg/api/routes_test.go`: increment the route family count, add an
+  `assertRouteExists` check for any new route shape, and add `assertRouteBefore`
+  when a static route could be shadowed by a parameterized route.
+- Update `openapi/spec.yaml` in the same change. Keep operation IDs, summaries,
+  handler constructors, handler godoc, and SDK-facing names aligned.
+
+Endpoint tests should follow the changed surface, not just compile it:
+
+- Model tests cover `Validate`, query validation, enum values, list-level
+  constraints, and `ToProto` / `FromProto` mappings.
+- Handler tests cover auth role, org membership, missing user, invalid IDs,
+  ownership/site checks, request validation, status codes, and the response
+  shape. For accepted deletes, reuse `assertDeletionAcceptedResponse`.
+- Site/Core/Flow handlers should assert the workflow or proxy request arguments,
+  workflow ID inputs, secret field names, timeout behavior where relevant, and
+  that secrets are absent from responses and logs.
+- Route tests and OpenAPI checks are part of the endpoint change; generated SDK
+  updates belong in the same change only when the repo workflow requires them.
+
 ### Prefer range-based iteration over C-style `for` loops
 
 The module is on Go 1.26.4, so reach for range-based iteration before the
