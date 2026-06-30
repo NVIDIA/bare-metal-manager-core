@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn endpoint_report_propagates_operator_error_schema_to_rpc() {
-        let error = EndpointExplorationError::MissingVendor;
+        let error = EndpointExplorationError::MissingVendor { observed: None };
         let expected_schema = error.operator_error_schema();
 
         let report =

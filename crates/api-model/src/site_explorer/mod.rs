@@ -1317,7 +1317,7 @@ impl OperatorError for EndpointExplorationError {
                 ErrorCode::nico(SiteExplorer, 120)
             }
             EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
-            EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
+            EndpointExplorationError::MissingVendor { .. } => ErrorCode::nico(SiteExplorer, 122),
             EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
             EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {
                 ErrorCode::nico(SiteExplorer, 131)
@@ -1349,7 +1349,7 @@ impl OperatorError for EndpointExplorationError {
                 "Verify endpoint network reachability and that the BMC Redfish service is listening.",
             ),
             EndpointExplorationError::UnsupportedVendor { .. }
-            | EndpointExplorationError::MissingVendor => Some(
+            | EndpointExplorationError::MissingVendor { .. } => Some(
                 "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
                  Compatibility List \
                  (https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list); \
@@ -2468,7 +2468,7 @@ mod tests {
                 EndpointExplorationError::UnsupportedVendor {
                     vendor: "unknown".to_string(),
                 } => true,
-                EndpointExplorationError::MissingVendor => true,
+                EndpointExplorationError::MissingVendor { observed: None } => true,
             }
         );
     }
