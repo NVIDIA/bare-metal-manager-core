@@ -17,20 +17,17 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use carbide_test_harness::prelude::*;
 use mac_address::MacAddress;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
-use rpc::forge_server::Forge;
 
-use crate::tests::common::api_fixtures::create_test_env;
-
-#[crate::sqlx_test()]
+#[sqlx_test]
 async fn test_find_explored_managed_host_ids(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = TestHarness::builder(pool).build().await;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let mut managed_hosts: Vec<ExploredManagedHost> = Vec::new();
     for i in 1..6 {
         let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{i}").as_str())?;
@@ -49,7 +46,7 @@ async fn test_find_explored_managed_host_ids(
     txn.commit().await?;
 
     let id_list = env
-        .api
+        .api()
         .find_explored_managed_host_ids(tonic::Request::new(
             ::rpc::site_explorer::ExploredManagedHostSearchFilter {},
         ))
@@ -61,13 +58,13 @@ async fn test_find_explored_managed_host_ids(
     Ok(())
 }
 
-#[crate::sqlx_test()]
+#[sqlx_test]
 async fn test_find_explored_managed_hosts_by_ids(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = TestHarness::builder(pool).build().await;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let mut managed_hosts: Vec<ExploredManagedHost> = Vec::new();
     for i in 1..6 {
         let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{i}").as_str())?;
@@ -86,7 +83,7 @@ async fn test_find_explored_managed_hosts_by_ids(
     txn.commit().await?;
 
     let id_list = env
-        .api
+        .api()
         .find_explored_managed_host_ids(tonic::Request::new(
             ::rpc::site_explorer::ExploredManagedHostSearchFilter {},
         ))
@@ -100,7 +97,7 @@ async fn test_find_explored_managed_hosts_by_ids(
     });
 
     let host_list = env
-        .api
+        .api()
         .find_explored_managed_hosts_by_ids(request)
         .await
         .map(|response| response.into_inner())
