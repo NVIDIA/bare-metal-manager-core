@@ -15,22 +15,19 @@
  * limitations under the License.
  */
 
-use rpc::forge::forge_server::Forge;
+use carbide_test_harness::prelude::*;
 
-use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
-
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_power_shelf_ids_and_by_ids(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let ps_id1 = new_power_shelf(&env, Some("PS1".to_string()), None, None, None).await?;
-    let ps_id2 = new_power_shelf(&env, Some("PS2".to_string()), None, None, None).await?;
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
 
     // FindPowerShelfIds should return both power shelves
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             ..Default::default()
         }))
@@ -42,7 +39,7 @@ async fn test_find_power_shelf_ids_and_by_ids(
 
     // FindPowerShelvesByIds should return the requested power shelf
     let power_shelves = env
-        .api
+        .api()
         .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id1],
         }))
@@ -54,7 +51,7 @@ async fn test_find_power_shelf_ids_and_by_ids(
 
     // FindPowerShelvesByIds should return both when requested
     let power_shelves = env
-        .api
+        .api()
         .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id1, ps_id2],
         }))
@@ -70,16 +67,16 @@ async fn test_find_power_shelf_ids_and_by_ids(
 // API-layer code, proven once across representative RPCs in
 // `tests::find_by_ids_guards`.
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_power_shelf_ids_excludes_deleted(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let ps_id1 = new_power_shelf(&env, Some("PS1".to_string()), None, None, None).await?;
-    let ps_id2 = new_power_shelf(&env, Some("PS2".to_string()), None, None, None).await?;
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
 
     // Delete ps2
-    env.api
+    env.api()
         .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
             id: Some(ps_id2),
         }))
@@ -87,7 +84,7 @@ async fn test_find_power_shelf_ids_excludes_deleted(
 
     // FindPowerShelfIds should only return the non-deleted power shelf
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             ..Default::default()
         }))
@@ -100,15 +97,15 @@ async fn test_find_power_shelf_ids_excludes_deleted(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_power_shelf_ids_deleted_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let ps_id1 = new_power_shelf(&env, Some("PS1".to_string()), None, None, None).await?;
-    let ps_id2 = new_power_shelf(&env, Some("PS2".to_string()), None, None, None).await?;
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
 
-    env.api
+    env.api()
         .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
             id: Some(ps_id2),
         }))
@@ -116,7 +113,7 @@ async fn test_find_power_shelf_ids_deleted_only(
 
     // DELETED_FILTER_ONLY (1) should return only the deleted power shelf
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             deleted: 1,
             ..Default::default()
@@ -129,7 +126,7 @@ async fn test_find_power_shelf_ids_deleted_only(
 
     // DELETED_FILTER_INCLUDE (2) should return both
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             deleted: 2,
             ..Default::default()
@@ -143,16 +140,16 @@ async fn test_find_power_shelf_ids_deleted_only(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_power_shelf_ids_by_controller_state(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let ps_id = new_power_shelf(&env, Some("PS1".to_string()), None, None, None).await?;
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
 
     // New power shelves start in "initializing" state
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             controller_state: Some("initializing".to_string()),
             ..Default::default()
@@ -164,7 +161,7 @@ async fn test_find_power_shelf_ids_by_controller_state(
 
     // Filter for a state that doesn't match
     let power_shelf_ids = env
-        .api
+        .api()
         .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
             controller_state: Some("ready".to_string()),
             ..Default::default()
@@ -177,15 +174,15 @@ async fn test_find_power_shelf_ids_by_controller_state(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_power_shelves_by_ids_response_fields(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let ps_id = new_power_shelf(&env, Some("PS1".to_string()), None, None, None).await?;
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
 
     let power_shelves = env
-        .api
+        .api()
         .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id],
         }))
