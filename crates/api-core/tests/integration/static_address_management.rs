@@ -334,6 +334,7 @@ async fn test_remove_dhcp_address_returns_not_found(
     let addr =
         db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
     assert_eq!(addr.address, dhcp_ip, "DHCP address should still exist");
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -495,6 +496,7 @@ async fn test_assign_moves_interface_to_correct_segment(
         updated.segment_id, underlay_segment.id,
         "interface should have moved to the underlay segment"
     );
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -545,6 +547,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         updated.domain_id, static_seg.config.subdomain_id,
         "domain_id should match the static-assignments segment's subdomain"
     );
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -612,6 +615,7 @@ async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
             .any(|prefix| prefix.prefix.is_ipv6()),
         "static-assignments should include an IPv6 placeholder"
     );
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -657,6 +661,7 @@ async fn test_assign_within_same_segment_no_move(
         updated.segment_id, original_segment,
         "interface should stay on the same segment"
     );
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -741,6 +746,7 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
         updated.domain_id.is_some(),
         "domain_id should be restored when moving back from static-assignments"
     );
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -819,6 +825,7 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
         updated.addresses.contains(&"10.50.1.201".parse().unwrap()),
         "static address should still be intact"
     );
+    txn.rollback().await?;
 
     Ok(())
 }

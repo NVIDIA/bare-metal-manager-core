@@ -49,6 +49,7 @@ async fn test_add_route_servers(pool: PgPool) -> Result<(), Box<dyn std::error::
         .collect();
 
     assert_eq!(actual_servers, expected_servers);
+    txn.rollback().await?;
     Ok(())
 }
 
@@ -78,6 +79,7 @@ async fn test_remove_route_servers(pool: PgPool) -> Result<(), Box<dyn std::erro
         .collect();
 
     assert_eq!(actual_servers, expected_servers);
+    txn.rollback().await?;
 
     let removed_servers = [expected_servers.pop().unwrap()];
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
@@ -96,6 +98,7 @@ async fn test_remove_route_servers(pool: PgPool) -> Result<(), Box<dyn std::erro
         .collect();
 
     assert_eq!(actual_servers, expected_servers);
+    txn.rollback().await?;
 
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
         route_servers: expected_servers.iter().map(ToString::to_string).collect(),
@@ -113,6 +116,7 @@ async fn test_remove_route_servers(pool: PgPool) -> Result<(), Box<dyn std::erro
         .collect();
 
     assert!(actual_servers.is_empty());
+    txn.rollback().await?;
 
     Ok(())
 }
@@ -143,6 +147,7 @@ async fn test_initial_set(pool: PgPool) -> Result<(), Box<dyn std::error::Error>
         .collect();
 
     assert_eq!(actual_servers, expected_servers);
+    txn.rollback().await?;
     Ok(())
 }
 

@@ -195,6 +195,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     let first = some_vpc.first();
 
     assert!(matches!(first, Some(x) if x.id == vpc_id));
+    txn.commit().await?;
 
     Ok(())
 }
@@ -342,4 +343,5 @@ async fn test_vpc_find_by_segment(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(vpc.id.to_string(), vpc_id.to_string());
+    txn.rollback().await.unwrap();
 }
