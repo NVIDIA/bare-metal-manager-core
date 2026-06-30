@@ -2647,23 +2647,21 @@ func TestValidateInfiniBandRequestForMachineCapability(t *testing.T) {
 				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 0, IsPhysical: true},
 			},
 		}
-		match, errs := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 		assert.True(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
-		assert.Nil(t, errs)
 		assert.Equal(t, []int{0, 2}, match.AvailableByDevice["MT28908 Family [ConnectX-6]"])
 	})
 
-	t.Run("returns validation error when requested device instance is inactive on machine", func(t *testing.T) {
+	t.Run("not satisfied but count satisfiable when requested device instance is inactive on machine", func(t *testing.T) {
 		req := APIInstanceCreateRequest{
 			InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
 				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
 			},
 		}
-		match, errs := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 		assert.False(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
-		require.NotNil(t, errs)
-		assert.Contains(t, errs, "infiniBandInterfaces[0].deviceInstance")
+		assert.Equal(t, []int{0}, match.UnsatisfiedRequestIndices)
 	})
 }

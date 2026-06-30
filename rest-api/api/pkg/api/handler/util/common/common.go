@@ -422,7 +422,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 				}
 
 				// Validate the InfiniBand Interfaces against the Machine InfiniBand Capabilities
-				match, _ := apiRequest.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+				match := apiRequest.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 				if !match.Satisfied {
 					// If the request is not satisfied, but the count is satisfiable, keep track of the suggestion and continue to the next machine
 					if match.CountSatisfiable && !foundInfiniBandSuggestion {

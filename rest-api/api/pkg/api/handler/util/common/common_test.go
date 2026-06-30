@@ -2774,7 +2774,7 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
 			},
 		}
-		match, _ := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 		assert.False(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
 
