@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
-use model::switch::SwitchControllerState;
+use db::switch as db_switch;
+use model::switch::{ConfigureCertificateState, ConfiguringState, SwitchControllerState};
 use sqlx::PgConnection;
 
 /// Helper function to set switch controller state directly in database
@@ -32,6 +34,56 @@ pub async fn set_switch_controller_state(
         .await?;
 
     Ok(())
+}
+
+pub async fn set_switch_rack_id(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+    rack_id: &RackId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id)
+        .bind(switch_id)
+        .execute(txn)
+        .await?;
+    Ok(())
+}
+
+pub async fn transition_switch_controller_state(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+    new_state: SwitchControllerState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let switch = db_switch::find_by_id(txn, switch_id)
+        .await?
+        .expect("switch should exist");
+    db_switch::try_update_controller_state(
+        txn,
+        *switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &new_state,
+    )
+    .await?;
+    Ok(())
+}
+
+pub fn configure_certificate_start_state() -> SwitchControllerState {
+    SwitchControllerState::Configuring {
+        config_state: ConfiguringState::ConfigureCertificate {
+            configure_certificate: ConfigureCertificateState::Start,
+        },
+    }
+}
+
+pub fn configure_certificate_wait_state(job_id: &str) -> SwitchControllerState {
+    SwitchControllerState::Configuring {
+        config_state: ConfiguringState::ConfigureCertificate {
+            configure_certificate: ConfigureCertificateState::WaitForComplete {
+                job_id: job_id.to_string(),
+            },
+        },
+    }
 }
 
 /// Helper function to mark switch as deleted

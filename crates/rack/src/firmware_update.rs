@@ -110,6 +110,7 @@ pub async fn load_rack_firmware_inventory(
             os_ip: None,
             os_username: None,
             os_password: None,
+            os_hostname: None,
         });
     }
 
@@ -197,6 +198,10 @@ async fn switch_endpoint_to_firmware_device_info(
         os_ip: switch.nvos_ip.map(|ip| ip.to_string()),
         os_username: nvos_creds.as_ref().map(|(username, _)| username.clone()),
         os_password: nvos_creds.map(|(_, password)| password),
+        os_hostname: switch
+            .nvos_hostname
+            .clone()
+            .filter(|hostname| !hostname.is_empty()),
     })
 }
 
@@ -300,7 +305,10 @@ fn build_host_interface(device: &FirmwareUpgradeDeviceInfo) -> Option<rms::Netwo
     Some(rms::NetworkInterface {
         ip_address: ip_address.clone(),
         mac_address: mac_address.clone(),
-        host_name: None,
+        host_name: device
+            .os_hostname
+            .clone()
+            .filter(|hostname| !hostname.is_empty()),
     })
 }
 

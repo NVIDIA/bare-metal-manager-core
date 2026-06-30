@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 
 use mac_address::MacAddress;
-use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
+use model::component_manager::{
+    ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
+};
 use tonic::transport::Channel;
 use trace_propagation::TraceInjectService;
 use tracing::instrument;
@@ -12,8 +14,8 @@ use tracing::instrument;
 use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
-    NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchPowerStateResult, SwitchSlotAndTrayResult,
+    ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchComponentResult, SwitchEndpoint,
+    SwitchFirmwareUpdateStatus, SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::proto::nsm;
 use crate::types::parse_mac;
@@ -25,6 +27,7 @@ pub struct NsmSwitchBackend {
 
 impl NsmSwitchBackend {
     pub const BACKEND_NAME: &str = "nsm";
+    const PASSTHROUGH_CERT_JOB_ID: &str = "nsm-switch-cert-passthrough";
 
     pub async fn connect(
         url: &str,
@@ -344,13 +347,14 @@ impl NvSwitchManager for NsmSwitchBackend {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        tracing::warn!("slot and tray lookup is not supported by NSM backend, passthrough");
         Ok(endpoints
             .iter()
             .map(|ep| SwitchSlotAndTrayResult {
                 bmc_mac: ep.bmc_mac,
                 slot_number: None,
                 tray_index: None,
-                error: Some("slot and tray lookup is not supported by NSM".into()),
+                error: None,
             })
             .collect())
     }
@@ -360,14 +364,44 @@ impl NvSwitchManager for NsmSwitchBackend {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError> {
+        tracing::warn!("get power state is not supported by NSM backend, passthrough");
         Ok(endpoints
             .iter()
             .map(|ep| SwitchPowerStateResult {
                 bmc_mac: ep.bmc_mac,
                 power_state: None,
-                error: Some("get power state is not supported by NSM".into()),
+                error: None,
             })
             .collect())
+    }
+
+    async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: Option<&str>,
+        services: Option<&[i32]>,
+    ) -> Result<String, ComponentManagerError> {
+        tracing::warn!(
+            bmc_mac = %endpoint.bmc_mac,
+            ?domain_name,
+            ?services,
+            "switch certificate configuration is not supported by NSM backend, passthrough"
+        );
+        Ok(Self::PASSTHROUGH_CERT_JOB_ID.to_string())
+    }
+
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
+        tracing::warn!(
+            %job_id,
+            "switch certificate job status is not supported by NSM backend, passthrough"
+        );
+        Ok(ConfigureSwitchCertificateJobStatus {
+            state: ConfigureSwitchCertificateState::Completed,
+            error: None,
+        })
     }
 }
 
@@ -449,6 +483,7 @@ mod tests {
                 username: "nvadmin".to_string(),
                 password: "nvos_pass".to_string(),
             },
+            nvos_host_name: None,
         };
         let req = build_registration(&ep);
         assert_eq!(req.vendor, nsm::Vendor::Nvidia as i32);

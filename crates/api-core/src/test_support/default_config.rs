@@ -145,9 +145,11 @@ pub fn get() -> CarbideConfig {
         },
         rack_state_controller: RackStateControllerConfig {
             controller: StateControllerConfig::default(),
+            nmx_cluster_switch_mtls_services: vec![],
         },
         switch_state_controller: SwitchStateControllerConfig {
             controller: StateControllerConfig::default(),
+            switch_mtls_services: vec![],
         },
         dpu_config: InitialDpuConfig {
             dpu_nic_firmware_initial_update_enabled: true,

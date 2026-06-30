@@ -3384,6 +3384,14 @@ impl Forge for Api {
         crate::handlers::component_manager::component_power_control(self, request).await
     }
 
+    async fn component_configure_switch_certificate(
+        &self,
+        request: Request<rpc::ComponentConfigureSwitchCertificateRequest>,
+    ) -> Result<Response<rpc::ComponentConfigureSwitchCertificateResponse>, Status> {
+        crate::handlers::component_manager::component_configure_switch_certificate(self, request)
+            .await
+    }
+
     async fn get_component_inventory(
         &self,
         request: Request<rpc::GetComponentInventoryRequest>,

@@ -470,6 +470,7 @@ const (
 	Forge_GetDPFHostSnapshot_FullMethodName                                 = "/forge.Forge/GetDPFHostSnapshot"
 	Forge_GetDPFServiceVersions_FullMethodName                              = "/forge.Forge/GetDPFServiceVersions"
 	Forge_ComponentPowerControl_FullMethodName                              = "/forge.Forge/ComponentPowerControl"
+	Forge_ComponentConfigureSwitchCertificate_FullMethodName                = "/forge.Forge/ComponentConfigureSwitchCertificate"
 	Forge_GetComponentInventory_FullMethodName                              = "/forge.Forge/GetComponentInventory"
 	Forge_UpdateComponentFirmware_FullMethodName                            = "/forge.Forge/UpdateComponentFirmware"
 	Forge_GetComponentFirmwareStatus_FullMethodName                         = "/forge.Forge/GetComponentFirmwareStatus"
@@ -1266,6 +1267,7 @@ type ForgeClient interface {
 	GetDPFServiceVersions(ctx context.Context, in *GetDPFServiceVersionsRequest, opts ...grpc.CallOption) (*DPFServiceVersionsResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error)
+	ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error)
 	GetComponentInventory(ctx context.Context, in *GetComponentInventoryRequest, opts ...grpc.CallOption) (*GetComponentInventoryResponse, error)
 	UpdateComponentFirmware(ctx context.Context, in *UpdateComponentFirmwareRequest, opts ...grpc.CallOption) (*UpdateComponentFirmwareResponse, error)
 	GetComponentFirmwareStatus(ctx context.Context, in *GetComponentFirmwareStatusRequest, opts ...grpc.CallOption) (*GetComponentFirmwareStatusResponse, error)
@@ -5774,6 +5776,16 @@ func (c *forgeClient) ComponentPowerControl(ctx context.Context, in *ComponentPo
 	return out, nil
 }
 
+func (c *forgeClient) ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComponentConfigureSwitchCertificateResponse)
+	err := c.cc.Invoke(ctx, Forge_ComponentConfigureSwitchCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) GetComponentInventory(ctx context.Context, in *GetComponentInventoryRequest, opts ...grpc.CallOption) (*GetComponentInventoryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetComponentInventoryResponse)
@@ -6685,6 +6697,7 @@ type ForgeServer interface {
 	GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error)
+	ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error)
 	GetComponentInventory(context.Context, *GetComponentInventoryRequest) (*GetComponentInventoryResponse, error)
 	UpdateComponentFirmware(context.Context, *UpdateComponentFirmwareRequest) (*UpdateComponentFirmwareResponse, error)
 	GetComponentFirmwareStatus(context.Context, *GetComponentFirmwareStatusRequest) (*GetComponentFirmwareStatusResponse, error)
@@ -8052,6 +8065,9 @@ func (UnimplementedForgeServer) GetDPFServiceVersions(context.Context, *GetDPFSe
 }
 func (UnimplementedForgeServer) ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComponentPowerControl not implemented")
+}
+func (UnimplementedForgeServer) ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ComponentConfigureSwitchCertificate not implemented")
 }
 func (UnimplementedForgeServer) GetComponentInventory(context.Context, *GetComponentInventoryRequest) (*GetComponentInventoryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetComponentInventory not implemented")
@@ -16147,6 +16163,24 @@ func _Forge_ComponentPowerControl_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ComponentConfigureSwitchCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComponentConfigureSwitchCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ComponentConfigureSwitchCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ComponentConfigureSwitchCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ComponentConfigureSwitchCertificate(ctx, req.(*ComponentConfigureSwitchCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_GetComponentInventory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetComponentInventoryRequest)
 	if err := dec(in); err != nil {
@@ -18171,6 +18205,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ComponentPowerControl",
 			Handler:    _Forge_ComponentPowerControl_Handler,
+		},
+		{
+			MethodName: "ComponentConfigureSwitchCertificate",
+			Handler:    _Forge_ComponentConfigureSwitchCertificate_Handler,
 		},
 		{
 			MethodName: "GetComponentInventory",

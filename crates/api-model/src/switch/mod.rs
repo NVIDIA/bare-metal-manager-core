@@ -79,6 +79,8 @@ pub enum SwitchMaintenanceOperation {
     PowerOff,
     /// Reset the switch (restart / AC power cycle).
     Reset,
+    /// Reinstall or rotate the switch NVOS mTLS certificate via Component Manager.
+    ReconfigureCertificate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,9 +286,33 @@ pub enum InitializingState {
     WaitForOsMachineInterface,
 }
 
+/// Sub-states of `ConfiguringState::ConfigureCertificate`.
+///
+/// `Start` submits certificate configuration via the component manager.
+/// `WaitForComplete` polls the returned RMS job id until the operation finishes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfigureCertificateState {
+    Start,
+    WaitForComplete { job_id: String },
+}
+
+impl std::fmt::Display for ConfigureCertificateState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigureCertificateState::Start => write!(f, "Start"),
+            ConfigureCertificateState::WaitForComplete { job_id } => {
+                write!(f, "WaitForComplete({job_id})")
+            }
+        }
+    }
+}
+
 /// Sub-state for SwitchControllerState::Configuring
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfiguringState {
+    ConfigureCertificate {
+        configure_certificate: ConfigureCertificateState,
+    },
     RotateOsPassword,
 }
 
@@ -328,6 +354,8 @@ pub enum SwitchControllerState {
     },
     /// The Switch is configuring.
     Configuring { config_state: ConfiguringState },
+    /// The Switch is fetching rack placement info (slot and tray) from the backend.
+    FetchInfo,
     /// The Switch is validating.
     Validating { validating_state: ValidatingState },
     /// The Switch is validating the BOM.
@@ -337,9 +365,12 @@ pub enum SwitchControllerState {
     /// The Switch is ready for use.
     Ready,
 
-    /// The Switch is executing an operator-requested power operation.
+    /// The Switch is executing an operator-requested maintenance operation.
     Maintenance {
         operation: SwitchMaintenanceOperation,
+        /// Sub-states for async maintenance operations such as certificate reconfiguration.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        configure_certificate: Option<ConfigureCertificateState>,
     },
 
     // ReProvisioning
@@ -350,6 +381,20 @@ pub enum SwitchControllerState {
     Error { cause: String },
     /// The Switch is in the process of deleting.
     Deleting,
+}
+
+impl SwitchControllerState {
+    /// Builds the controller state for a requested maintenance operation.
+    pub fn maintenance_for_operation(operation: SwitchMaintenanceOperation) -> Self {
+        Self::Maintenance {
+            operation,
+            configure_certificate: matches!(
+                operation,
+                SwitchMaintenanceOperation::ReconfigureCertificate
+            )
+            .then_some(ConfigureCertificateState::Start),
+        }
+    }
 }
 
 /// Returns the SLA for the current state
@@ -370,6 +415,10 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
         ),
         SwitchControllerState::Configuring { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::CONFIGURING),
+            time_in_state,
+        ),
+        SwitchControllerState::FetchInfo => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::FETCH_INFO),
             time_in_state,
         ),
         SwitchControllerState::Validating { .. } => StateSla::with_sla(
@@ -456,6 +505,12 @@ mod tests {
                 ),
             }
 
+            "fetchinfo" {
+                SwitchControllerState::FetchInfo => {
+                    Yields(r#"{"state":"fetchinfo"}"#.to_string())
+                }
+            }
+
             "validating" {
                 SwitchControllerState::Validating {
                     validating_state: ValidatingState::ValidationComplete,
@@ -481,6 +536,7 @@ mod tests {
             "maintenance: power on" {
                 SwitchControllerState::Maintenance {
                     operation: SwitchMaintenanceOperation::PowerOn,
+                    configure_certificate: None,
                 } => Yields(
                     r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#.to_string(),
                 ),
@@ -489,6 +545,7 @@ mod tests {
             "maintenance: power off" {
                 SwitchControllerState::Maintenance {
                     operation: SwitchMaintenanceOperation::PowerOff,
+                    configure_certificate: None,
                 } => Yields(
                     r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#
                         .to_string(),
@@ -498,8 +555,19 @@ mod tests {
             "maintenance: reset" {
                 SwitchControllerState::Maintenance {
                     operation: SwitchMaintenanceOperation::Reset,
+                    configure_certificate: None,
                 } => Yields(
                     r#"{"state":"maintenance","operation":{"operation":"reset"}}"#.to_string(),
+                ),
+            }
+
+            "maintenance: reconfigure certificate" {
+                SwitchControllerState::Maintenance {
+                    operation: SwitchMaintenanceOperation::ReconfigureCertificate,
+                    configure_certificate: Some(ConfigureCertificateState::Start),
+                } => Yields(
+                    r#"{"state":"maintenance","operation":{"operation":"reconfigurecertificate"},"configure_certificate":"Start"}"#
+                        .to_string(),
                 ),
             }
 
@@ -565,6 +633,10 @@ mod tests {
                 }),
             }
 
+            "fetchinfo" {
+                r#"{"state":"fetchinfo"}"# => Yields(SwitchControllerState::FetchInfo),
+            }
+
             "validating" {
                 r#"{"state":"validating","validating_state":"ValidationComplete"}"# => Yields(SwitchControllerState::Validating {
                     validating_state: ValidatingState::ValidationComplete,
@@ -588,6 +660,7 @@ mod tests {
             "maintenance: reset" {
                 r#"{"state":"maintenance","operation":{"operation":"reset"}}"# => Yields(SwitchControllerState::Maintenance {
                     operation: SwitchMaintenanceOperation::Reset,
+                    configure_certificate: None,
                 }),
             }
 
@@ -634,6 +707,12 @@ mod tests {
             "reset" {
                 SwitchMaintenanceOperation::Reset => Yields(r#"{"operation":"reset"}"#.to_string()),
             }
+
+            "reconfigure certificate" {
+                SwitchMaintenanceOperation::ReconfigureCertificate => Yields(
+                    r#"{"operation":"reconfigurecertificate"}"#.to_string(),
+                ),
+            }
         );
     }
 
@@ -651,6 +730,11 @@ mod tests {
 
             "reset" {
                 r#"{"operation":"reset"}"# => Yields(SwitchMaintenanceOperation::Reset),
+            }
+
+            "reconfigure certificate" {
+                r#"{"operation":"reconfigurecertificate"}"# =>
+                    Yields(SwitchMaintenanceOperation::ReconfigureCertificate),
             }
 
             "uppercase tag is rejected" {
@@ -704,6 +788,31 @@ mod tests {
             "unrecognized state is rejected" {
                 r#""degraded""# => Fails,
             }
+        );
+    }
+
+    #[test]
+    fn configuring_certificate_state_serializes_and_deserializes() {
+        let state = SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::Start,
+            },
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            "{\"state\":\"configuring\",\"config_state\":{\"ConfigureCertificate\":{\"configure_certificate\":\"Start\"}}}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
+            state
+        );
+        let state = SwitchControllerState::Ready;
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, r#"{"state":"ready"}"#);
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
+            state
         );
     }
 

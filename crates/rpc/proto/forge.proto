@@ -962,6 +962,7 @@ service Forge {
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
+  rpc ComponentConfigureSwitchCertificate(ComponentConfigureSwitchCertificateRequest) returns (ComponentConfigureSwitchCertificateResponse);
   rpc GetComponentInventory(GetComponentInventoryRequest) returns (GetComponentInventoryResponse);
   rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
   rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
@@ -8656,6 +8657,19 @@ message ComponentPowerControlRequest {
 }
 
 message ComponentPowerControlResponse {
+  repeated ComponentResult results = 1;
+}
+
+message ComponentConfigureSwitchCertificateRequest {
+  SwitchIdList switch_ids = 1;
+  // Optional certificate domain passed through to RMS. When omitted, RMS uses its default.
+  optional string domain_name = 2;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (RMS, NSM, mock, etc.).
+  bool bypass_state_controller = 3;
+}
+
+message ComponentConfigureSwitchCertificateResponse {
   repeated ComponentResult results = 1;
 }
 

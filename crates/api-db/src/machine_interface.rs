@@ -394,6 +394,41 @@ pub async fn lookup_bmc_ip_by_mac_address(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Returns the fully qualified hostname (`hostname.domain`) for each requested
+/// MAC address, using `machine_interfaces.hostname` and the associated
+/// `domains.name` when present.
+pub async fn find_hostnames_by_mac_addresses(
+    db: impl DbReader<'_>,
+    mac_addresses: &[MacAddress],
+) -> DatabaseResult<HashMap<MacAddress, String>> {
+    if mac_addresses.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let query = r#"
+        SELECT
+            mi.mac_address,
+            CASE
+                WHEN d.name IS NOT NULL AND d.name <> '' THEN mi.hostname || '.' || d.name
+                ELSE mi.hostname
+            END AS hostname
+        FROM machine_interfaces mi
+        LEFT JOIN domains d ON d.id = mi.domain_id
+        WHERE mi.mac_address = ANY($1)
+          AND mi.hostname <> ''
+    "#;
+    let rows: Vec<(MacAddress, String)> = sqlx::query_as(query)
+        .bind(mac_addresses)
+        .fetch_all(db)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(rows
+        .into_iter()
+        .filter(|(_, hostname)| !hostname.is_empty())
+        .collect())
+}
+
 pub async fn lookup_bmc_access_info(
     db: impl DbReader<'_>,
     ip: IpAddr,

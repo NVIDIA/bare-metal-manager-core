@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use librms::protos::rack_manager::SwitchService;
 use serde::{Deserialize, Serialize};
 
 use crate::compute_tray_manager::Backend as ComputeBackend;
@@ -47,6 +48,76 @@ pub struct ComponentManagerConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub compute_tray_use_state_controller: bool,
+}
+
+/// Identifies a switch service that should use installed mTLS certificates.
+///
+/// Values mirror RMS `SwitchService` and are serialized in TOML as snake_case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchMtlsService {
+    NvueApi,
+    ScaleUpFabricTelemetry,
+    ScaleUpFabricManager,
+    ScaleUpFabricTelemetryInterface,
+}
+
+impl SwitchMtlsService {
+    pub fn default_services() -> Vec<Self> {
+        vec![
+            Self::NvueApi,
+            Self::ScaleUpFabricTelemetry,
+            Self::ScaleUpFabricManager,
+            Self::ScaleUpFabricTelemetryInterface,
+        ]
+    }
+}
+
+/// Maps configured switch mTLS services to RMS `SwitchService` values.
+pub fn switch_mtls_services_as_i32(services: &[SwitchMtlsService]) -> Vec<i32> {
+    services
+        .iter()
+        .map(|service| match service {
+            SwitchMtlsService::NvueApi => SwitchService::NvueApi as i32,
+            SwitchMtlsService::ScaleUpFabricTelemetry => {
+                SwitchService::ScaleUpFabricTelemetry as i32
+            }
+            SwitchMtlsService::ScaleUpFabricManager => SwitchService::ScaleUpFabricManager as i32,
+            SwitchMtlsService::ScaleUpFabricTelemetryInterface => {
+                SwitchService::ScaleUpFabricTelemetryInterface as i32
+            }
+        })
+        .collect()
+}
+
+/// Returns the configured switch mTLS services, or all supported services when
+/// the list was omitted or left empty.
+pub fn effective_switch_mtls_services(services: &[SwitchMtlsService]) -> Vec<SwitchMtlsService> {
+    if services.is_empty() {
+        SwitchMtlsService::default_services()
+    } else {
+        services.to_vec()
+    }
+}
+
+/// Default ScaleUpFabric services configured during rack NMX cluster maintenance.
+pub fn default_nmx_cluster_switch_mtls_services() -> Vec<SwitchMtlsService> {
+    vec![
+        SwitchMtlsService::ScaleUpFabricManager,
+        SwitchMtlsService::ScaleUpFabricTelemetryInterface,
+    ]
+}
+
+/// Returns configured NMX cluster switch mTLS services, or
+/// [`default_nmx_cluster_switch_mtls_services`] when omitted or empty.
+pub fn effective_nmx_cluster_switch_mtls_services(
+    services: &[SwitchMtlsService],
+) -> Vec<SwitchMtlsService> {
+    if services.is_empty() {
+        default_nmx_cluster_switch_mtls_services()
+    } else {
+        services.to_vec()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -252,6 +323,66 @@ mod tests {
                 },
             ],
             |row| tls_config(row).resolve_client_key_path(),
+        );
+    }
+
+    #[test]
+    fn default_switch_mtls_services_matches_rms_defaults() {
+        assert_eq!(
+            effective_switch_mtls_services(&[]),
+            SwitchMtlsService::default_services()
+        );
+    }
+
+    #[test]
+    fn default_nmx_cluster_switch_mtls_services_matches_scale_up_fabric() {
+        assert_eq!(
+            effective_nmx_cluster_switch_mtls_services(&[]),
+            default_nmx_cluster_switch_mtls_services()
+        );
+        assert_eq!(
+            default_nmx_cluster_switch_mtls_services(),
+            vec![
+                SwitchMtlsService::ScaleUpFabricManager,
+                SwitchMtlsService::ScaleUpFabricTelemetryInterface,
+            ]
+        );
+    }
+
+    #[test]
+    fn switch_mtls_services_empty_uses_all_supported_services() {
+        assert_eq!(
+            effective_switch_mtls_services(&[]),
+            SwitchMtlsService::default_services()
+        );
+    }
+
+    #[test]
+    fn switch_mtls_services_deserialize_from_snake_case() {
+        #[derive(Deserialize)]
+        struct TestCfg {
+            switch_mtls_services: Vec<SwitchMtlsService>,
+        }
+
+        let cfg: TestCfg = toml::from_str(
+            r#"
+            switch_mtls_services = ["nvue_api", "scale_up_fabric_manager"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.switch_mtls_services,
+            vec![
+                SwitchMtlsService::NvueApi,
+                SwitchMtlsService::ScaleUpFabricManager,
+            ]
+        );
+        assert_eq!(
+            effective_switch_mtls_services(&cfg.switch_mtls_services),
+            vec![
+                SwitchMtlsService::NvueApi,
+                SwitchMtlsService::ScaleUpFabricManager,
+            ]
         );
     }
 }

@@ -886,6 +886,10 @@ impl InternalRBACRules {
         x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("GetComponentInventory", vec![ForgeAdminCLI, Flow]);
         x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "ComponentConfigureSwitchCertificate",
+            vec![ForgeAdminCLI, Flow],
+        );
         x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);

@@ -43,11 +43,11 @@ use db::{
 };
 use librms::protos::rack_manager as rms;
 use model::rack::{
-    ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus,
-    FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, NvosUpdateJob, NvosUpdateState,
-    NvosUpdateSwitchStatus, Rack, RackFirmwareUpgradeState, RackFirmwareUpgradeStatus,
-    RackMaintenanceState, RackPowerState, RackState, RackValidationState, SwitchNvosUpdateState,
-    SwitchNvosUpdateStatus,
+    ConfigureNmxClusterCertificateState, ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo,
+    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
+    NvosUpdateJob, NvosUpdateState, NvosUpdateSwitchStatus, Rack, RackFirmwareUpgradeState,
+    RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
+    RackValidationState, SwitchNvosUpdateState, SwitchNvosUpdateStatus,
 };
 use model::rack_type::RackProfile;
 use state_controller::state_handler::{
@@ -55,6 +55,10 @@ use state_controller::state_handler::{
 };
 
 use crate as carbide_rack_controller;
+use crate::nmx_certificate::{
+    ConfigureNmxClusterCertificatePollOutcome, poll_configure_nmx_cluster_certificate_jobs,
+    start_configure_nmx_cluster_certificate,
+};
 
 /// Strips all `rv.*` metadata labels from every machine in the rack.
 ///
@@ -435,6 +439,176 @@ fn skip_configure_nmx_cluster_outcome(
     StateHandlerOutcome::transition(RackState::Maintenance {
         maintenance_state: next,
     })
+}
+
+async fn handle_configure_nmx_cluster_certificates(
+    id: &RackId,
+    state: &mut Rack,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+    rack_profile_id: Option<&RackProfileId>,
+    scope: &MaintenanceScope,
+    configure_certificate: ConfigureNmxClusterCertificateState,
+) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    match configure_certificate {
+        ConfigureNmxClusterCertificateState::Start => {
+            let Some(component_manager) = ctx.services.component_manager.as_ref() else {
+                return transition_to_rack_error(
+                    id,
+                    state,
+                    "component manager not configured for ConfigureNmxCluster certificate configuration",
+                    ctx,
+                )
+                .await;
+            };
+
+            let switch_inventory = load_rack_switch_firmware_inventory(
+                &ctx.services.db_pool,
+                ctx.services.credential_manager.as_ref(),
+                id,
+            )
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to load rack switch firmware inventory for ConfigureCertificates: {}",
+                    error
+                ))
+            })?;
+            let switch_inventory = filter_switch_inventory_by_scope(switch_inventory, scope);
+
+            if switch_inventory.switches.is_empty() {
+                return Ok(skip_configure_nmx_cluster_outcome(
+                    id,
+                    "rack has no switches in inventory",
+                    scope,
+                ));
+            }
+
+            if let Err(cause) =
+                validate_switch_inventory_for_nmx_cluster(&switch_inventory.switches)
+            {
+                return transition_to_rack_error(id, state, cause, ctx).await;
+            }
+
+            let nmx_configure_rms_client =
+                build_nmx_configure_rms_client(&ctx.services.site_config.rms);
+            let rms_client: &dyn librms::RmsApi = if let Some(rms_client) =
+                nmx_configure_rms_client.as_ref()
+            {
+                rms_client
+            } else {
+                let Some(rms_client) = ctx.services.rms_client.as_ref() else {
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        "RMS client not configured for ConfigureNmxCluster primary switch selection",
+                        ctx,
+                    )
+                    .await;
+                };
+                rms_client.as_ref()
+            };
+            let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
+                return transition_to_rack_error(
+                    id,
+                    state,
+                    "rack profile is missing or unknown; cannot resolve RMS switch node type for ConfigureCertificates",
+                    ctx,
+                )
+                .await;
+            };
+            let switch_node_type = match switch_node_type_for_profile(profile) {
+                Ok(node_type) => node_type,
+                Err(error) => {
+                    return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                }
+            };
+            let response = match rms_client
+                .batch_get_node_device_info(build_switch_device_info_request(
+                    id,
+                    &switch_inventory.switches,
+                    switch_node_type,
+                ))
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let error = rack_manager_error("batch_get_node_device_info", error);
+                    return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                }
+            };
+            let primary_switch = match select_primary_switch(&switch_inventory.switches, &response)
+            {
+                Ok(primary_switch) => primary_switch,
+                Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
+            };
+
+            let job = start_configure_nmx_cluster_certificate(
+                component_manager,
+                &primary_switch.device,
+                None,
+                &ctx.services.nmx_cluster_switch_mtls_services,
+            )
+            .await
+            .map_err(|error| StateHandlerError::GenericError(eyre::eyre!(error)))?;
+
+            tracing::info!(
+                rack_id = %id,
+                primary_switch = %primary_switch.device.node_id,
+                tray_index = primary_switch.tray_index,
+                slot_number = ?primary_switch.slot_number,
+                "Started ConfigureNmxCluster primary switch certificate job; waiting for completion"
+            );
+            Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                    configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
+                        configure_certificate:
+                            ConfigureNmxClusterCertificateState::WaitForComplete { jobs: vec![job] },
+                    },
+                },
+            }))
+        }
+        ConfigureNmxClusterCertificateState::WaitForComplete { jobs } => {
+            let Some(component_manager) = ctx.services.component_manager.as_ref() else {
+                return transition_to_rack_error(
+                    id,
+                    state,
+                    "component manager not configured while waiting for ConfigureNmxCluster certificate jobs",
+                    ctx,
+                )
+                .await;
+            };
+
+            match poll_configure_nmx_cluster_certificate_jobs(component_manager, &jobs).await {
+                Ok(ConfigureNmxClusterCertificatePollOutcome::Completed) => {
+                    tracing::info!(
+                        rack_id = %id,
+                        "ConfigureNmxCluster primary switch certificate configuration completed; advancing to DisableScaleUpFabricState"
+                    );
+                    Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster:
+                                ConfigureNmxClusterState::DisableScaleUpFabricState,
+                        },
+                    }))
+                }
+                Ok(ConfigureNmxClusterCertificatePollOutcome::Failed(cause)) => {
+                    transition_to_rack_error(
+                        id,
+                        state,
+                        format!("ConfigureNmxCluster certificate configuration failed: {cause}"),
+                        ctx,
+                    )
+                    .await
+                }
+                Ok(ConfigureNmxClusterCertificatePollOutcome::InProgress) => {
+                    Ok(StateHandlerOutcome::wait(format!(
+                        "ConfigureNmxCluster certificate jobs in progress for rack {id}"
+                    )))
+                }
+                Err(error) => Err(StateHandlerError::GenericError(eyre::eyre!(error))),
+            }
+        }
+    }
 }
 
 fn build_switch_device_info_request(
@@ -1820,13 +1994,28 @@ pub async fn handle_maintenance(
             ConfigureNmxClusterState::Start => {
                 tracing::info!(
                     rack_id = %id,
-                    "Starting ConfigureNmxCluster; advancing to DisableScaleUpFabricState"
+                    "Starting ConfigureNmxCluster; advancing to ConfigureCertificates"
                 );
                 Ok(StateHandlerOutcome::transition(RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                        configure_nmx_cluster: ConfigureNmxClusterState::DisableScaleUpFabricState,
+                        configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
+                            configure_certificate: ConfigureNmxClusterCertificateState::Start,
+                        },
                     },
                 }))
+            }
+            ConfigureNmxClusterState::ConfigureCertificates {
+                configure_certificate,
+            } => {
+                handle_configure_nmx_cluster_certificates(
+                    id,
+                    state,
+                    ctx,
+                    rack_profile_id,
+                    scope,
+                    configure_certificate.clone(),
+                )
+                .await
             }
             ConfigureNmxClusterState::DisableScaleUpFabricState => {
                 let nmx_configure_rms_client =
@@ -2095,13 +2284,13 @@ pub async fn handle_maintenance(
                 );
                 let response = match rms_client
                     .configure_scale_up_fabric_manager(rms::ConfigureScaleUpFabricManagerRequest {
+                        domain: None,
                         node: Some(build_new_node_info(
                             id,
                             &primary_switch.device,
                             switch_node_type,
                         )),
                         topology_type: topology_type.clone(),
-                        domain: None,
                     })
                     .await
                 {
@@ -2323,6 +2512,7 @@ mod tests {
             os_ip: None,
             os_username: None,
             os_password: None,
+            os_hostname: None,
         }
     }
 

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use model::component_manager::{
-    ComputeTrayComponent, FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
+    ComputeTrayComponent, ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent,
+    PowerAction, PowerShelfComponent,
 };
 
 use crate::compute_tray_manager::{
@@ -11,8 +12,8 @@ use crate::compute_tray_manager::{
 };
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
-    NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchPowerStateResult, SwitchSlotAndTrayResult,
+    ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchComponentResult, SwitchEndpoint,
+    SwitchFirmwareUpdateStatus, SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
@@ -20,8 +21,20 @@ use crate::power_shelf_manager::{
 };
 use crate::types::FirmwareUpdateOptions;
 
-#[derive(Debug, Default)]
-pub struct MockNvSwitchManager;
+#[derive(Debug, Clone, Default)]
+pub struct MockNvSwitchManager {
+    certificate_job_status: Option<ConfigureSwitchCertificateJobStatus>,
+}
+
+impl MockNvSwitchManager {
+    pub fn with_certificate_job_status(
+        mut self,
+        status: ConfigureSwitchCertificateJobStatus,
+    ) -> Self {
+        self.certificate_job_status = Some(status);
+        self
+    }
+}
 
 #[async_trait::async_trait]
 impl NvSwitchManager for MockNvSwitchManager {
@@ -107,6 +120,27 @@ impl NvSwitchManager for MockNvSwitchManager {
                 error: None,
             })
             .collect())
+    }
+    async fn configure_switch_certificate(
+        &self,
+        _endpoint: &SwitchEndpoint,
+        _domain_name: Option<&str>,
+        _services: Option<&[i32]>,
+    ) -> Result<String, ComponentManagerError> {
+        Ok("mock-switch-cert-job".to_string())
+    }
+
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        _job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
+        Ok(self
+            .certificate_job_status
+            .clone()
+            .unwrap_or(ConfigureSwitchCertificateJobStatus {
+                state: ConfigureSwitchCertificateState::Completed,
+                error: None,
+            }))
     }
 }
 

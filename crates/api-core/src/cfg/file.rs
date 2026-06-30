@@ -1755,6 +1755,34 @@ pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch mTLS services configured on scoped switches before NMX cluster
+    /// setup proceeds. When omitted or empty, defaults to ScaleUpFabric manager
+    /// and telemetry interface services.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [rack_state_controller]
+    /// nmx_cluster_switch_mtls_services = [
+    ///   "scale_up_fabric_manager",
+    ///   "scale_up_fabric_telemetry_interface",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub nmx_cluster_switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl RackStateControllerConfig {
+    /// Returns configured NMX cluster switch mTLS services, or the ScaleUpFabric
+    /// defaults when the field was omitted or left empty in config.
+    pub fn effective_nmx_cluster_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_nmx_cluster_switch_mtls_services(
+                &self.nmx_cluster_switch_mtls_services,
+            ),
+        )
+    }
 }
 
 /// SwitchStateController related config
@@ -1763,6 +1791,34 @@ pub struct SwitchStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch services that receive installed mTLS certificates during RMS
+    /// `configure_switch_certificate` calls initiated by the switch state
+    /// machine.
+    ///
+    /// When this field is omitted or empty, all supported services are used.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [switch_state_controller]
+    /// switch_mtls_services = [
+    ///   "nvue_api",
+    ///   "scale_up_fabric_telemetry",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl SwitchStateControllerConfig {
+    /// Returns the configured switch mTLS services, or all supported services
+    /// when the field was omitted or left empty in config.
+    pub fn effective_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_switch_mtls_services(&self.switch_mtls_services),
+        )
+    }
 }
 
 /// SpdmStateController related config
