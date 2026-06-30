@@ -41,7 +41,6 @@ mod extension_service;
 mod finder;
 mod host_bmc_firmware_test;
 mod host_firmware_config;
-mod ib_fabric_find;
 mod ib_fabric_monitor;
 mod ib_instance;
 mod ib_machine;

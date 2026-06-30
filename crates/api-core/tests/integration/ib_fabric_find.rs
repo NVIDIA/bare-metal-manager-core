@@ -16,17 +16,17 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_api_core::cfg::file::CarbideConfig;
+use carbide_api_core::test_support::default_config;
 use carbide_ib_fabric::config::IBFabricConfig;
-use rpc::forge_server::Forge;
+use carbide_test_harness::prelude::*;
 
-use crate::tests::common::api_fixtures::{self};
-
-#[crate::sqlx_test]
-async fn test_find_ib_fabric_ids_disabled(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn test_find_ib_fabric_ids_disabled(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let ids_all = env
-        .api
+        .api()
         .find_ib_fabric_ids(tonic::Request::new(rpc::IbFabricSearchFilter::default()))
         .await
         .map(|response| response.into_inner())
@@ -34,22 +34,26 @@ async fn test_find_ib_fabric_ids_disabled(pool: sqlx::PgPool) {
     assert_eq!(ids_all.ib_fabric_ids, Vec::<String>::new());
 }
 
-#[crate::sqlx_test]
-async fn test_find_ib_fabric_ids_enabled(pool: sqlx::PgPool) {
-    let mut config = api_fixtures::get_config();
-    config.ib_config = Some(IBFabricConfig {
-        enabled: true,
-        ..Default::default()
-    });
-
-    let env = api_fixtures::create_test_env_with_overrides(
-        pool,
-        api_fixtures::TestEnvOverrides::with_config(config),
-    )
-    .await;
+#[sqlx_test]
+async fn test_find_ib_fabric_ids_enabled(pool: PgPool) {
+    let env = TestHarness::builder(pool)
+        .with_api_builder_fn(|builder| {
+            builder.with_runtime_config(
+                CarbideConfig {
+                    ib_config: Some(IBFabricConfig {
+                        enabled: true,
+                        ..Default::default()
+                    }),
+                    ..default_config::get()
+                }
+                .into(),
+            )
+        })
+        .build()
+        .await;
 
     let ids_all = env
-        .api
+        .api()
         .find_ib_fabric_ids(tonic::Request::new(rpc::IbFabricSearchFilter::default()))
         .await
         .map(|response| response.into_inner())
