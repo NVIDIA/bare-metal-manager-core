@@ -78,7 +78,7 @@ impl GenericAmi<'_> {
                     .display_name(&display_name)
                     .build()
             })
-            .collect();
+            .collect::<Vec<_>>();
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
                 id: Cow::Borrowed(system_id),
@@ -89,7 +89,7 @@ impl GenericAmi<'_> {
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
                 callbacks: Some(callbacks),
                 chassis: vec!["Self".into()],
-                boot_options: Some(boot_options),
+                boot_options: Some(boot_options.into()),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,

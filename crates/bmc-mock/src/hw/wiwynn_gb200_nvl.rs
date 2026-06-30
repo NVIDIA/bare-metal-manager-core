@@ -92,7 +92,7 @@ impl WiwynnGB200Nvl<'_> {
                 .display_name(&display_name)
                 .uefi_device_path(&format!("MAC({mac},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"))
                 .build()
-        })).collect();
+        })).collect::<Vec<_>>();
 
         let hgx_baseboard_id = "HGX_Baseboard_0";
 
@@ -107,7 +107,7 @@ impl WiwynnGB200Nvl<'_> {
                     boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     callbacks,
                     chassis: vec!["BMC_0".into()],
-                    boot_options: Some(boot_options),
+                    boot_options: Some(boot_options.into()),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     oem: redfish::computer_system::Oem::Generic,
                     base_bios: Some(

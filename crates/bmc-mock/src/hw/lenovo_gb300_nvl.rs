@@ -138,7 +138,7 @@ impl LenovoGB300Nvl<'_> {
                     .build()
                 }),
         )
-        .collect();
+        .collect::<Vec<_>>();
 
         // Not: No DPU in EthernetInterfaces.
         let eth_interfaces = [&self.embedded_1g_nic.ethernet_nic()]
@@ -181,7 +181,7 @@ impl LenovoGB300Nvl<'_> {
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
-                    boot_options: Some(boot_options),
+                    boot_options: Some(boot_options.into()),
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: Some(eth_interfaces),

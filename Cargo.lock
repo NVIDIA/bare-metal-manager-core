@@ -853,6 +853,7 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "regex",
+ "serde_json",
  "tokio",
  "tracing",
 ]

@@ -114,7 +114,7 @@ impl Bluefield4<'_> {
                 serial_number: None,
                 boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                 callbacks: Some(callbacks),
-                boot_options: Some(vec![]),
+                boot_options: Some(redfish::computer_system::BootOptionsConfig::NullMembers),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(
