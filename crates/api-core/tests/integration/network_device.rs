@@ -15,18 +15,45 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::NetworkDeviceIdList;
-use rpc::forge::forge_server::Forge;
 
-use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
+async fn init(pool: PgPool) -> TestHarness {
+    let env = TestHarness::builder(pool)
+        .with_resource_pools(
+            ResourcePoolBuilder::default()
+                .with_secondary_vtep_ip("192.0.7.0/24")
+                .build(),
+        )
+        .build()
+        .await;
+    let network_controller = env.network_controller();
+    let domain = env.test_domain().await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (managed_host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default().with_dpu_count(1))
+        .build()
+        .await;
+    managed_host
+        .first_dpu()
+        .discover_oob_iface(admin_segment)
+        .await;
+    env
+}
 
-#[crate::sqlx_test]
-async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+#[sqlx_test]
+async fn test_find_network_devices_by_device_ids_single_id(pool: PgPool) {
+    let env = init(pool).await;
     let expected_id = "mac=a1:b1:c1:00:00:01";
     let response = env
-        .api
+        .api()
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
             network_device_ids: vec![String::from(expected_id)],
         }))
@@ -52,17 +79,16 @@ async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool) {
+#[sqlx_test]
+async fn test_find_network_devices_by_device_ids_multiple_ids(pool: PgPool) {
     let expected_ids = vec![
         "mac=a1:b1:c1:00:00:01",
         "mac=a2:b2:c2:00:00:02",
         "mac=a3:b3:c3:00:00:03",
     ];
-    let env = create_test_env(pool).await;
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+    let env = init(pool).await;
     let response = env
-        .api
+        .api()
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
             network_device_ids: expected_ids.clone().into_iter().map(String::from).collect(),
         }))
@@ -91,12 +117,11 @@ async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool
     }
 }
 
-#[crate::sqlx_test]
-async fn test_find_network_devices_by_device_ids_no_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+#[sqlx_test]
+async fn test_find_network_devices_by_device_ids_no_ids(pool: PgPool) {
+    let env = init(pool).await;
     let response = env
-        .api
+        .api()
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
             network_device_ids: vec![],
         }))
