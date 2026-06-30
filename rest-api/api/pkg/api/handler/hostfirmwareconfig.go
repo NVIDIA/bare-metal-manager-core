@@ -81,8 +81,7 @@ func (uhfch CreateOrUpdateHostFirmwareConfigHandler) Handle(c echo.Context) erro
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	updatedBy := dbUser.ID.String()
-	protoRequest := apiRequest.ToProto(updatedBy)
+	protoRequest := apiRequest.ToProto()
 
 	logger.Info().
 		Str("vendor", apiRequest.Vendor).

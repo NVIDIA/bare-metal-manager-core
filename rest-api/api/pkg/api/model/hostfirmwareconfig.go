@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	camu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
@@ -177,16 +177,13 @@ func (req APIHostFirmwareConfigCreateOrUpdateRequest) Validate() error {
 }
 
 // ToProto converts the validated request to forge.UpsertHostFirmwareConfigRequest.
-func (req APIHostFirmwareConfigCreateOrUpdateRequest) ToProto(updatedBy string) *cwssaws.UpsertHostFirmwareConfigRequest {
+func (req APIHostFirmwareConfigCreateOrUpdateRequest) ToProto() *cwssaws.UpsertHostFirmwareConfigRequest {
 	protoReq := &cwssaws.UpsertHostFirmwareConfigRequest{
 		Vendor: req.Vendor,
 		Model:  req.Model,
 	}
 	if req.ExplicitStartNeeded != nil {
 		protoReq.ExplicitStartNeeded = req.ExplicitStartNeeded
-	}
-	if updatedBy != "" {
-		protoReq.UpdatedBy = &updatedBy
 	}
 
 	for _, component := range req.Components {

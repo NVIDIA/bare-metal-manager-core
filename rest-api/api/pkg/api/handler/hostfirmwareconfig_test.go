@@ -47,8 +47,6 @@ func TestCreateOrUpdateHostFirmwareConfigHandler_returns201OnCreate(t *testing.T
 	assert.Equal(t, upsertHostFirmwareConfigMethod, proxiedReq.FullMethod)
 	var coreReq cwssaws.UpsertHostFirmwareConfigRequest
 	require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
-	require.NotNil(t, coreReq.UpdatedBy)
-	assert.Equal(t, fixture.user.ID.String(), *coreReq.UpdatedBy)
 }
 
 func TestCreateOrUpdateHostFirmwareConfigHandler_returns200OnUpdate(t *testing.T) {
