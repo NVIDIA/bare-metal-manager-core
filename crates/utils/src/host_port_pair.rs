@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::fmt::{Display, Formatter};
+use std::net::Ipv6Addr;
 use std::str::FromStr;
 
 use serde::de::Visitor;
@@ -67,6 +68,33 @@ impl FromStr for HostPortPair {
             return Err(UriUnsupported);
         }
 
+        // A bracketed host is the canonical way to write an IPv6 literal, e.g.
+        // `[2001:db8::1]` or `[2001:db8::1]:443`. The host is stored without the
+        // brackets so callers can use it directly. The plain `split(':')` below
+        // can't handle this because an IPv6 address itself contains colons.
+        if let Some(rest) = s.strip_prefix('[') {
+            let (host, after) = rest.split_once(']').ok_or(InvalidString)?;
+            if host.is_empty() {
+                return Err(InvalidString);
+            }
+            return match after {
+                "" => Ok(HostPortPair::HostOnly(host.to_string())),
+                _ => {
+                    let port = after.strip_prefix(':').ok_or(InvalidString)?;
+                    let port = port
+                        .parse::<u16>()
+                        .map_err(|_| InvalidPort(port.to_string()))?;
+                    Ok(HostPortPair::HostAndPort(host.to_string(), port))
+                }
+            };
+        }
+
+        // A bare (unbracketed) IPv6 literal is a host with no port; its colons
+        // would otherwise be misread as host/port separators below.
+        if s.parse::<Ipv6Addr>().is_ok() {
+            return Ok(HostPortPair::HostOnly(s.to_string()));
+        }
+
         match s.split(":").collect::<Vec<_>>().as_slice() {
             [h, p] => {
                 let p = p.parse::<u16>().map_err(|_| InvalidPort(p.to_string()))?;
@@ -94,6 +122,11 @@ impl Display for HostPortPair {
         match self {
             HostPortPair::HostOnly(h) => write!(f, "{h}"),
             HostPortPair::PortOnly(p) => write!(f, "{p}"),
+            // Bracket an IPv6 literal host so the `host:port` form is
+            // unambiguous and round-trips back through `from_str`.
+            HostPortPair::HostAndPort(h, p) if h.parse::<Ipv6Addr>().is_ok() => {
+                write!(f, "[{h}]:{p}")
+            }
             HostPortPair::HostAndPort(h, p) => write!(f, "{h}:{p}"),
         }
     }
@@ -154,7 +187,9 @@ mod tests {
     use carbide_test_support::{Case, check_cases};
 
     use crate::host_port_pair::HostPortPair;
-    use crate::host_port_pair::HostPortParseError::{EmptyString, InvalidPort, UriUnsupported};
+    use crate::host_port_pair::HostPortParseError::{
+        EmptyString, InvalidPort, InvalidString, UriUnsupported,
+    };
 
     #[test]
     fn test_proxy_address_parsing() {
@@ -205,8 +240,81 @@ mod tests {
                     input: "https://proxyhost",
                     expect: FailsWith(UriUnsupported),
                 },
+                Case {
+                    scenario: "bracketed IPv6 host and port",
+                    input: "[2001:db8::1]:8443",
+                    expect: Yields(HostPortPair::HostAndPort("2001:db8::1".to_string(), 8443)),
+                },
+                Case {
+                    scenario: "bracketed IPv6 host only",
+                    input: "[2001:db8::1]",
+                    expect: Yields(HostPortPair::HostOnly("2001:db8::1".to_string())),
+                },
+                Case {
+                    scenario: "bare IPv6 literal is a host with no port",
+                    input: "2001:db8::1",
+                    expect: Yields(HostPortPair::HostOnly("2001:db8::1".to_string())),
+                },
+                Case {
+                    scenario: "bare IPv6 loopback is a host with no port",
+                    input: "::1",
+                    expect: Yields(HostPortPair::HostOnly("::1".to_string())),
+                },
+                Case {
+                    scenario: "bracketed IPv6 with empty port keeps the offending text",
+                    input: "[2001:db8::1]:",
+                    expect: FailsWith(InvalidPort("".to_string())),
+                },
+                Case {
+                    scenario: "bracketed IPv6 with non-numeric port keeps the offending text",
+                    input: "[2001:db8::1]:notaport",
+                    expect: FailsWith(InvalidPort("notaport".to_string())),
+                },
+                Case {
+                    scenario: "unclosed bracket is rejected",
+                    input: "[2001:db8::1",
+                    expect: FailsWith(InvalidString),
+                },
+                Case {
+                    scenario: "empty brackets are rejected",
+                    input: "[]",
+                    expect: FailsWith(InvalidString),
+                },
             ],
             HostPortPair::from_str,
         );
+    }
+
+    /// An IPv6 host must survive a `Display` -> `from_str` round trip. Before
+    /// brackets were emitted, `HostAndPort("2001:db8::1", 443)` displayed as the
+    /// ambiguous `2001:db8::1:443`, which then failed to parse back.
+    #[test]
+    fn test_ipv6_display_round_trips() {
+        let cases = [
+            (
+                HostPortPair::HostAndPort("2001:db8::1".to_string(), 443),
+                "[2001:db8::1]:443",
+            ),
+            (
+                HostPortPair::HostOnly("2001:db8::1".to_string()),
+                "2001:db8::1",
+            ),
+            (
+                HostPortPair::HostAndPort("proxyhost".to_string(), 1234),
+                "proxyhost:1234",
+            ),
+            (
+                HostPortPair::HostAndPort("10.0.0.1".to_string(), 443),
+                "10.0.0.1:443",
+            ),
+        ];
+        for (pair, rendered) in cases {
+            assert_eq!(pair.to_string(), rendered, "Display of {pair:?}");
+            assert_eq!(
+                HostPortPair::from_str(rendered),
+                Ok(pair.clone()),
+                "round trip of {rendered:?}"
+            );
+        }
     }
 }
