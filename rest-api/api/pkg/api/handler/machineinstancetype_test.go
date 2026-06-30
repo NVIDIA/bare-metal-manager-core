@@ -81,7 +81,10 @@ func TestCreateMachineInstanceTypeHandler_Handle(t *testing.T) {
 	assert.NotNil(t, mcap1)
 
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-	_, err := mitDAO.CreateFromParams(ctx, nil, m5.ID, it2.ID)
+	_, err := mitDAO.Create(ctx, nil, cdbm.MachineInstanceTypeCreateInput{
+		MachineID:      m5.ID,
+		InstanceTypeID: it2.ID,
+	})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -852,7 +855,10 @@ func TestDeleteMachineInstanceTypeHandler_Handle(t *testing.T) {
 			}
 
 			mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-			umits, _, terr := mitDAO.GetAll(context.Background(), nil, cutil.GetPtr(tt.args.expectedDeletedMachine), []uuid.UUID{tt.args.it.ID}, nil, nil, nil, nil)
+			umits, _, terr := mitDAO.GetAll(context.Background(), nil, cdbm.MachineInstanceTypeFilterInput{
+				MachineID:       cutil.GetPtr(tt.args.expectedDeletedMachine),
+				InstanceTypeIDs: []uuid.UUID{tt.args.it.ID},
+			}, paginator.PageInput{}, nil)
 			assert.Nil(t, terr)
 			assert.Len(t, umits, 0)
 

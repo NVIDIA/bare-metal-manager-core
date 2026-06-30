@@ -114,12 +114,22 @@ pub struct StaticBmcEndpoint {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticMachineEndpoint {
+    /// Stable NICo machine ID for this BMC endpoint.
     pub id: String,
+
+    /// Optional chassis serial to emit as machine telemetry metadata.
     pub serial: Option<String>,
+
+    /// Optional uniform GPU driver version to emit for local/static validation.
+    pub driver_version: Option<String>,
+
     #[serde(alias = "physical_slot_number")]
     pub slot_number: Option<i32>,
+
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional NVLink domain UUID associated with this machine.
     pub nvlink_domain_uuid: Option<String>,
 }
 
@@ -917,6 +927,11 @@ pub struct NmxtCollectorConfig {
     /// Timeout for individual NMX-T HTTP requests.
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
+
+    /// Dangerously disable TLS certificate verification for NMX-T HTTPS requests.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
 }
 
 impl Default for NmxtCollectorConfig {
@@ -924,6 +939,7 @@ impl Default for NmxtCollectorConfig {
         Self {
             scrape_interval: Duration::from_secs(60),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
         }
     }
 }
@@ -958,6 +974,11 @@ pub struct NvueGnmiConfig {
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
 
+    /// Dangerously disable TLS certificate and hostname verification for NVUE gNMI.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
+
     /// Enable gNMI ON_CHANGE subscription for live system-event messages.
     #[serde(alias = "system_events_subscription_enabled", alias = "events_enabled")]
     pub system_events_enabled: bool,
@@ -972,6 +993,7 @@ impl Default for NvueGnmiConfig {
             gnmi_port: 9339,
             sample_interval: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
             system_events_enabled: true,
             paths: NvueGnmiPaths::default(),
         }
@@ -983,6 +1005,7 @@ impl Default for NvueGnmiConfig {
 pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
+    pub platform_general_enabled: bool,
 }
 
 impl Default for NvueGnmiPaths {
@@ -990,6 +1013,7 @@ impl Default for NvueGnmiPaths {
         Self {
             components_enabled: true,
             interfaces_enabled: true,
+            platform_general_enabled: true,
         }
     }
 }
@@ -1024,6 +1048,10 @@ impl Default for NvueRestConfig {
 /// - cluster_apps_enabled: Poll `/nvue_v1/cluster/apps`.
 /// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
 /// - interfaces_enabled: Poll `/nvue_v1/interface`.
+/// - platform_environment_fan_enabled: Poll `/nvue_v1/platform/environment/fan`.
+/// - platform_environment_temperature_enabled: Poll `/nvue_v1/platform/environment/temperature`.
+/// - platform_environment_status_enabled: Poll `/nvue_v1/platform/environment` parent
+///   summary for the aggregate `FAN_STATUS` LED state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueRestPaths {
@@ -1031,6 +1059,9 @@ pub struct NvueRestPaths {
     pub cluster_apps_enabled: bool,
     pub sdn_partitions_enabled: bool,
     pub interfaces_enabled: bool,
+    pub platform_environment_fan_enabled: bool,
+    pub platform_environment_temperature_enabled: bool,
+    pub platform_environment_status_enabled: bool,
 }
 
 impl Default for NvueRestPaths {
@@ -1040,6 +1071,9 @@ impl Default for NvueRestPaths {
             cluster_apps_enabled: true,
             sdn_partitions_enabled: true,
             interfaces_enabled: true,
+            platform_environment_fan_enabled: true,
+            platform_environment_temperature_enabled: true,
+            platform_environment_status_enabled: true,
         }
     }
 }
@@ -1356,6 +1390,7 @@ mod tests {
                 assert_eq!(gnmi.gnmi_port, 9339);
                 assert_eq!(gnmi.sample_interval, Duration::from_secs(300));
                 assert_eq!(gnmi.request_timeout, Duration::from_secs(30));
+                assert!(!gnmi.dangerously_skip_tls_verification);
                 assert!(gnmi.system_events_enabled);
             } else {
                 panic!("nvue gnmi config should be enabled in example config");
@@ -1868,6 +1903,108 @@ system_events_enabled = false
     }
 
     #[test]
+    fn test_nmxt_dangerous_tls_skip_defaults_false_and_parses_true() {
+        assert!(!NmxtCollectorConfig::default().dangerously_skip_tls_verification);
+
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+"#;
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+dangerously_skip_tls_verification = true
+"#;
+
+        for (toml, expected) in [(omitted, false), (enabled, true)] {
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(toml))
+                .extract()
+                .expect("failed to parse NMX-T TLS flag");
+            let Configurable::Enabled(nmxt) = config.collectors.nmxt else {
+                panic!("nmxt config should be enabled");
+            };
+            assert_eq!(nmxt.dangerously_skip_tls_verification, expected);
+        }
+    }
+
+    #[test]
+    fn test_example_config_documents_platform_environment_fan_toggle() {
+        let toml_content = include_str!("../example/config.example.toml");
+
+        assert!(
+            toml_content
+                .lines()
+                .any(|line| line == "platform_environment_fan_enabled = true")
+        );
+    }
+
+    #[test]
+    fn test_nvue_gnmi_dangerous_tls_skip_defaults_false_and_parses_true() {
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(omitted))
+            .extract()
+            .expect("failed to parse omitted tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(!gnmi.dangerously_skip_tls_verification);
+
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+dangerously_skip_tls_verification = true
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(enabled))
+            .extract()
+            .expect("failed to parse enabled tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(gnmi.dangerously_skip_tls_verification);
+    }
+
+    #[test]
     fn test_static_endpoint_with_switch_serial() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
@@ -2051,7 +2188,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:11"
 username = "admin"
 password = "pass"
-machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", driver_version = "570.82", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 "#;
 
         let config: Config = Figment::new()
@@ -2067,6 +2204,7 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(machine.slot_number, Some(15));
         assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
         assert_eq!(
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")

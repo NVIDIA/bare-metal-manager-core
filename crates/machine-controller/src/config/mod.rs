@@ -34,6 +34,7 @@ pub use machine_validation::MachineValidationConfig;
 pub use power_manager::PowerManagerOptions;
 
 pub struct MachineStateHandlerSiteConfig {
+    pub pxe_public_base_url: String,
     pub firmware_global: FirmwareGlobal,
     pub machine_state_controller: MachineStateControllerConfig,
     pub host_health: HostHealthConfig,
@@ -53,6 +54,7 @@ impl MachineStateHandlerSiteConfig {
     #[cfg(any(test, feature = "test-support"))]
     pub fn test_default() -> Self {
         Self {
+            pxe_public_base_url: "http://carbide-pxe.forge:8080".to_string(),
             firmware_global: FirmwareGlobal::test_default(),
             machine_state_controller: MachineStateControllerConfig::test_default(),
             host_health: HostHealthConfig::default(),

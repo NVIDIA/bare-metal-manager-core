@@ -49,6 +49,8 @@ prettytable-rs = { workspace = true }
 # Async / networking
 tokio = { features = ["full"], workspace = true }
 reqwest = { features = ["rustls"], workspace = true }
+reqwest-middleware = { workspace = true }
+reqwest-tracing = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

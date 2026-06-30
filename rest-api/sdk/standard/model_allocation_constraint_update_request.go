@@ -103,7 +103,7 @@ func (o *AllocationConstraintUpdateRequest) UnmarshalJSON(data []byte) (err erro
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

@@ -82,6 +82,11 @@ impl DataSink for TracingSink {
                     tracing::info!(
                         endpoint = %context.endpoint_key(),
                         collector = %context.collector_type,
+                        machine_id = context.machine_id().map(tracing::field::display),
+                        machine_serial = context.machine_serial(),
+                        driver_version = context.driver_version(),
+                        component_type = context.component_type(),
+                        nvlink_domain_uuid = context.nvlink_domain_uuid().map(tracing::field::display),
                         severity = %record.severity,
                         body = %record.body,
                         attributes = ?record.attributes,
@@ -91,6 +96,11 @@ impl DataSink for TracingSink {
                     tracing::info!(
                         endpoint = %context.endpoint_key(),
                         collector = %context.collector_type,
+                        machine_id = context.machine_id().map(tracing::field::display),
+                        machine_serial = context.machine_serial(),
+                        driver_version = context.driver_version(),
+                        component_type = context.component_type(),
+                        nvlink_domain_uuid = context.nvlink_domain_uuid().map(tracing::field::display),
                         severity = %record.severity,
                         body = %record.body,
                         "Log event"

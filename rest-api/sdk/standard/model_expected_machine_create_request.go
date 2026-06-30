@@ -56,8 +56,9 @@ type ExpectedMachineCreateRequest struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Machines
-	Labels map[string]string `json:"labels,omitempty"`
+	// When true, this host is eligible for DPF-based provisioning.
+	IsDpfEnabled NullableBool      `json:"isDpfEnabled,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 }
 
 type _ExpectedMachineCreateRequest ExpectedMachineCreateRequest
@@ -703,6 +704,49 @@ func (o *ExpectedMachineCreateRequest) UnsetHostId() {
 	o.HostId.Unset()
 }
 
+// GetIsDpfEnabled returns the IsDpfEnabled field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *ExpectedMachineCreateRequest) GetIsDpfEnabled() bool {
+	if o == nil || IsNil(o.IsDpfEnabled.Get()) {
+		var ret bool
+		return ret
+	}
+	return *o.IsDpfEnabled.Get()
+}
+
+// GetIsDpfEnabledOk returns a tuple with the IsDpfEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *ExpectedMachineCreateRequest) GetIsDpfEnabledOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.IsDpfEnabled.Get(), o.IsDpfEnabled.IsSet()
+}
+
+// HasIsDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachineCreateRequest) HasIsDpfEnabled() bool {
+	if o != nil && o.IsDpfEnabled.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetIsDpfEnabled gets a reference to the given NullableBool and assigns it to the IsDpfEnabled field.
+func (o *ExpectedMachineCreateRequest) SetIsDpfEnabled(v bool) {
+	o.IsDpfEnabled.Set(&v)
+}
+
+// SetIsDpfEnabledNil sets the value for IsDpfEnabled to be an explicit nil
+func (o *ExpectedMachineCreateRequest) SetIsDpfEnabledNil() {
+	o.IsDpfEnabled.Set(nil)
+}
+
+// UnsetIsDpfEnabled ensures that no value is present for IsDpfEnabled, not even an explicit nil
+func (o *ExpectedMachineCreateRequest) UnsetIsDpfEnabled() {
+	o.IsDpfEnabled.Unset()
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *ExpectedMachineCreateRequest) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -787,6 +831,9 @@ func (o ExpectedMachineCreateRequest) ToMap() (map[string]interface{}, error) {
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
 	}
+	if o.IsDpfEnabled.IsSet() {
+		toSerialize["isDpfEnabled"] = o.IsDpfEnabled.Get()
+	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels
 	}
@@ -812,7 +859,7 @@ func (o *ExpectedMachineCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

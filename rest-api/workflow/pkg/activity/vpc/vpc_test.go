@@ -12,6 +12,7 @@ import (
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
@@ -96,7 +97,12 @@ func testVPCSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testVPCSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.Create(context.Background(), nil, cdbm.InfrastructureProviderCreateInput{
+		Name:        name,
+		DisplayName: cutil.GetPtr("Test Provider"),
+		Org:         org,
+		CreatedBy:   user.ID,
+	})
 	assert.Nil(t, err)
 
 	return ip
@@ -691,7 +697,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 			statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
 			for _, vpc := range tt.readyStatusDetailVpcs {
-				statusDetails, _, err := statusDetailDAO.GetAllByEntityID(ctx, nil, vpc.ID.String(), nil, nil, nil)
+				statusDetails, _, err := statusDetailDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{vpc.ID.String()}}, cdbp.PageInput{})
 				require.NoError(t, err)
 				require.Len(t, statusDetails, 1)
 				assert.Equal(t, cdbm.VpcStatusReady, statusDetails[0].Status)

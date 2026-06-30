@@ -27,6 +27,12 @@ use librms::RackManagerClientPool;
 use crate::cfg::cli_options::CliOptions;
 use crate::rms::args::RmsAction;
 
+// `rms` is intentionally OUTSIDE the `Dispatch`/`Run` trait flow: like `redfish`,
+// it builds its own client (an RMS rack-manager pool) from raw `CliOptions` and
+// is dispatched by `main` *before* the API client / `RuntimeContext` exists --
+// see the `CliCommand::Rms` branch in `main.rs`. The traits carry a
+// `RuntimeContext` rms never has, so it stays a plain `action` fn rather than
+// implementing them. Please don't "realign" it onto the traits.
 pub async fn action(action: RmsAction, config: &CliOptions) -> color_eyre::Result<()> {
     let url = if let Some(x) = action.url {
         x

@@ -26,6 +26,7 @@ name = "mqttea"
 path = "src/lib.rs"
 
 [dependencies]
+trace-propagation = { path = "../trace-propagation" }
 tokio = { features = ["full"], workspace = true }
 rumqttc = { workspace = true }
 prost = { workspace = true }

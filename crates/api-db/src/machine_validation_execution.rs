@@ -845,3 +845,187 @@ fn truncate_summary(value: &str) -> Option<String> {
         Some(value.chars().take(SUMMARY_LIMIT).collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::str::FromStr;
+
+    use carbide_uuid::machine::MachineId;
+
+    use super::*;
+
+    fn test_machine_id() -> MachineId {
+        MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30").unwrap()
+    }
+
+    async fn insert_active_validation(
+        txn: &mut PgConnection,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> DatabaseResult<MachineValidationId> {
+        let id = MachineValidationId::new();
+        const QUERY: &str = "
+            INSERT INTO machine_validation (
+                id,
+                machine_id,
+                start_time,
+                name,
+                end_time,
+                context,
+                total,
+                completed,
+                state,
+                duration_to_complete,
+                last_heartbeat_at
+            )
+            VALUES ($1, $2, $3, $4, NULL, $5, 1, 0, $6, 0, NULL)";
+
+        sqlx::query(QUERY)
+            .bind(id)
+            .bind(test_machine_id())
+            .bind(now)
+            .bind(format!("Test_{id}"))
+            .bind("OnDemand")
+            .bind("InProgress")
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::query(QUERY, e))?;
+
+        Ok(id)
+    }
+
+    async fn insert_attempt(
+        txn: &mut PgConnection,
+        validation_id: &MachineValidationId,
+        test_id: &str,
+        order_index: i32,
+        state: MachineValidationAttemptState,
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> DatabaseResult<MachineValidationAttemptId> {
+        let run_item_id = MachineValidationRunItemId::new();
+        let attempt_id = MachineValidationAttemptId::new();
+        const RUN_ITEM_QUERY: &str = "
+            INSERT INTO machine_validation_run_items (
+                id,
+                run_id,
+                test_id,
+                display_name,
+                context,
+                state,
+                order_index,
+                attempt,
+                max_attempts,
+                timeout_seconds,
+                started_at,
+                last_heartbeat_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 1, 1, 1, $8, $9)";
+
+        sqlx::query(RUN_ITEM_QUERY)
+            .bind(run_item_id)
+            .bind(validation_id)
+            .bind(test_id)
+            .bind(test_id)
+            .bind("OnDemand")
+            .bind(MachineValidationRunItemState::Running.to_string())
+            .bind(order_index)
+            .bind(started_at)
+            .bind(last_heartbeat_at)
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(RUN_ITEM_QUERY, e))?;
+
+        const ATTEMPT_QUERY: &str = "
+            INSERT INTO machine_validation_attempts (
+                id,
+                run_item_id,
+                attempt_number,
+                state,
+                command,
+                args,
+                started_at,
+                last_heartbeat_at
+            )
+            VALUES ($1, $2, 1, $3, $4, $5, $6, $7)";
+
+        sqlx::query(ATTEMPT_QUERY)
+            .bind(attempt_id)
+            .bind(run_item_id)
+            .bind(state.to_string())
+            .bind("echo")
+            .bind("ok")
+            .bind(started_at)
+            .bind(last_heartbeat_at)
+            .execute(txn)
+            .await
+            .map_err(|e| DatabaseError::query(ATTEMPT_QUERY, e))?;
+
+        Ok(attempt_id)
+    }
+
+    #[crate::sqlx_test]
+    async fn find_stale_active_attempts_respects_heartbeat_and_duration_fallback(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let now = chrono::Utc::now();
+        let validation_id = insert_active_validation(txn.as_mut(), now).await?;
+
+        insert_attempt(
+            txn.as_mut(),
+            &validation_id,
+            "stale-heartbeat",
+            0,
+            MachineValidationAttemptState::Running,
+            Some(now - chrono::Duration::seconds(10)),
+            Some(now - chrono::Duration::seconds(61)),
+        )
+        .await?;
+        let _fresh_heartbeat_attempt = insert_attempt(
+            txn.as_mut(),
+            &validation_id,
+            "fresh-heartbeat",
+            1,
+            MachineValidationAttemptState::Running,
+            Some(now - chrono::Duration::seconds(10)),
+            Some(now - chrono::Duration::seconds(30)),
+        )
+        .await?;
+        insert_attempt(
+            txn.as_mut(),
+            &validation_id,
+            "legacy-stale",
+            2,
+            MachineValidationAttemptState::Running,
+            Some(now - chrono::Duration::seconds(120)),
+            None,
+        )
+        .await?;
+        let _terminal_attempt = insert_attempt(
+            txn.as_mut(),
+            &validation_id,
+            "terminal",
+            3,
+            MachineValidationAttemptState::Failed,
+            Some(now - chrono::Duration::seconds(120)),
+            Some(now - chrono::Duration::seconds(120)),
+        )
+        .await?;
+
+        let stale_attempts =
+            find_stale_active_attempts(txn.as_mut(), std::time::Duration::from_secs(60), now)
+                .await?;
+        let stale_test_ids = stale_attempts
+            .iter()
+            .map(|attempt| attempt.test_id.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(
+            stale_test_ids,
+            BTreeSet::from(["legacy-stale", "stale-heartbeat"])
+        );
+
+        Ok(())
+    }
+}

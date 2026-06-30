@@ -36,7 +36,7 @@ use db::{
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
-use model::dpa_interface::DpaInterface;
+use model::dpa_interface::{DpaInterface, DpaSearchConfig};
 use model::hardware_info::InfinibandInterface;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
@@ -703,7 +703,9 @@ pub async fn batch_allocate_instances(
     .await?;
 
     for mid in &machine_ids {
-        let dpa_interfaces = db::dpa_interface::find_by_machine_id(&mut txn, *mid).await?;
+        let dpa_search_config = DpaSearchConfig::default();
+        let dpa_interfaces =
+            db::dpa_interface::find_by_machine_id(&mut txn, *mid, dpa_search_config).await?;
         let machine_snapshot = snapshot_map.get(mid).unwrap();
         let mut machine_snapshot = machine_snapshot.clone();
         machine_snapshot.dpa_interface_snapshots = dpa_interfaces;

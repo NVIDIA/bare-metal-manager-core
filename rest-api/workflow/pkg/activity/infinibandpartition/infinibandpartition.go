@@ -295,7 +295,7 @@ func (mibp ManageInfiniBandPartition) updateIBPStatusInDB(ctx context.Context, t
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mibp.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, ibpID.String(), string(*status), statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ibpID.String(), Status: string(*status), Message: statusMessage})
 		if err != nil {
 			return err
 		}

@@ -106,7 +106,7 @@ func (mv ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupsInDB(ctx context
 			// tenants, so if we see a tenant we don't know about, we'll
 			// query and cache it.
 			if !foundTenant {
-				tenants, err := tenantDAO.GetAllByOrg(ctx, nil, controllerNetworkSecurityGroup.TenantOrganizationId, nil)
+				tenants, _, err := tenantDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{controllerNetworkSecurityGroup.TenantOrganizationId}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 				if err != nil {
 					slogger.Error().Err(err).Msg("failed to query for tenant ID for " + controllerNetworkSecurityGroup.TenantOrganizationId)
 					return err

@@ -167,7 +167,7 @@ func (mvp ManageVpcPeering) updateVpcPeeringStatusInDB(ctx context.Context, tx *
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mvp.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, vpcPeeringID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpcPeeringID.String(), Status: *status, Message: statusMessage})
 		if err != nil {
 			return err
 		}

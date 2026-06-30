@@ -263,6 +263,7 @@ mod redfish_actions;
 mod redfish_browser;
 mod resource_pool;
 mod search;
+mod site_explorer_run_status;
 mod sku;
 mod spx_partition;
 mod state_history;

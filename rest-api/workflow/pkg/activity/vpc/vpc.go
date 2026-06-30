@@ -318,7 +318,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 			// Leave orderBy as nil as the result is sorted by created timestamp by default
 			if status == vpc.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, vpc.ID.String(), nil, cwutil.GetPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{vpc.ID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for VPC")
 					continue
@@ -357,7 +357,7 @@ func (mv ManageVpc) updateVpcStatusInDB(ctx context.Context, tx *cdb.Tx, vpcID u
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, vpcID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpcID.String(), Status: *status, Message: statusMessage})
 		if err != nil {
 			return err
 		}
@@ -466,7 +466,7 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 	metricsRecorded := 0
 
 	for _, event := range vpcLifecycleEvents {
-		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+		statusDetails, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{event.ObjectID.String()}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)})
 		if err != nil {
 			logger.Error().Err(err).Str("VPC ID", event.ObjectID.String()).Msg("failed to retrieve Status Details for VPC")
 			return err

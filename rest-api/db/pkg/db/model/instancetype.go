@@ -291,7 +291,7 @@ type InstanceTypeSQLDAO struct {
 // this library call happens within a transaction
 func (itsd InstanceTypeSQLDAO) Create(ctx context.Context, tx *db.Tx, input InstanceTypeCreateInput) (*InstanceType, error) {
 	// Create a child span and set the attributes for current request
-	ctx, instanceTypeDAOSpan := itsd.tracerSpan.CreateChildInCurrentContext(ctx, "InstanceTypeDAO.CreateFromParams")
+	ctx, instanceTypeDAOSpan := itsd.tracerSpan.CreateChildInCurrentContext(ctx, "InstanceTypeDAO.Create")
 	if instanceTypeDAOSpan != nil {
 		defer instanceTypeDAOSpan.End()
 		itsd.tracerSpan.SetAttribute(instanceTypeDAOSpan, "name", input.Name)

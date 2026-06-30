@@ -34,8 +34,6 @@ use rpc::forge::DhcpDiscovery;
 
 use crate::env::Env;
 
-mod env;
-
 trait EnvExt {
     fn new_power_shelf(
         &self,

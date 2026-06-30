@@ -41,7 +41,10 @@ use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, ObjectColumnFilter, TransactionVending, machine};
 use errors::{NvLinkManagerError, NvLinkManagerResult};
-use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
+use libnmxc::nmxc_model::{
+    GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest,
+    PartitionInfo,
+};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{
     AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
@@ -1230,6 +1233,15 @@ impl NvlPartitionMonitor {
                 }
             };
 
+            // Endpoint + component versions for this chassis, so the metric-read failures below log them.
+            metrics.nmxc.endpoint = endpoint_url.clone();
+            metrics.nmxc.version = hello
+                .components_ver
+                .iter()
+                .map(|kv| format!("{}={}", kv.key, kv.value))
+                .collect::<Vec<_>>()
+                .join(", ");
+
             // Filter managed host snapshots, nvlink info, and DB partitions for this chassis.
             let mut managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
                 chassis_snapshots
@@ -1278,6 +1290,7 @@ impl NvlPartitionMonitor {
                 .check_partitions_and_apply_nmx_c_operations(
                     nmxc_client.as_mut(),
                     metrics,
+                    domain_uuid,
                     CheckPartitionsInput {
                         db_nvl_logical_partitions: db_nvl_logical_partitions.clone(),
                         db_nvl_partitions: db_nvl_partitions_domain,
@@ -1321,8 +1334,10 @@ impl NvlPartitionMonitor {
         &self,
         nmxc_client: &mut dyn Nmxc,
         metrics: &mut NvlPartitionMonitorMetrics,
+        domain_uuid: NvLinkDomainId,
         input: CheckPartitionsInput,
     ) -> NvLinkManagerResult<usize> {
+        let domain = domain_uuid.to_string();
         let CheckPartitionsInput {
             db_nvl_logical_partitions,
             db_nvl_partitions,
@@ -1348,7 +1363,74 @@ impl NvlPartitionMonitor {
             })?
             .partition_info_list;
 
-        metrics.nmxc.num_partitions += partition_info_list.len();
+        record_domain_health(
+            &mut metrics.nmxc.partition_health,
+            &domain,
+            &PARTITION_HEALTH_STATES,
+            aggregate_partition_health(&partition_info_list),
+        );
+
+        // GPU health for metrics, best-effort: log and skip on failure, never blocking reconciliation.
+        match nmxc_client
+            .get_gpu_info_list(GetGpuInfoListRequest {
+                context: Some(libnmxc::nmxc_model::Context {
+                    context: String::new(),
+                }),
+                attr: libnmxc::nmxc_model::GpuAttr::NmxGpuAttrAll as i32,
+                num_gpus: 0,
+                loc: None,
+                partition_id: None,
+                gateway_id: NMX_C_GATEWAY_ID.into(),
+                gpu_health: 0,
+            })
+            .await
+        {
+            Ok(resp) => {
+                let counts = aggregate_gpu_health(&resp.gpu_info_list);
+                record_domain_health(
+                    &mut metrics.nmxc.gpu_health,
+                    &domain,
+                    &GPU_HEALTH_STATES,
+                    counts,
+                );
+            }
+            Err(e) => tracing::warn!(
+                %domain_uuid,
+                endpoint = %metrics.nmxc.endpoint,
+                version = %metrics.nmxc.version,
+                error = %e,
+                "NMX-C GetGpuInfoList failed; GPU health metrics missing for this domain this iteration"
+            ),
+        }
+
+        // Compute-node health for metrics, best-effort (same handling as above).
+        match nmxc_client
+            .get_compute_node_info_list(GetComputeNodeInfoListRequest {
+                context: Some(libnmxc::nmxc_model::Context {
+                    context: String::new(),
+                }),
+                loc_list: vec![],
+                gateway_id: NMX_C_GATEWAY_ID.into(),
+            })
+            .await
+        {
+            Ok(resp) => {
+                let counts = aggregate_compute_node_health(&resp.node_info_list);
+                record_domain_health(
+                    &mut metrics.nmxc.compute_node_health,
+                    &domain,
+                    &NODE_HEALTH_STATES,
+                    counts,
+                );
+            }
+            Err(e) => tracing::warn!(
+                %domain_uuid,
+                endpoint = %metrics.nmxc.endpoint,
+                version = %metrics.nmxc.version,
+                error = %e,
+                "NMX-C GetComputeNodeInfoList failed; compute-node health metrics missing for this domain this iteration"
+            ),
+        }
 
         let mut partition_processing_context = PartitionProcessingContext::new(
             partition_info_list,
@@ -2345,5 +2427,274 @@ impl NvlPartitionMonitor {
         )
         .await
         .map_err(NvLinkManagerError::from)
+    }
+}
+
+// One label per value of the NMX-C health enums defined in `nmx_c.proto`. The `*_health_label`
+// matches below are compile-checked against those enums, so a new health variant won't build
+// until you add its match arm there AND its label to the matching list here.
+/// All GPU health labels, used to zero-seed every state per domain each iteration.
+const GPU_HEALTH_STATES: [&str; 5] = ["healthy", "degraded", "no_nvlink", "degraded_bw", "unknown"];
+/// All compute-node health labels, used to zero-seed every state per domain each iteration.
+const NODE_HEALTH_STATES: [&str; 4] = ["healthy", "degraded", "unhealthy", "unknown"];
+/// All partition health labels, used to zero-seed every state per domain each iteration.
+const PARTITION_HEALTH_STATES: [&str; 5] =
+    ["healthy", "degraded_bw", "degraded", "unhealthy", "unknown"];
+
+/// Maps an NMX-C `GpuHealth` enum value to a metric label. Matching on the generated enum (not raw
+/// ints) keeps labels correct if the proto renumbers, and a new variant fails to compile until handled.
+fn gpu_health_label(h: i32) -> &'static str {
+    use libnmxc::nmxc_model::GpuHealth::{self, *};
+    match GpuHealth::try_from(h) {
+        Ok(NmxGpuHealthHealthy) => "healthy",
+        Ok(NmxGpuHealthDegraded) => "degraded",
+        Ok(NmxGpuHealthNoNvlink) => "no_nvlink",
+        Ok(NmxGpuHealthDegradedBw) => "degraded_bw",
+        Ok(NmxGpuHealthUnknown) | Err(_) => "unknown",
+    }
+}
+
+/// Maps an NMX-C `ComputeNodeHealth` enum value to a metric label (matched on the generated enum).
+fn node_health_label(h: i32) -> &'static str {
+    use libnmxc::nmxc_model::ComputeNodeHealth::{self, *};
+    match ComputeNodeHealth::try_from(h) {
+        Ok(NmxComputeNodeHealthHealthy) => "healthy",
+        Ok(NmxComputeNodeHealthDegraded) => "degraded",
+        Ok(NmxComputeNodeHealthUnhealthy) => "unhealthy",
+        Ok(NmxComputeNodeHealthUnknown) | Err(_) => "unknown",
+    }
+}
+
+/// Maps an NMX-C `PartitionHealth` enum value to a metric label (matched on the generated enum).
+fn partition_health_label(h: i32) -> &'static str {
+    use libnmxc::nmxc_model::PartitionHealth::{self, *};
+    match PartitionHealth::try_from(h) {
+        Ok(NmxPartitionHealthHealthy) => "healthy",
+        Ok(NmxPartitionHealthDegradedBandwidth) => "degraded_bw",
+        Ok(NmxPartitionHealthDegraded) => "degraded",
+        Ok(NmxPartitionHealthUnhealthy) => "unhealthy",
+        Ok(NmxPartitionHealthUnknown) | Err(_) => "unknown",
+    }
+}
+
+/// Counts partitions by health label.
+fn aggregate_partition_health(partitions: &[PartitionInfo]) -> HashMap<&'static str, usize> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for p in partitions {
+        *counts.entry(partition_health_label(p.health)).or_default() += 1;
+    }
+    counts
+}
+
+/// Counts GPUs by health label. An undiscovered GPU reports `gpu_health` UNKNOWN (and `gpu_uid` 0),
+/// so it lands in the `unknown` bucket — matching how undiscovered compute nodes are reported.
+fn aggregate_gpu_health(gpus: &[libnmxc::nmxc_model::GpuInfo]) -> HashMap<&'static str, usize> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for gpu in gpus {
+        *counts.entry(gpu_health_label(gpu.gpu_health)).or_default() += 1;
+    }
+    counts
+}
+
+/// Counts compute nodes by health label.
+fn aggregate_compute_node_health(
+    nodes: &[libnmxc::nmxc_model::ComputeNodeInfo],
+) -> HashMap<&'static str, usize> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for node in nodes {
+        *counts
+            .entry(node_health_label(node.node_health))
+            .or_default() += 1;
+    }
+    counts
+}
+
+/// Records per-domain health counts: seeds every state to `0`, then overlays the observed counts,
+/// so a state with no entities this iteration is recorded as `0` rather than omitted.
+fn record_domain_health(
+    map: &mut HashMap<(String, &'static str), usize>,
+    domain: &str,
+    all_states: &[&'static str],
+    counts: HashMap<&'static str, usize>,
+) {
+    for &state in all_states {
+        map.insert((domain.to_string(), state), 0);
+    }
+    for (state, count) in counts {
+        map.insert((domain.to_string(), state), count);
+    }
+}
+
+#[cfg(test)]
+mod health_aggregation_tests {
+    use std::collections::HashMap;
+
+    use libnmxc::nmxc_model::{
+        ComputeNodeHealth, ComputeNodeInfo, GpuHealth, GpuInfo, PartitionHealth, PartitionInfo,
+    };
+
+    use super::{
+        GPU_HEALTH_STATES, aggregate_compute_node_health, aggregate_gpu_health,
+        aggregate_partition_health, record_domain_health,
+    };
+
+    #[test]
+    fn aggregate_partition_health_buckets_each_state() {
+        fn part(health: PartitionHealth) -> PartitionInfo {
+            PartitionInfo {
+                health: health as i32,
+                ..Default::default()
+            }
+        }
+        let counts = aggregate_partition_health(&[
+            part(PartitionHealth::NmxPartitionHealthHealthy),
+            part(PartitionHealth::NmxPartitionHealthHealthy),
+            part(PartitionHealth::NmxPartitionHealthDegradedBandwidth),
+            part(PartitionHealth::NmxPartitionHealthDegraded),
+            part(PartitionHealth::NmxPartitionHealthUnhealthy),
+        ]);
+        assert_eq!(counts.get("healthy"), Some(&2));
+        assert_eq!(counts.get("degraded_bw"), Some(&1));
+        assert_eq!(counts.get("degraded"), Some(&1));
+        assert_eq!(counts.get("unhealthy"), Some(&1));
+        assert_eq!(counts.values().sum::<usize>(), 5);
+    }
+
+    #[test]
+    fn record_domain_health_zero_seeds_emptied_states() {
+        let mut map = HashMap::new();
+        // Pass 1: a 72-GPU domain — 70 healthy, 2 no_nvlink.
+        record_domain_health(
+            &mut map,
+            "d1",
+            &GPU_HEALTH_STATES,
+            HashMap::from([("healthy", 70), ("no_nvlink", 2)]),
+        );
+        assert_eq!(map.get(&("d1".to_string(), "healthy")), Some(&70));
+        assert_eq!(map.get(&("d1".to_string(), "no_nvlink")), Some(&2));
+        assert_eq!(map.get(&("d1".to_string(), "degraded")), Some(&0)); // seeded, not observed
+        // Pass 2: the 2 recovered, so all 72 are healthy. no_nvlink must read 0, not the stale 2.
+        record_domain_health(
+            &mut map,
+            "d1",
+            &GPU_HEALTH_STATES,
+            HashMap::from([("healthy", 72)]),
+        );
+        assert_eq!(map.get(&("d1".to_string(), "healthy")), Some(&72));
+        assert_eq!(map.get(&("d1".to_string(), "no_nvlink")), Some(&0));
+    }
+
+    fn gpu(gpu_health: GpuHealth) -> GpuInfo {
+        GpuInfo {
+            gpu_health: gpu_health as i32,
+            ..Default::default()
+        }
+    }
+
+    fn node(node_health: ComputeNodeHealth) -> ComputeNodeInfo {
+        ComputeNodeInfo {
+            node_health: node_health as i32,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn aggregate_gpu_health_buckets_each_state() {
+        let gpus = vec![
+            gpu(GpuHealth::NmxGpuHealthHealthy),
+            gpu(GpuHealth::NmxGpuHealthHealthy),
+            gpu(GpuHealth::NmxGpuHealthDegraded),
+            gpu(GpuHealth::NmxGpuHealthNoNvlink),
+            gpu(GpuHealth::NmxGpuHealthDegradedBw),
+            gpu(GpuHealth::NmxGpuHealthUnknown), // undiscovered GPU -> unknown
+        ];
+        let counts = aggregate_gpu_health(&gpus);
+        assert_eq!(counts.get("healthy"), Some(&2));
+        assert_eq!(counts.get("degraded"), Some(&1));
+        assert_eq!(counts.get("no_nvlink"), Some(&1));
+        assert_eq!(counts.get("degraded_bw"), Some(&1));
+        assert_eq!(counts.get("unknown"), Some(&1));
+        assert_eq!(counts.values().sum::<usize>(), 6);
+    }
+
+    #[test]
+    fn aggregate_compute_node_health_buckets_each_state() {
+        // Distinct counts per state (3/2/1) so this verifies the tally, not just bucketing.
+        let nodes = vec![
+            node(ComputeNodeHealth::NmxComputeNodeHealthHealthy),
+            node(ComputeNodeHealth::NmxComputeNodeHealthHealthy),
+            node(ComputeNodeHealth::NmxComputeNodeHealthHealthy),
+            node(ComputeNodeHealth::NmxComputeNodeHealthDegraded),
+            node(ComputeNodeHealth::NmxComputeNodeHealthDegraded),
+            node(ComputeNodeHealth::NmxComputeNodeHealthUnhealthy),
+        ];
+        let counts = aggregate_compute_node_health(&nodes);
+        assert_eq!(counts.get("healthy"), Some(&3));
+        assert_eq!(counts.get("degraded"), Some(&2));
+        assert_eq!(counts.get("unhealthy"), Some(&1));
+        assert_eq!(counts.values().sum::<usize>(), 6);
+    }
+
+    /// End-to-end: a populated metrics snapshot is emitted as the right per-(domain, health)
+    /// series through the real OpenTelemetry → Prometheus exporter (an in-memory `TestMeter`).
+    #[test]
+    fn emits_per_domain_health_series_through_the_exporter() {
+        use std::time::Duration;
+
+        use carbide_utils::test_support::test_meter::TestMeter;
+
+        use crate::metrics::{MetricHolder, NvlPartitionMonitorMetrics};
+
+        let test_meter = TestMeter::default();
+        let holder = MetricHolder::new(test_meter.meter(), Duration::from_secs(60));
+
+        // One NMX-C scenario for domain "domA": 70 healthy + 2 no_nvlink GPUs,
+        // 1 degraded compute node, 1 healthy partition.
+        let mut metrics = NvlPartitionMonitorMetrics::new();
+        record_domain_health(
+            &mut metrics.nmxc.gpu_health,
+            "domA",
+            &GPU_HEALTH_STATES,
+            HashMap::from([("healthy", 70), ("no_nvlink", 2)]),
+        );
+        record_domain_health(
+            &mut metrics.nmxc.compute_node_health,
+            "domA",
+            &super::NODE_HEALTH_STATES,
+            HashMap::from([("degraded", 1)]),
+        );
+        record_domain_health(
+            &mut metrics.nmxc.partition_health,
+            "domA",
+            &super::PARTITION_HEALTH_STATES,
+            HashMap::from([("healthy", 1)]),
+        );
+        holder.update_metrics(metrics);
+
+        // The exporter emits one series per (domain, health), including zero-seeded states.
+        let gpu = test_meter.parsed_metrics("carbide_nvlink_partition_monitor_nmxc_gpu_count");
+        let gpu_val = |health: &str| {
+            gpu.iter()
+                .find(|(attrs, _)| {
+                    attrs.contains(&format!("health=\"{health}\""))
+                        && attrs.contains("nvlink_domain_uuid=\"domA\"")
+                })
+                .map(|(_, v)| v.as_str())
+        };
+        assert_eq!(gpu_val("healthy"), Some("70"));
+        assert_eq!(gpu_val("no_nvlink"), Some("2"));
+        assert_eq!(gpu_val("degraded"), Some("0")); // zero-seeded, not absent
+        assert_eq!(gpu_val("unknown"), Some("0")); // zero-seeded
+
+        let nodes =
+            test_meter.parsed_metrics("carbide_nvlink_partition_monitor_nmxc_compute_node_count");
+        assert!(nodes.iter().any(|(a, v)| a.contains("health=\"degraded\"")
+            && a.contains("nvlink_domain_uuid=\"domA\"")
+            && v == "1"));
+        let parts =
+            test_meter.parsed_metrics("carbide_nvlink_partition_monitor_nmxc_partition_count");
+        assert!(parts.iter().any(|(a, v)| a.contains("health=\"healthy\"")
+            && a.contains("nvlink_domain_uuid=\"domA\"")
+            && v == "1"));
     }
 }

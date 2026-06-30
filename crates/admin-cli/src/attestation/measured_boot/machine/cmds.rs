@@ -26,50 +26,48 @@ use measured_boot::records::CandidateMachineSummary;
 use measured_boot::report::MeasurementReport;
 use serde::Serialize;
 
-use crate::attestation::measured_boot::global;
-use crate::attestation::measured_boot::machine::args::{Attest, CmdMachine, Show};
-use crate::cli_output;
+use crate::attestation::measured_boot::machine::args::{Attest, List, Show};
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-/// dispatch matches + dispatches the correct command
-/// for the `mock-machine` subcommand.
-pub async fn dispatch(
-    cmd: CmdMachine,
-    cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
-    match cmd {
-        CmdMachine::Attest(local_args) => {
-            cli_output(
-                attest(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
+impl Run for Attest {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            attest(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Show {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        if self.machine_id.is_some() {
+            crate::cli_output(
+                show_by_id(&ctx.api_client, self).await?,
+                &ctx.config.format,
                 crate::Destination::Stdout(),
-            )?;
-        }
-        CmdMachine::Show(local_args) => {
-            if local_args.machine_id.is_some() {
-                cli_output(
-                    show_by_id(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            } else {
-                cli_output(
-                    show_all(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        }
-        CmdMachine::List(_) => {
-            cli_output(
-                list(cli.grpc_conn).await?,
-                &cli.args.format,
+            )
+        } else {
+            crate::cli_output(
+                show_all(&ctx.api_client, self).await?,
+                &ctx.config.format,
                 crate::Destination::Stdout(),
-            )?;
+            )
         }
     }
-    Ok(())
+}
+
+impl Run for List {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list(&ctx.api_client).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
 }
 
 /// attest sends attestation data for the given machine ID, as in, PCR

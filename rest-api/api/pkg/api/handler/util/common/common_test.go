@@ -129,7 +129,12 @@ func testCommonSetupSchema(t *testing.T, dbSession *cdb.Session) {
 
 func testCommonBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.Create(context.Background(), nil, cdbm.InfrastructureProviderCreateInput{
+		Name:        name,
+		DisplayName: cutil.GetPtr("Test Infrastructure Provider"),
+		Org:         org,
+		CreatedBy:   user.ID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, ip)
 	return ip
@@ -263,7 +268,10 @@ func testCommonBuildInstanceType(t *testing.T, dbSession *cdb.Session, name stri
 
 func testCommonBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, machineID string, instanceTypeID uuid.UUID) *cdbm.MachineInstanceType {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-	mit, err := mitDAO.CreateFromParams(context.Background(), nil, machineID, instanceTypeID)
+	mit, err := mitDAO.Create(context.Background(), nil, cdbm.MachineInstanceTypeCreateInput{
+		MachineID:      machineID,
+		InstanceTypeID: instanceTypeID,
+	})
 	assert.Nil(t, err)
 	return mit
 }

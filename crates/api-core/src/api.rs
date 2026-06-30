@@ -1064,6 +1064,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
 
+    async fn get_site_explorer_last_run(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<::rpc::site_explorer::SiteExplorerLastRunResponse>, Status> {
+        crate::handlers::site_explorer::get_site_explorer_last_run(self, request).await
+    }
+
     async fn find_explored_endpoint_ids(
         &self,
         request: Request<::rpc::site_explorer::ExploredEndpointSearchFilter>,
@@ -2850,7 +2857,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_device_report(self, request).await
+        crate::handlers::svpc::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
@@ -2859,7 +2866,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
+        crate::handlers::svpc::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(

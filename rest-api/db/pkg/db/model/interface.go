@@ -384,7 +384,7 @@ func (ifcd InterfaceSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter Interf
 // The updated fields are assumed to be set to non-null values
 func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input InterfaceUpdateInput) (*Interface, error) {
 	// Create a child span and set the attributes for current request
-	ctx, interfaceDAOSpan := ifcd.tracerSpan.CreateChildInCurrentContext(ctx, "InterfaceDAO.UpdateFromParams")
+	ctx, interfaceDAOSpan := ifcd.tracerSpan.CreateChildInCurrentContext(ctx, "InterfaceDAO.Update")
 	if interfaceDAOSpan != nil {
 		defer interfaceDAOSpan.End()
 	}

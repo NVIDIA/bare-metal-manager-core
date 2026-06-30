@@ -42,7 +42,9 @@ pub trait VerifierClient: std::fmt::Debug + Send + Sync + 'static {
 #[derive(Debug)]
 pub struct NrasVerifierClient {
     config: crate::Config,
-    http_client: reqwest::Client,
+    // A `reqwest-tracing` middleware client: it injects the current span's W3C trace context into
+    // every outgoing request (issue #2438), so there is no per-call header injection here.
+    http_client: reqwest_middleware::ClientWithMiddleware,
 }
 
 // TODO: add config which would allow configuring the URL paths for gpu, dpu, cx7
@@ -50,7 +52,9 @@ impl NrasVerifierClient {
     pub fn new_with_config(config: &crate::Config) -> NrasVerifierClient {
         NrasVerifierClient {
             config: config.clone(),
-            http_client: reqwest::Client::new(),
+            http_client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+                .with(reqwest_tracing::TracingMiddleware::default())
+                .build(),
         }
     }
 }
@@ -63,8 +67,7 @@ impl VerifierClient for NrasVerifierClient {
         device_attestation_info: &DeviceAttestationInfo,
     ) -> Result<RawAttestationOutcome, NrasError> {
         // prepare the request
-        // submit to NRAS
-
+        // submit to NRAS (the http client propagates W3C trace context via middleware)
         let att_response = self
             .http_client
             .post(format!(

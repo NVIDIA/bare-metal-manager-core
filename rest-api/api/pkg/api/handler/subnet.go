@@ -277,14 +277,13 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), *cutil.GetPtr(cdbm.SubnetStatusPending),
-			cutil.GetPtr("received subnet creation request, pending"))
+		ssd, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: subnet.ID.String(), Status: *cutil.GetPtr(cdbm.SubnetStatusPending), Message: cutil.GetPtr("received subnet creation request, pending")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Subnet", nil)
 		}
 		if ssd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for Subnet", nil)
 		}
 
@@ -906,7 +905,7 @@ func (ush UpdateSubnetHandler) Handle(c echo.Context) error {
 	// get status details for the response — best-effort, the PATCH has already
 	// committed so a transient read failure here must not surface as 500.
 	sdDAO := cdbm.NewStatusDetailDAO(ush.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{subnet.ID.String()}}, paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 	if err != nil {
 		logger.Warn().Err(err).Msg("error retrieving Status Details for subnet after update commit")
 		ssds = nil
@@ -1075,7 +1074,7 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Subnet status, DB error", nil)
 		}
 
-		_, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), status, &statusMsg)
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: subnet.ID.String(), Status: status, Message: &statusMsg})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail for Subnet")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Subnet status detail, DB error", nil)

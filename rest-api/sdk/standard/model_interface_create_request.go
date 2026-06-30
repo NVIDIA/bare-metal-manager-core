@@ -27,8 +27,7 @@ type InterfaceCreateRequest struct {
 	// ID of the VPC Prefix to attach to the Interface
 	VpcPrefixId *string `json:"vpcPrefixId,omitempty"`
 	// Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
-	IpAddress NullableString `json:"ipAddress,omitempty"`
-	// Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
+	IpAddress            NullableString                        `json:"ipAddress,omitempty"`
 	InlineRoutingProfile NullableInterfaceInlineRoutingProfile `json:"inlineRoutingProfile,omitempty"`
 	// Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
 	IsPhysical *bool `json:"isPhysical,omitempty"`

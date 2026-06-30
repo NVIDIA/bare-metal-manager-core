@@ -664,6 +664,7 @@ impl ApiClient {
         &self,
         page_size: usize,
     ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+        let last_run = self.get_site_explorer_last_run().await?;
         // grab endpoints
         let endpoint_ids = match self.0.find_explored_endpoint_ids().await {
             Ok(endpoint_ids) => endpoint_ids,
@@ -698,7 +699,18 @@ impl ApiClient {
         Ok(::rpc::site_explorer::SiteExplorationReport {
             endpoints: all_endpoints.endpoints,
             managed_hosts: all_hosts,
+            last_run,
         })
+    }
+
+    pub async fn get_site_explorer_last_run(
+        &self,
+    ) -> CarbideCliResult<Option<::rpc::site_explorer::SiteExplorerLastRun>> {
+        match self.0.get_site_explorer_last_run().await {
+            Ok(response) => Ok(response.last_run),
+            Err(status) if maybe_unimplemented(&status) => Ok(None),
+            Err(status) => Err(status.into()),
+        }
     }
 
     pub async fn get_explored_endpoints_by_ids(

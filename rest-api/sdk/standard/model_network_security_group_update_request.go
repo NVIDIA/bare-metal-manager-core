@@ -29,9 +29,8 @@ type NetworkSecurityGroupUpdateRequest struct {
 	// Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
 	StatefulEgress *bool `json:"statefulEgress,omitempty"`
 	// Update rules of the Network Security Group. The rules will be replaced with the rules sent in the request. Any rules not included in the request will be removed. To retain existing rules, fetch them first and include them.
-	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
-	// User-defined key-value labels for the Network Security Group
-	Labels map[string]string `json:"labels,omitempty"`
+	Rules  []NetworkSecurityGroupRule `json:"rules,omitempty"`
+	Labels map[string]string          `json:"labels,omitempty"`
 }
 
 // NewNetworkSecurityGroupUpdateRequest instantiates a new NetworkSecurityGroupUpdateRequest object

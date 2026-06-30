@@ -31,92 +31,107 @@ use measured_boot::bundle::MeasurementBundle;
 use measured_boot::records::MeasurementBundleRecord;
 use serde::Serialize;
 
+use crate::attestation::measured_boot::MachineIdList;
 use crate::attestation::measured_boot::bundle::args::{
-    CmdBundle, Create, Delete, FindClosestMatch, List, ListMachines, Rename, SetState, Show,
+    Create, Delete, FindClosestMatch, ListAll, ListMachines, Rename, ReportId, SetState, Show,
 };
-use crate::attestation::measured_boot::{MachineIdList, global};
-use crate::cli_output;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-/// dispatch matches + dispatches the correct command for
-/// the `bundle` subcommand (e.g. create, delete, set-state).
-pub async fn dispatch(
-    cmd: CmdBundle,
-    cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
-    match cmd {
-        CmdBundle::Create(local_args) => {
-            cli_output(
-                create_for_id(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdBundle::Delete(local_args) => {
-            cli_output(
-                delete(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdBundle::Rename(local_args) => {
-            cli_output(
-                rename(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdBundle::SetState(local_args) => {
-            cli_output(
-                set_state(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
-        }
-        CmdBundle::Show(local_args) => {
-            if local_args.identifier.is_some() {
-                cli_output(
-                    show_by_id_or_name(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            } else {
-                cli_output(
-                    show_all(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        }
-        CmdBundle::FindClosestMatch(local_args) => {
-            match find_closest_match(cli.grpc_conn, local_args).await? {
-                Some(measurement_bundle) => cli_output(
-                    measurement_bundle,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?,
-                None => tracing::info!("No partially matching bundle found"),
-            };
-        }
-        CmdBundle::List(selector) => match selector {
-            List::Machines(local_args) => {
-                cli_output(
-                    list_machines(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-            List::All(_) => {
-                cli_output(
-                    list(cli.grpc_conn).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        },
+impl Run for Create {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            create_for_id(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
     }
-    Ok(())
+}
+
+impl Run for Delete {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            delete(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Rename {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            rename(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for SetState {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            set_state(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Show {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        if self.identifier.is_some() {
+            crate::cli_output(
+                show_by_id_or_name(&ctx.api_client, self).await?,
+                &ctx.config.format,
+                crate::Destination::Stdout(),
+            )
+        } else {
+            crate::cli_output(
+                show_all(&ctx.api_client, self).await?,
+                &ctx.config.format,
+                crate::Destination::Stdout(),
+            )
+        }
+    }
+}
+
+impl Run for ReportId {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        match find_closest_match(&ctx.api_client, FindClosestMatch::Report(self)).await? {
+            Some(measurement_bundle) => crate::cli_output(
+                measurement_bundle,
+                &ctx.config.format,
+                crate::Destination::Stdout(),
+            ),
+            None => {
+                tracing::info!("No partially matching bundle found");
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Run for ListAll {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list(&ctx.api_client).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for ListMachines {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list_machines(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
 }
 
 /// create_for_id creates a new measurement bundle associated with the

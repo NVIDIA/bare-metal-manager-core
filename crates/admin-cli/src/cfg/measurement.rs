@@ -22,7 +22,6 @@
 
 */
 
-use ::rpc::admin_cli::OutputFormat;
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 
@@ -63,11 +62,6 @@ pub fn parse_pcr_register_values(arg: &str) -> eyre::Result<PcrRegisterValue> {
         pcr_register,
         sha_any: sha,
     })
-}
-
-pub struct GlobalOptions {
-    pub format: OutputFormat,
-    pub extended: bool,
 }
 
 /// Cmd is the top-level subcommands enum, which contains mappings for all

@@ -29,6 +29,7 @@ carbide-rack = { path = "../rack", default-features = false }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
 carbide-uuid = { path = "../uuid" }
+trace-propagation = { path = "../trace-propagation" }
 chrono = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }

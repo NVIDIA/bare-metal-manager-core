@@ -76,7 +76,12 @@ func testIPBlockSetupSchema(t *testing.T, dbSession *cdb.Session) {
 
 func testIPBlockBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.Create(context.Background(), nil, cdbm.InfrastructureProviderCreateInput{
+		Name:        name,
+		DisplayName: cutil.GetPtr("Test Infrastructure Provider"),
+		Org:         org,
+		CreatedBy:   user.ID,
+	})
 	assert.Nil(t, err)
 	return ip
 }
@@ -151,7 +156,7 @@ func testIPBlockBuildIPBlock(t *testing.T, dbSession *cdb.Session, name string, 
 
 func testIPBlockBuildStatusDetail(t *testing.T, dbSession *cdb.Session, entityID string, status string) {
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-	ssd, err := sdDAO.CreateFromParams(context.Background(), nil, entityID, status, nil)
+	ssd, err := sdDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: nil})
 	assert.Nil(t, err)
 	assert.NotNil(t, ssd)
 	assert.Equal(t, entityID, ssd.EntityID)

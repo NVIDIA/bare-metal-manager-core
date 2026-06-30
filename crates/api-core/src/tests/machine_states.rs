@@ -62,9 +62,10 @@ use model::machine::{
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
     HostPlatformConfigurationState, HostReprovisionState, InstallDpuOsState, InstanceState,
     LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    PowerState, RetryInfo, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
-    ValidationState,
+    PowerState, RetryInfo, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
+    SpdmMeasuringState, StateMachineArea, ValidationState,
 };
+use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
@@ -2884,6 +2885,235 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
             .any(|action| matches!(action, RedfishSimAction::MachineSetup { .. })),
         "expected machine_setup to be re-run after recovery, got: {actions:?}"
     );
+}
+
+/// Builds a test env wired for zero-DPU (NIC-mode) ingestion: the admin and
+/// host-inband site prefixes are routable and the host-inband segment exists,
+/// so a zero-DPU host's in-band NIC takes a real `machine_interfaces` row that
+/// the boot-order phase can resolve. Mirrors `test_dhcp_allows_zero_dpu_host`.
+async fn create_zero_dpu_test_env(pool: sqlx::PgPool) -> TestEnv {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+    env
+}
+
+/// Places a host directly in HostInit/SetBootOrder at the start of the
+/// boot-order flow, backdated so it reads as freshly entered.
+async fn set_host_stuck_in_set_boot_order(env: &TestEnv, host_id: MachineId) {
+    set_host_controller_state_stuck_in(
+        env,
+        host_id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: 0,
+                }),
+            },
+        },
+        1,
+    )
+    .await;
+}
+
+/// Drives the machine state controller until the host leaves HostInit/SetBootOrder
+/// for the next phase (HostInit/Measuring), returning whether it got there. A
+/// zero-DPU host whose `HttpDev1` device has de-enumerated never reaches it
+/// unless SetBootOrder re-asserts `machine_setup`, so callers assert on the
+/// result to distinguish recovery from a host wedged at CheckBootOrder.
+async fn drive_until_past_set_boot_order(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    max_iterations: usize,
+) -> bool {
+    for _ in 0..max_iterations {
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring { .. },
+            }
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The MAC of the zero-DPU host's in-band NIC -- the boot interface the
+/// boot-order phase resolves and targets. Looked up by segment type (the same
+/// way the admin boot-interface resolution tests locate it), since a zero-DPU
+/// host boots from its HostInband NIC.
+async fn host_inband_nic_mac(env: &TestEnv, host_id: MachineId) -> MacAddress {
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+        .await
+        .unwrap()
+        .remove(&host_id)
+        .expect("zero-DPU host should have interface rows")
+        .into_iter()
+        .find(|i| i.network_segment_type == Some(NetworkSegmentType::HostInband))
+        .expect("zero-DPU host should have a HostInband interface")
+        .mac_address
+}
+
+/// Asserts that, within the recorded boot-order actions, `machine_setup` ran
+/// before the `set_boot_order_dpu_first` reorder, and that BOTH targeted
+/// `expected_mac` -- the resolved boot NIC. This is the ordering the recovery
+/// depends on: re-enable `HttpDev1`, then reorder, both against the same NIC.
+fn assert_machine_setup_precedes_reorder_for(
+    actions: &[RedfishSimAction],
+    expected_mac: MacAddress,
+) {
+    // `MachineSetup` records the target as `Option<String>` (setup can run
+    // without one), while `SetBootOrderDpuFirst` always has a `String`.
+    let expected = expected_mac.to_string();
+
+    let machine_setup_idx = actions
+        .iter()
+        .position(|action| {
+            matches!(
+                action,
+                RedfishSimAction::MachineSetup { boot_interface_mac, .. }
+                    if boot_interface_mac.as_deref() == Some(expected.as_str())
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a machine_setup targeting the boot NIC {expected_mac}, got: {actions:?}"
+            )
+        });
+
+    let reorder_idx = actions
+        .iter()
+        .position(|action| {
+            matches!(
+                action,
+                RedfishSimAction::SetBootOrderDpuFirst { boot_interface_mac }
+                    if *boot_interface_mac == expected
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a set_boot_order_dpu_first targeting the boot NIC {expected_mac}, got: {actions:?}"
+            )
+        });
+
+    assert!(
+        machine_setup_idx < reorder_idx,
+        "machine_setup (idx {machine_setup_idx}) must re-assert HttpDev1 before the reorder \
+         (idx {reorder_idx}); actions: {actions:?}"
+    );
+}
+
+/// Regression test for the NIC-mode `HttpDev1` de-enumeration hang.
+///
+/// On a zero-DPU host, a reboot during the boot-order phase can de-enumerate the
+/// BlueField from Redfish, reverting the `HttpDev1` UEFI HTTP-boot device to the
+/// onboard default. `set_boot_order_dpu_first` only reorders the boot options it
+/// finds, so it cannot bring `HttpDev1` back -- the boot order never verifies and
+/// the host wedges in SetBootOrder/CheckBootOrder. SetBootOrder now re-asserts
+/// `machine_setup` on each attempt, re-enabling the device so the reorder sticks.
+///
+/// The sim models this: `set_http_dev1_reverted` disables the device, so the
+/// first `set_boot_order_dpu_first` records the boot order as *not* configured;
+/// only the re-assert's `machine_setup` re-enables it. Without the re-assert the
+/// host never leaves CheckBootOrder; with it, the host recovers to Measuring.
+#[crate::sqlx_test]
+async fn test_set_boot_order_reasserts_machine_setup_when_http_dev1_de_enumerates(
+    pool: sqlx::PgPool,
+) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    assert!(
+        mh.dpu_ids.is_empty(),
+        "zero-DPU fixture should produce no DPU machines"
+    );
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // Model the BlueField de-enumerating: HttpDev1 reverts to the onboard
+    // default, so the first reorder won't make the boot order verify.
+    env.redfish_sim.set_http_dev1_reverted();
+
+    set_host_stuck_in_set_boot_order(&env, host_id).await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let recovered = drive_until_past_set_boot_order(&env, &mh, 15).await;
+    if !recovered {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        panic!(
+            "expected SetBootOrder to re-assert machine_setup and recover a de-enumerated \
+             HttpDev1 (reaching HostInit/Measuring), but the host wedged at: {:?}",
+            host.current_state()
+        );
+    }
+
+    // The recovery hinges on machine_setup running -- targeting the boot NIC --
+    // before the reorder during the boot-order phase.
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
+}
+
+/// Healthy-path counterpart: when `HttpDev1` was never de-enumerated, the
+/// SetBootOrder `machine_setup` re-assert is idempotent -- the host still
+/// advances out of SetBootOrder exactly as before, and machine_setup is invoked
+/// without changing the outcome. Guards against the re-assert regressing the
+/// normal zero-DPU boot-order path.
+#[crate::sqlx_test]
+async fn test_set_boot_order_reassert_is_idempotent_on_healthy_zero_dpu_host(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // No de-enumeration this time: HttpDev1 stays enabled throughout.
+    set_host_stuck_in_set_boot_order(&env, host_id).await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let recovered = drive_until_past_set_boot_order(&env, &mh, 15).await;
+    assert!(
+        recovered,
+        "a healthy zero-DPU host should still advance past SetBootOrder with the re-assert in place"
+    );
+
+    // The re-assert still runs (targeting the boot NIC) before the reorder; on
+    // the healthy path it just doesn't change the outcome.
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
 }
 
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.
