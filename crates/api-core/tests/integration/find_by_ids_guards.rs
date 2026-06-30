@@ -29,7 +29,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use ::rpc::forge as rpc;
+use carbide_test_harness::prelude::*;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -38,11 +38,9 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::VpcId;
 use data_encoding::BASE32_DNSSEC;
-use rpc::forge_server::Forge;
+use rpc::forge::forge_server::Forge;
 use sha2::{Digest, Sha256};
 use tonic::{Code, Request, Status};
-
-use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 
 /// The shared empty-list guard message, returned ahead of any DB work.
 const EMPTY_MESSAGE: &str = "at least one ID must be provided";
@@ -77,9 +75,10 @@ fn machine_id(index: u32) -> MachineId {
 /// The representative RPCs exercised for the over-max guard, each handed a list of
 /// `max_find_by_ids + 1` IDs. The IDs need not be real: the guard fires on length
 /// before any lookup.
-fn over_max_cases(env: &TestEnv) -> Vec<RpcGuardCase> {
-    let over = env.config.max_find_by_ids + 1;
-    let api = env.api.clone();
+fn over_max_cases(env: &TestHarness) -> Vec<RpcGuardCase> {
+    use rpc::forge as rpc;
+    let over = env.api().runtime_config.max_find_by_ids + 1;
+    let api = env.api_arc();
 
     vec![
         RpcGuardCase {
@@ -242,8 +241,9 @@ fn over_max_cases(env: &TestEnv) -> Vec<RpcGuardCase> {
 
 /// The same representative RPCs exercised for the empty-list guard, each handed an
 /// empty ID list (a default request).
-fn empty_cases(env: &TestEnv) -> Vec<RpcGuardCase> {
-    let api = env.api.clone();
+fn empty_cases(env: &TestHarness) -> Vec<RpcGuardCase> {
+    use rpc::forge as rpc;
+    let api = env.api_arc();
 
     vec![
         RpcGuardCase {
@@ -371,9 +371,9 @@ fn empty_cases(env: &TestEnv) -> Vec<RpcGuardCase> {
     ]
 }
 
-#[crate::sqlx_test]
-async fn find_by_ids_rejects_empty_id_list(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn find_by_ids_rejects_empty_id_list(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     for case in empty_cases(&env) {
         let err = case.call.await.expect_err(&format!(
@@ -385,12 +385,12 @@ async fn find_by_ids_rejects_empty_id_list(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test]
-async fn find_by_ids_rejects_too_many_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn find_by_ids_rejects_too_many_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let expected = format!(
         "no more than {} IDs can be accepted",
-        env.config.max_find_by_ids
+        env.api().runtime_config.max_find_by_ids
     );
 
     for case in over_max_cases(&env) {
