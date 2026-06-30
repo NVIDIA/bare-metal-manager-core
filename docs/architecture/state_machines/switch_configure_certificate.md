@@ -58,7 +58,7 @@ Job status values use `ConfigureSwitchCertificateState`: `Started`,
 
 The switch state handler passes:
 
-- `domain_name = None` for both bring-up and maintenance reconfiguration today.
+- `domain_name = None` for both bring-up and maintenance reconfiguration.
   RMS receives an unset `domain` field; rack association is enforced separately
   when deciding whether certificate configuration can run.
 - `services` from `SwitchStateHandlerServices.switch_mtls_services`, sourced
