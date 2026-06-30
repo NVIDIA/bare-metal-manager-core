@@ -20,23 +20,23 @@ before `RotateOsPassword`, `FetchInfo`, and `Validating`.
 
 ```mermaid
 stateDiagram-v2
-    direction LR
+direction TB
 
-    state Configuring {
-        [*] --> ConfigureCertificate
-        state ConfigureCertificate {
-            [*] --> Start
-            Start --> WaitForComplete : job submitted
-            Start --> Start : CM start error (retry next iteration)
-            WaitForComplete --> WaitForComplete : in progress or CM poll error (retry next iteration)
-        }
-        ConfigureCertificate --> RotateOsPassword : job Completed or skipped
-        RotateOsPassword --> FetchInfo : credentials ready
+state Configuring {
+    [*] --> ConfigureCertificate
+    state ConfigureCertificate {
+        [*] --> Start
+        Start --> WaitForComplete : job submitted
+        Start --> Start : CM start error (retry next iteration)
+        WaitForComplete --> WaitForComplete : in progress or CM poll error (retry next iteration)
     }
+    ConfigureCertificate --> RotateOsPassword : job Completed or skipped
+    RotateOsPassword --> FetchInfo : credentials ready
+}
 
-    FetchInfo --> Validating : slot and tray lookup complete
+FetchInfo --> Validating : slot and tray lookup complete
 
-    ConfigureCertificate --> Error : job Failed
+ConfigureCertificate --> Error : job Failed
 ```
 
 Transient CM or transport failures during `Start` or `WaitForComplete` return
