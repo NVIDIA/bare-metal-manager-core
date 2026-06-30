@@ -92,90 +92,16 @@ func (e *InfiniBandMachineSelectionError) Error() string {
 	return "Requested InfiniBand device instances are not available on any Machine for this Instance Type"
 }
 
-// InfiniBandRequestMatchResult captures whether a machine can satisfy an InfiniBand interface request.
-type InfiniBandRequestMatchResult struct {
-	Satisfied                 bool
-	CountSatisfiable          bool
-	AvailableByDevice         map[string][]int
-	UnsatisfiedRequestIndices []int
-}
-
-// ActiveInfiniBandDeviceInstances returns active device instance indices for an InfiniBand capability.
-func ActiveInfiniBandDeviceInstances(cap cdbm.MachineCapability) []int {
-	if cap.Count == nil {
-		return nil
+// ValidationError returns a validation error that includes suggested device instances.
+func (e *InfiniBandMachineSelectionError) ValidationError() validation.Errors {
+	errs := validation.Errors{
+		"infiniBandInterfaces": fmt.Errorf("requested device instances are not available on any Machine for this Instance Type"),
 	}
-
-	inactive := make(map[int]bool, len(cap.InactiveDevices))
-	for _, deviceInstance := range cap.InactiveDevices {
-		inactive[deviceInstance] = true
+	for i, ibifc := range e.AvailableInfiniBandInterfaces {
+		errs[fmt.Sprintf("suggestedInfiniBandInterfaces[%d].deviceInstance", i)] = fmt.Errorf(
+			"use device instance %d for device %s", ibifc.DeviceInstance, ibifc.Device)
 	}
-
-	active := make([]int, 0, *cap.Count)
-	for deviceInstance := 0; deviceInstance < *cap.Count; deviceInstance++ {
-		if !inactive[deviceInstance] {
-			active = append(active, deviceInstance)
-		}
-	}
-	return active
-}
-
-// ValidateIncomingInfiniBandRequestWithMachineCaps checks whether machine InfiniBand capabilities
-// can satisfy the requested interfaces.
-func ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps []cdbm.MachineCapability, req []cam.APIInfiniBandInterfaceCreateOrUpdateRequest) InfiniBandRequestMatchResult {
-	capByDevice := make(map[string]cdbm.MachineCapability, len(machineIbCaps))
-	for _, cap := range machineIbCaps {
-		capByDevice[cap.Name] = cap
-	}
-
-	result := InfiniBandRequestMatchResult{
-		Satisfied:         true,
-		CountSatisfiable:  true,
-		AvailableByDevice: make(map[string][]int, len(capByDevice)),
-	}
-	for device, cap := range capByDevice {
-		result.AvailableByDevice[device] = ActiveInfiniBandDeviceInstances(cap)
-	}
-
-	requestedByDevice := make(map[string]int)
-	for idx, ibifc := range req {
-		cap, found := capByDevice[ibifc.Device]
-		if !found {
-			result.Satisfied = false
-			result.CountSatisfiable = false
-			result.UnsatisfiedRequestIndices = append(result.UnsatisfiedRequestIndices, idx)
-			continue
-		}
-
-		if ibifc.Vendor != nil && cap.Vendor != nil && *ibifc.Vendor != *cap.Vendor {
-			result.Satisfied = false
-			result.UnsatisfiedRequestIndices = append(result.UnsatisfiedRequestIndices, idx)
-		}
-
-		activeSet := make(map[int]bool, len(result.AvailableByDevice[ibifc.Device]))
-		for _, deviceInstance := range result.AvailableByDevice[ibifc.Device] {
-			activeSet[deviceInstance] = true
-		}
-		if !activeSet[ibifc.DeviceInstance] {
-			result.Satisfied = false
-			result.UnsatisfiedRequestIndices = append(result.UnsatisfiedRequestIndices, idx)
-		}
-
-		requestedByDevice[ibifc.Device]++
-	}
-
-	for device, requestedCount := range requestedByDevice {
-		if len(result.AvailableByDevice[device]) < requestedCount {
-			result.CountSatisfiable = false
-		}
-	}
-
-	if len(req) == 0 {
-		result.Satisfied = true
-		result.CountSatisfiable = true
-	}
-
-	return result
+	return errs
 }
 
 // AvailableInfiniBandInterfaces returns a copy of the request with device instances replaced
@@ -201,18 +127,6 @@ func AvailableInfiniBandInterfaces(req []cam.APIInfiniBandInterfaceCreateOrUpdat
 	}
 
 	return availableInterfaces
-}
-
-// NewInfiniBandSuggestionValidationError builds a validation error that includes suggested device instances.
-func NewInfiniBandAvailableValidationError(available []cam.APIInfiniBandInterfaceCreateOrUpdateRequest) validation.Errors {
-	errs := validation.Errors{
-		"infiniBandInterfaces": fmt.Errorf("requested device instances are not available on any Machine for this Instance Type"),
-	}
-	for i, ibifc := range available {
-		errs[fmt.Sprintf("suggestedInfiniBandInterfaces[%d].deviceInstance", i)] = fmt.Errorf(
-			"use device instance %d for device %s", ibifc.DeviceInstance, ibifc.Device)
-	}
-	return errs
 }
 
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
@@ -508,7 +422,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 				}
 
 				// Validate the InfiniBand Interfaces against the Machine InfiniBand Capabilities
-				match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, infiniBandInterfaces)
+				match, _ := apiRequest.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 				if !match.Satisfied {
 					// If the request is not satisfied, but the count is satisfiable, keep track of the suggestion and continue to the next machine
 					if match.CountSatisfiable && !foundInfiniBandSuggestion {

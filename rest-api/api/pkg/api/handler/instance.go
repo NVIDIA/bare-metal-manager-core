@@ -1082,7 +1082,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			if err != nil {
 				var ibSelErr *common.InfiniBandMachineSelectionError
 				if errors.As(err, &ibSelErr) {
-					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), common.NewInfiniBandAvailableValidationError(ibSelErr.AvailableInfiniBandInterfaces))
+					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), ibSelErr.ValidationError())
 				}
 				if err == common.ErrInstanceTypeMachineNotFound {
 					return cutil.NewAPIError(http.StatusBadRequest,

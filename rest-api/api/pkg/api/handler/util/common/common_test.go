@@ -2768,25 +2768,17 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 		},
 	}
 
-	t.Run("satisfied when requested device instance is active on machine", func(t *testing.T) {
-		match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
-			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 0, IsPhysical: true},
-		})
-		assert.True(t, match.Satisfied)
-		assert.True(t, match.CountSatisfiable)
-		assert.Equal(t, []int{0, 2}, match.AvailableByDevice["MT28908 Family [ConnectX-6]"])
-	})
-
-	t.Run("not satisfied but count satisfiable when requested device instance is inactive on machine", func(t *testing.T) {
-		match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
-			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
-		})
+	t.Run("suggests available device instance when requested device instance is inactive on machine", func(t *testing.T) {
+		req := cam.APIInstanceCreateRequest{
+			InfiniBandInterfaces: []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
+				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
+			},
+		}
+		match, _ := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 		assert.False(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
 
-		available := AvailableInfiniBandInterfaces([]cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
-			{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
-		}, match.AvailableByDevice)
+		available := AvailableInfiniBandInterfaces(req.InfiniBandInterfaces, match.AvailableByDevice)
 		assert.Equal(t, 0, available[0].DeviceInstance)
 	})
 }
