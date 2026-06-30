@@ -17,21 +17,61 @@
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
+use carbide_test_harness::prelude::{PgPool, ResourcePoolBuilder, TestHarness, sqlx_test};
+use carbide_test_harness::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use carbide_uuid::vpc::VpcId;
+use model::resource_pool::Range;
+use model::resource_pool::common::VPC_VNI;
 use rpc::forge_server::Forge;
 
-use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
-use crate::tests::common::api_fixtures::instance::default_tenant_config;
-use crate::tests::common::api_fixtures::vpc::create_vpc;
-use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
-use crate::tests::common::rpc_builder::VpcCreationRequest;
+async fn test_harness(pool: PgPool) -> TestHarness {
+    let mut resource_pools = ResourcePoolBuilder::default().build();
+    resource_pools
+        .get_mut(VPC_VNI)
+        .expect("VPC VNI resource pool must exist")
+        .ranges = vec![
+        Range {
+            start: "20001".to_string(),
+            end: "20005".to_string(),
+            auto_assign: true,
+        },
+        Range {
+            start: "60001".to_string(),
+            end: "60005".to_string(),
+            auto_assign: false,
+        },
+    ];
+    TestHarness::builder(pool)
+        .with_resource_pools(resource_pools)
+        .build()
+        .await
+}
 
-#[crate::sqlx_test]
-async fn test_find_vpc_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+async fn create_vpc(env: &TestHarness, name: String) -> (VpcId, rpc::Vpc) {
+    let vpc_id = VpcId::new();
+    let vpc = env
+        .api()
+        .create_vpc(
+            rpc::VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
+                .id(vpc_id)
+                .metadata(rpc::Metadata {
+                    name,
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    (vpc_id, vpc)
+}
+
+#[sqlx_test]
+async fn test_find_vpc_ids(pool: PgPool) {
+    let env = test_harness(pool).await;
 
     for i in 0..4 {
-        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{i}"), None, None).await;
+        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{i}")).await;
     }
 
     // test getting all ids
@@ -42,7 +82,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     });
 
     let vpc_ids_all = env
-        .api
+        .api()
         .find_vpc_ids(request_all)
         .await
         .map(|response| response.into_inner())
@@ -57,7 +97,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     });
 
     let vpc_ids_name = env
-        .api
+        .api()
         .find_vpc_ids(request_name)
         .await
         .map(|response| response.into_inner())
@@ -67,12 +107,12 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     // test search by tenant_org_id
     let request_tenant = tonic::Request::new(rpc::VpcSearchFilter {
         name: None,
-        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        tenant_org_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
         label: None,
     });
 
     let vpc_ids_tenant = env
-        .api
+        .api()
         .find_vpc_ids(request_tenant)
         .await
         .map(|response| response.into_inner())
@@ -82,12 +122,12 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     // test search by tenant_org_id and name
     let request_tenant_name = tonic::Request::new(rpc::VpcSearchFilter {
         name: Some("vpc_2".to_string()),
-        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+        tenant_org_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
         label: None,
     });
 
     let vpc_ids_tenant_name = env
-        .api
+        .api()
         .find_vpc_ids(request_tenant_name)
         .await
         .map(|response| response.into_inner())
@@ -95,13 +135,13 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_tenant_name.vpc_ids.len(), 1);
 }
 
-#[crate::sqlx_test]
-async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn test_find_vpcs_by_ids(pool: PgPool) {
+    let env = test_harness(pool).await;
 
     let mut vpc3 = rpc::Vpc::default();
     for i in 0..4 {
-        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{i}"), None, None).await;
+        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{i}")).await;
         if i == 3 {
             vpc3 = vpc;
         }
@@ -114,7 +154,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     });
 
     let vpc_ids_list = env
-        .api
+        .api()
         .find_vpc_ids(request_ids)
         .await
         .map(|response| response.into_inner())
@@ -126,7 +166,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     });
 
     let vpc_list = env
-        .api
+        .api()
         .find_vpcs_by_ids(request_vpcs)
         .await
         .map(|response| response.into_inner())
@@ -139,7 +179,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
 // The empty-list and over-max guards for `find_vpcs_by_ids` are shared API-layer
 // code, proven once across representative RPCs in `tests::find_by_ids_guards`.
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
     let vpc_id = VpcId::new();
@@ -160,7 +200,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 }
 
 async fn find_vpc_by_request(
-    env: &TestEnv,
+    env: &TestHarness,
     label: rpc::Label,
     name: Option<String>,
 ) -> rpc::VpcList {
@@ -171,7 +211,7 @@ async fn find_vpc_by_request(
     });
 
     let mut vpc_id = env
-        .api
+        .api()
         .find_vpc_ids(request)
         .await
         .map(|response| response.into_inner())
@@ -179,7 +219,7 @@ async fn find_vpc_by_request(
         .vpc_ids;
 
     if !vpc_id.is_empty() {
-        env.api
+        env.api()
             .find_vpcs_by_ids(tonic::Request::new(rpc::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id.remove(0)],
             }))
@@ -191,14 +231,14 @@ async fn find_vpc_by_request(
     }
 }
 
-#[crate::sqlx_test]
-async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_vpc_search_based_on_labels(pool: PgPool) {
+    let env = test_harness(pool).await;
 
     for i in 0..=3 {
-        env.api
+        env.api()
             .create_vpc(
-                VpcCreationRequest::builder("")
+                rpc::VpcCreationRequest::builder("")
                     .metadata(rpc::Metadata {
                         name: format!("VPC_{i}{i}{i}").to_string(),
                         description: format!("VPC_{i}{i}{i} have labels").to_string(),
@@ -279,18 +319,25 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.vpcs.len(), 0);
 }
 
-#[crate::sqlx_test]
-async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let segment_id = env.create_vpc_and_tenant_segment().await;
+#[sqlx_test]
+async fn test_vpc_find_by_segment(pool: PgPool) {
+    let env = test_harness(pool).await;
+    let (created_vpc_id, _) = create_vpc(&env, "test vpc 1".to_string()).await;
+    let domain = env.test_domain().await;
+    let segment_id = env
+        .network_controller()
+        .create_tenant_segment(&domain, created_vpc_id)
+        .await
+        .id;
 
-    let vpc_id = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let mut txn = env.db_txn().await;
+    let vpc_id = db::vpc::find_by_name(txn.as_mut(), "test vpc 1")
         .await
         .unwrap()
         .first()
         .unwrap()
         .id;
-    let vpc = db::vpc::find_by_segment(&env.pool, segment_id)
+    let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
         .await
         .unwrap()
         .unwrap();

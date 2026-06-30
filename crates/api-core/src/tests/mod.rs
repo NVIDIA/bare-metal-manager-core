@@ -103,7 +103,6 @@ mod switch_state_controller;
 mod tenants;
 mod tpm_ca;
 mod vpc;
-mod vpc_find;
 mod vpc_peering;
 mod vpc_prefix;
 // NOTE: the admin web UI tests moved to the `carbide-api-web` crate (alongside the web code they
