@@ -74,6 +74,42 @@ type ExpectedMachine struct {
 	CreatedBy                uuid.UUID            `bun:"type:uuid,notnull"`
 }
 
+// HostLifecycleProfile holds per-host lifecycle settings that affect how a host
+// progresses through its state machine. It is persisted alongside the
+// ExpectedMachine as JSONB and mirrored to Core via the workflow proto.
+type HostLifecycleProfile struct {
+	// DisableLockdown, when non-nil, controls whether the host is locked down
+	// during lifecycle management. A nil value means the setting is unset, so
+	// Core preserves its existing value (patch semantics).
+	DisableLockdown *bool `json:"disable_lockdown,omitempty"`
+}
+
+// HasSetFields reports whether the profile carries at least one explicitly set
+// field. Keep this method in sync when adding fields to HostLifecycleProfile so
+// update paths do not mistake an empty patch object for a requested write.
+func (h HostLifecycleProfile) HasSetFields() bool {
+	return h.DisableLockdown != nil
+}
+
+// ToProto returns the workflow proto for this profile, or nil when no setting
+// is present so the outer field stays unset and Core preserves its DB value.
+func (h HostLifecycleProfile) ToProto() *cwssaws.HostLifecycleProfile {
+	if !h.HasSetFields() {
+		return nil
+	}
+	return &cwssaws.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
+}
+
+// FromProto populates the receiver from a workflow proto profile. A nil proto
+// clears the receiver to its zero value.
+func (h *HostLifecycleProfile) FromProto(proto *cwssaws.HostLifecycleProfile) {
+	if proto == nil {
+		*h = HostLifecycleProfile{}
+		return
+	}
+	h.DisableLockdown = proto.DisableLockdown
+}
+
 // ExpectedMachineCredentials carries the BMC credentials for one
 // ExpectedMachine. They live in their own type because they aren't stored
 // in the DB record and have to be threaded through to ToProto separately.
