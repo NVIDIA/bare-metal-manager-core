@@ -300,7 +300,7 @@ These cross-state dependencies are shown in the combined diagram above.
 |------------|----------------------|
 | R_Discovering | Rack waits until all power shelves in the rack profile are `Ready` before moving to `Maintenance`. |
 | R_Maintenance | Scoped power shelves may participate in firmware upgrade or power-sequence activities. |
-| R_Ready | Rack monitors power shelves in `Error`; any failed shelf can move the rack to `Error`. |
+| R_Ready | Rack monitors for power shelves in `Error`; any failed shelf can move the rack to `Error`. |
 
 See [Power Shelf State Diagram](power_shelf.md) for the power-shelf FSM.
 
