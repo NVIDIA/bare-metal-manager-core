@@ -1194,6 +1194,7 @@ dependencies = [
  "carbide-sqlx-testing",
  "carbide-state-controller-common",
  "carbide-switch-controller",
+ "carbide-test-harness",
  "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
@@ -1249,6 +1250,8 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "rsa 0.9.10",
  "rumqttc",
  "rustls",
@@ -1276,6 +1279,7 @@ dependencies = [
  "tonic-reflection",
  "tower",
  "tower-http",
+ "trace-propagation",
  "tracing",
  "tracing-log",
  "tracing-opentelemetry",
@@ -1477,6 +1481,7 @@ dependencies = [
  "carbide-rpc-utils",
  "carbide-sqlx-testing",
  "carbide-test-harness",
+ "carbide-test-support",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -1501,6 +1506,7 @@ dependencies = [
  "tonic",
  "tower",
  "tower-http",
+ "trace-propagation",
  "tracing",
  "url",
  "urlencoding",
@@ -1895,6 +1901,8 @@ dependencies = [
  "hex",
  "regex",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "sha2 0.11.0",
  "sqlx",
@@ -2202,6 +2210,8 @@ dependencies = [
  "quick-xml 0.39.4",
  "regex",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "russh",
  "serde",
  "serde_json",
@@ -2459,6 +2469,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-rack",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -2470,6 +2481,7 @@ dependencies = [
  "http",
  "libnmxc",
  "libnmxm",
+ "librms",
  "opentelemetry",
  "rand 0.10.1",
  "rcgen",
@@ -2724,6 +2736,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tower",
+ "trace-propagation",
  "tracing",
  "tryhard",
  "uuid",
@@ -2868,6 +2881,7 @@ dependencies = [
  "carbide-firmware",
  "carbide-health-report",
  "carbide-ipmi",
+ "carbide-metrics-utils",
  "carbide-network",
  "carbide-rack",
  "carbide-redfish",
@@ -2888,6 +2902,9 @@ dependencies = [
  "librms",
  "mac_address",
  "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
  "rand 0.10.1",
  "regex",
  "serde",
@@ -3546,6 +3563,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "trace-propagation",
  "tracing",
  "uuid",
 ]
@@ -6550,6 +6568,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "trace-propagation",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6562,6 +6581,8 @@ dependencies = [
  "async-trait",
  "http",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "serde_derive",
  "serde_json",
@@ -6605,7 +6626,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc04#ea1a14375cbc153ca096713daf184cb65a185538"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7094,6 +7115,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
+ "trace-propagation",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7396,6 +7418,8 @@ dependencies = [
  "jsonwebtoken",
  "mockito",
  "reqwest 0.13.4",
+ "reqwest-middleware",
+ "reqwest-tracing",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -7514,9 +7538,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13237aec9be47b56223e52ed62be45cf58e9c9ab40a00b9ba825a3632786fcda"
+checksum = "533f4a01b88cbb0e3b30e0bded7f11d9b8f9bd6553df387a1878af975d77ec4d"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7531,9 +7555,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "738a573625be85553f64e75c5a83099f5f17dd0a16755b2ddd000325c324c8eb"
+checksum = "c063e5ccfb788c80d2ef292353e867b7c157ec1a7d9358bb576048b9537bcb11"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7555,9 +7579,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "835391f6b5ec1c4886a8b4e37b3162a0a4a632d02a7d466c653088227de10205"
+checksum = "7ce8bb8d42d73917156f22350b07dfc8d49aafac8b0a2bb0ec63e874d0c3d715"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7570,9 +7594,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00553364bafff3d15ba96fa6fcbe4891419d96f6fc6d400ad7bd87b9e8b745ea"
+checksum = "9a6f5d4b81f9551289df0700879aa31b5056441aaddf107b280e99b6dba7c77d"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7588,9 +7612,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bd3d46c21adcdf729aeed28d272e929d27e32fcd7b0016ea3dd3516bc55d4d"
+checksum = "6d95a042ca3ee9446ee137ff814035501a6934be98a15714ced1f78fcb242fda"
 dependencies = [
  "glob",
 ]
@@ -9261,6 +9285,38 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams 0.5.0",
  "web-sys",
+]
+
+[[package]]
+name = "reqwest-middleware"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07bc3f1384cffa4f274dad2d4ddd73aed32fed8f786d96c6be8aa4e5fd3c3b58"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "http",
+ "reqwest 0.13.4",
+ "thiserror 2.0.18",
+ "tower-service",
+]
+
+[[package]]
+name = "reqwest-tracing"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e5af0cd6fc3d3c8f703d597af70b6e4e62432c63157b49419fa1ffaf481702"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "getrandom 0.2.17",
+ "http",
+ "matchit",
+ "opentelemetry",
+ "reqwest 0.13.4",
+ "reqwest-middleware",
+ "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -11563,7 +11619,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-rc1#dd35e101e21f5d35240d57e62f24e33767c3c770"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.9.0-mts-rc04#ea1a14375cbc153ca096713daf184cb65a185538"
 dependencies = [
  "async-trait",
  "heck",
@@ -11691,6 +11747,21 @@ dependencies = [
  "tokio-test",
  "tower-layer",
  "tower-service",
+]
+
+[[package]]
+name = "trace-propagation"
+version = "0.0.0"
+dependencies = [
+ "http",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry_sdk",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -1160,6 +1160,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");

@@ -151,25 +151,52 @@ pub async fn load_rack_switch_firmware_inventory(
 
     let mut switches = Vec::with_capacity(switch_endpoints.len());
     for switch in &switch_endpoints {
-        let (bmc_username, bmc_password) =
-            fetch_bmc_credentials(credential_manager, switch.bmc_mac).await?;
-        let nvos_creds = fetch_nvos_credentials(credential_manager, switch.bmc_mac).await;
-        switches.push(FirmwareUpgradeDeviceInfo {
-            node_id: switch.switch_id.to_string(),
-            mac: switch.bmc_mac.to_string(),
-            bmc_ip: switch.bmc_ip.to_string(),
-            bmc_username,
-            bmc_password,
-            os_mac: switch.nvos_mac.map(|mac| mac.to_string()),
-            os_ip: switch.nvos_ip.map(|ip| ip.to_string()),
-            os_username: nvos_creds.as_ref().map(|(username, _)| username.clone()),
-            os_password: nvos_creds.map(|(_, password)| password),
-        });
+        switches.push(switch_endpoint_to_firmware_device_info(credential_manager, switch).await?);
     }
 
     Ok(RackSwitchFirmwareInventory {
         switch_ids,
         switches,
+    })
+}
+
+pub async fn load_switch_firmware_device_info(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+    switch_id: &SwitchId,
+) -> Result<FirmwareUpgradeDeviceInfo> {
+    let switch_endpoint = {
+        let mut txn = db_pool.begin().await?;
+        let mut switch_endpoints =
+            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), std::slice::from_ref(switch_id))
+                .await?;
+        txn.commit().await?;
+        switch_endpoints
+            .pop()
+            .ok_or_else(|| eyre!("switch {} missing endpoint info", switch_id))?
+    };
+
+    switch_endpoint_to_firmware_device_info(credential_manager, &switch_endpoint).await
+}
+
+async fn switch_endpoint_to_firmware_device_info(
+    credential_manager: &dyn CredentialManager,
+    switch: &db_switch::SwitchEndpointRow,
+) -> Result<FirmwareUpgradeDeviceInfo> {
+    let (bmc_username, bmc_password) =
+        fetch_bmc_credentials(credential_manager, switch.bmc_mac).await?;
+    let nvos_creds = fetch_nvos_credentials(credential_manager, switch.bmc_mac).await;
+
+    Ok(FirmwareUpgradeDeviceInfo {
+        node_id: switch.switch_id.to_string(),
+        mac: switch.bmc_mac.to_string(),
+        bmc_ip: switch.bmc_ip.to_string(),
+        bmc_username,
+        bmc_password,
+        os_mac: switch.nvos_mac.map(|mac| mac.to_string()),
+        os_ip: switch.nvos_ip.map(|ip| ip.to_string()),
+        os_username: nvos_creds.as_ref().map(|(username, _)| username.clone()),
+        os_password: nvos_creds.map(|(_, password)| password),
     })
 }
 
@@ -228,6 +255,7 @@ pub fn build_new_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: device.bmc_ip.clone(),
                 mac_address: device.mac.clone(),
+                host_name: None,
             }),
             port: 443,
             credentials: user_pass_credentials(&device.bmc_username, &device.bmc_password),
@@ -270,6 +298,7 @@ fn build_host_interface(device: &FirmwareUpgradeDeviceInfo) -> Option<rms::Netwo
     Some(rms::NetworkInterface {
         ip_address: ip_address.clone(),
         mac_address: mac_address.clone(),
+        host_name: None,
     })
 }
 

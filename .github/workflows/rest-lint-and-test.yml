@@ -12,7 +12,7 @@ defaults:
     working-directory: rest-api
 
 env:
-  GO_VERSION: "1.25.11"
+  GO_VERSION: "1.26.4"
 
 jobs:
   style:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Install and run revive
         run: |
-          go install github.com/mgechev/revive@v1.3.9
+          go install github.com/mgechev/revive@v1.15.0
           pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
           go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config .revive.toml -set_exit_status
 
@@ -75,7 +75,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.7.2
+          version: v2.12.2
           args: --timeout=10m --issues-exit-code=0 ./...
           working-directory: rest-api
 

@@ -82,6 +82,7 @@ pub async fn release(
                 id: Some(instance_id),
                 issue: None,
                 is_repair_tenant: None,
+                delete_attribution: None,
             })
             .await?;
     }

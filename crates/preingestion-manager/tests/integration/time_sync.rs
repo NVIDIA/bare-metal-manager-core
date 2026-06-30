@@ -23,6 +23,7 @@ use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::default_config;
+use libredfish::SystemPowerControl;
 use model::site_explorer::{PreingestionState, TimeSyncResetPhase};
 use rpc::forge::DhcpDiscovery;
 
@@ -397,6 +398,112 @@ async fn test_preingestion_time_sync_reset_flow(
         endpoint.preingestion_state,
         PreingestionState::Complete,
         "Expected Complete after successful time sync and firmware check, got: {:?}",
+        endpoint.preingestion_state
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// An ingested/paired host whose BMC clock is skewed must NOT be power-cycled or
+/// have its BMC timezone changed by the time-sync remediation. When the initial
+/// checks detect a skew, the gate sees that the BMC IP maps to a fleet machine
+/// (the same managed-host predicate site-explorer uses) and skips the destructive
+/// reset, continuing preingestion with the firmware check instead. This guards
+/// against the incident where tenant-assigned nodes were left powered off after a
+/// skew was detected.
+#[sqlx_test]
+async fn test_time_sync_reset_skipped_for_ingested_host(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool.clone()).build().await;
+    let domain = env.test_domain().await;
+    let nc = env.network_controller();
+    let underlay_segment = nc.create_underlay_segment(&domain).await;
+    nc.create_admin_segment(&domain).await;
+
+    // Build a fully ingested managed host so its BMC IP maps to a fleet machine,
+    // which is exactly the signal `is_ingested_host` keys on.
+    let explorer = env.default_test_site_explorer();
+    let (_managed_host, build_data) = env
+        .managed_host_builder(&explorer, underlay_segment)
+        .build()
+        .await;
+    let host_bmc_ip = build_data.host_bmc_ip();
+
+    // Precondition: the host's BMC IP resolves to an ingested machine. If this
+    // ever stops holding, the test below would silently stop exercising the gate.
+    let mut txn = pool.begin().await.unwrap();
+    assert!(
+        db::machine::find_id_by_bmc_ip(txn.as_mut(), &host_bmc_ip)
+            .await?
+            .is_some(),
+        "managed host BMC IP should map to an ingested machine"
+    );
+    txn.commit().await?;
+
+    let mut config = default_config::get();
+    // Empty NTP config so the SetNtpServers state advances straight into
+    // run_initial_checks (and thus the time-sync skew check) in one iteration.
+    config.ntp_servers.clear();
+
+    let redfish_sim = Arc::new(RedfishSim::default());
+    // Force a large skew so the initial check reports the BMC time as out of sync
+    // and would, without the gate, kick off the destructive reset.
+    redfish_sim.set_bmc_time_offset_seconds(600);
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        config.preingestion_manager(),
+        redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api().work_lock_manager_handle(),
+        config.ntp_servers.clone(),
+    );
+
+    // Drive the ingested host's endpoint to the point where initial checks run,
+    // and make sure the preingestion loop will actually pick it up.
+    let mut txn = pool.begin().await.unwrap();
+    db::explored_endpoints::set_preingestion_set_ntp_servers(host_bmc_ip, None, 0, &mut txn)
+        .await?;
+    sqlx::query(
+        "UPDATE explored_endpoints SET waiting_for_explorer_refresh = false WHERE address = $1",
+    )
+    .bind(host_bmc_ip)
+    .execute(&mut *txn)
+    .await?;
+    txn.commit().await?;
+
+    let timepoint = redfish_sim.timepoint();
+    mgr.run_single_iteration().await?;
+
+    // The ingested host must not have been power-cycled or had its timezone changed.
+    let actions = redfish_sim.actions_since(&timepoint);
+    let all_actions = actions.all_hosts();
+    assert!(
+        !all_actions.contains(&RedfishSimAction::SetUtcTimezone),
+        "ingested host should not have its BMC timezone changed"
+    );
+    assert!(
+        !all_actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::Power(SystemPowerControl::ForceOff))),
+        "ingested host should not be powered off"
+    );
+
+    // Despite the skew, the gate must keep the endpoint out of the TimeSyncReset
+    // state machine entirely; it continues with the firmware check instead.
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn).await?;
+    let endpoint = endpoints.first().expect("Endpoint should exist");
+    assert!(
+        !matches!(
+            endpoint.preingestion_state,
+            PreingestionState::TimeSyncReset { .. }
+        ),
+        "ingested host should never enter TimeSyncReset, got: {:?}",
         endpoint.preingestion_state
     );
     txn.commit().await?;

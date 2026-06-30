@@ -2612,6 +2612,20 @@ impl Forge for Api {
         crate::handlers::firmware::get_desired_firmware_versions(self, request)
     }
 
+    async fn upsert_host_firmware_config(
+        &self,
+        request: Request<rpc::UpsertHostFirmwareConfigRequest>,
+    ) -> Result<Response<rpc::HostFirmwareConfigResponse>, Status> {
+        crate::handlers::firmware::upsert_host_firmware_config(self, request).await
+    }
+
+    async fn delete_host_firmware_config(
+        &self,
+        request: Request<rpc::DeleteHostFirmwareConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::firmware::delete_host_firmware_config(self, request).await
+    }
+
     async fn create_sku(
         &self,
         request: Request<rpc::SkuList>,
@@ -2857,7 +2871,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_device_report(self, request).await
+        crate::handlers::svpc::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
@@ -2866,7 +2880,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
+        crate::handlers::svpc::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(

@@ -1077,7 +1077,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version: "1.26.4"
           cache: true
           cache-dependency-path: rest-api/go.sum
 
@@ -1140,9 +1140,6 @@ jobs:
 
       - name: Check bans
         run: cargo make --no-workspace check-bans
-
-      - name: Check isolated package builds
-        run: cargo xtask check-isolated-package-builds
 
       - name: Check repository is clean
         run: bash scripts/check-repo-clean.sh "Core pre-build checks"

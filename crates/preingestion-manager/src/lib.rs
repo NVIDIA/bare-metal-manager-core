@@ -1324,6 +1324,21 @@ impl PreingestionManagerStatic {
                     .await
             }
             Ok(false) => {
+                // Time is not in sync. The reset sequence powers off the host
+                // and resets the BMC, which must never happen on an
+                // ingested/paired (potentially tenant-assigned) machine. This
+                // mirrors the managed-host guard site-explorer already applies
+                // before its own remediation.
+                if self.is_ingested_host(db, endpoint).await {
+                    tracing::info!(
+                        "{} BMC time is out of sync but the host is already ingested; \
+                         skipping time-sync remediation",
+                        endpoint.address
+                    );
+                    return self
+                        .check_firmware_versions_below_preingestion(db, endpoint)
+                        .await;
+                }
                 // Time is not in sync, initiate reset sequence
                 tracing::warn!(
                     "{} BMC time is out of sync, initiating reset to fix time synchronization",
@@ -2182,6 +2197,35 @@ impl PreingestionManagerStatic {
                 time_diff
             );
             Ok(true)
+        }
+    }
+
+    /// Returns true if this endpoint's BMC IP already maps to an ingested/paired
+    /// fleet machine.
+    ///
+    /// This reuses the same managed-host predicate site-explorer uses to refuse
+    /// remediation on ingested hosts (see
+    /// `site_explorer::managed_host::is_endpoint_in_managed_host`); both resolve
+    /// to `db::machine_topology::find_machine_id_by_bmc_ip`. We intentionally do
+    /// NOT use `endpoint.report.machine_id`, which is derived from DMI during
+    /// exploration and is present even for fresh, un-ingested hosts.
+    ///
+    /// Fails closed: on a lookup error we report the host as ingested so the
+    /// caller skips the destructive time-sync remediation rather than risk power
+    /// cycling a tenant-assigned node.
+    async fn is_ingested_host(&self, db: &PgPool, endpoint: &ExploredEndpoint) -> bool {
+        match db::machine_topology::find_machine_id_by_bmc_ip(db, &endpoint.address.to_string())
+            .await
+        {
+            Ok(machine_id) => machine_id.is_some(),
+            Err(e) => {
+                tracing::warn!(
+                    "Could not determine if {} is an ingested host: {e}; \
+                     treating as ingested to skip time-sync remediation",
+                    endpoint.address
+                );
+                true
+            }
         }
     }
 

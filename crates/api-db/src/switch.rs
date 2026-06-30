@@ -582,6 +582,7 @@ pub struct SwitchEndpointRow {
 pub struct ReadyControlPlaneSwitchEndpointRow {
     pub switch_id: SwitchId,
     pub rack_id: RackId,
+    pub rack_profile_id: Option<RackProfileId>,
     pub nvos_ip: IpAddr,
 }
 
@@ -644,10 +645,13 @@ where
 {
     let sql = r#"
         SELECT DISTINCT ON (s.rack_id)
-            s.id              AS switch_id,
-            s.rack_id         AS rack_id,
-            nvos_mia.address  AS nvos_ip
+            s.id               AS switch_id,
+            s.rack_id          AS rack_id,
+            r.rack_profile_id  AS rack_profile_id,
+            nvos_mia.address   AS nvos_ip
         FROM switches s
+        LEFT JOIN racks r
+            ON r.id = s.rack_id
         JOIN expected_switches es
             ON es.bmc_mac_address = s.bmc_mac_address
         JOIN machine_interfaces nvos_mi

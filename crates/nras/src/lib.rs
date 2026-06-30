@@ -73,6 +73,12 @@ impl From<reqwest::Error> for NrasError {
     }
 }
 
+impl From<reqwest_middleware::Error> for NrasError {
+    fn from(value: reqwest_middleware::Error) -> NrasError {
+        NrasError::Communication(format!("Communication error: {}", value))
+    }
+}
+
 type Evidence = String;
 type DeviceCertificate = String;
 

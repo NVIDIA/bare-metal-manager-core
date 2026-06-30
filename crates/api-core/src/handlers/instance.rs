@@ -36,6 +36,7 @@ use health_report::{
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
+use model::dpa_interface::DpaSearchConfig;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -437,6 +438,24 @@ async fn remove_health_override(
     Ok(())
 }
 
+/// Logs cloud-side delete attribution when present on the release request.
+fn log_delete_attribution(delete_attribution: Option<&rpc::DeleteAttribution>) {
+    let Some(attribution) = delete_attribution else {
+        return;
+    };
+    let Some(initiated_by) = attribution.initiated_by.as_ref() else {
+        return;
+    };
+
+    tracing::info!(
+        org = %initiated_by.org,
+        org_display_name = %initiated_by.org_display_name,
+        user_id = %initiated_by.user_id,
+        tenant_id = %initiated_by.tenant_id,
+        "Instance delete attribution"
+    );
+}
+
 /// Handles the Instance Release workflow when released from the Repair tenant.
 ///
 /// This function implements the logic for when the RepairSystem releases an instance after
@@ -711,6 +730,7 @@ pub(crate) async fn release(
 
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+    log_delete_attribution(delete_instance.delete_attribution.as_ref());
 
     // Only enforce PreventInstanceDeletion for a real release (instance not yet marked deleted). Repair-tenant
     // follow-up calls after deletion may still need to adjust health overrides below.
@@ -1878,7 +1898,12 @@ pub async fn update_instance_spx_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
-    let dpa_interfaces = db::dpa_interface::find_by_machine_id(txn.as_mut(), mid).await?;
+    let dpa_search_config = DpaSearchConfig {
+        only_svpc: false,
+        only_astra: false,
+    };
+    let dpa_interfaces =
+        db::dpa_interface::find_by_machine_id(txn.as_mut(), mid, dpa_search_config).await?;
 
     mh_snapshot.dpa_interface_snapshots = dpa_interfaces;
 

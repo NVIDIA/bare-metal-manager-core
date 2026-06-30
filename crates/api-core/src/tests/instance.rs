@@ -557,6 +557,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");
@@ -1303,6 +1304,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");
@@ -1349,6 +1351,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
                 id: Some(tinstance.id),
                 issue: None,
                 is_repair_tenant: None,
+                delete_attribution: None,
             }))
             .await
             .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {i}."));
@@ -1366,6 +1369,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
             id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect_err("Expect deletion to fail");
@@ -2136,6 +2140,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
             id: Some(tinstance.id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");
@@ -5412,6 +5417,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
             id: Some(instance_id),
             issue: None,            // Exactly what older clients produce
             is_repair_tenant: None, // Exactly what older clients produce
+            delete_attribution: None,
         }))
         .await
         .expect("Basic instance release should succeed");
@@ -5529,6 +5535,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
                 id: Some(instance_id),
                 issue: None, // No issue reported
                 is_repair_tenant: Some(is_repair_tenant),
+                delete_attribution: None,
             }))
             .await
             .expect("Instance release with repair tenant flag should succeed");
@@ -5627,6 +5634,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
             id: Some(instance_id),
             issue: Some(issue),
             is_repair_tenant: Some(true), // This is a repair tenant reporting an issue
+            delete_attribution: None,
         }))
         .await
         .expect("Instance release with combined enhancements should succeed");
@@ -5733,6 +5741,7 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_instan
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect_err(
@@ -5758,6 +5767,7 @@ async fn test_instance_release_rejected_when_aggregate_health_has_prevent_instan
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("release should succeed after removing PreventInstanceDeletion source");
@@ -5810,6 +5820,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
                 details: "ECC errors increasing, DIMM slot 3 needs replacement".to_string(),
             }),
             is_repair_tenant: None, // Regular tenant (not repair tenant)
+            delete_attribution: None,
         }))
         .await
         .unwrap();
@@ -5922,6 +5933,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
                 details: "CPU overheating and memory errors".to_string(),
             }),
             is_repair_tenant: None, // Regular tenant
+            delete_attribution: None,
         }))
         .await
         .unwrap();
@@ -5974,6 +5986,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
             id: Some(instance_id),
             issue: None,                  // No new issues - repair was successful
             is_repair_tenant: Some(true), // Repair tenant
+            delete_attribution: None,
         }))
         .await
         .unwrap();
@@ -6115,6 +6128,7 @@ async fn test_can_not_update_instance_config_after_deletion(
             id: tinstance.id.into(),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .unwrap();

@@ -96,6 +96,20 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 		assert.Equal(t, Labels{"env": "prod"}, em.Labels)
 	})
 
+	t.Run("populates dpfEnabled from is_dpf_enabled", func(t *testing.T) {
+		em := &ExpectedMachine{}
+		enabled := false
+		em.FromProto(&cwssaws.ExpectedMachine{
+			Id:            &cwssaws.UUID{Value: id.String()},
+			BmcMacAddress: "aa:bb",
+			IsDpfEnabled:  &enabled,
+		}, nil)
+
+		if assert.NotNil(t, em.IsDpfEnabled) {
+			assert.False(t, *em.IsDpfEnabled)
+		}
+	})
+
 	t.Run("nil linkedMachineID leaves MachineID nil", func(t *testing.T) {
 		em := &ExpectedMachine{}
 		em.FromProto(&cwssaws.ExpectedMachine{
@@ -115,6 +129,48 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 		}, nil)
 
 		assert.Nil(t, em.RackID)
+	})
+}
+
+func TestExpectedMachine_ToProto(t *testing.T) {
+	id := uuid.New()
+	enabled := true
+	disabled := false
+
+	t.Run("sets is_dpf_enabled when stored", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  id,
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+			IsDpfEnabled:        &enabled,
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		assert.True(t, *proto.IsDpfEnabled)
+	})
+
+	t.Run("omits is_dpf_enabled when unset", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  id,
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		assert.Nil(t, proto.IsDpfEnabled)
+		assert.False(t, proto.DpfEnabled)
+	})
+
+	t.Run("forwards false value", func(t *testing.T) {
+		em := &ExpectedMachine{
+			ID:                  id,
+			BmcMacAddress:       "aa:bb:cc:dd:ee:ff",
+			ChassisSerialNumber: "CSN-1",
+			IsDpfEnabled:        &disabled,
+		}
+		proto := em.ToProto(ExpectedMachineCredentials{})
+		if assert.NotNil(t, proto.IsDpfEnabled) {
+			assert.False(t, *proto.IsDpfEnabled)
+		}
+		assert.False(t, proto.DpfEnabled)
 	})
 }
 

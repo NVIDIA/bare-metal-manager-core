@@ -218,6 +218,16 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
     configure_scale_up_fabric_manager_calls: Mutex<Vec<rms::ConfigureScaleUpFabricManagerRequest>>,
 
+    configure_switch_certificate_responses:
+        Mutex<VecDeque<Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>>>,
+    configure_switch_certificate_calls: Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>,
+
+    get_configure_switch_certificate_job_status_responses: Mutex<
+        VecDeque<Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError>>,
+    >,
+    get_configure_switch_certificate_job_status_calls:
+        Mutex<Vec<rms::GetConfigureSwitchCertificateJobStatusRequest>>,
+
     batch_set_scale_up_fabric_state_responses:
         Mutex<VecDeque<Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>>>,
     batch_set_scale_up_fabric_state_calls: Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>,
@@ -338,6 +348,10 @@ impl MockRmsApi {
             get_switch_system_image_job_status_calls: Default::default(),
             configure_scale_up_fabric_manager_responses: Default::default(),
             configure_scale_up_fabric_manager_calls: Default::default(),
+            configure_switch_certificate_responses: Default::default(),
+            configure_switch_certificate_calls: Default::default(),
+            get_configure_switch_certificate_job_status_responses: Default::default(),
+            get_configure_switch_certificate_job_status_calls: Default::default(),
             batch_set_scale_up_fabric_state_responses: Default::default(),
             batch_set_scale_up_fabric_state_calls: Default::default(),
             batch_get_scale_up_fabric_service_status_responses: Default::default(),
@@ -690,6 +704,22 @@ impl MockRmsApi {
         configure_scale_up_fabric_manager_calls,
         rms::ConfigureScaleUpFabricManagerRequest,
         rms::ConfigureScaleUpFabricManagerResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_configure_switch_certificate,
+        configure_switch_certificate_calls,
+        configure_switch_certificate_responses,
+        configure_switch_certificate_calls,
+        rms::ConfigureSwitchCertificateRequest,
+        rms::ConfigureSwitchCertificateResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_get_configure_switch_certificate_job_status,
+        get_configure_switch_certificate_job_status_calls,
+        get_configure_switch_certificate_job_status_responses,
+        get_configure_switch_certificate_job_status_calls,
+        rms::GetConfigureSwitchCertificateJobStatusRequest,
+        rms::GetConfigureSwitchCertificateJobStatusResponse
     );
     impl_enqueue_inspect!(
         enqueue_batch_set_scale_up_fabric_state,
@@ -1361,6 +1391,31 @@ impl RmsApi for MockRmsApi {
         pop_or_err(
             &mut self
                 .configure_scale_up_fabric_manager_responses
+                .lock()
+                .await,
+        )
+    }
+    async fn configure_switch_certificate(
+        &self,
+        cmd: rms::ConfigureSwitchCertificateRequest,
+    ) -> Result<rms::ConfigureSwitchCertificateResponse, RackManagerError> {
+        self.configure_switch_certificate_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.configure_switch_certificate_responses.lock().await)
+    }
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,
+    ) -> Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError> {
+        self.get_configure_switch_certificate_job_status_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(
+            &mut self
+                .get_configure_switch_certificate_job_status_responses
                 .lock()
                 .await,
         )

@@ -1,13 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
----
-version: v1
+version: v2
 plugins:
-  - name: go
+  - remote: buf.build/protocolbuffers/go:v1.36.11
     out: schema/site-agent/workflows/v1
     opt: paths=source_relative
-  - name: go-grpc
+  - remote: buf.build/grpc/go:v1.6.1
     out: schema/site-agent/workflows/v1
     opt:
       - paths=source_relative

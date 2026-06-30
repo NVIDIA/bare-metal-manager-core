@@ -16,6 +16,7 @@
  */
 
 pub mod api;
+pub mod astra;
 pub mod attestation;
 pub mod bmc_endpoint_explorer;
 pub mod bmc_metadata;
@@ -78,6 +79,7 @@ pub mod secrets;
 pub mod site_explorer;
 pub mod sku;
 pub mod spx_partition;
+pub mod svpc;
 pub mod switch;
 pub mod tenant;
 pub mod tenant_identity_config;

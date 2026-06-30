@@ -15,23 +15,49 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
+use model::test_support::ManagedHostConfig;
 use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 
-use super::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
+async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
+    let env = TestHarness::builder(pool)
+        .with_resource_pools(
+            ResourcePoolBuilder::default()
+                .with_secondary_vtep_ip("192.0.7.0/24")
+                .build(),
+        )
+        .build()
+        .await;
+    let network_controller = env.network_controller();
+    let domain = env.test_domain().await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (mh, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default().with_dpu_count(1))
+        .build()
+        .await;
+    mh.first_dpu().discover_oob_iface(admin_segment).await;
+    (env, mh)
+}
 
-#[crate::sqlx_test]
-async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host_multi_dpu(&env, 1).await;
-    let host_machine = mh.host().rpc_machine().await;
+#[sqlx_test]
+async fn test_find_connected_devices_by_machine_ids_single_id(pool: PgPool) {
+    let (env, mh) = init(pool).await;
+
+    let host_machine = mh.host.rpc_machine().await;
     let expected_machine_id = host_machine
         .associated_dpu_machine_ids
         .into_iter()
         .next()
         .expect("created managed_host from fixture must have a dpu");
     let response = env
-        .api
+        .api()
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
             machine_ids: vec![expected_machine_id],
         }))
@@ -59,12 +85,11 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     }
 }
 
-#[crate::sqlx_test]
-async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+#[sqlx_test]
+async fn test_find_connected_devices_by_machine_ids_no_ids(pool: PgPool) {
+    let (env, _) = init(pool).await;
     let response = env
-        .api
+        .api()
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
             machine_ids: vec![],
         }))
@@ -78,19 +103,16 @@ async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_find_connected_devices_by_machine_ids_missing_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    _ = create_managed_host_multi_dpu(&env, 1).await;
+#[sqlx_test]
+async fn test_find_connected_devices_by_machine_ids_host_id(pool: PgPool) {
+    // `init` populates DPU mappings so a zero result proves the host ID is rejected, rather than
+    // merely observing an empty DPU-to-network-device mapping table.
+    let (env, mh) = init(pool).await;
+
     let response = env
-        .api
+        .api()
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
-            machine_ids: vec![
-                // Is a host, not a DPU.
-                "fm100htkod0q440bpcnjnsp50qsl3l5sr4htnhckhhb596r0qm3btnqt63g"
-                    .parse()
-                    .unwrap(),
-            ],
+            machine_ids: vec![mh.host.id],
         }))
         .await
         .expect("Response should have been successful");
