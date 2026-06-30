@@ -25,7 +25,6 @@ mod dpa_interfaces;
 mod dpf;
 mod dpu_agent_upgrade;
 mod dpu_info_list;
-mod dpu_machine_inventory;
 mod dpu_machine_update;
 mod dpu_nic_firmware;
 mod dpu_remediation;

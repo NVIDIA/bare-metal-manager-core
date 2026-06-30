@@ -17,6 +17,7 @@
 
 mod connected_device;
 mod dhcp_lease_expiration;
+mod dpu_machine_inventory;
 mod explored_managed_host_find;
 mod find_by_ids_guards;
 mod ib_fabric_find;
