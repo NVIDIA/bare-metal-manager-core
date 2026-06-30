@@ -455,6 +455,27 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 	requireInfiniBandMatch := len(infiniBandInterfaces) > 0
 	var availableInfiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
 	foundInfiniBandSuggestion := false
+
+	// Get all Machine InfiniBand Capabilities for the Machines
+	machineIbCapsByMachineID := map[string][]cdbm.MachineCapability{}
+	if requireInfiniBandMatch && len(machines) > 0 {
+		machineIDs := make([]string, len(machines))
+		for i, mc := range machines {
+			machineIDs[i] = mc.ID
+		}
+		allIbCaps, _, capErr := mcCapDAO.GetAll(ctx, tx, machineIDs, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		if capErr != nil {
+			logger.Error().Err(capErr).Msg("failed to retrieve Machine InfiniBand Capabilities from DB")
+			return nil, capErr
+		}
+		for _, cap := range allIbCaps {
+			if cap.MachineID == nil {
+				continue
+			}
+			machineIbCapsByMachineID[*cap.MachineID] = append(machineIbCapsByMachineID[*cap.MachineID], cap)
+		}
+	}
+
 	if len(machines) > 0 {
 		for _, mc := range machines {
 			// Acquire an advisory lock on the MachineID, other provider will be look for other is this is being locked
@@ -480,15 +501,13 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 
 			// If InfiniBand Interfaces are specified in the request, verify that the Machine has matching InfiniBand Interfaces
 			if requireInfiniBandMatch {
-				machineIbCaps, ibCapCount, capErr := mcCapDAO.GetAll(ctx, tx, []string{mc.ID}, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
-				if capErr != nil {
-					logger.Error().Err(capErr).Msg("failed to retrieve Machine InfiniBand Capabilities from DB")
-					continue
-				}
-				if ibCapCount == 0 {
+				// Get the Machine InfiniBand Capabilities for the Machine
+				machineIbCaps := machineIbCapsByMachineID[mc.ID]
+				if len(machineIbCaps) == 0 {
 					continue
 				}
 
+				// Validate the InfiniBand Interfaces against the Machine InfiniBand Capabilities
 				match := ValidateIncomingInfiniBandRequestWithMachineCaps(machineIbCaps, infiniBandInterfaces)
 				if !match.Satisfied {
 					// If the request is not satisfied, but the count is satisfiable, keep track of the suggestion and continue to the next machine
