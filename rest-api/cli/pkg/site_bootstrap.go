@@ -251,7 +251,7 @@ func newSiteBootstrapOperations(spec *Spec) (*siteBootstrapOperations, error) {
 		getID          string
 		providerScoped bool
 	}{
-		{target: &operations.site, category: "site", displayName: "site", listID: "get-all-site", createID: "create-site", getID: "get-site", providerScoped: true},
+		{target: &operations.site, category: "site", displayName: "site", listID: "get-all-site", createID: "", getID: "get-site", providerScoped: true},
 		{target: &operations.siteIPBlock, category: "siteIpBlocks", displayName: "site IP block", listID: "get-all-ipblock", createID: "", getID: "get-ipblock", providerScoped: true},
 		{target: &operations.instanceType, category: "instanceTypes", displayName: "instance type", listID: "get-all-instance-type", createID: "create-instance-type", getID: "get-instance-type", providerScoped: true},
 		{target: &operations.allocation, category: "allocations", displayName: "allocation", listID: "get-all-allocation", createID: "create-allocation", getID: "get-allocation", providerScoped: true},
@@ -616,6 +616,9 @@ func (bootstrap *siteBootstrap) ensureResource(api bootstrapResourceAPI, alias s
 		}
 		fmt.Fprintf(bootstrap.progress, "reused %s %s (%s)\n", api.displayName, name, resource.ID)
 		return response, nil
+	}
+	if api.create.op == nil {
+		return nil, fmt.Errorf("%w: required %s %q was not found", errInvalidBootstrapResource, api.displayName, name)
 	}
 
 	requestBody, err := json.Marshal(request)

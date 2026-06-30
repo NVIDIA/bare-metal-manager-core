@@ -10,6 +10,7 @@ provider:
 tenant:
   org: tenant-org
 
+# The Site must already exist. Bootstrap looks it up but never creates it.
 site:
   request:
     name: sjc4

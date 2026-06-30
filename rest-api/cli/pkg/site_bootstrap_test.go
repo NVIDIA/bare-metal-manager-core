@@ -149,11 +149,14 @@ func TestEnsureBootstrapResourcePreservesDriftAfterConflict(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	manifest := completeBootstrapTestManifest()
-	manifest.Site.Request["description"] = "expected description"
+	resource := &bootstrapResource{Request: map[string]any{
+		"name":        "test-site",
+		"description": "expected description",
+	}}
 	client := NewClient(server.URL, "provider-org", "token", nil, false)
 	bootstrap := newTestSiteBootstrap(t, client, manifest, new(bytes.Buffer))
 
-	_, err := bootstrap.ensureResource(bootstrap.operations.site, "site", manifest.Site)
+	_, err := bootstrap.ensureResource(bootstrap.operations.instanceType, "compute", resource)
 	require.ErrorIs(t, err, errBootstrapDrift)
 	assert.Contains(t, err.Error(), "description is different description, want expected description")
 	assert.Equal(t, []string{http.MethodGet, http.MethodPost, http.MethodGet}, requests)
@@ -189,6 +192,7 @@ func TestBootstrapScalarEqual(t *testing.T) {
 
 func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.addSite("provider-org", "test-site")
 	api.put("provider-org", "ipblock", map[string]any{
 		"id":           "site-ipblock-1",
 		"name":         "site-fabric-ipv4-10-0-0-0-16",
@@ -210,7 +214,6 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 	require.NotEmpty(t, api.getOrder)
 	assert.Equal(t, "provider-org/service-account/current", api.getOrder[0])
 	assert.Equal(t, []string{
-		"provider-org/site",
 		"provider-org/instance/type",
 		"provider-org/allocation",
 		"tenant-org/vpc",
@@ -246,6 +249,7 @@ func TestBootstrapSitePrerequisitesCreatesAndReusesResources(t *testing.T) {
 
 func TestBootstrapSitePrerequisitesRecoversWhenRecordedIDIsMissing(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.addSite("provider-org", "test-site")
 	api.addSiteIPBlock("provider-org")
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
@@ -257,7 +261,22 @@ func TestBootstrapSitePrerequisitesRecoversWhenRecordedIDIsMissing(t *testing.T)
 
 	require.NoError(t, bootstrap.apply())
 	assert.Equal(t, "site-1", manifest.Site.ID)
-	assert.Contains(t, api.postOrder, "provider-org/site")
+	assert.NotContains(t, api.postOrder, "provider-org/site")
+}
+
+func TestBootstrapSitePrerequisitesRejectsMissingSite(t *testing.T) {
+	api := newBootstrapTestAPI()
+	server := httptest.NewServer(api)
+	t.Cleanup(server.Close)
+
+	manifest := completeBootstrapTestManifest()
+	client := NewClient(server.URL, "provider-org", "token", nil, false)
+	bootstrap := newTestSiteBootstrap(t, client, manifest, nil)
+
+	err := bootstrap.apply()
+	require.ErrorIs(t, err, errInvalidBootstrapResource)
+	assert.Contains(t, err.Error(), "required site \"test-site\" was not found")
+	assert.NotContains(t, api.postOrder, "provider-org/site")
 }
 
 func TestBootstrapSitePrerequisitesRejectsExistingResourceDrift(t *testing.T) {
@@ -312,7 +331,7 @@ func TestSiteBootstrapResolvesEmbeddedOpenAPIOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "get-current-service-account", operations.serviceAccount.op.OperationID)
-	assert.Equal(t, "create-site", operations.site.create.op.OperationID)
+	assert.Nil(t, operations.site.create.op)
 	assert.Equal(t, "get-all-ipblock", operations.siteIPBlock.list.op.OperationID)
 	assert.Nil(t, operations.siteIPBlock.create.op)
 	assert.Equal(t, "create-instance", operations.instance.create.op.OperationID)
@@ -331,12 +350,12 @@ func TestSiteBootstrapUsesPathsFromOpenAPISpec(t *testing.T) {
 	operations, err := newSiteBootstrapOperations(spec)
 	require.NoError(t, err)
 	assert.Equal(t, replacementPath, operations.site.list.path)
-	assert.Equal(t, replacementPath, operations.site.create.path)
 }
 
 func TestBootstrapSitePrerequisitesUsesServiceAccountInitialization(t *testing.T) {
 	api := newBootstrapTestAPI()
 	api.serviceAccountEnabled = true
+	api.addSite("service-org", "service-site")
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 
@@ -378,6 +397,7 @@ func TestBootstrapSitePrerequisitesRejectsSplitOrganizationsInServiceAccountMode
 
 func TestBootstrapSitePrerequisitesWaitsForAutoCreatedSiteIPBlock(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.addSite("provider-org", "test-site")
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 
@@ -433,6 +453,7 @@ func TestDiscoverExistingResourceFallsBackFromStaleIDToMatch(t *testing.T) {
 
 func TestSiteBootstrapCommandWritesReplayableManifest(t *testing.T) {
 	api := newBootstrapTestAPI()
+	api.addSite("provider-org", "command-site")
 	server := httptest.NewServer(api)
 	t.Cleanup(server.Close)
 
@@ -462,7 +483,7 @@ site:
 		"--output-file", "-",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, stderr.String(), "created site command-site (site-1)")
+	assert.Contains(t, stderr.String(), "reused site command-site (site-1)")
 
 	resolved, err := readSitePrerequisiteManifest("-", strings.NewReader(stdout.String()))
 	require.NoError(t, err)
@@ -677,6 +698,13 @@ func (api *bootstrapTestAPI) collection(org, collection string) map[string]map[s
 
 func (api *bootstrapTestAPI) put(org, collection string, item map[string]any) {
 	api.collection(org, collection)[fmt.Sprint(item["id"])] = cloneBootstrapTestMap(item)
+}
+
+func (api *bootstrapTestAPI) addSite(org, name string) {
+	api.put(org, "site", map[string]any{
+		"id":   "site-1",
+		"name": name,
+	})
 }
 
 func (api *bootstrapTestAPI) addSiteIPBlock(org string) {
