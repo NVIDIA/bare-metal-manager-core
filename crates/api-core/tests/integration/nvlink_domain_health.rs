@@ -15,13 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
-use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as rpc_forge};
 use tonic::Request;
-
-use crate::tests::common::api_fixtures::create_test_env;
 
 fn alert_report(source: &str) -> Result<HealthReport, Box<dyn std::error::Error>> {
     Ok(HealthReport {
@@ -43,15 +41,15 @@ fn alert_report(source: &str) -> Result<HealthReport, Box<dyn std::error::Error>
     })
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_insert_list_remove_nvlink_domain_health_report(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = TestHarness::builder(pool).build().await;
     let domain_id: NvLinkDomainId = "00000000-0000-0000-0000-000000000001".parse()?;
     let report = alert_report("external-monitor")?;
 
-    env.api
+    env.api()
         .insert_nv_link_domain_health_report(Request::new(
             rpc_forge::InsertNvLinkDomainHealthReportRequest {
                 domain_id: Some(domain_id),
@@ -64,7 +62,7 @@ async fn test_insert_list_remove_nvlink_domain_health_report(
         .await?;
 
     let list_resp = env
-        .api
+        .api()
         .list_nv_link_domain_health_reports(Request::new(
             rpc_forge::ListNvLinkDomainHealthReportsRequest {
                 domain_id: Some(domain_id),
@@ -81,7 +79,7 @@ async fn test_insert_list_remove_nvlink_domain_health_report(
     assert_eq!(listed_report.source, "external-monitor");
     assert_eq!(listed_report.alerts.len(), 1);
 
-    env.api
+    env.api()
         .remove_nv_link_domain_health_report(Request::new(
             rpc_forge::RemoveNvLinkDomainHealthReportRequest {
                 domain_id: Some(domain_id),
@@ -91,7 +89,7 @@ async fn test_insert_list_remove_nvlink_domain_health_report(
         .await?;
 
     let list_resp = env
-        .api
+        .api()
         .list_nv_link_domain_health_reports(Request::new(
             rpc_forge::ListNvLinkDomainHealthReportsRequest {
                 domain_id: Some(domain_id),
@@ -105,15 +103,15 @@ async fn test_insert_list_remove_nvlink_domain_health_report(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_nonexistent_nvlink_domain_health_report_source(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = TestHarness::builder(pool).build().await;
     let domain_id: NvLinkDomainId = "00000000-0000-0000-0000-000000000002".parse()?;
 
     let result = env
-        .api
+        .api()
         .remove_nv_link_domain_health_report(Request::new(
             rpc_forge::RemoveNvLinkDomainHealthReportRequest {
                 domain_id: Some(domain_id),

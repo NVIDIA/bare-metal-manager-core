@@ -18,6 +18,7 @@
 mod connected_device;
 mod dhcp_lease_expiration;
 mod find_by_ids_guards;
+mod nvlink_domain_health;
 mod route_servers;
 mod static_address_management;
 mod tenant_keyset_find;

@@ -88,7 +88,6 @@ mod network_segment_find;
 mod network_segment_lifecycle;
 mod nvl_instance;
 mod nvl_logical_partition;
-mod nvlink_domain_health;
 mod operating_system;
 mod power_shelf;
 mod power_shelf_find;
