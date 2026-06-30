@@ -27,7 +27,10 @@ use model::test_support::ManagedHostConfig;
 use crate::machine::{TestMachine, TestMachinePrivate};
 use crate::network::segment::TestNetworkSegment;
 use crate::rpc::forge::forge_server::Forge;
-use crate::rpc::forge::{DhcpDiscovery, DhcpRecord};
+use crate::rpc::forge::{
+    DhcpDiscovery, DhcpRecord, ForgeAgentControlRequest, ForgeAgentControlResponse,
+    MachineRebootCompletedRequest,
+};
 
 #[derive(Clone)]
 pub struct TestHostMachine {
@@ -96,6 +99,25 @@ impl TestHostMachine {
             "host discovery should resolve to the stable test machine"
         );
         self.id = discovered_id;
+    }
+
+    pub async fn reboot_completed(&self) {
+        self.api
+            .reboot_completed(tonic::Request::new(MachineRebootCompletedRequest {
+                machine_id: Some(self.id),
+            }))
+            .await
+            .unwrap();
+    }
+
+    pub async fn forge_agent_control(&self) -> ForgeAgentControlResponse {
+        self.api
+            .forge_agent_control(tonic::Request::new(ForgeAgentControlRequest {
+                machine_id: Some(self.id),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
     }
 }
 

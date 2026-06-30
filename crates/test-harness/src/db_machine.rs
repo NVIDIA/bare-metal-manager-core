@@ -15,23 +15,23 @@
  * limitations under the License.
  */
 
-mod connected_device;
-mod dhcp_lease_expiration;
-mod dpu_machine_inventory;
-mod explored_managed_host_find;
-mod explored_mlx_devices;
-mod find_by_ids_guards;
-mod forge_agent_control;
-mod ib_fabric_find;
-mod machine_bmc_metadata;
-mod machine_boot_interfaces;
-mod network_device;
-mod nvlink_domain_health;
-mod power_shelf_find;
-mod rack_find;
-mod route_servers;
-mod static_address_management;
-mod storage;
-mod switch_find;
-mod tenant_keyset_find;
-mod vpc_find;
+use std::future::Future;
+
+use model::machine::{Machine, ManagedHostState};
+use sqlx::PgTransaction;
+
+pub trait DbMachineExt {
+    fn advance_state<'a, 'txn>(
+        &'a self,
+        txn: &'a mut PgTransaction<'txn>,
+        state: ManagedHostState,
+    ) -> impl Future<Output = ()> + 'a;
+}
+
+impl DbMachineExt for Machine {
+    async fn advance_state<'txn>(&self, txn: &mut PgTransaction<'txn>, state: ManagedHostState) {
+        db::machine::advance(self, txn.as_mut(), &state, None)
+            .await
+            .expect("machine state should be advanced");
+    }
+}

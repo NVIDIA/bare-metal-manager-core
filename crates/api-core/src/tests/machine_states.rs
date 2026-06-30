@@ -53,17 +53,15 @@ use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use model::firmware::FirmwareComponentType;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, HostReprovisionState, InstallDpuOsState, InstanceState,
-    LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    PowerState, RetryInfo, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    SpdmMeasuringState, StateMachineArea, ValidationState,
+    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
 };
 use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -2440,91 +2438,6 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         ManagedHostState::Ready,
     )
     .await;
-}
-
-#[crate::sqlx_test]
-async fn test_forge_agent_control_host_reprovision_scout_upgrade_does_not_reset_without_cleanup_timestamp(
-    pool: sqlx::PgPool,
-) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-    let upgrade_task_id = uuid::Uuid::new_v4().to_string();
-    let task_json = serde_json::json!({
-        "upgrade_task_id": &upgrade_task_id,
-        "component_type": "bmc",
-        "target_version": "1.2.3",
-        "script": {
-            "url": "http://pxe/scripts/upgrade.sh",
-            "sha256": "script-sha",
-        },
-        "execution_timeout_seconds": 30,
-        "artifact_download_timeout_seconds": 10,
-        "file_artifacts": [{
-            "url": "http://pxe/firmware.bin",
-            "sha256": "firmware-sha",
-        }],
-    })
-    .to_string();
-
-    let state = ManagedHostState::HostReprovision {
-        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
-            upgrade_task_id,
-            firmware_type: FirmwareComponentType::Bmc,
-            final_version: "1.2.3".to_string(),
-            power_drains_needed: None,
-            started_at: chrono::Utc::now(),
-            deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
-            task_json,
-            result: None,
-        },
-        retry_count: 0,
-    };
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    db::machine::advance(&host, &mut txn, &state, None)
-        .await
-        .unwrap();
-    db::machine::clear_cleanup_time(&mh.host().id, &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let response = mh.host().forge_agent_control().await;
-    assert!(matches!(response.action, Some(Action::FirmwareUpgrade(_))));
-    assert_eq!(response.legacy_action, LegacyAction::FirmwareUpgrade as i32);
-}
-
-#[crate::sqlx_test]
-async fn test_forge_agent_control_assigned_discovery_boot_does_not_reset_without_cleanup_timestamp(
-    pool: sqlx::PgPool,
-) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-    let state = ManagedHostState::Assigned {
-        instance_state: InstanceState::BootingWithDiscoveryImage {
-            retry: RetryInfo { count: 0 },
-        },
-    };
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    db::machine::advance(&host, &mut txn, &state, None)
-        .await
-        .unwrap();
-    db::machine::clear_cleanup_time(&mh.host().id, &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
-    txn.commit().await.unwrap();
-
-    let response = mh.host().forge_agent_control().await;
-    assert!(matches!(response.action, Some(Action::Noop(_))));
-    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
 }
 
 #[crate::sqlx_test]
