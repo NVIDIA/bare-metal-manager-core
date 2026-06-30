@@ -18,24 +18,45 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
+use carbide_api_core::test_support::network_segment::create_static_assignments_segment;
+use carbide_test_harness::TestNetworkSegment;
+use carbide_test_harness::prelude::*;
 use mac_address::MacAddress;
-use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    AssignStaticAddressRequest, AssignStaticAddressStatus, FindInterfaceAddressesRequest,
-    RemoveStaticAddressRequest, RemoveStaticAddressStatus,
+    AssignStaticAddressRequest, AssignStaticAddressStatus, DhcpDiscovery,
+    FindInterfaceAddressesRequest, RemoveStaticAddressRequest, RemoveStaticAddressStatus,
 };
 use tonic::Request;
 
-use crate::tests::common;
+struct StaticAddressTestEnv {
+    env: TestHarness,
+    admin_segment: TestNetworkSegment,
+    underlay_segment: TestNetworkSegment,
+}
 
-#[crate::sqlx_test]
-async fn test_assign_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+async fn init(pool: PgPool) -> StaticAddressTestEnv {
+    let env = TestHarness::builder(pool).build().await;
+    let network_controller = env.network_controller();
+    let domain = env.test_domain().await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    create_static_assignments_segment(env.api(), Some(domain.id)).await;
+    StaticAddressTestEnv {
+        env,
+        admin_segment,
+        underlay_segment,
+    }
+}
+
+#[sqlx_test]
+async fn test_assign_static_address(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create an interface (via DHCP discovery to get an interface_id).
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap(),
@@ -50,7 +71,7 @@ async fn test_assign_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     // Assign a static address.
     let resp = env
-        .api
+        .api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.210".to_string(),
@@ -64,14 +85,16 @@ async fn test_assign_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_replaces_existing_static(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap(),
@@ -84,7 +107,7 @@ async fn test_assign_replaces_existing_static(
     txn.commit().await?;
 
     // Assign first static address.
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.211".to_string(),
@@ -94,7 +117,7 @@ async fn test_assign_replaces_existing_static(
     // Assign a different static address for the same family,
     // which should replace.
     let resp = env
-        .api
+        .api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.212".to_string(),
@@ -107,7 +130,7 @@ async fn test_assign_replaces_existing_static(
 
     // Verify only the new address exists.
     let addrs = env
-        .api
+        .api()
         .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
             interface_id: Some(interface.id),
         }))
@@ -121,15 +144,17 @@ async fn test_assign_replaces_existing_static(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_takes_over_dhcp_allocation(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create interface with DHCP-allocated IPv4.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:12").unwrap(),
@@ -144,7 +169,7 @@ async fn test_assign_takes_over_dhcp_allocation(
     // And now assign a static IPv4 over the DHCP allocation,
     // which should take over.
     let resp = env
-        .api
+        .api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.213".to_string(),
@@ -157,7 +182,7 @@ async fn test_assign_takes_over_dhcp_allocation(
 
     // Verify the old DHCP address is gone and the static one is there.
     let addrs = env
-        .api
+        .api()
         .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
             interface_id: Some(interface.id),
         }))
@@ -176,12 +201,14 @@ async fn test_assign_takes_over_dhcp_allocation(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+#[sqlx_test]
+async fn test_remove_static_address(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:13").unwrap(),
@@ -194,7 +221,7 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     // Assign then remove.
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.214".to_string(),
@@ -202,7 +229,7 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .await?;
 
     let resp = env
-        .api
+        .api()
         .remove_static_address(Request::new(RemoveStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.214".to_string(),
@@ -214,7 +241,7 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     // Verify no addresses remain.
     let addrs = env
-        .api
+        .api()
         .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
             interface_id: Some(interface.id),
         }))
@@ -226,14 +253,16 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_nonexistent_returns_not_found(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:14").unwrap(),
@@ -245,7 +274,7 @@ async fn test_remove_nonexistent_returns_not_found(
     txn.commit().await?;
 
     let resp = env
-        .api
+        .api()
         .remove_static_address(Request::new(RemoveStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "10.99.99.99".to_string(),
@@ -261,15 +290,17 @@ async fn test_remove_nonexistent_returns_not_found(
 /// Trying to remove a DHCP-allocated address via remove-address should
 /// return NotFound -- remove-address only operates on static allocations.
 /// DHCP allocations are managed by the lease expiration flow.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_dhcp_address_returns_not_found(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create an interface with a DHCP-allocated IP.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:25").unwrap(),
@@ -284,7 +315,7 @@ async fn test_remove_dhcp_address_returns_not_found(
     // Try to remove it via remove-address -- should return NotFound
     // because the address is DHCP, not static.
     let resp = env
-        .api
+        .api()
         .remove_static_address(Request::new(RemoveStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: dhcp_ip.to_string(),
@@ -299,7 +330,7 @@ async fn test_remove_dhcp_address_returns_not_found(
     );
 
     // Verify the DHCP address is still there.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let addr =
         db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
     assert_eq!(addr.address, dhcp_ip, "DHCP address should still exist");
@@ -307,15 +338,17 @@ async fn test_remove_dhcp_address_returns_not_found(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_find_interface_addresses_shows_types(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create interface with DHCP address.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:15").unwrap(),
@@ -327,7 +360,7 @@ async fn test_find_interface_addresses_shows_types(
     txn.commit().await?;
 
     let addrs = env
-        .api
+        .api()
         .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
             interface_id: Some(interface.id),
         }))
@@ -340,18 +373,20 @@ async fn test_find_interface_addresses_shows_types(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_remove_then_dhcp_reallocates(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
     let mac = MacAddress::from_str("aa:bb:cc:dd:ee:16").unwrap();
     let static_ip = "192.0.2.216";
 
     // First, create the interface, clear its DHCP address, and
     // a assign static one.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         mac,
@@ -363,7 +398,7 @@ async fn test_assign_remove_then_dhcp_reallocates(
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
     txn.commit().await?;
 
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: static_ip.to_string(),
@@ -372,7 +407,7 @@ async fn test_assign_remove_then_dhcp_reallocates(
 
     // Now, remove the static address.
     let remove_resp = env
-        .api
+        .api()
         .remove_static_address(Request::new(RemoveStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: static_ip.to_string(),
@@ -385,13 +420,9 @@ async fn test_assign_remove_then_dhcp_reallocates(
     // should it should re-allocate a new one that is DHCP-managed.
     let mac_str = mac.to_string();
     let discover_resp = env
-        .api
+        .api()
         .discover_dhcp(
-            crate::tests::common::rpc_builder::DhcpDiscovery::builder(
-                &mac_str,
-                FIXTURE_DHCP_RELAY_ADDRESS,
-            )
-            .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await?
         .into_inner();
@@ -408,7 +439,7 @@ async fn test_assign_remove_then_dhcp_reallocates(
 
     // Moment of truth.. verify it's a DHCP allocation.
     let addrs = env
-        .api
+        .api()
         .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
             interface_id: Some(interface.id),
         }))
@@ -422,15 +453,19 @@ async fn test_assign_remove_then_dhcp_reallocates(
 
 /// When assigning a static IP that's within a managed segment's prefix,
 /// the interface's segment_id should be updated to that segment.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_moves_interface_to_correct_segment(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env,
+        admin_segment,
+        underlay_segment,
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create interface on the admin segment via DHCP.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:20").unwrap(),
@@ -443,10 +478,10 @@ async fn test_assign_moves_interface_to_correct_segment(
     txn.commit().await?;
 
     // Interface is on the admin segment (192.0.2.0/24).
-    assert_eq!(interface.segment_id, env.admin_segment());
+    assert_eq!(interface.segment_id, admin_segment.id);
 
     // Assign a static IP in the underlay segment's range (192.0.1.0/24).
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.1.180".to_string(),
@@ -454,11 +489,10 @@ async fn test_assign_moves_interface_to_correct_segment(
         .await?;
 
     // Verify the interface moved to the underlay segment.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
     assert_eq!(
-        updated.segment_id,
-        env.underlay_segment.unwrap(),
+        updated.segment_id, underlay_segment.id,
         "interface should have moved to the underlay segment"
     );
 
@@ -467,15 +501,17 @@ async fn test_assign_moves_interface_to_correct_segment(
 
 /// When assigning an external static IP (not in any managed prefix),
 /// the interface's segment_id should be updated to static-assignments.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_external_ip_moves_to_static_assignments(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create interface on the admin segment via DHCP.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:21").unwrap(),
@@ -487,10 +523,10 @@ async fn test_assign_external_ip_moves_to_static_assignments(
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
     txn.commit().await?;
 
-    assert_eq!(interface.segment_id, env.admin_segment());
+    assert_eq!(interface.segment_id, admin_segment.id);
 
     // Assign an external IP (not in any managed segment).
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "10.50.1.100".to_string(),
@@ -498,7 +534,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         .await?;
 
     // Verify the interface moved to static-assignments with the segment's domain.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
     let static_seg = db::network_segment::static_assignments(&mut txn).await?;
     assert_eq!(
@@ -519,15 +555,17 @@ async fn test_assign_external_ip_moves_to_static_assignments(
 /// This covers the IPv6 counterpart to external static IPv4 assignment: static
 /// addresses outside managed prefixes must still land on the durable
 /// static-assignment topology.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create an addressless interface that can safely receive a static IPv6 assignment.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:2a").unwrap(),
@@ -541,7 +579,7 @@ async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
 
     // Assign an external IPv6 address that is outside managed network prefixes.
     let requested_ipv6_address: IpAddr = "2001:db8:ffff::100".parse().unwrap();
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: requested_ipv6_address.to_string(),
@@ -549,7 +587,7 @@ async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
         .await?;
 
     // Re-read the interface and static segment to verify the durable topology.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
     let static_seg = db::network_segment::static_assignments(&mut txn).await?;
     assert_eq!(
@@ -580,15 +618,17 @@ async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
 
 /// When assigning a static IP within the interface's current segment,
 /// the segment_id should not change.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_assign_within_same_segment_no_move(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let relay = admin_segment.relay_address;
 
     // Create interface on the admin segment via DHCP.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:22").unwrap(),
@@ -603,7 +643,7 @@ async fn test_assign_within_same_segment_no_move(
     let original_segment = interface.segment_id;
 
     // Assign a static IP within the same admin segment (192.0.2.0/24).
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),
             ip_address: "192.0.2.220".to_string(),
@@ -611,7 +651,7 @@ async fn test_assign_within_same_segment_no_move(
         .await?;
 
     // Verify the segment didn't change.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
     assert_eq!(
         updated.segment_id, original_segment,
@@ -624,21 +664,22 @@ async fn test_assign_within_same_segment_no_move(
 /// When an interface is on static-assignments (external IP was assigned
 /// then removed), DHCP discover should move it back to the correct
 /// segment based on the relay address and allocate a new IP.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_dhcp_moves_interface_back_from_static_assignments(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
     let mac = MacAddress::from_str("aa:bb:cc:dd:ee:23").unwrap();
 
     // First, the initial DHCP discover, which creates an
     // interface on the admin segment.
     let mac_str = mac.to_string();
     let response1 = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
-                .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await?
         .into_inner();
@@ -646,7 +687,7 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
 
     // Next, assign an external static IP, which moves the interface
     // to static-assignments.
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface_id),
             ip_address: "10.50.1.200".to_string(),
@@ -654,14 +695,14 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
         .await?;
 
     // Verify it's on static-assignments.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let iface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
     let static_seg = db::network_segment::static_assignments(&mut txn).await?;
     assert_eq!(iface.segment_id, static_seg.id);
     txn.commit().await?;
 
     // And then remove the static address.
-    env.api
+    env.api()
         .remove_static_address(Request::new(RemoveStaticAddressRequest {
             interface_id: Some(interface_id),
             ip_address: "10.50.1.200".to_string(),
@@ -671,10 +712,9 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
     // And now re-walk the DHCP discover path again, which should move
     // the interace back to admin segment and allocate an IP.
     let response2 = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
-                .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await?
         .into_inner();
@@ -691,11 +731,10 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
 
     // Verify the interface moved back to the admin segment
     // with the correct domain_id.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface_id).await?;
     assert_eq!(
-        updated.segment_id,
-        env.admin_segment(),
+        updated.segment_id, admin_segment.id,
         "interface should have moved back to admin segment from static-assignments"
     );
     assert!(
@@ -709,21 +748,22 @@ async fn test_dhcp_moves_interface_back_from_static_assignments(
 /// When an interface is on static-assignments and still has a static
 /// address, DHCP discover should NOT move it back -- the operator's
 /// static assignment takes priority over DHCP.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_dhcp_does_not_move_interface_with_static_address(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
     let mac = MacAddress::from_str("aa:bb:cc:dd:ee:24").unwrap();
 
     // First, the DHCP discover flow -- create an interface on
     // the admin segment.
     let mac_str = mac.to_string();
     let response1 = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
-                .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await?
         .into_inner();
@@ -731,7 +771,7 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
 
     // And now assign external static IP -- this will move the
     // interface to static-assignments.
-    env.api
+    env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface_id),
             ip_address: "10.50.1.201".to_string(),
@@ -739,7 +779,7 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
         .await?;
 
     // Verify it's on static-assignments with the static IP.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let static_seg = db::network_segment::static_assignments(&mut txn).await?;
     let iface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
     assert_eq!(iface.segment_id, static_seg.id);
@@ -755,10 +795,9 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
     // fail because the external IP isn't within any managed prefix, which
     // is correct -- we don't serve DHCP for external networks.
     let result = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
-                .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await;
 
@@ -770,7 +809,7 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
     );
 
     // Verify the interface is still on static-assignments, untouched.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let updated = db::machine_interface::find_one(&mut *txn, interface_id).await?;
     assert_eq!(
         updated.segment_id, static_seg.id,
@@ -786,24 +825,26 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
 
 /// On a reserved segment, a device with a static reservation gets
 /// its reserved IP via DHCP.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_reserved_segment_serves_static_reservation(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
     let bmc_mac = MacAddress::from_str("aa:bb:cc:dd:ee:30").unwrap();
     let reserved_ip: IpAddr = "192.0.2.230".parse().unwrap();
 
     // Set the admin segment to reserved allocation strategy.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
-        .bind(env.admin_segment())
+        .bind(admin_segment.id)
         .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 
     // Create a static reservation for this MAC on the admin segment.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let admin_seg = db::network_segment::admin(&mut txn)
         .await?
         .into_iter()
@@ -823,10 +864,9 @@ async fn test_reserved_segment_serves_static_reservation(
     // DHCP discover -- should get the reserved IP.
     let mac_str = bmc_mac.to_string();
     let response = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
-                .tonic_request(),
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
         )
         .await?
         .into_inner();
@@ -842,29 +882,28 @@ async fn test_reserved_segment_serves_static_reservation(
 
 /// On a reserved segment, a device without a static reservation
 /// gets no DHCP response (the discover fails).
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_reserved_segment_rejects_unknown_mac(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
 
     // Set the admin segment to reserved allocation strategy.
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
-        .bind(env.admin_segment())
+        .bind(admin_segment.id)
         .execute(&mut *txn)
         .await?;
     txn.commit().await?;
 
     // DHCP discover with an unknown MAC -- should fail.
     let result = env
-        .api
+        .api()
         .discover_dhcp(
-            common::rpc_builder::DhcpDiscovery::builder(
-                "aa:bb:cc:dd:ee:31",
-                FIXTURE_DHCP_RELAY_ADDRESS,
-            )
-            .tonic_request(),
+            DhcpDiscovery::builder("aa:bb:cc:dd:ee:31", admin_segment.relay_address)
+                .tonic_request(),
         )
         .await;
 

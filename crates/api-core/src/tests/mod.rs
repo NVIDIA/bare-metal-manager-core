@@ -107,7 +107,6 @@ mod set_primary_interface;
 mod site_explorer;
 mod sku;
 mod spdm;
-mod static_address_management;
 mod storage;
 mod switch;
 mod switch_find;
