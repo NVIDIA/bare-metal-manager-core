@@ -47,7 +47,7 @@ index 0b4e257b5..7d0be2034 100644
 +						    1 /* NUL */ ) *
 +						  sizeof ( wchar_t ) ),
 +				   TPM_PCR_ARGS,
-+				   ( uint8_t * ) cmdline );
++				   ( uint8_t * ) "cmdline" );
 +		rc = tpm_separator ( TPM_PCR_KERNEL );
 +		rc = tpm_separator ( TPM_PCR_ARGS );
 +	} else {
@@ -274,7 +274,7 @@ new file mode 100644
 index 000000000..a383860e6
 --- /dev/null
 +++ b/src/interface/efi/efi_tpm.c
-@@ -0,0 +1,410 @@
+@@ -0,0 +1,411 @@
 +/*
 + * Copyright (C) 2024 Vishnu Rangayyan <vrangayyan@nvidia.com>.
 + *
@@ -357,6 +357,7 @@ index 000000000..a383860e6
 +	caps = zalloc ( sizeof ( *caps ) );
 +	if ( ! caps )
 +		return EFI_OUT_OF_RESOURCES;
++	caps->Size = sizeof ( *caps );
 +
 +	efirc = efitpm_tcg->StatusCheck ( efitpm_tcg, caps, &flags,
 +					  &log_start, &log_last );
@@ -402,10 +403,10 @@ index 000000000..a383860e6
 +	efirc = efitpm_tcg2->GetCapability ( efitpm_tcg2, caps );
 +	if ( efirc != EFI_SUCCESS ) {
 +		DBGC ( efitpm_tcg2, "EFITPM TCG2 capability check failed: "
-+		       "%#lx; proceeding anyway\n",
++		       "%#lx\n",
 +		       ( ( unsigned long ) efirc ) );
 +		free ( caps );
-+		return EFI_SUCCESS;
++		return efirc;
 +	}
 +
 +	if ( ! caps->TPMPresentFlag ) {
@@ -603,7 +604,7 @@ index 000000000..a383860e6
 +		       "%#lx\n", pcr, ( ( unsigned long ) efirc ) );
 +	}
 +
-+	return 0;
++	return ( efirc == EFI_SUCCESS ) ? 0 : -EEFI ( efirc );
 +}
 +
 +/**
@@ -630,7 +631,7 @@ index 000000000..a383860e6
 +		       ( ( unsigned long ) efirc ) );
 +	}
 +
-+	return 0;
++	return ( efirc == EFI_SUCCESS ) ? 0 : -EEFI ( efirc );
 +}
 +
 +/**
