@@ -18,4 +18,5 @@
 mod connected_device;
 mod dhcp_lease_expiration;
 mod find_by_ids_guards;
+mod route_servers;
 mod static_address_management;

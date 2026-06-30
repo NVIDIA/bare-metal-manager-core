@@ -100,7 +100,6 @@ mod rack_health;
 mod rack_state_controller;
 mod redfish_actions;
 mod resource_pool;
-mod route_servers;
 mod service_health_metrics;
 mod set_primary_dpu;
 mod set_primary_interface;

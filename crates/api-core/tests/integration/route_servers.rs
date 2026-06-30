@@ -18,17 +18,14 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use common::api_fixtures::create_test_env;
+use carbide_test_harness::prelude::*;
 use itertools::Itertools;
 use model::route_server::{RouteServer, RouteServerSourceType};
 use rpc::forge::{RouteServerSourceType as RouteServerSourceTypePb, RouteServers};
-use rpc::protos::forge::forge_server::Forge;
 
-use crate::tests::common;
-
-#[crate::sqlx_test()]
-async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_add_route_servers(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -40,9 +37,9 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.add_route_servers(request).await?;
+    env.api().add_route_servers(request).await?;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -55,9 +52,9 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-#[crate::sqlx_test()]
-async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_remove_route_servers(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
     let mut expected_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -69,9 +66,9 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.add_route_servers(request).await?;
+    env.api().add_route_servers(request).await?;
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.db_txn().await;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -88,8 +85,8 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.remove_route_servers(request).await?;
-    let mut txn = env.pool.begin().await?;
+    env.api().remove_route_servers(request).await?;
+    let mut txn = env.db_txn().await;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -105,8 +102,8 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.remove_route_servers(request).await?;
-    let mut txn = env.pool.begin().await?;
+    env.api().remove_route_servers(request).await?;
+    let mut txn = env.db_txn().await;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -120,9 +117,9 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     Ok(())
 }
 
-#[crate::sqlx_test()]
-async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_initial_set(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -134,9 +131,9 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.replace_route_servers(set_request).await?;
+    env.api().replace_route_servers(set_request).await?;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -149,9 +146,9 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-#[crate::sqlx_test()]
-async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_subsequent_replace(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
 
     // Initial test data
     let admin_api_servers = vec![
@@ -165,7 +162,7 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     ];
 
     // Insert initial data
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let query = "INSERT INTO route_servers (address, source_type) VALUES ($1, $2)";
 
     for server in &admin_api_servers {
@@ -202,10 +199,10 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         source_type: RouteServerSourceTypePb::AdminApi as i32,
     });
 
-    env.api.replace_route_servers(replace_request).await?;
+    env.api().replace_route_servers(replace_request).await?;
 
     // Check the results
-    let response = env.api.get_route_servers(tonic::Request::new(())).await?;
+    let response = env.api().get_route_servers(tonic::Request::new(())).await?;
     let actual_servers = response.into_inner().route_servers;
 
     // Expected addresses should be updated AdminApi + unchanged ConfigFile
@@ -246,9 +243,9 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-#[crate::sqlx_test()]
-async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
 
     // Test data setup
     let admin_api_servers = vec![
@@ -262,7 +259,7 @@ async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> 
     ];
 
     // Insert test data
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     let query = "INSERT INTO route_servers (address, source_type) VALUES ($1, $2)";
 
     for server in &admin_api_servers {
@@ -284,7 +281,7 @@ async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> 
     txn.commit().await?;
 
     // Test the API
-    let response = env.api.get_route_servers(tonic::Request::new(())).await?;
+    let response = env.api().get_route_servers(tonic::Request::new(())).await?;
     let actual_servers = response.into_inner().route_servers;
 
     // Verify addresses (sorted)
