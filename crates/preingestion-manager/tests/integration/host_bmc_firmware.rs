@@ -15,15 +15,19 @@
  * limitations under the License.
  */
 
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_firmware::test_support::script_setup;
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::default_config;
+use model::firmware::{FirmwareComponentType, FirmwareEntry, FirmwareFileArtifact};
 use model::site_explorer::{InitialResetPhase, PowerDrainState, PreingestionState};
 use rpc::forge::DhcpDiscovery;
 
@@ -220,6 +224,83 @@ async fn test_preingestion_bmc_upgrade(pool: PgPool) -> Result<(), Box<dyn std::
             == 1
     );
     txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_preingestion_bmc_upgrade_with_url_only_files_artifacts(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool.clone()).build().await;
+    let domain = env.test_domain().await;
+    let nc = env.network_controller();
+    let underlay_segment = nc.create_underlay_segment(&domain).await;
+    let tempdir = tempfile::tempdir()?;
+
+    let first_artifact = tempdir.path().join("first.bin");
+    let second_artifact = tempdir.path().join("second.bin");
+    fs::write(&first_artifact, b"firmware-one")?;
+    fs::write(&second_artifact, b"firmware-two")?;
+
+    let mut config = default_config::get();
+    config.firmware_global.firmware_download_cache_directory = tempdir.path().join("cache");
+    let bmc_component = config
+        .host_models
+        .get_mut("1")
+        .unwrap()
+        .components
+        .get_mut(&FirmwareComponentType::Bmc)
+        .unwrap();
+    bmc_component.known_firmware = vec![FirmwareEntry {
+        version: "6.00.30.00".to_string(),
+        default: true,
+        files: vec![
+            FirmwareFileArtifact {
+                filename: None,
+                url: Some(file_url(&first_artifact)),
+                sha256: "bd0d2c3b17ef6983be51bfff3e505b2c365430630afe7b9f53451e3f279d39a1"
+                    .to_string(),
+            },
+            FirmwareFileArtifact {
+                filename: None,
+                url: Some(file_url(&second_artifact)),
+                sha256: "c46897d1cfe1d2b7341d30eaacce68ffc752738de147dc820ed016e1f51b8f14"
+                    .to_string(),
+            },
+        ],
+        ..FirmwareEntry::default()
+    }];
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        config.preingestion_manager(),
+        Arc::new(RedfishSim::default()),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api().work_lock_manager_handle(),
+        config.ntp_servers.clone(),
+    );
+
+    let response = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", underlay_segment.relay_address)
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let mut txn = pool.begin().await.unwrap();
+    let addr = response.address.as_str();
+    common::insert_endpoint_version(&mut txn, addr, "4.9", "1.13.2", false).await?;
+    txn.commit().await?;
+
+    run_until_firmware_number(&mgr, &pool, Some(0)).await?;
+    run_until_firmware_number(&mgr, &pool, Some(1)).await?;
 
     Ok(())
 }
@@ -427,6 +508,42 @@ async fn test_preingestion_preupdate_powercycling(
     txn.commit().await?;
 
     Ok(())
+}
+
+fn file_url(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+async fn run_until_firmware_number(
+    mgr: &PreingestionManager,
+    pool: &PgPool,
+    expected_firmware_number: Option<u32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut last_state = None;
+    for _ in 0..10 {
+        mgr.run_single_iteration().await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut txn = pool.begin().await?;
+        let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+        txn.commit().await?;
+        let Some(endpoint) = endpoints.first() else {
+            continue;
+        };
+        last_state = Some(endpoint.preingestion_state.clone());
+
+        if let PreingestionState::UpgradeFirmwareWait {
+            firmware_number, ..
+        } = endpoint.preingestion_state
+            && firmware_number == expected_firmware_number
+        {
+            return Ok(());
+        }
+    }
+
+    panic!(
+        "Expected preingestion firmware_number {expected_firmware_number:?}, last state: {last_state:?}"
+    );
 }
 
 #[sqlx_test]

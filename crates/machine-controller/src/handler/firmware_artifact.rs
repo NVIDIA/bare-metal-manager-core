@@ -15,87 +15,30 @@
  * limitations under the License.
  */
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
-use carbide_firmware::firmware_cache_filename;
+use carbide_firmware::resolve_files_firmware_artifact;
+pub(crate) use carbide_firmware::{ResolvedFirmwareArtifact, ResolvedFirmwareArtifactSource};
 use eyre::eyre;
 use model::firmware::{FirmwareEntry, FirmwareFileArtifact};
 use state_controller::state_handler::StateHandlerError;
 
 use crate::rpc::scout_firmware_upgrade::FileArtifact;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ResolvedFirmwareArtifact {
-    pub(crate) local_path: PathBuf,
-    pub(crate) source: ResolvedFirmwareArtifactSource,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ResolvedFirmwareArtifactSource {
-    Remote { url: String, sha256: String },
-    Local,
-}
-
 pub(crate) fn resolve_firmware_artifact(
     firmware_download_cache_directory: &Path,
     firmware: &FirmwareEntry,
     pos: u32,
 ) -> Result<ResolvedFirmwareArtifact, StateHandlerError> {
-    if firmware.files.is_empty() {
-        return Ok(ResolvedFirmwareArtifact {
+    match resolve_files_firmware_artifact(firmware_download_cache_directory, firmware, pos)
+        .map_err(StateHandlerError::GenericError)?
+    {
+        Some(artifact) => Ok(artifact),
+        None => Ok(ResolvedFirmwareArtifact {
             local_path: firmware.get_filename(pos),
             source: ResolvedFirmwareArtifactSource::Local,
-        });
+        }),
     }
-
-    let index = usize::try_from(pos).unwrap_or(usize::MAX);
-    let artifact = firmware.files.get(index).ok_or_else(|| {
-        StateHandlerError::GenericError(eyre!(
-            "firmware version {} has no files[] artifact at index {}",
-            firmware.version,
-            pos
-        ))
-    })?;
-
-    let url = artifact
-        .url
-        .as_deref()
-        .map(str::trim)
-        .filter(|url| !url.is_empty());
-
-    let filename = artifact
-        .filename
-        .as_deref()
-        .map(str::trim)
-        .filter(|filename| !filename.is_empty());
-
-    let local_path = if let Some(url) = url {
-        firmware_cache_filename(firmware_download_cache_directory, url).ok_or_else(|| {
-            StateHandlerError::GenericError(eyre!(
-                "firmware version {} files[] artifact at index {} URL does not include a filename",
-                firmware.version,
-                pos
-            ))
-        })?
-    } else if let Some(filename) = filename {
-        PathBuf::from(filename)
-    } else {
-        return Err(StateHandlerError::GenericError(eyre!(
-            "firmware version {} files[] artifact at index {} has no filename or URL",
-            firmware.version,
-            pos
-        )));
-    };
-
-    let source = match url {
-        Some(url) => ResolvedFirmwareArtifactSource::Remote {
-            url: url.to_owned(),
-            sha256: artifact.sha256.clone(),
-        },
-        None => ResolvedFirmwareArtifactSource::Local,
-    };
-
-    Ok(ResolvedFirmwareArtifact { local_path, source })
 }
 
 pub(crate) fn resolve_scout_file_artifact(
@@ -166,6 +109,8 @@ fn firmware_artifact_url(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     const FIRMWARE_DOWNLOAD_CACHE_DIRECTORY: &str = "/mnt/persistence/fw/download-cache";
