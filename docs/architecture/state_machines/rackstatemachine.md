@@ -286,8 +286,8 @@ The Rack state machine drives or observes the Machine (compute) state machine as
 | Rack state | Effect on Machine |
 |------------|-------------------|
 | R_Created | Rack checks for newly created compute machines (`ManagedHostState` ingestion states) that belong to this rack. |
-| R_Discovering | Rack checks that all computes are `Ready` or `Assigned` before moving to `Maintenance`. |
-| R_Maintenance | Rack requests compute reprovision (`HostReprovision`); tracks when computes return to `Ready`. If a compute is stuck in `HostReprovision::FailedFirmwareUpgrade`, the Rack (or operator) may issue a fresh Host Reprovision request to restart the firmware upgrade flow without waiting for the auto-retry interval. |
+| R_Discovering | Rack checks that all compute machines are `Ready` or `Assigned` before moving to `Maintenance`. |
+| R_Maintenance | Rack requests compute machine reprovision (`HostReprovision`); tracks when machines return to `Ready`. If a machine is stuck in `HostReprovision::FailedFirmwareUpgrade`, the Rack (or operator) may issue a fresh Host Reprovision request to restart the firmware upgrade flow without waiting for the auto-retry interval. |
 | R_Ready | If a tray is replaced, a new machine is created and the rack re-enters `Discovering`. |
 
 These cross-state dependencies are shown in the combined diagram above.
