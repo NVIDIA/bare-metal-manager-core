@@ -26,6 +26,12 @@ pub trait DbMachineExt {
         txn: &'a mut PgTransaction<'txn>,
         state: ManagedHostState,
     ) -> impl Future<Output = ()> + 'a;
+
+    fn update_state<'a, 'txn>(
+        &'a self,
+        txn: &'a mut PgTransaction<'txn>,
+        state: ManagedHostState,
+    ) -> impl Future<Output = ()> + 'a;
 }
 
 impl DbMachineExt for Machine {
@@ -33,5 +39,11 @@ impl DbMachineExt for Machine {
         db::machine::advance(self, txn.as_mut(), &state, None)
             .await
             .expect("machine state should be advanced");
+    }
+
+    async fn update_state<'txn>(&self, txn: &mut PgTransaction<'txn>, state: ManagedHostState) {
+        db::machine::update_state(txn.as_mut(), &self.id, &state)
+            .await
+            .expect("machine state should be updated");
     }
 }

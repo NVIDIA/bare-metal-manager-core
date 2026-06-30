@@ -21,6 +21,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [features]
 default = []
 test-support = ["dep:mockall"]
@@ -70,11 +74,13 @@ version-compare = { workspace = true }
 
 [dev-dependencies]
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
+carbide-test-harness = { path = "../test-harness" }
 
 figment = { workspace = true, features = ["env", "test", "toml"] }
 regex = { workspace = true }
 lazy_static = { workspace = true }
 tempfile = { workspace = true }
+tokio-util = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = "0.14"
