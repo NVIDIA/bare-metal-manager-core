@@ -16,7 +16,7 @@ Service (RMS)** asynchronously and polls job status until completion.
 ## Placement in the Switch FSM
 
 `ConfigureCertificate` is a sub-state of `SwitchControllerState::Configuring`,
-before `RotateOsPassword`, then `FetchInfo`, then `Validating`.
+before `RotateOsPassword`, `FetchInfo`, and `Validating`.
 
 ```mermaid
 stateDiagram-v2
