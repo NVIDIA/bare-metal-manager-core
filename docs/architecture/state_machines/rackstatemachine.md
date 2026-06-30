@@ -255,7 +255,7 @@ The Rack state machine drives or observes the Switch state machine as follows:
 | R_Maintenance (any) | If the rack enters `Error`, rack-initiated switch reprovisioning is aborted and switches return to `Ready`. |
 | R_Ready | Rack monitors switches in `Error`; any failed switch can move the rack to `Error`. |
 
-These cross-state dependencies are shown in the combined diagram above.
+These cross-state dependencies are shown in the [Combined State Diagram](#combined-state-diagram-machine-switch-power-shelf-rack).
 
 ### Switch State Machine Flow (summary)
 
@@ -290,7 +290,7 @@ The Rack state machine drives or observes the Machine (compute) state machine as
 | R_Maintenance | Rack requests compute machine reprovision (`HostReprovision`); tracks when machines return to `Ready`. If a machine is stuck in `HostReprovision::FailedFirmwareUpgrade`, the Rack (or operator) may issue a fresh Host Reprovision request to restart the firmware upgrade flow without waiting for the auto-retry interval. |
 | R_Ready | If a tray is replaced, a new machine is created and the rack re-enters `Discovering`. |
 
-These cross-state dependencies are shown in the combined diagram above.
+These cross-state dependencies are shown in the [Combined State Diagram](#combined-state-diagram-machine-switch-power-shelf-rack).
 
 ---
 
@@ -340,9 +340,7 @@ When a tray (compute machine) in a rack is physically replaced, the rack topolog
 
 This ensures that any replaced hardware is fully discovered, provisioned, and validated before the rack returns to an operational ready state.
 
----
-
-**How the data is organized**
+### How the data is organized
 
 A **rack** is the top-level entity. Every **machine** (compute tray), every **switch**, and every **power shelf** belongs to exactly one rack.
 
