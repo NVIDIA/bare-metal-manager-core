@@ -17,14 +17,11 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use carbide_test_harness::prelude::*;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     NicMode, PCIeDevice,
 };
-use rpc::forge_server::Forge;
-
-use crate::tests::common::api_fixtures::create_test_env;
 
 fn pcie(part: &str, fw: &str, serial: &str, id: &str) -> PCIeDevice {
     PCIeDevice {
@@ -44,11 +41,9 @@ fn pcie(part: &str, fw: &str, serial: &str, id: &str) -> PCIeDevice {
 // PCIe inventory shows a NIC-mode DPU plus that DPU's own BMC endpoint, then
 // confirm the host-ids step lists the host and the by-ids step projects the
 // device and joins it to its DPU BMC by serial.
-#[crate::sqlx_test()]
-async fn test_find_explored_mlx_devices(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn test_find_explored_mlx_devices(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
 
     let host_ip = IpAddr::from_str("192.0.2.20")?;
     let dpu_ip = IpAddr::from_str("192.0.2.50")?;
@@ -87,7 +82,7 @@ async fn test_find_explored_mlx_devices(
         ..Default::default()
     };
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = env.db_txn().await;
     db::explored_endpoints::insert(host_ip, &host_report, false, &mut txn).await?;
     db::explored_endpoints::insert(dpu_ip, &dpu_report, false, &mut txn).await?;
     txn.commit().await?;
@@ -95,7 +90,7 @@ async fn test_find_explored_mlx_devices(
     // List the host BMC IPs carrying BlueField devices -- the DPU endpoint is
     // excluded, since it reports no host-side inventory.
     let host_ids = env
-        .api
+        .api()
         .find_explored_mlx_device_host_ids(tonic::Request::new(
             ::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter {},
         ))
@@ -107,7 +102,7 @@ async fn test_find_explored_mlx_devices(
 
     // Fetch the devices for that page of hosts.
     let devices = env
-        .api
+        .api()
         .find_explored_mlx_devices_by_ids(tonic::Request::new(
             ::rpc::site_explorer::ExploredMlxDevicesByIdsRequest {
                 host_ids: host_ids.clone(),
@@ -138,7 +133,7 @@ async fn test_find_explored_mlx_devices(
 
     // A page naming a host with no explored devices comes back empty.
     let other_host = env
-        .api
+        .api()
         .find_explored_mlx_devices_by_ids(tonic::Request::new(
             ::rpc::site_explorer::ExploredMlxDevicesByIdsRequest {
                 host_ids: vec!["198.51.100.1".to_string()],

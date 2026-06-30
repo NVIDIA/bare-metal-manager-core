@@ -35,7 +35,6 @@ mod expected_power_shelf;
 mod expected_rack;
 mod expected_switch;
 mod explored_endpoint_find;
-mod explored_mlx_devices;
 mod extension_service;
 mod finder;
 mod host_bmc_firmware_test;
