@@ -45,6 +45,11 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_hosts_unhealthy_by_probe_id_count</td><td>gauge</td><td>The amount of objects which reported a certain Health Probe Alert</td></tr>
 <tr><td>carbide_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the NICo deployment which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_with_bios_password_set</td><td>gauge</td><td>The total number of Hosts in the system that have their BIOS password set.</td></tr>
+<tr><td>carbide_ib_monitor_fabrics_count</td><td>gauge</td><td>The amount of InfiniBand fabrics that are monitored</td></tr>
+<tr><td>carbide_ib_monitor_machine_ib_status_updates_count</td><td>gauge</td><td>The amount of Machines where the infiniband_status_observation got updated</td></tr>
+<tr><td>carbide_ib_monitor_machines_with_missing_pkeys_count</td><td>gauge</td><td>The amount of machines where at least one port is not assigned to the expected pkey on UFM</td></tr>
+<tr><td>carbide_ib_monitor_machines_with_unexpected_pkeys_count</td><td>gauge</td><td>The amount of machines where at least one port is assigned to an unexpected pkey on UFM</td></tr>
+<tr><td>carbide_ib_monitor_machines_with_unknown_pkeys_count</td><td>gauge</td><td>The amount of machines where at least one port is assigned to a pkey value that is not associated with any partition ID</td></tr>
 <tr><td>carbide_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_ib_partitions</td></tr>
@@ -91,7 +96,12 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_network_segments_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_network_segments have spent in a certain state</td></tr>
 <tr><td>carbide_network_segments_total</td><td>gauge</td><td>The total number of carbide_network_segments in the system</td></tr>
 <tr><td>carbide_network_segments_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_network_segments in the system with a given state that failed state handling</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_machine_status_updates_count</td><td>gauge</td><td>Number of machines nvlink_status_observation got updated</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_nmxc_changes_applied_total</td><td>counter</td><td>Number of changes requested to NMX-C</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_num_logical_partitions</td><td>gauge</td><td>Number of logical partitions that were monitored</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_num_physical_partitions</td><td>gauge</td><td>Number of physical partitions that were monitored</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_nvlink_info_mismatches</td><td>gauge</td><td>Number of NVLink GPU partition ID mismatches between DB and NMX-C</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_stale_partitions_deleted</td><td>gauge</td><td>Number of stale partitions deleted from DB (not found in NMX-C)</td></tr>
 <tr><td>carbide_pending_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_pending_host_firmware_update_count</td><td>gauge</td><td>The number of host machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_power_shelves_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_power_shelves in the system</td></tr>
