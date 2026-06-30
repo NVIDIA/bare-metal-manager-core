@@ -45,6 +45,8 @@ use crate::io_util::{
     self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
 };
 
+const IPMITOOL_PASSWORD_ENV_VAR: &str = "IPMITOOL_PASSWORD";
+
 /// Spawn ipmitool in the background to connect to the given BMC specified by `connection_details`,
 /// and proxy data between it and the SSH frontend.
 ///
@@ -75,17 +77,8 @@ pub async fn spawn(
 
     // Run `ipmitool sol activate` with the appropriate args
     let mut command = tokio::process::Command::new("ipmitool");
+    configure_ipmitool_connection(&mut command, connection_details.as_ref());
     command
-        .arg("-I")
-        .arg("lanplus")
-        .arg("-H")
-        .arg(connection_details.addr.ip().to_string())
-        .arg("-p")
-        .arg(connection_details.addr.port().to_string())
-        .arg("-U")
-        .arg(&connection_details.user)
-        .arg("-P")
-        .arg(&connection_details.password)
         // connect stdin/stdout/stderr to the pty
         .stdin(
             pty_slave
@@ -457,17 +450,8 @@ impl IpmitoolMessageProxy {
 
     async fn power_reset(&mut self) -> Result<(), PowerResetError> {
         let mut command = tokio::process::Command::new("ipmitool");
+        configure_ipmitool_connection(&mut command, self.connection_details.as_ref());
         command
-            .arg("-I")
-            .arg("lanplus")
-            .arg("-H")
-            .arg(self.connection_details.addr.ip().to_string())
-            .arg("-p")
-            .arg(self.connection_details.addr.port().to_string())
-            .arg("-U")
-            .arg(&self.connection_details.user)
-            .arg("-P")
-            .arg(&self.connection_details.password)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -503,6 +487,23 @@ impl IpmitoolMessageProxy {
     }
 }
 
+fn configure_ipmitool_connection(
+    command: &mut tokio::process::Command,
+    connection_details: &ConnectionDetails,
+) {
+    command
+        .arg("-I")
+        .arg("lanplus")
+        .arg("-H")
+        .arg(connection_details.addr.ip().to_string())
+        .arg("-p")
+        .arg(connection_details.addr.port().to_string())
+        .arg("-U")
+        .arg(&connection_details.user)
+        .arg("-E")
+        .env(IPMITOOL_PASSWORD_ENV_VAR, &connection_details.password);
+}
+
 #[derive(Clone)]
 pub struct ConnectionDetails {
     pub machine_id: MachineId,
@@ -519,5 +520,57 @@ impl Debug for ConnectionDetails {
             .field("user", &self.user)
             .field("machine_id", &self.machine_id.to_string())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+
+    use super::{ConnectionDetails, IPMITOOL_PASSWORD_ENV_VAR, configure_ipmitool_connection};
+
+    #[test]
+    fn configure_ipmitool_connection_passes_password_through_environment() {
+        let connection_details = ConnectionDetails {
+            machine_id: MachineId::new(MachineIdSource::Tpm, [0; 32], MachineType::Host),
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 623),
+            user: "admin".to_string(),
+            password: "hunter2".to_string(),
+        };
+        let mut command = tokio::process::Command::new("ipmitool");
+
+        configure_ipmitool_connection(&mut command, &connection_details);
+
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().expect("ipmitool args should be valid UTF-8"))
+            .collect();
+        let expected_args = [
+            "-I",
+            "lanplus",
+            "-H",
+            "127.0.0.1",
+            "-p",
+            "623",
+            "-U",
+            "admin",
+            "-E",
+        ];
+        assert_eq!(args.as_slice(), expected_args.as_slice());
+        assert!(!args.contains(&"-P"));
+        assert!(!args.contains(&"hunter2"));
+
+        let password_env = command.as_std().get_envs().find_map(|(key, value)| {
+            if key == OsStr::new(IPMITOOL_PASSWORD_ENV_VAR) {
+                value.and_then(OsStr::to_str)
+            } else {
+                None
+            }
+        });
+        assert_eq!(password_env, Some("hunter2"));
     }
 }
