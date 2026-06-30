@@ -354,6 +354,7 @@ const (
 	Forge_UfmBrowse_FullMethodName                                          = "/forge.Forge/UfmBrowse"
 	Forge_GetDesiredFirmwareVersions_FullMethodName                         = "/forge.Forge/GetDesiredFirmwareVersions"
 	Forge_UpsertHostFirmwareConfig_FullMethodName                           = "/forge.Forge/UpsertHostFirmwareConfig"
+	Forge_DeleteHostFirmwareConfig_FullMethodName                           = "/forge.Forge/DeleteHostFirmwareConfig"
 	Forge_CreateSku_FullMethodName                                          = "/forge.Forge/CreateSku"
 	Forge_GenerateSkuFromMachine_FullMethodName                             = "/forge.Forge/GenerateSkuFromMachine"
 	Forge_VerifySkuForMachine_FullMethodName                                = "/forge.Forge/VerifySkuForMachine"
@@ -1040,6 +1041,7 @@ type ForgeClient interface {
 	UfmBrowse(ctx context.Context, in *UfmBrowseRequest, opts ...grpc.CallOption) (*UfmBrowseResponse, error)
 	GetDesiredFirmwareVersions(ctx context.Context, in *GetDesiredFirmwareVersionsRequest, opts ...grpc.CallOption) (*GetDesiredFirmwareVersionsResponse, error)
 	UpsertHostFirmwareConfig(ctx context.Context, in *UpsertHostFirmwareConfigRequest, opts ...grpc.CallOption) (*HostFirmwareConfigResponse, error)
+	DeleteHostFirmwareConfig(ctx context.Context, in *DeleteHostFirmwareConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Create A SKU to be assigned to a machine so the machine hardware can be validated.
 	CreateSku(ctx context.Context, in *SkuList, opts ...grpc.CallOption) (*SkuIdList, error)
 	// Generate a SKU from the hardware inventory of a machine.
@@ -4600,6 +4602,16 @@ func (c *forgeClient) UpsertHostFirmwareConfig(ctx context.Context, in *UpsertHo
 	return out, nil
 }
 
+func (c *forgeClient) DeleteHostFirmwareConfig(ctx context.Context, in *DeleteHostFirmwareConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_DeleteHostFirmwareConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateSku(ctx context.Context, in *SkuList, opts ...grpc.CallOption) (*SkuIdList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SkuIdList)
@@ -6421,6 +6433,7 @@ type ForgeServer interface {
 	UfmBrowse(context.Context, *UfmBrowseRequest) (*UfmBrowseResponse, error)
 	GetDesiredFirmwareVersions(context.Context, *GetDesiredFirmwareVersionsRequest) (*GetDesiredFirmwareVersionsResponse, error)
 	UpsertHostFirmwareConfig(context.Context, *UpsertHostFirmwareConfigRequest) (*HostFirmwareConfigResponse, error)
+	DeleteHostFirmwareConfig(context.Context, *DeleteHostFirmwareConfigRequest) (*emptypb.Empty, error)
 	// Create A SKU to be assigned to a machine so the machine hardware can be validated.
 	CreateSku(context.Context, *SkuList) (*SkuIdList, error)
 	// Generate a SKU from the hardware inventory of a machine.
@@ -7655,6 +7668,9 @@ func (UnimplementedForgeServer) GetDesiredFirmwareVersions(context.Context, *Get
 }
 func (UnimplementedForgeServer) UpsertHostFirmwareConfig(context.Context, *UpsertHostFirmwareConfigRequest) (*HostFirmwareConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpsertHostFirmwareConfig not implemented")
+}
+func (UnimplementedForgeServer) DeleteHostFirmwareConfig(context.Context, *DeleteHostFirmwareConfigRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteHostFirmwareConfig not implemented")
 }
 func (UnimplementedForgeServer) CreateSku(context.Context, *SkuList) (*SkuIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateSku not implemented")
@@ -14012,6 +14028,24 @@ func _Forge_UpsertHostFirmwareConfig_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_DeleteHostFirmwareConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteHostFirmwareConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DeleteHostFirmwareConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DeleteHostFirmwareConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DeleteHostFirmwareConfig(ctx, req.(*DeleteHostFirmwareConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateSku_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SkuList)
 	if err := dec(in); err != nil {
@@ -17599,6 +17633,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpsertHostFirmwareConfig",
 			Handler:    _Forge_UpsertHostFirmwareConfig_Handler,
+		},
+		{
+			MethodName: "DeleteHostFirmwareConfig",
+			Handler:    _Forge_DeleteHostFirmwareConfig_Handler,
 		},
 		{
 			MethodName: "CreateSku",

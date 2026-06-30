@@ -688,6 +688,7 @@ service Forge {
 
   rpc GetDesiredFirmwareVersions(GetDesiredFirmwareVersionsRequest) returns (GetDesiredFirmwareVersionsResponse);
   rpc UpsertHostFirmwareConfig(UpsertHostFirmwareConfigRequest) returns (HostFirmwareConfigResponse);
+  rpc DeleteHostFirmwareConfig(DeleteHostFirmwareConfigRequest) returns (google.protobuf.Empty);
 
   // Create A SKU to be assigned to a machine so the machine hardware can be validated.
   rpc CreateSku(SkuList) returns (SkuIdList);
@@ -7794,6 +7795,11 @@ message UpsertHostFirmwareConfigRequest {
   repeated UpsertHostFirmwareComponentConfig components = 3;
   optional bool explicit_start_needed = 4;
   repeated HostFirmwareComponentType ordering = 5;
+}
+
+message DeleteHostFirmwareConfigRequest {
+  string vendor = 1;
+  string model = 2;
 }
 
 enum HostFirmwareComponentType {

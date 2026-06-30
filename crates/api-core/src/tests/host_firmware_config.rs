@@ -18,8 +18,9 @@
 use model::firmware::FirmwareComponentType;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HostFirmwareArtifact, HostFirmwareComponentConfigResponse, HostFirmwareComponentType,
-    HostFirmwareVersionConfig, UpsertHostFirmwareComponentConfig, UpsertHostFirmwareConfigRequest,
+    DeleteHostFirmwareConfigRequest, HostFirmwareArtifact, HostFirmwareComponentConfigResponse,
+    HostFirmwareComponentType, HostFirmwareVersionConfig, UpsertHostFirmwareComponentConfig,
+    UpsertHostFirmwareConfigRequest,
 };
 use tonic::{Code, Request};
 
@@ -185,6 +186,60 @@ async fn upsert_host_firmware_config_rejects_added_component_without_ordering_up
     assert_eq!(stored.ordering, vec![FirmwareComponentType::Cx7]);
     assert!(stored.components.contains_key(&FirmwareComponentType::Cx7));
     assert!(!stored.components.contains_key(&FirmwareComponentType::Uefi));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn delete_host_firmware_config_removes_existing_row(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    env.api
+        .upsert_host_firmware_config(Request::new(upsert_request(
+            vec![component_config(
+                HostFirmwareComponentType::Cx7,
+                vec![version_config("28.47.2682", true)],
+                None,
+            )],
+            vec![HostFirmwareComponentType::Cx7],
+            Some(false),
+        )))
+        .await?;
+
+    env.api
+        .delete_host_firmware_config(Request::new(DeleteHostFirmwareConfigRequest {
+            vendor: " Nvidia ".to_string(),
+            model: " dgxh100 ".to_string(),
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let stored = db::host_firmware_config::get(&mut txn, "Nvidia", "DGXH100").await?;
+    txn.commit().await?;
+
+    assert!(stored.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn delete_host_firmware_config_returns_not_found_for_missing_pair(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let error = env
+        .api
+        .delete_host_firmware_config(Request::new(DeleteHostFirmwareConfigRequest {
+            vendor: "Nvidia".to_string(),
+            model: "DGXH100".to_string(),
+        }))
+        .await
+        .expect_err("missing host firmware config should fail");
+
+    assert_eq!(error.code(), Code::NotFound);
 
     Ok(())
 }

@@ -2619,6 +2619,13 @@ impl Forge for Api {
         crate::handlers::firmware::upsert_host_firmware_config(self, request).await
     }
 
+    async fn delete_host_firmware_config(
+        &self,
+        request: Request<rpc::DeleteHostFirmwareConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::firmware::delete_host_firmware_config(self, request).await
+    }
+
     async fn create_sku(
         &self,
         request: Request<rpc::SkuList>,

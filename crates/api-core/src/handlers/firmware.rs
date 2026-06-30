@@ -179,6 +179,26 @@ pub(crate) async fn upsert_host_firmware_config(
     Ok(Response::new(host_firmware_config_response(row)))
 }
 
+pub(crate) async fn delete_host_firmware_config(
+    api: &Api,
+    request: Request<rpc::DeleteHostFirmwareConfigRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let request = request.into_inner();
+    let vendor = parse_vendor(&request.vendor)?.to_pascalcase();
+    let model = parse_host_firmware_config_model(&request.model)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    db::host_firmware_config::lock_for_update(&mut txn, &vendor, &model).await?;
+    db::host_firmware_config::delete(&mut txn, &vendor, &model).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
 fn format_upsert_host_firmware_config_request_redacted(
     request: &rpc::UpsertHostFirmwareConfigRequest,
 ) -> String {
@@ -239,13 +259,7 @@ impl FirmwareEntryPatch {
 impl HostFirmwareConfigPatch {
     fn from_request(request: &rpc::UpsertHostFirmwareConfigRequest) -> Result<Self, CarbideError> {
         let vendor = parse_vendor(&request.vendor)?;
-        let model = request.model.trim();
-        if model.is_empty() {
-            return Err(CarbideError::InvalidArgument(
-                "model is required".to_string(),
-            ));
-        }
-        let model = model.to_string();
+        let model = parse_host_firmware_config_model(&request.model)?;
 
         let ordering = request
             .ordering
@@ -450,6 +464,16 @@ fn validate_host_firmware_config(firmware: &Firmware) -> Result<(), CarbideError
     }
 
     Ok(())
+}
+
+fn parse_host_firmware_config_model(model: &str) -> Result<String, CarbideError> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "model is required".to_string(),
+        ));
+    }
+    Ok(model.to_string())
 }
 
 fn parse_vendor(vendor: &str) -> Result<bmc_vendor::BMCVendor, CarbideError> {
@@ -749,6 +773,9 @@ fn host_firmware_version_config_response(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+
     use super::*;
 
     #[test]
@@ -795,6 +822,21 @@ mod tests {
                 FirmwareComponentType::Cx7,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn parse_host_firmware_config_model_trims_and_rejects_empty_values() {
+        scenarios!(run = |input| parse_host_firmware_config_model(input).map_err(drop);
+            "valid models" {
+                "DGXH100" => Yields("DGXH100".to_string()),
+                " dgxh100 " => Yields("dgxh100".to_string()),
+            }
+
+            "invalid models" {
+                "" => Fails,
+                "   " => Fails,
+            }
         );
     }
 

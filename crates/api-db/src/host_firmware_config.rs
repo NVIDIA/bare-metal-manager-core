@@ -104,6 +104,31 @@ pub async fn get(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+pub async fn delete(txn: &mut PgConnection, vendor: &str, model: &str) -> DatabaseResult<()> {
+    let query = r#"
+        DELETE FROM host_firmware_config
+        WHERE vendor = $1 AND lower(model) = lower($2)
+    "#;
+
+    let result = sqlx::query(query)
+        .bind(vendor)
+        .bind(model)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match result.rows_affected() {
+        1 => Ok(()),
+        0 => Err(DatabaseError::NotFoundError {
+            kind: "host_firmware_config",
+            id: format!("{vendor}/{model}"),
+        }),
+        rows => Err(DatabaseError::Internal {
+            message: format!("deleted {rows} host_firmware_config rows for {vendor}/{model}"),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -162,6 +187,37 @@ mod tests {
             .get(&FirmwareComponentType::Cx7)
             .expect("cx7 component");
         assert_eq!(cx7.known_firmware[0].version, "28.47.2682");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn delete_removes_existing_row_case_insensitively(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        super::upsert(&mut txn, &test_config("28.47.2682")).await?;
+
+        super::delete(&mut txn, "Nvidia", "dgxh100").await?;
+
+        let stored = super::get(&mut txn, "Nvidia", "DGXH100").await?;
+        assert!(stored.is_none());
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn delete_returns_not_found_when_row_does_not_exist(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let error = super::delete(&mut txn, "Nvidia", "DGXH100")
+            .await
+            .expect_err("missing row should fail");
+
+        assert!(matches!(error, crate::DatabaseError::NotFoundError { .. }));
 
         Ok(())
     }
