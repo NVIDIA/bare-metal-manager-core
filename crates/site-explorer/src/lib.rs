@@ -40,6 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
@@ -62,11 +63,13 @@ use tracing::Instrument;
 use version_compare::Cmp;
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
+mod endpoint_lock;
+pub use endpoint_lock::{EndpointExplorationGuard, EndpointExplorationLocks};
 mod credentials;
 mod metrics;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-pub use metrics::SiteExplorationMetrics;
+pub use metrics::{SiteExplorationMetrics, site_explorer_latency_histogram_view};
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
@@ -286,6 +289,8 @@ pub struct SiteExplorer {
     endpoint_explorer: Arc<dyn EndpointExplorer>,
     firmware_config: Arc<FirmwareConfig>,
     work_lock_manager_handle: WorkLockManagerHandle,
+    /// Per-endpoint, in-process exploration locks shared with the API's ad-hoc refresh handler.
+    endpoint_exploration_locks: EndpointExplorationLocks,
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
@@ -305,6 +310,7 @@ impl SiteExplorer {
         firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        endpoint_exploration_locks: EndpointExplorationLocks,
         rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
@@ -342,6 +348,7 @@ impl SiteExplorer {
             endpoint_explorer,
             firmware_config,
             work_lock_manager_handle,
+            endpoint_exploration_locks,
             boot_order_tracker: BootOrderTracker::default(),
         }
     }
@@ -2152,6 +2159,7 @@ impl SiteExplorer {
         let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
+            let endpoint_exploration_locks = self.endpoint_exploration_locks.clone();
             let concurrency_limiter = concurrency_limiter.clone();
 
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
@@ -2174,13 +2182,29 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
+                    // If an ad-hoc refresh or another periodic task is already exploring this
+                    // endpoint, skip it for this iteration.
+                    let _endpoint_guard =
+                        match endpoint_exploration_locks.try_claim(endpoint.address) {
+                            Some(guard) => guard,
+                            None => {
+                                tracing::info!(
+                                    address = %endpoint.address,
+                                    "Skipping periodic endpoint exploration; endpoint already in progress"
+                                );
+                                return Ok(None);
+                            }
+                        };
+
                     let redfish_explore_start = Instant::now();
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.last_explored.and_then(|e| e.report.last_exploration_error.as_ref()),
+                            endpoint
+                                .last_explored
+                                .and_then(|e| e.report.last_exploration_error.as_ref()),
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
@@ -2193,13 +2217,33 @@ impl SiteExplorer {
                             &database_connection,
                             &endpoint.address.to_string(),
                         )
-                            .await
+                        .await
                         {
-                            Ok(state) if !state.is_empty() => format!(" (state: {state})"),
-                            _ => String::new(),
+                            Ok(state) if !state.is_empty() => Some(state),
+                            _ => None,
                         };
                         steps.failure_context_load = Some(failure_context_load_start.elapsed());
-                        tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
+                        let schema = error.operator_error_schema();
+                        if let Some(machine_state) = machine_state.as_deref() {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                machine_state,
+                                "Failed to explore endpoint"
+                            );
+                        } else {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                "Failed to explore endpoint"
+                            );
+                        }
                     }
 
                     if let Ok(report) = &mut result {
@@ -2215,7 +2259,7 @@ impl SiteExplorer {
                         steps,
                     }))
                 }
-                    .in_current_span(),
+                .in_current_span(),
             );
         }
 

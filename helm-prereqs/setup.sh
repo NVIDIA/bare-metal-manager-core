@@ -435,7 +435,7 @@ else
         -f "${_CORE_VALUES_ARG}"
         --set-string "global.image.repository=${NICO_IMAGE_REGISTRY}/nvmetal-carbide"
         --set-string "global.image.tag=${NICO_CORE_IMAGE_TAG}"
-        --timeout 300s --wait
+        --timeout 600s --wait
     )
     _NICO_CORE_CMD_DISPLAY=""
     for _arg in "${NICO_CORE_CMD[@]}"; do

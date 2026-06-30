@@ -598,6 +598,8 @@ impl InternalRBACRules {
             "GetDesiredFirmwareVersions",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
+        x.perm("UpsertHostFirmwareConfig", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteHostFirmwareConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateSku", vec![ForgeAdminCLI]);
         x.perm("GenerateSkuFromMachine", vec![ForgeAdminCLI]);
         x.perm("AssignSkuToMachine", vec![ForgeAdminCLI]);

@@ -1251,6 +1251,22 @@ mod tests {
     }
 
     #[test]
+    fn static_ipxe_menu_uses_the_dhcp_pxe_http_endpoint() {
+        for path in ["whoami", "boot?buildarch=${buildarch}"] {
+            assert!(
+                STATIC_IPXE_MENU_TEMPLATE
+                    .contains(&format!("http://${{next-server}}/api/v0/pxe/{path}")),
+                "static iPXE menu should use next-server over the standard HTTP port for {path}"
+            );
+        }
+
+        assert!(
+            !STATIC_IPXE_MENU_TEMPLATE.contains("${next-server}:8080"),
+            "static iPXE menu should not use the PXE container's internal port"
+        );
+    }
+
+    #[test]
     fn test_get_template_by_name() {
         let renderer = DefaultIpxeScriptRenderer::new();
 

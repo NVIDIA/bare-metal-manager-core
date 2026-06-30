@@ -504,7 +504,9 @@ impl<'c> oauth2::AsyncHttpClient<'c> for AsyncRequestHandlerWithTimeouts<'_> {
     type Future =
         Pin<Box<dyn Future<Output = Result<http::Response<Vec<u8>>, Self::Error>> + Send + 'c>>;
 
-    fn call(&'c self, request: HttpRequest) -> Self::Future {
+    fn call(&'c self, mut request: HttpRequest) -> Self::Future {
+        // Inject the issuing span's W3C trace context into the outgoing OAuth2 request (#2438).
+        trace_propagation::inject_current_context(request.headers_mut());
         Box::pin(async move {
             let response = self.client.execute(request.try_into()?).await?;
             let mut result = http::Response::builder().status(response.status());

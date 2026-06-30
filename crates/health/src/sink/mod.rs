@@ -185,6 +185,7 @@ mod tests {
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
+                driver_version: None,
             })),
             rack_id: None,
         };
@@ -257,6 +258,7 @@ mod tests {
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
+                driver_version: None,
             })),
             rack_id: None,
         };
@@ -312,6 +314,7 @@ mod tests {
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
+                driver_version: None,
             })),
             rack_id: None,
         };

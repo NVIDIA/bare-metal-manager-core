@@ -92,6 +92,19 @@ pub mod test_support {
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
         >,
+        submitted_configure_switch_certificate_requests:
+            Arc<Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>>,
+        queued_configure_switch_certificate_responses:
+            Arc<Mutex<VecDeque<Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>>>>,
+        submitted_get_configure_switch_certificate_job_status_requests:
+            Arc<Mutex<Vec<rms::GetConfigureSwitchCertificateJobStatusRequest>>>,
+        queued_get_configure_switch_certificate_job_status_responses: Arc<
+            Mutex<
+                VecDeque<
+                    Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError>,
+                >,
+            >,
+        >,
         submitted_batch_set_scale_up_fabric_state_requests:
             Arc<Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>>,
         queued_batch_set_scale_up_fabric_state_responses:
@@ -134,6 +147,16 @@ pub mod test_support {
                     Vec::new(),
                 )),
                 queued_configure_scale_up_fabric_manager_responses: Arc::new(Mutex::new(
+                    VecDeque::new(),
+                )),
+                submitted_configure_switch_certificate_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_configure_switch_certificate_responses: Arc::new(
+                    Mutex::new(VecDeque::new()),
+                ),
+                submitted_get_configure_switch_certificate_job_status_requests: Arc::new(
+                    Mutex::new(Vec::new()),
+                ),
+                queued_get_configure_switch_certificate_job_status_responses: Arc::new(Mutex::new(
                     VecDeque::new(),
                 )),
                 submitted_batch_set_scale_up_fabric_state_requests: Arc::new(
@@ -210,6 +233,18 @@ pub mod test_support {
                     .clone(),
                 queued_configure_scale_up_fabric_manager_responses: self
                     .queued_configure_scale_up_fabric_manager_responses
+                    .clone(),
+                submitted_configure_switch_certificate_requests: self
+                    .submitted_configure_switch_certificate_requests
+                    .clone(),
+                queued_configure_switch_certificate_responses: self
+                    .queued_configure_switch_certificate_responses
+                    .clone(),
+                submitted_get_configure_switch_certificate_job_status_requests: self
+                    .submitted_get_configure_switch_certificate_job_status_requests
+                    .clone(),
+                queued_get_configure_switch_certificate_job_status_responses: self
+                    .queued_get_configure_switch_certificate_job_status_responses
                     .clone(),
                 submitted_batch_set_scale_up_fabric_state_requests: self
                     .submitted_batch_set_scale_up_fabric_state_requests
@@ -413,6 +448,44 @@ pub mod test_support {
                 .clone()
         }
 
+        pub async fn queue_configure_switch_certificate_response(
+            &self,
+            response: Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>,
+        ) {
+            self.queued_configure_switch_certificate_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        pub async fn submitted_configure_switch_certificate_requests(
+            &self,
+        ) -> Vec<rms::ConfigureSwitchCertificateRequest> {
+            self.submitted_configure_switch_certificate_requests
+                .lock()
+                .await
+                .clone()
+        }
+
+        pub async fn queue_get_configure_switch_certificate_job_status_response(
+            &self,
+            response: Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError>,
+        ) {
+            self.queued_get_configure_switch_certificate_job_status_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        pub async fn submitted_get_configure_switch_certificate_job_status_requests(
+            &self,
+        ) -> Vec<rms::GetConfigureSwitchCertificateJobStatusRequest> {
+            self.submitted_get_configure_switch_certificate_job_status_requests
+                .lock()
+                .await
+                .clone()
+        }
+
         pub async fn queue_batch_set_scale_up_fabric_state_response(
             &self,
             response: Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>,
@@ -512,6 +585,19 @@ pub mod test_support {
             Arc<Mutex<Vec<rms::ConfigureScaleUpFabricManagerRequest>>>,
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
+        >,
+        submitted_configure_switch_certificate_requests:
+            Arc<Mutex<Vec<rms::ConfigureSwitchCertificateRequest>>>,
+        queued_configure_switch_certificate_responses:
+            Arc<Mutex<VecDeque<Result<rms::ConfigureSwitchCertificateResponse, RackManagerError>>>>,
+        submitted_get_configure_switch_certificate_job_status_requests:
+            Arc<Mutex<Vec<rms::GetConfigureSwitchCertificateJobStatusRequest>>>,
+        queued_get_configure_switch_certificate_job_status_responses: Arc<
+            Mutex<
+                VecDeque<
+                    Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError>,
+                >,
+            >,
         >,
         submitted_batch_set_scale_up_fabric_state_requests:
             Arc<Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>>,
@@ -921,6 +1007,44 @@ pub mod test_support {
                 .await
                 .pop_front()
                 .unwrap_or(Ok(rms::ConfigureScaleUpFabricManagerResponse::default()))
+        }
+        async fn configure_switch_certificate(
+            &self,
+            cmd: rms::ConfigureSwitchCertificateRequest,
+        ) -> Result<rms::ConfigureSwitchCertificateResponse, RackManagerError> {
+            self.submitted_configure_switch_certificate_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_configure_switch_certificate_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::ConfigureSwitchCertificateResponse {
+                    response: Some(rms::NodeBatchResponse {
+                        status: rms::ReturnCode::Success as i32,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }))
+        }
+        async fn get_configure_switch_certificate_job_status(
+            &self,
+            cmd: rms::GetConfigureSwitchCertificateJobStatusRequest,
+        ) -> Result<rms::GetConfigureSwitchCertificateJobStatusResponse, RackManagerError> {
+            self.submitted_get_configure_switch_certificate_job_status_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_get_configure_switch_certificate_job_status_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::GetConfigureSwitchCertificateJobStatusResponse {
+                    status: rms::ReturnCode::Success as i32,
+                    state: "running".to_string(),
+                    ..Default::default()
+                }))
         }
         async fn batch_set_scale_up_fabric_state(
             &self,

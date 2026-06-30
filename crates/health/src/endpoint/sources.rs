@@ -128,6 +128,13 @@ impl StaticEndpointSource {
                         },
                     );
 
+                let driver_version = machine
+                    .driver_version
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|driver_version| !driver_version.is_empty())
+                    .map(str::to_string);
+
                 match machine_id.parse() {
                     Ok(machine_id) => Some(EndpointMetadata::Machine(MachineData {
                         machine_id,
@@ -135,6 +142,7 @@ impl StaticEndpointSource {
                         slot_number: machine.slot_number,
                         tray_index: machine.tray_index,
                         nvlink_domain_uuid,
+                        driver_version,
                     })),
                     Err(error) => {
                         tracing::warn!(
@@ -392,6 +400,7 @@ mod tests {
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some("00000000-0000-0000-0000-000000000000".to_string()),
+                driver_version: Some(" 570.82 ".to_string()),
             }),
             power_shelf: None,
             switch: None,
@@ -416,6 +425,40 @@ mod tests {
                 assert_eq!(machine.slot_number, Some(15));
                 assert_eq!(machine.tray_index, Some(5));
                 assert_eq!(machine.nvlink_domain_uuid, Some(domain_uuid));
+                assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
+            }
+            other => panic!("expected Machine metadata, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_static_machine_endpoint_omits_empty_driver_version() {
+        let configs = vec![StaticBmcEndpoint {
+            ip: ip("10.0.1.3"),
+            port: Some(443),
+            mac: "11:22:33:44:55:12".to_string(),
+            username: "admin".to_string(),
+            password: Some("pass".to_string()),
+            machine: Some(StaticMachineEndpoint {
+                id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
+                serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+                driver_version: Some("  ".to_string()),
+            }),
+            power_shelf: None,
+            switch: None,
+            rack_id: None,
+        }];
+
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let endpoints = source.fetch_bmc_hosts().await.unwrap();
+
+        assert_eq!(endpoints.len(), 1);
+        match &endpoints[0].metadata {
+            Some(EndpointMetadata::Machine(machine)) => {
+                assert_eq!(machine.driver_version, None);
             }
             other => panic!("expected Machine metadata, got {other:?}"),
         }

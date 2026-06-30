@@ -92,15 +92,41 @@ impl EndpointMetadata {
             EndpointMetadata::Switch(switch) => Some(switch.serial.as_str()),
         }
     }
+
+    /// Returns the PHR component category represented by this endpoint metadata.
+    pub const fn component_type(&self) -> &'static str {
+        match self {
+            Self::Machine(_) => "compute_node",
+            Self::PowerShelf(_) => "power_shelf",
+            Self::Switch(_) => "nvlink_switch",
+        }
+    }
 }
 
+/// Metadata that describes a machine endpoint for health telemetry.
 #[derive(Clone, Debug)]
 pub struct MachineData {
+    /// Stable NICo machine identifier.
     pub machine_id: MachineId,
+
+    /// Hardware chassis serial discovered from machine DMI data, when known.
     pub machine_serial: Option<String>,
+
+    /// Physical rack slot where the machine is installed, when known.
     pub slot_number: Option<i32>,
+
+    /// Compute tray index where the machine is installed, when known.
     pub tray_index: Option<i32>,
+
+    /// NVLink domain UUID for the machine, when it participates in an NVLink domain.
     pub nvlink_domain_uuid: Option<NvLinkDomainId>,
+
+    /// Machine-level GPU driver version.
+    ///
+    /// This is populated only when API discovery reports exactly one unique
+    /// non-empty GPU driver version for the machine. It stays absent when the
+    /// version is unknown or the discovered GPUs report conflicting versions.
+    pub driver_version: Option<String>,
 }
 
 #[derive(Clone, Debug)]

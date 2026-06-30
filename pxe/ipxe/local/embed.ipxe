@@ -19,12 +19,14 @@ ifconf -c dhcp
 # X-Forwarded-For when proxied, TCP socket peer otherwise) and resolves
 # to a machine_interface_id via find_by_ip. iPXE doesn't need to encode
 # anything identity-related in the URL -- the network layer carries it.
-time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami
+# next-server is an IPv4 address from DHCP, so use the standard HTTP port
+# exposed by the PXE service instead of the container's internal port.
+time chain --autofree http://${next-server}/api/v0/pxe/whoami
 goto nico_menu
 
 :nico
 ifconf -c dhcp
-time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
+time chain --autofree http://${next-server}/api/v0/pxe/boot?buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
 
 :nico_menu
 menu NICo - ${hostname}

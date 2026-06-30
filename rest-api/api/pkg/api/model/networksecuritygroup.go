@@ -11,6 +11,7 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+	"github.com/google/uuid"
 
 	hutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
@@ -122,6 +123,8 @@ var (
 
 // APINetworkSecurityGroupCreateRequest is the data structure to capture instance request to create a new NetworkSecurityGroup
 type APINetworkSecurityGroupCreateRequest struct {
+	// ID is the optional user-specified UUID of the NetworkSecurityGroup
+	ID *uuid.UUID `json:"id"`
 	// Name is the name of the NetworkSecurityGroup
 	Name string `json:"name"`
 	// Description is the description of the NetworkSecurityGroup

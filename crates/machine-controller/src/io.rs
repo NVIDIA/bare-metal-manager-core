@@ -22,6 +22,7 @@ use config_version::{ConfigVersion, Versioned};
 use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
+use model::dpa_interface::DpaSearchConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
@@ -100,8 +101,13 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
+            let dpa_search_config = DpaSearchConfig {
+                only_svpc: false,
+                only_astra: false,
+            };
             let dpa_snapshots =
-                db::dpa_interface::find_by_machine_id(&mut *txn, *machine_id).await?;
+                db::dpa_interface::find_by_machine_id(&mut *txn, *machine_id, dpa_search_config)
+                    .await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 

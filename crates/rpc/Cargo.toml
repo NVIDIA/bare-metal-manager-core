@@ -44,6 +44,7 @@ carbide-api-model = { path = "../api-model", optional = true }
 carbide-http-connector = { path = "../http-connector" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-tls = { path = "../tls" }
+trace-propagation = { path = "../trace-propagation" }
 carbide-health-report = { path = "../health-report" }
 carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-measured-boot = { path = "../measured-boot", default-features = false }

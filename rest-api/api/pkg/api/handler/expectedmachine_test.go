@@ -2172,6 +2172,83 @@ func TestCreateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	}
 }
 
+func TestCreateExpectedMachineHandler_DpfEnabledForwardedToWorkflow(t *testing.T) {
+	e := echo.New()
+	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site := testExpectedMachineSetupTestData(t, dbSession, org)
+
+	var capturedRequest *cwssaws.ExpectedMachine
+	mockTemporalClient := &tmocks.Client{}
+	mockWorkflowRun := &tmocks.WorkflowRun{}
+	mockWorkflowRun.On("GetID").Return("test-workflow-id")
+	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
+	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateExpectedMachine", mock.Anything).
+		Run(func(args mock.Arguments) {
+			if req, ok := args.Get(3).(*cwssaws.ExpectedMachine); ok {
+				capturedRequest = req
+			}
+		}).
+		Return(mockWorkflowRun, nil)
+	scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+	handler := NewCreateExpectedMachineHandler(dbSession, scp, cfg)
+
+	rawBody := map[string]interface{}{
+		"siteId":              site.ID.String(),
+		"bmcMacAddress":       "00:AA:BB:CC:DD:EF",
+		"chassisSerialNumber": "DPF-TEST-CHASSIS-001",
+		"isDpfEnabled":        false,
+	}
+	reqBody, err := json.Marshal(rawBody)
+	assert.Nil(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/v2/org/"+org+"/nico/expected-machine", bytes.NewReader(reqBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req = req.WithContext(context.Background())
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("user", &cdbm.User{
+		StarfleetID: cutil.GetPtr("test-user"),
+		OrgData: cdbm.OrgData{
+			org: cdbm.Org{
+				ID:          123,
+				Name:        org,
+				DisplayName: org,
+				OrgType:     "ENTERPRISE",
+				Roles:       []string{"FORGE_PROVIDER_ADMIN"},
+			},
+		},
+	})
+	c.SetParamNames("orgName")
+	c.SetParamValues(org)
+
+	err = handler.Handle(c)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusCreated, rec.Code, "Response: %s", rec.Body.String())
+
+	if assert.NotNil(t, capturedRequest, "workflow should have received a request") {
+		if assert.NotNil(t, capturedRequest.IsDpfEnabled) {
+			assert.False(t, *capturedRequest.IsDpfEnabled)
+		}
+		assert.False(t, capturedRequest.DpfEnabled)
+	}
+
+	var apiResponse model.APIExpectedMachine
+	err = json.Unmarshal(rec.Body.Bytes(), &apiResponse)
+	assert.Nil(t, err)
+	if assert.NotNil(t, apiResponse.IsDpfEnabled) {
+		assert.False(t, *apiResponse.IsDpfEnabled)
+	}
+}
+
 // TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow is a regression test for the
 // same spec / JSON struct tag mismatch bug described in
 // TestCreateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow, but for the PATCH

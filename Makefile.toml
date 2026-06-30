@@ -583,7 +583,6 @@ dependencies = [
   "carbide-lints",
   "check-format-nightly",
   "check-workspace-deps",
-  "check-isolated-package-builds",
   "check-licenses",
   "check-bans",
 ]

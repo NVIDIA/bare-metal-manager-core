@@ -1371,6 +1371,7 @@ pub async fn create_test_env_with_overrides(
     .await
     .expect("test component manager should build");
     let test_component_manager = Some(Arc::new(test_component_manager));
+    let fake_endpoint_explorer = MockEndpointExplorer::default();
 
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
@@ -1383,7 +1384,8 @@ pub async fn create_test_env_with_overrides(
     .with_nmxc_client_pool(nmxc_sim.clone())
     .with_metric_emitter(ApiMetricsEmitter::new(&test_meter.meter()))
     .with_redfish_pool(redfish_sim.clone())
-    .with_ib_fabric_manager(ib_fabric_manager.clone());
+    .with_ib_fabric_manager(ib_fabric_manager.clone())
+    .with_endpoint_explorer(fake_endpoint_explorer.clone());
 
     if let Some(rms_client) = rms_sim.as_rms_client() {
         api_builder = api_builder.with_rms_client(rms_client);
@@ -1421,6 +1423,9 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
+        rms_sim.as_rms_client(),
+        composite_manager.clone(),
+        config.rack_profiles.clone(),
         api.work_lock_manager_handle.clone(),
     );
 
@@ -1652,8 +1657,6 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build RackStateController");
 
-    let fake_endpoint_explorer = MockEndpointExplorer::default();
-
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
     // on its own. TestEnv's site_explorer is a separate instance talking to the same database that
     // *is* enabled, so it gets a different config. The purpose is so that tests can manually run
@@ -1687,10 +1690,11 @@ pub async fn create_test_env_with_overrides(
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
         test_meter.meter(),
-        Arc::new(fake_endpoint_explorer.clone()),
+        api.endpoint_explorer.clone(),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
+        api.endpoint_exploration_locks.clone(),
         site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
@@ -2261,6 +2265,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .instance
             .map(|instance| instance.dpu_extension_service_version),
         dpu_extension_services,
+        astra_config_status: None,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

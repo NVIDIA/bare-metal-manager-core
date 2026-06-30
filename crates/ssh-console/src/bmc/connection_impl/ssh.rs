@@ -392,8 +392,8 @@ async fn make_authenticated_client(
 }
 
 // Interact with the serial-on-lan console within the BMC ssh session, calling the vendor's serial
-// activation command (`connect com1`, etc) and ensuring we're in the serial console before
-// continuing.
+// activation command (`connect com1`, etc), falling back when needed, and ensuring we're in the
+// serial console before continuing.
 async fn trigger_and_await_sol_console(
     machine_id: MachineId,
     ssh_client_channel: &mut Channel<russh::client::Msg>,
@@ -439,12 +439,15 @@ async fn trigger_and_await_sol_console(
         })?;
 
     let mut prompt_buf: Vec<u8> = Vec::with_capacity(1024);
-    let timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     // After sending the activate command, wait for this much data to be read back (the command
     // itself echoing back, plus the prompt length) before continuing. (If we let the client use the
     // console before this, we get false positives about seeing a bmc prompt while we're supposed to
     // be in the console.)
-    let skip_data_read_len = bmc_prompt.len() + activate_command.len();
+    let mut skip_data_read_len = bmc_prompt.len() + activate_command.len();
+    let mut fallback_activate_sent = false;
+    let mut fallback_activate_commands: Option<&'static [&'static [u8]]> = None;
+    let mut next_fallback_command_index = 0;
 
     let mut activation_step = SerialConsoleActivationStep::WaitingForBmcPrompt;
     loop {
@@ -467,14 +470,12 @@ async fn trigger_and_await_sol_console(
                                 // We saw the prompt, send the serial activate command (`connect com1`,
                                 // etc) one byte at a time: This seems to work better with some
                                 // consoles.
-                                for byte in activate_command {
-                                    ssh_client_channel
-                                        .data([*byte].as_slice())
-                                        .await
-                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending serial activate command to BMC", error })?;
-                                }
-                                ssh_client_channel.data(b"\n".as_slice()).await
-                                    .map_err(|error| ConsoleActivateError::Request { phase: "sending data to BMC", error })?;
+                                send_command_bytewise(
+                                    ssh_client_channel,
+                                    activate_command,
+                                    "sending serial activate command to BMC",
+                                )
+                                .await?;
                                 activation_step = SerialConsoleActivationStep::ActivateSent;
                                 // Clear the prompt
                                 prompt_buf.clear();
@@ -486,7 +487,77 @@ async fn trigger_and_await_sol_console(
                         // get false positives about seeing a bmc prompt while we're supposed to be
                         // in the console.)
                         if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
-                            && prompt_buf.len() > skip_data_read_len {
+                            && let Some(fallback_commands) = bmc_vendor
+                                .fallback_serial_activate_commands_if_needed(
+                                    &prompt_buf,
+                                    fallback_activate_sent,
+                                )
+                        {
+                            tracing::info!(
+                                %machine_id,
+                                "Primary SOL activation failed, trying fallback"
+                            );
+                            fallback_activate_sent = true;
+                            fallback_activate_commands = Some(fallback_commands);
+                            next_fallback_command_index = 0;
+                            let fallback_command = fallback_commands[next_fallback_command_index];
+                            next_fallback_command_index += 1;
+                            skip_data_read_len = bmc_prompt.len() + fallback_command.len();
+                            timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                            send_command_bytewise(
+                                ssh_client_channel,
+                                fallback_command,
+                                "sending fallback serial activate command to BMC",
+                            )
+                            .await?;
+                            prompt_buf.clear();
+                        }
+
+                        if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
+                            && let Some(fallback_commands) = fallback_activate_commands
+                            && next_fallback_command_index < fallback_commands.len()
+                            && prompt_buf.len() > skip_data_read_len
+                            && prompt_buf.windows(bmc_prompt.len()).any(|window| window == bmc_prompt)
+                        {
+                            let fallback_command = fallback_commands[next_fallback_command_index];
+                            next_fallback_command_index += 1;
+                            skip_data_read_len = bmc_prompt.len() + fallback_command.len();
+                            timeout = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                            send_command_bytewise(
+                                ssh_client_channel,
+                                fallback_command,
+                                "sending fallback serial activate command to BMC",
+                            )
+                            .await?;
+                            prompt_buf.clear();
+                        }
+
+                        let waiting_for_fallback_prompt = fallback_activate_commands
+                            .is_some_and(|commands| next_fallback_command_index < commands.len());
+                        let fallback_sequence_complete = fallback_activate_commands
+                            .is_some_and(|commands| next_fallback_command_index == commands.len());
+                        let activation_output = if fallback_sequence_complete
+                            && let Some(fallback_commands) = fallback_activate_commands
+                        {
+                            let final_fallback_command = fallback_commands[fallback_commands.len() - 1];
+                            prompt_buf
+                                .windows(final_fallback_command.len())
+                                .rposition(|window| window == final_fallback_command)
+                                .map(|command_offset| &prompt_buf[command_offset..])
+                        } else {
+                            Some(prompt_buf.as_slice())
+                        };
+                        if matches!(activation_step, SerialConsoleActivationStep::ActivateSent)
+                            && !waiting_for_fallback_prompt
+                            && let Some(activation_output) = activation_output
+                            && !(fallback_sequence_complete
+                                && activation_output
+                                    .windows(bmc_prompt.len())
+                                    .any(|window| window == bmc_prompt))
+                            && bmc_vendor.should_accept_sol_activation_output(
+                                activation_output,
+                                skip_data_read_len,
+                            ) {
                             tracing::debug!(%machine_id, "confirmed serial activate command sent, letting client use console");
                             break;
                         }
@@ -535,6 +606,27 @@ fn russh_client_config() -> Arc<russh::client::Config> {
 enum SerialConsoleActivationStep {
     WaitingForBmcPrompt,
     ActivateSent,
+}
+
+async fn send_command_bytewise(
+    ssh_client_channel: &mut Channel<russh::client::Msg>,
+    command: &[u8],
+    phase: &'static str,
+) -> Result<(), ConsoleActivateError> {
+    for byte in command {
+        ssh_client_channel
+            .data([*byte].as_slice())
+            .await
+            .map_err(|error| ConsoleActivateError::Request { phase, error })?;
+    }
+    ssh_client_channel
+        .data(b"\n".as_slice())
+        .await
+        .map_err(|error| ConsoleActivateError::Request {
+            phase: "sending data to BMC",
+            error,
+        })?;
+    Ok(())
 }
 
 /// Returns `true` if `buf` contains the byte sequence `pat` anywhere

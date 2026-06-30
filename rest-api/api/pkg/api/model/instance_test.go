@@ -2532,16 +2532,40 @@ func TestAPIInstanceUpdateRequest_Validate_Auto(t *testing.T) {
 func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 	id := uuid.New()
 	ctrlID := uuid.New()
-	instance := &cdbm.Instance{ID: id, ControllerInstanceID: &ctrlID}
+	userID := uuid.New()
+	tenantID := uuid.New()
+	org := "test-tenant-org"
+	orgDisplayName := "Test Tenant Org"
+	dbUser := &cdbm.User{ID: userID}
+	instance := &cdbm.Instance{
+		ID:                   id,
+		ControllerInstanceID: &ctrlID,
+		Tenant: &cdbm.Tenant{
+			ID:             tenantID,
+			Org:            org,
+			OrgDisplayName: &orgDisplayName,
+		},
+	}
+
+	assertDeleteAttribution := func(t *testing.T, got *cwssaws.InstanceReleaseRequest) {
+		t.Helper()
+		require.NotNil(t, got.DeleteAttribution)
+		require.NotNil(t, got.DeleteAttribution.InitiatedBy)
+		assert.Equal(t, org, got.DeleteAttribution.InitiatedBy.Org)
+		assert.Equal(t, orgDisplayName, got.DeleteAttribution.InitiatedBy.OrgDisplayName)
+		assert.Equal(t, userID.String(), got.DeleteAttribution.InitiatedBy.UserId)
+		assert.Equal(t, tenantID.String(), got.DeleteAttribution.InitiatedBy.TenantId)
+	}
 
 	t.Run("empty request sources only the canonical ID", func(t *testing.T) {
 		req := APIInstanceDeleteRequest{}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, ctrlID.String(), got.Id.Value)
 		assert.Nil(t, got.Issue)
 		assert.Nil(t, got.IsRepairTenant)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("overlays MachineHealthIssue with summary and details", func(t *testing.T) {
@@ -2552,12 +2576,13 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 				Details:  cutil.GetPtr("port 0 returned link-down for 30 minutes"),
 			},
 		}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Issue)
 		assert.Equal(t, cwssaws.IssueCategory_HARDWARE, got.Issue.Category)
 		assert.Equal(t, "burnt out NIC", got.Issue.Summary)
 		assert.Equal(t, "port 0 returned link-down for 30 minutes", got.Issue.Details)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("MachineHealthIssue without optional pointers leaves Summary and Details empty", func(t *testing.T) {
@@ -2566,25 +2591,39 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 				Category: MachineIssueCategoryOther,
 			},
 		}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got.Issue)
 		assert.Equal(t, cwssaws.IssueCategory_OTHER, got.Issue.Category)
 		assert.Equal(t, "", got.Issue.Summary)
 		assert.Equal(t, "", got.Issue.Details)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("overlays IsRepairTenant when set", func(t *testing.T) {
 		req := APIInstanceDeleteRequest{IsRepairTenant: cutil.GetPtr(true)}
-		got := req.ToProto(instance)
+		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got.IsRepairTenant)
 		assert.True(t, *got.IsRepairTenant)
+		assertDeleteAttribution(t, got)
 	})
 
 	t.Run("uses Instance ID when ControllerInstanceID is nil", func(t *testing.T) {
-		bare := &cdbm.Instance{ID: id}
+		bare := &cdbm.Instance{
+			ID: id,
+			Tenant: &cdbm.Tenant{
+				ID:  tenantID,
+				Org: org,
+			},
+		}
 		req := APIInstanceDeleteRequest{}
-		got := req.ToProto(bare)
+		got := req.ToProto(bare, dbUser)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.DeleteAttribution)
+		require.NotNil(t, got.DeleteAttribution.InitiatedBy)
+		assert.Equal(t, org, got.DeleteAttribution.InitiatedBy.Org)
+		assert.Equal(t, "", got.DeleteAttribution.InitiatedBy.OrgDisplayName)
+		assert.Equal(t, userID.String(), got.DeleteAttribution.InitiatedBy.UserId)
+		assert.Equal(t, tenantID.String(), got.DeleteAttribution.InitiatedBy.TenantId)
 	})
 }

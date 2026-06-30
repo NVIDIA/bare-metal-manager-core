@@ -1620,6 +1620,10 @@ impl CarbideConfig {
             max_concurrent_bfb_copies: self.firmware_global.max_concurrent_bfb_copies,
             autoupdate: self.firmware_global.autoupdate,
             no_reset_retries: self.firmware_global.no_reset_retries,
+            firmware_download_cache_directory: self
+                .firmware_global
+                .firmware_download_cache_directory
+                .clone(),
             firmware: self.get_firmware_config(),
         }
     }

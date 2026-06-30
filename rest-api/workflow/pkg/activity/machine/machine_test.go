@@ -1058,7 +1058,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.NotEqual(t, emis1[0].ID, mi1.ID)
 
 				// Machine 1 should have 5 capabilities (1 CPU, 3 Network, 2 Memory, 3 Storage, 1 GPU, 1 InfiniBand, 1 DPU)
-				// Carbide will report memory even when it can't determine the capacity.
+				// NICo will report memory even when it can't determine the capacity.
 				// This is slightly different from Cloud originally, which would track UNKNOWN name but skip unknown capacity.
 				mcDAO := cdbm.NewMachineCapabilityDAO(mm.dbSession)
 				mc1s, mc1Total, serr := mcDAO.GetAll(tt.args.ctx, nil, []string{um1.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

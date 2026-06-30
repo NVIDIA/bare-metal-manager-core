@@ -22,7 +22,8 @@ use std::string::String;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue, USER_AGENT};
-use reqwest::{Client as HttpClient, ClientBuilder, Method, StatusCode};
+use reqwest::{ClientBuilder, Method, StatusCode};
+use reqwest_middleware::ClientWithMiddleware as HttpClient;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::debug;
@@ -35,7 +36,10 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(thiserror::Error, Debug)]
 pub enum NmxmApiError {
     #[error("Network error talking to NMX-M server at {url}. {source}")]
-    NetworkError { url: String, source: reqwest::Error },
+    NetworkError {
+        url: String,
+        source: reqwest_middleware::Error,
+    },
 
     #[error("HTTP {status_code} at {url}: {response_body}")]
     HTTPErrorCode {
@@ -119,6 +123,12 @@ impl NmxmClientPoolBuilder {
             .danger_accept_invalid_certs(self.accept_invalid_certs)
             .timeout(self.timeout)
             .build()?;
+
+        // The `reqwest-tracing` middleware injects the current span's W3C trace context into every
+        // outgoing request (#2438).
+        let client = reqwest_middleware::ClientBuilder::new(client)
+            .with(reqwest_tracing::TracingMiddleware::default())
+            .build();
 
         let pool = NmxmClientPool { client };
 
