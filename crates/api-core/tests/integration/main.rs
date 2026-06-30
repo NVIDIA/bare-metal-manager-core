@@ -22,6 +22,7 @@ mod explored_managed_host_find;
 mod explored_mlx_devices;
 mod find_by_ids_guards;
 mod ib_fabric_find;
+mod machine_bmc_metadata;
 mod network_device;
 mod nvlink_domain_health;
 mod power_shelf_find;

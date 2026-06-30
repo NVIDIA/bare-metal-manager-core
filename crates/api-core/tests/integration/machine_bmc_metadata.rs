@@ -16,12 +16,13 @@
  */
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use common::api_fixtures::{create_managed_host_with_config, create_test_env};
-use rpc::forge::forge_server::Forge;
-use sqlx::PgPool;
-
-use crate::tests::common;
+use carbide_secrets::credentials::Credentials;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
+use model::test_support::ManagedHostConfig;
 
 #[test]
 fn bmc_info_accepts_ipv6_from_proto() {
@@ -45,14 +46,37 @@ fn bmc_info_rejects_invalid_proto_ip() {
     assert!(err.to_string().contains("Invalid BMC IP"));
 }
 
-#[crate::sqlx_test]
-async fn fetch_bmc_credentials(pool: PgPool) {
-    let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let host_bmc_mac = host_config.bmc_mac_address;
-    let mh = create_managed_host_with_config(&env, host_config).await;
+async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
+    let host_config = ManagedHostConfig::default();
+    let env = TestHarness::builder(pool)
+        .with_api_builder_fn(|builder| {
+            builder.with_credential_manager(Arc::new(TestCredentialManager::new(
+                Credentials::UsernamePassword {
+                    username: "root".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )))
+        })
+        .build()
+        .await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (mh, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(host_config)
+        .build()
+        .await;
+    (env, mh)
+}
 
-    let host_machine = mh.host().rpc_machine().await;
+#[sqlx_test]
+async fn fetch_bmc_credentials(pool: PgPool) {
+    let (env, mh) = init(pool).await;
+    let host_bmc_mac = mh.host.bmc_mac;
+    let host_machine = mh.host.rpc_machine().await;
     let bmc_info = host_machine.bmc_info.clone().unwrap();
     assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
@@ -78,7 +102,7 @@ async fn fetch_bmc_credentials(pool: PgPool) {
     {
         tracing::info!("Looking up credentials for {:?}", request);
         let metadata = env
-            .api
+            .api()
             .get_bmc_meta_data(tonic::Request::new(request))
             .await
             .unwrap()
@@ -92,19 +116,16 @@ async fn fetch_bmc_credentials(pool: PgPool) {
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_fetch_ipmi_metadata(pool: PgPool) {
-    let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let host_bmc_mac = host_config.bmc_mac_address;
-    let mh = create_managed_host_with_config(&env, host_config).await;
-
-    let host_machine = mh.host().rpc_machine().await;
+    let (env, mh) = init(pool).await;
+    let host_bmc_mac = mh.host.bmc_mac;
+    let host_machine = mh.host.rpc_machine().await;
     let bmc_info = host_machine.bmc_info.clone().unwrap();
     assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
     let metadata = env
-        .api
+        .api()
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
             machine_id: host_machine.id,
             request_type: rpc::forge::BmcRequestType::Ipmi.into(),
@@ -122,28 +143,27 @@ async fn test_fetch_ipmi_metadata(pool: PgPool) {
     assert!(metadata.vendor.is_some_and(|v| !v.is_empty()));
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_fetch_ipmi_metadata_null_vendor(pool: PgPool) {
-    let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
-    let host_bmc_mac = host_config.bmc_mac_address;
-    let mh = create_managed_host_with_config(&env, host_config).await;
-
-    let host_machine = mh.host().rpc_machine().await;
+    let (env, mh) = init(pool).await;
+    let host_bmc_mac = mh.host.bmc_mac;
+    let host_machine = mh.host.rpc_machine().await;
     let bmc_info = host_machine.bmc_info.clone().unwrap();
     assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
 
     // Set the Vendor to a null string to test handling
     let query = "UPDATE explored_endpoints SET exploration_report = jsonb_set(exploration_report, '{Vendor}', 'null'::jsonb) WHERE address = $1";
+    let mut txn = env.db_txn().await;
     sqlx::query(query)
         .bind(IpAddr::from_str(&host_bmc_ip).expect("invalid host IP"))
-        .execute(&env.pool)
+        .execute(txn.as_mut())
         .await
         .unwrap();
+    txn.commit().await.unwrap();
 
     let metadata = env
-        .api
+        .api()
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
             machine_id: host_machine.id,
             request_type: rpc::forge::BmcRequestType::Ipmi.into(),
