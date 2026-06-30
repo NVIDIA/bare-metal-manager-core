@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use ::rpc::Timestamp;
@@ -24,7 +23,7 @@ use carbide_uuid::vpc::VpcId;
 use crate::config::MachineATronContext;
 use crate::tui::{UiUpdate, VpcDetails};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Vpc {
     pub vpc_id: VpcId,
     pub app_context: Arc<MachineATronContext>,

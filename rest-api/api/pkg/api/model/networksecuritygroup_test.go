@@ -240,7 +240,7 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APINetworkSecurityGroupCreateRequest{Name: "test", Description: cutil.GetPtr("test"), SiteID: uuid.New().String(), StatefulEgress: true, Rules: rules},
+			obj:       APINetworkSecurityGroupCreateRequest{ID: cutil.GetPtr(uuid.New()), Name: "test", Description: cutil.GetPtr("test"), SiteID: uuid.New().String(), StatefulEgress: true, Rules: rules},
 			expectErr: false,
 		},
 		{
@@ -474,11 +474,13 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate_RuleErrors(t *testing.T) 
 func TestAPINetworkSecurityGroupCreateRequest_ToProto(t *testing.T) {
 	// Build a request and the corresponding (just-persisted) DB
 	// record. The DB record provides the canonical Metadata; the
-	// request-shape ToProto sources rules / statefulEgress / id from
-	// the request and the wire envelope (Metadata) from the entity.
+	// request-shape ToProto sources rules / statefulEgress from the
+	// request and the wire envelope (ID / Metadata) from the entity.
 	siteID := uuid.New()
 	tenantID := uuid.New()
+	requestedID := uuid.New()
 	req := APINetworkSecurityGroupCreateRequest{
+		ID:             &requestedID,
 		Name:           "test-nsg",
 		Description:    cutil.GetPtr("desc"),
 		SiteID:         siteID.String(),
@@ -498,7 +500,7 @@ func TestAPINetworkSecurityGroupCreateRequest_ToProto(t *testing.T) {
 	require.NoError(t, req.Validate(nil))
 
 	nsg := &cdbm.NetworkSecurityGroup{
-		ID:             uuid.NewString(),
+		ID:             requestedID.String(),
 		Name:           req.Name,
 		Description:    req.Description,
 		SiteID:         siteID,
@@ -510,7 +512,7 @@ func TestAPINetworkSecurityGroupCreateRequest_ToProto(t *testing.T) {
 
 	got := req.ToProto(nsg)
 	require.NotNil(t, got)
-	assert.Equal(t, nsg.ID, *got.Id)
+	assert.Equal(t, requestedID.String(), *got.Id)
 	assert.Equal(t, "tenant-org", got.TenantOrganizationId)
 	require.NotNil(t, got.Metadata)
 	assert.Equal(t, req.Name, got.Metadata.Name)

@@ -129,6 +129,7 @@ A site can also control the catalog selection behavior:
 enabled = true
 test_selection_mode = "Default"
 run_interval = "60s"
+stale_run_timeout = "24h"
 tests = [
   { id = "CudaSample", enable = true },
 ]
@@ -139,6 +140,7 @@ tests = [
 | `enabled` | Enables or disables Machine Validation for the site. |
 | `test_selection_mode` | Controls how configured tests are selected. `Default` uses the catalog and per-test settings, `EnableAll` enables all configured tests, and `DisableAll` disables all configured tests. |
 | `run_interval` | Controls how often the controller processes pending validation work. |
+| `stale_run_timeout` | Grace period before an active validation run is considered stale. The default is `24h`; configured values below `90s` are raised to `90s` so healthy runs are not failed between Scout heartbeats. |
 | `tests` | Optional per-test overrides. Use the test identifiers reported by `tests show` for the running site. |
 
 ## External Configuration
@@ -287,6 +289,45 @@ Tests can also declare output file locations with `--extra-output-file` and
 `--extra-err-file` when a command writes important diagnostics outside stdout or
 stderr. Keep those outputs concise. Scout records command output for result
 review, but Machine Validation is not a replacement for long-term log storage.
+
+## Run Tracking and Stale Recovery
+
+Machine Validation tracks active work at two levels:
+
+- Run items show which tests were selected for a validation run.
+- Attempts show each execution of a selected test, including state, timing, exit
+  code, and output summaries.
+
+Scout sends heartbeats while tests are running. The controller uses the latest
+heartbeat to find work that stopped making progress. If a record has no
+heartbeat, the controller falls back to the run start time, expected duration,
+and `stale_run_timeout`.
+
+When stale work is found, the controller fails the validation and records the
+normal failed-validation health alert. This keeps a machine from staying stuck
+in an active validation state after Scout stops reporting.
+
+Operators can monitor this behavior with:
+
+| Metric | Meaning |
+| --- | --- |
+| `carbide_machine_validation_oldest_active_age_seconds` | Age of the oldest active validation run. |
+| `carbide_machine_validation_stale_runs_count` | Number of active validation runs considered stale in the latest reconciliation pass. |
+
+## Database Changes and Upgrades
+
+Recent Machine Validation reliability work introduced database schema changes
+for execution tracking and stale recovery:
+
+| Area | Database change |
+| --- | --- |
+| Execution tracking | Adds `machine_validation_run_items` and `machine_validation_attempts` tables. |
+| Heartbeat recovery | Adds `machine_validation.last_heartbeat_at` and heartbeat indexes for active validations, run items, and attempts. |
+
+Deployments must apply the normal API database migrations before relying on the
+new run tracking and stale recovery behavior. No manual data backfill is
+required for existing validation rows. Older rows without heartbeat timestamps
+continue to use the duration-based stale detection fallback.
 
 ## Updating Site-Specific Tests
 

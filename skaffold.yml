@@ -24,6 +24,7 @@ build:
           - "carbide"
           - pxe/templates/*
           - pxe/static/*
+          - pxe/scout-firmware-scripts/**/*
     - image: nginx
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.nginx.localdev
@@ -40,6 +41,7 @@ build:
           - "carbide-api"
           - api/casbin-policy.csv
           - pxe/static/*
+          - pxe/scout-firmware-scripts/**/*
     - image: forge-admin-cli
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.forge-admin-cli.localdev

@@ -16,9 +16,7 @@
  */
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::site_explorer::{
-    ExploredMlxDevice, GetExploredMlxDevicesRequest, MlxDeviceKind, NicMode,
-};
+use ::rpc::site_explorer::{ExploredMlxDevice, MlxDeviceKind, NicMode};
 use prettytable::{Row, Table};
 use serde::Serialize;
 
@@ -32,17 +30,14 @@ pub async fn mlx_devices(
     output_format: OutputFormat,
     api_client: &ApiClient,
     opts: Args,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let nic_mode_only = opts.nic_mode_only;
     let expected_version = opts.expected_version;
 
     let devices: Vec<MlxDeviceRow> = api_client
-        .0
-        .get_explored_mlx_devices(GetExploredMlxDevicesRequest {
-            host_bmc_ip: opts.host,
-        })
+        .get_all_explored_mlx_devices(page_size, opts.host)
         .await?
-        .devices
         .into_iter()
         // Only NIC-mode DPUs, when asked.
         .filter(|d| !nic_mode_only || d.device_kind == MlxDeviceKind::Bf3NicMode as i32)

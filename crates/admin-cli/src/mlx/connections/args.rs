@@ -22,8 +22,10 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use rpc::protos::forge as forge_pb;
 
+use crate::cfg::dispatch::Dispatch;
+
 // ConnectionsCommand are the connections subcommands.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

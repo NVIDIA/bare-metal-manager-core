@@ -95,6 +95,7 @@ applicable.
 | `dpf` | `DpfConfig` | *(see below)* | DPF (DPU Platform Framework) Kubernetes deployment (see [DpfConfig](#dpfconfig)). |
 | `x86_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for x86 machines. |
 | `arm_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for ARM machines. |
+| `pxe_public_base_url` | `String` | `http://carbide-pxe.forge:8080` | Canonical PXE base URL. |
 | `set_http_boot_uri_for_vendors` | `Vec<BMCVendor>` | `[]` | Vendors for which the state controller pins the UEFI HTTP boot URL on the BMC via Redfish `HttpBootUri`. Empty = all machines rely on nico-dhcp option 67 for the URL. |
 | `compute_allocation_enforcement` | `ComputeAllocationEnforcement` | `WarnOnly` | Controls enforcement of compute allocations on new instance requests. |
 | `supernic_firmware_profiles` | nested `HashMap` | `{}` | SuperNIC firmware profiles keyed by `part_number` then `PSID`. |
@@ -533,6 +534,7 @@ Extends `StateControllerConfig` with:
 | `enabled` | `bool` | `false` | Enable machine validation tests. |
 | `test_selection_mode` | `MachineValidationTestSelectionMode` | `Default` | `Default`, `EnableAll`, or `DisableAll`. |
 | `run_interval` | `Duration` | `60s` | Validation check interval. |
+| `stale_run_timeout` | `Duration` | `24h` | Grace period before an active validation run is considered stale. Values below `90s` are raised to `90s` to avoid marking healthy heartbeat-based runs stale. |
 | `tests` | `Vec<MachineValidationTestConfig>` | `[]` | Per-test enable/disable overrides. |
 
 ### `BomValidationConfig`

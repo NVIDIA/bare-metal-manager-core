@@ -59,6 +59,8 @@ type ExpectedMachine struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
+	// When true, this host is eligible for DPF-based provisioning.
+	IsDpfEnabled *bool `json:"isDpfEnabled,omitempty"`
 	// User-defined key-value pairs for organizing and categorizing Expected Machines
 	Labels map[string]string `json:"labels,omitempty"`
 	// Optional per-host lifecycle profile
@@ -783,6 +785,38 @@ func (o *ExpectedMachine) UnsetHostId() {
 	o.HostId.Unset()
 }
 
+// GetIsDpfEnabled returns the IsDpfEnabled field value if set, zero value otherwise.
+func (o *ExpectedMachine) GetIsDpfEnabled() bool {
+	if o == nil || IsNil(o.IsDpfEnabled) {
+		var ret bool
+		return ret
+	}
+	return *o.IsDpfEnabled
+}
+
+// GetIsDpfEnabledOk returns a tuple with the IsDpfEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ExpectedMachine) GetIsDpfEnabledOk() (*bool, bool) {
+	if o == nil || IsNil(o.IsDpfEnabled) {
+		return nil, false
+	}
+	return o.IsDpfEnabled, true
+}
+
+// HasIsDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachine) HasIsDpfEnabled() bool {
+	if o != nil && !IsNil(o.IsDpfEnabled) {
+		return true
+	}
+
+	return false
+}
+
+// SetIsDpfEnabled gets a reference to the given bool and assigns it to the IsDpfEnabled field.
+func (o *ExpectedMachine) SetIsDpfEnabled(v bool) {
+	o.IsDpfEnabled = &v
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *ExpectedMachine) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -974,6 +1008,9 @@ func (o ExpectedMachine) ToMap() (map[string]interface{}, error) {
 	}
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
+	}
+	if !IsNil(o.IsDpfEnabled) {
+		toSerialize["isDpfEnabled"] = o.IsDpfEnabled
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

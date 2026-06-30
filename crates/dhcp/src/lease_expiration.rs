@@ -102,6 +102,9 @@ fn expire_lease_at(
                 rpc::ExpireDhcpLeaseStatus::NotFound => {
                     log::info!("No allocation found for expired lease {ip_str}");
                 }
+                rpc::ExpireDhcpLeaseStatus::FeatureDisabled => {
+                    log::info!("Feature is disabled at NICo");
+                }
             }
             LeaseExpirationResult::Success
         }

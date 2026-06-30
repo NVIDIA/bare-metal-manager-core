@@ -100,7 +100,7 @@ func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession 
 func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.Tenant, error) {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	ts, err := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+	ts, _, err := tnDAO.GetAll(ctx, tx, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +357,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 // machines for instance type
 func GetCountOfMachinesForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceTypeID uuid.UUID) (int, error) {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-	_, tot, err := mitDAO.GetAll(ctx, tx, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil)
+	_, tot, err := mitDAO.GetAll(ctx, tx, cdbm.MachineInstanceTypeFilterInput{InstanceTypeIDs: []uuid.UUID{instanceTypeID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		return 0, err
 	}

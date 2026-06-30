@@ -75,6 +75,17 @@ fn maybe_unimplemented(status: &tonic::Status) -> bool {
     )
 }
 
+/// Caps `page_size` to a non-zero server `cap` (the `*ByIds` per-request limit).
+/// A zero cap means the server enforces no limit, so `page_size` is used as-is --
+/// chunking by zero would panic.
+fn cap_chunk_size(page_size: usize, cap: usize) -> usize {
+    if cap == 0 {
+        page_size
+    } else {
+        page_size.min(cap)
+    }
+}
+
 // Benchmarks showed 4 had better overall performance while still overlapping page fetch latency.
 const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
 
@@ -88,6 +99,22 @@ const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
 // other conveniences. 90% of these methods no longer justify their existence... we probably don't
 // need to add more.)
 impl ApiClient {
+    /// Caps a CLI `page_size` to the server's `max_find_by_ids`, so a page of ids
+    /// never exceeds what the `*ByIds` RPCs accept (they reject larger requests
+    /// with `InvalidArgument`). The cap is read from `RuntimeConfig`, the same
+    /// source `version` already exposes. A zero/unset cap means the server
+    /// enforces no limit, so we fall back to `page_size` -- `chunks(0)` panics.
+    async fn effective_chunk_size(&self, page_size: usize) -> CarbideCliResult<usize> {
+        let cap = self
+            .0
+            .version(true)
+            .await?
+            .runtime_config
+            .unwrap_or_default()
+            .max_find_by_ids as usize;
+        Ok(cap_chunk_size(page_size, cap))
+    }
+
     pub async fn get_machine(&self, id: MachineId) -> CarbideCliResult<rpc::Machine> {
         let mut machines = self
             .0
@@ -106,6 +133,22 @@ impl ApiClient {
         Ok(machine_details)
     }
 
+    /// Gather one machine's boot-interface view across all four stores -- the
+    /// owned interface rows, predictions, the explored endpoint default, and
+    /// the retained post-deletion pairs -- plus the effective boot interface
+    /// and a divergence flag. Read-only.
+    pub async fn get_machine_boot_interfaces(
+        &self,
+        id: MachineId,
+    ) -> CarbideCliResult<rpc::GetMachineBootInterfacesResponse> {
+        Ok(self
+            .0
+            .get_machine_boot_interfaces(rpc::GetMachineBootInterfacesRequest {
+                machine_id: Some(id),
+            })
+            .await?)
+    }
+
     pub async fn get_all_machines(
         &self,
         request: rpc::MachineSearchConfig,
@@ -116,14 +159,18 @@ impl ApiClient {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
-        stream::iter(all_machine_ids.machine_ids.chunks(page_size))
-            .map(|machine_ids| self.get_machines_by_ids(machine_ids))
-            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_for_each(|machines| {
-                all_machines.machines.extend(machines.machines);
-                futures::future::ok(())
-            })
-            .await?;
+        stream::iter(
+            all_machine_ids
+                .machine_ids
+                .chunks(self.effective_chunk_size(page_size).await?),
+        )
+        .map(|machine_ids| self.get_machines_by_ids(machine_ids))
+        .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+        .try_for_each(|machines| {
+            all_machines.machines.extend(machines.machines);
+            futures::future::ok(())
+        })
+        .await?;
 
         Ok(all_machines)
     }
@@ -241,14 +288,18 @@ impl ApiClient {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
-        stream::iter(all_ids.instance_ids.chunks(page_size))
-            .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
-            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_for_each(|list| {
-                all_list.instances.extend(list.instances);
-                futures::future::ok(())
-            })
-            .await?;
+        stream::iter(
+            all_ids
+                .instance_ids
+                .chunks(self.effective_chunk_size(page_size).await?),
+        )
+        .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
+        .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+        .try_for_each(|list| {
+            all_list.instances.extend(list.instances);
+            futures::future::ok(())
+        })
+        .await?;
 
         Ok(all_list)
     }
@@ -292,7 +343,10 @@ impl ApiClient {
             racks: Vec::with_capacity(all_ids.rack_ids.len()),
         };
 
-        for ids in all_ids.rack_ids.chunks(page_size) {
+        for ids in all_ids
+            .rack_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.0.find_racks_by_ids(ids.to_vec()).await?;
             all_list.racks.extend(list.racks);
         }
@@ -335,7 +389,10 @@ impl ApiClient {
             switches: Vec::with_capacity(all_ids.ids.len()),
         };
 
-        for ids in all_ids.ids.chunks(page_size) {
+        for ids in all_ids
+            .ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self
                 .0
                 .find_switches_by_ids(rpc::SwitchesByIdsRequest {
@@ -367,7 +424,10 @@ impl ApiClient {
             power_shelves: Vec::with_capacity(all_ids.ids.len()),
         };
 
-        for ids in all_ids.ids.chunks(page_size) {
+        for ids in all_ids
+            .ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self
                 .0
                 .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
@@ -403,7 +463,10 @@ impl ApiClient {
             network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
         };
 
-        for ids in all_ids.network_segments_ids.chunks(page_size) {
+        for ids in all_ids
+            .network_segments_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_segments_by_ids(ids).await?;
             all_list.network_segments.extend(list.network_segments);
         }
@@ -444,6 +507,24 @@ impl ApiClient {
             include_num_free_ips: true,
         };
         Ok(self.0.find_network_segments_by_ids(request).await?)
+    }
+
+    pub async fn get_rack_state_history(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_rack_state_histories(rpc::RackStateHistoriesRequest {
+                rack_ids: vec![rack_id.clone()],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&rack_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
     }
 
     pub async fn get_segment_state_history(
@@ -583,6 +664,7 @@ impl ApiClient {
         &self,
         page_size: usize,
     ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+        let last_run = self.get_site_explorer_last_run().await?;
         // grab endpoints
         let endpoint_ids = match self.0.find_explored_endpoint_ids().await {
             Ok(endpoint_ids) => endpoint_ids,
@@ -598,14 +680,18 @@ impl ApiClient {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
 
-        stream::iter(endpoint_ids.endpoint_ids.chunks(page_size))
-            .map(|ids| self.get_explored_endpoints_by_ids(ids))
-            .buffered(PAGED_LIST_FETCH_CONCURRENCY)
-            .try_for_each(|list| {
-                all_endpoints.endpoints.extend(list.endpoints);
-                futures::future::ok(())
-            })
-            .await?;
+        stream::iter(
+            endpoint_ids
+                .endpoint_ids
+                .chunks(self.effective_chunk_size(page_size).await?),
+        )
+        .map(|ids| self.get_explored_endpoints_by_ids(ids))
+        .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+        .try_for_each(|list| {
+            all_endpoints.endpoints.extend(list.endpoints);
+            futures::future::ok(())
+        })
+        .await?;
 
         // grab managed hosts
         let all_hosts = self.get_all_explored_managed_hosts(page_size).await?;
@@ -613,7 +699,18 @@ impl ApiClient {
         Ok(::rpc::site_explorer::SiteExplorationReport {
             endpoints: all_endpoints.endpoints,
             managed_hosts: all_hosts,
+            last_run,
         })
+    }
+
+    pub async fn get_site_explorer_last_run(
+        &self,
+    ) -> CarbideCliResult<Option<::rpc::site_explorer::SiteExplorerLastRun>> {
+        match self.0.get_site_explorer_last_run().await {
+            Ok(response) => Ok(response.last_run),
+            Err(status) if maybe_unimplemented(&status) => Ok(None),
+            Err(status) => Err(status.into()),
+        }
     }
 
     pub async fn get_explored_endpoints_by_ids(
@@ -642,16 +739,47 @@ impl ApiClient {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
 
-        stream::iter(host_ids.host_ids.chunks(page_size))
-            .map(|ids| self.0.find_explored_managed_hosts_by_ids(ids))
+        stream::iter(
+            host_ids
+                .host_ids
+                .chunks(self.effective_chunk_size(page_size).await?),
+        )
+        .map(|ids| self.0.find_explored_managed_hosts_by_ids(ids))
+        .buffered(PAGED_LIST_FETCH_CONCURRENCY)
+        .try_for_each(|list| {
+            all_hosts.managed_hosts.extend(list.managed_hosts);
+            futures::future::ok(())
+        })
+        .await?;
+
+        Ok(all_hosts.managed_hosts)
+    }
+
+    pub async fn get_all_explored_mlx_devices(
+        &self,
+        page_size: usize,
+        host: Option<String>,
+    ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredMlxDevice>> {
+        // A specific host short-circuits the id listing; otherwise list every host
+        // BMC carrying BlueField devices and page through them.
+        let host_ids: Vec<String> = match host {
+            Some(host) => vec![host],
+            None => self.0.find_explored_mlx_device_host_ids().await?.host_ids,
+        };
+
+        let mut all = ::rpc::site_explorer::ExploredMlxDeviceList {
+            devices: Vec::with_capacity(host_ids.len()),
+        };
+        stream::iter(host_ids.chunks(self.effective_chunk_size(page_size).await?))
+            .map(|ids| self.0.find_explored_mlx_devices_by_ids(ids))
             .buffered(PAGED_LIST_FETCH_CONCURRENCY)
             .try_for_each(|list| {
-                all_hosts.managed_hosts.extend(list.managed_hosts);
+                all.devices.extend(list.devices);
                 futures::future::ok(())
             })
             .await?;
 
-        Ok(all_hosts.managed_hosts)
+        Ok(all.devices)
     }
 
     pub async fn get_machines_by_ids(
@@ -914,7 +1042,10 @@ impl ApiClient {
             vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
         };
 
-        for ids in all_ids.vpc_ids.chunks(page_size) {
+        for ids in all_ids
+            .vpc_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.0.find_vpcs_by_ids(ids).await?;
             all_list.vpcs.extend(list.vpcs);
         }
@@ -931,7 +1062,10 @@ impl ApiClient {
 
         let include_history = all_ids.ids.len() == 1;
 
-        for ids in all_ids.ids.chunks(page_size) {
+        for ids in all_ids
+            .ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let request = rpc::DpaInterfacesByIdsRequest {
                 ids: ids.to_vec(),
                 include_history,
@@ -1091,7 +1225,10 @@ impl ApiClient {
             ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
         };
 
-        for ids in all_ids.ib_partition_ids.chunks(page_size) {
+        for ids in all_ids
+            .ib_partition_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_ib_partitions_by_ids(ids).await?;
             all_list.ib_partitions.extend(list.ib_partitions);
         }
@@ -1110,7 +1247,10 @@ impl ApiClient {
             spx_partitions: Vec::with_capacity(all_ids.spx_partition_ids.len()),
         };
 
-        for ids in all_ids.spx_partition_ids.chunks(page_size) {
+        for ids in all_ids
+            .spx_partition_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_spx_partitions_by_ids(ids).await?;
             all_list.spx_partitions.extend(list.spx_partitions);
         }
@@ -1191,7 +1331,10 @@ impl ApiClient {
             keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
         };
 
-        for ids in all_ids.keyset_ids.chunks(page_size) {
+        for ids in all_ids
+            .keyset_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_keysets_by_ids(ids).await?;
             all_list.keyset.extend(list.keyset);
         }
@@ -2025,7 +2168,7 @@ impl ApiClient {
 
         let mut all_nsgs = Vec::with_capacity(all_nsg_ids.len());
 
-        for nsg_ids in all_nsg_ids.chunks(page_size) {
+        for nsg_ids in all_nsg_ids.chunks(self.effective_chunk_size(page_size).await?) {
             let nsgs = self
                 .0
                 .find_network_security_groups_by_ids(FindNetworkSecurityGroupsByIdsRequest {
@@ -2107,7 +2250,7 @@ impl ApiClient {
 
         let mut all_itypes = Vec::with_capacity(all_ids.len());
 
-        for ids in all_ids.chunks(page_size) {
+        for ids in all_ids.chunks(self.effective_chunk_size(page_size).await?) {
             let itypes = self
                 .0
                 .find_instance_types_by_ids(FindInstanceTypesByIdsRequest {
@@ -2147,7 +2290,10 @@ impl ApiClient {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
 
-        for ids in all_ids.partition_ids.chunks(page_size) {
+        for ids in all_ids
+            .partition_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_nv_link_partitions_by_ids(ids).await?;
             all_list.partitions.extend(list.partitions);
         }
@@ -2207,7 +2353,10 @@ impl ApiClient {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
 
-        for ids in all_ids.partition_ids.chunks(page_size) {
+        for ids in all_ids
+            .partition_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let list = self.get_logical_partitions_by_ids(ids).await?;
             all_list.partitions.extend(list.partitions);
         }
@@ -2304,18 +2453,22 @@ impl ApiClient {
     ) -> CarbideCliResult<RemediationList> {
         let all_remediation_ids = self.0.find_remediation_ids().await?;
 
-        let remediations = stream::iter(all_remediation_ids.remediation_ids.chunks(page_size))
-            .then(|remediation_ids| async move {
-                self.0
-                    .find_remediations_by_ids(remediation_ids)
-                    .await
-                    .map_err(CarbideCliError::ApiInvocationError)
-            })
-            .try_fold(vec![], |mut accum, remediations| async move {
-                accum.extend(remediations.remediations);
-                Ok(accum)
-            })
-            .await?;
+        let remediations = stream::iter(
+            all_remediation_ids
+                .remediation_ids
+                .chunks(self.effective_chunk_size(page_size).await?),
+        )
+        .then(|remediation_ids| async move {
+            self.0
+                .find_remediations_by_ids(remediation_ids)
+                .await
+                .map_err(CarbideCliError::ApiInvocationError)
+        })
+        .try_fold(vec![], |mut accum, remediations| async move {
+            accum.extend(remediations.remediations);
+            Ok(accum)
+        })
+        .await?;
         Ok(RemediationList { remediations })
     }
 
@@ -2337,7 +2490,10 @@ impl ApiClient {
             services: Vec::with_capacity(ids_response.service_ids.len()),
         };
 
-        for ids in ids_response.service_ids.chunks(page_size) {
+        for ids in ids_response
+            .service_ids
+            .chunks(self.effective_chunk_size(page_size).await?)
+        {
             let request = rpc::DpuExtensionServicesByIdsRequest {
                 service_ids: ids.to_vec(),
             };
@@ -2389,7 +2545,7 @@ impl ApiClient {
     ) -> CarbideCliResult<Vec<rpc::dpf_state_response::DpfState>> {
         let mut all_dpf_states = Vec::with_capacity(machine_ids.len());
 
-        for machine_ids in machine_ids.chunks(page_size) {
+        for machine_ids in machine_ids.chunks(self.effective_chunk_size(page_size).await?) {
             let request = GetDpfStateRequest {
                 machine_ids: machine_ids.to_vec(),
             };
@@ -2419,7 +2575,7 @@ impl ApiClient {
 
 #[cfg(test)]
 mod tests {
-    use super::maybe_unimplemented;
+    use super::{cap_chunk_size, maybe_unimplemented};
 
     /// `PermissionDenied` must trigger the deprecated-alias fallback: servers
     /// that predate a renamed RPC reject its unknown method name with a bare
@@ -2447,5 +2603,17 @@ mod tests {
                 status.code()
             );
         }
+    }
+
+    #[test]
+    fn cap_chunk_size_respects_server_limit() {
+        // A zero/unset cap means no server limit -- use page_size as-is.
+        assert_eq!(cap_chunk_size(100, 0), 100);
+        // A smaller cap wins, so a page never exceeds what the *ByIds RPCs accept.
+        assert_eq!(cap_chunk_size(100, 40), 40);
+        // A larger cap leaves page_size untouched.
+        assert_eq!(cap_chunk_size(100, 500), 100);
+        // Equal is a no-op.
+        assert_eq!(cap_chunk_size(100, 100), 100);
     }
 }

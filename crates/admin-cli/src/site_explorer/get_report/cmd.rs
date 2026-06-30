@@ -18,7 +18,9 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
+use ::rpc::site_explorer::{
+    EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost, SiteExplorationReport,
+};
 use prettytable::{Cell, Row, Table, format, row};
 
 use super::args::Args;
@@ -49,6 +51,23 @@ fn get_endpoints_for_managed_host<'ep>(
             }
         })
         .collect::<HashMap<&str, &ExploredEndpoint>>()
+}
+
+fn last_exploration_error_display(report: &EndpointExplorationReport) -> String {
+    report
+        .last_exploration_error_schema
+        .as_ref()
+        .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
+        .or_else(|| report.last_exploration_error.clone())
+        .unwrap_or_default()
+}
+
+fn has_last_exploration_error(report: &EndpointExplorationReport) -> bool {
+    report.last_exploration_error_schema.is_some()
+        || report
+            .last_exploration_error
+            .as_deref()
+            .is_some_and(|error| !error.is_empty())
 }
 
 fn convert_managed_host_to_nice_table(
@@ -184,6 +203,7 @@ async fn get_exploration_report_for_bmc_address(
     Ok(::rpc::site_explorer::SiteExplorationReport {
         endpoints: endpoints.endpoints,
         managed_hosts: managed_host,
+        last_run: None,
     })
 }
 
@@ -344,17 +364,14 @@ fn filter_endpoints(
                     .report
                     .as_ref()
                     .map(|x| {
-                        if let Some(error) = &x.last_exploration_error {
-                            if erroronly {
-                                !error.is_empty()
-                            } else if successonly {
-                                error.is_empty()
-                            } else {
-                                // Don't filter
-                                true
-                            }
+                        let has_error = has_last_exploration_error(x);
+                        if erroronly {
+                            has_error
+                        } else if successonly {
+                            !has_error
                         } else {
-                            !erroronly
+                            // Don't filter
+                            true
                         }
                     })
                     .unwrap_or_default()
@@ -482,7 +499,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
 
     let last_error = report
         .as_ref()
-        .map(|x| x.last_exploration_error())
+        .map(last_exploration_error_display)
         .unwrap_or_default();
 
     let error_segmented = last_error
@@ -559,7 +576,7 @@ async fn display_endpoint(
     table.add_row(row!["Preingestion State", endpoint.preingestion_state]);
     let last_error = report
         .as_ref()
-        .map(|x| x.last_exploration_error())
+        .map(last_exploration_error_display)
         .unwrap_or_default();
 
     let error_segmented = last_error
@@ -672,4 +689,68 @@ async fn display_endpoint(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use ::rpc::site_explorer::{EndpointExplorationReport, OperatorErrorSchema};
+    use carbide_test_support::{Check, check_values};
+
+    use super::{has_last_exploration_error, last_exploration_error_display};
+
+    fn operator_error_schema() -> OperatorErrorSchema {
+        OperatorErrorSchema {
+            error_code: "NICO-SITEEXPLORER-122".to_string(),
+            mitigation: Some("Check the HCL".to_string()),
+            text: "BMC vendor missing".to_string(),
+        }
+    }
+
+    fn report(
+        schema: Option<OperatorErrorSchema>,
+        legacy: Option<&str>,
+    ) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            last_exploration_error: legacy.map(str::to_string),
+            last_exploration_error_schema: schema,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn last_exploration_error_display_and_presence_are_schema_aware() {
+        let schema_display =
+            serde_json::to_string_pretty(&operator_error_schema()).expect("schema serializes");
+
+        check_values(
+            [
+                Check {
+                    scenario: "schema takes precedence over legacy error",
+                    input: report(Some(operator_error_schema()), Some("legacy error")),
+                    expect: (schema_display.clone(), true),
+                },
+                Check {
+                    scenario: "legacy error remains a fallback",
+                    input: report(None, Some("legacy error")),
+                    expect: ("legacy error".to_string(), true),
+                },
+                Check {
+                    scenario: "schema-only report is an error",
+                    input: report(Some(operator_error_schema()), None),
+                    expect: (schema_display, true),
+                },
+                Check {
+                    scenario: "report without either field has no error",
+                    input: report(None, None),
+                    expect: (String::new(), false),
+                },
+            ],
+            |report| {
+                (
+                    last_exploration_error_display(&report),
+                    has_last_exploration_error(&report),
+                )
+            },
+        );
+    }
 }

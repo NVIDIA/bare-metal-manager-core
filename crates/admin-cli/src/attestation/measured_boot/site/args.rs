@@ -42,10 +42,12 @@ use carbide_uuid::measured_boot::{
 use clap::Parser;
 use measured_boot::records::MeasurementApprovedType;
 
+use crate::cfg::dispatch::Dispatch;
+
 /// CmdSite provides a container for the `site` subcommand, which itself
 /// contains other subcommands for working with the site (i.e. export
 /// and import).
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdSite {
     #[clap(about = "Import a site from an export file.", visible_alias = "i")]
     Import(Import),
@@ -54,9 +56,11 @@ pub enum CmdSite {
     Export(Export),
 
     #[clap(subcommand, about = "Managed trusted machines.", visible_alias = "m")]
+    #[dispatch]
     TrustedMachine(TrustedMachine),
 
     #[clap(subcommand, about = "Managed trusted profiles.", visible_alias = "p")]
+    #[dispatch]
     TrustedProfile(TrustedProfile),
 }
 
@@ -92,7 +96,7 @@ pub struct Export {
 }
 
 /// TrustedMachine configures trusted machine settings.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -120,6 +124,7 @@ pub enum TrustedMachine {
         about = "Remove a trusted machine approval.",
         visible_alias = "r"
     )]
+    #[dispatch]
     Remove(RemoveMachine),
 
     #[clap(about = "List all active machine approvals.", visible_alias = "l")]
@@ -127,7 +132,7 @@ pub enum TrustedMachine {
 }
 
 /// TrustedProfile configures trusted profile settings.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -155,6 +160,7 @@ pub enum TrustedProfile {
         about = "Remove a trusted profile approval.",
         visible_alias = "r"
     )]
+    #[dispatch]
     Remove(RemoveProfile),
 
     #[clap(about = "List all active profile approvals.", visible_alias = "l")]
@@ -196,7 +202,7 @@ pub struct ApproveMachine {
 // The compiler yells it starts by "By", not really
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 
@@ -295,7 +301,7 @@ pub struct ApproveProfile {
 // The compiler yells it starts by "By", not really
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

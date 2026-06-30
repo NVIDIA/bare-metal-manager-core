@@ -21,6 +21,7 @@ jobs:
     outputs:
       run_rest_ci: ${{ steps.gate.outputs.run_rest_ci }}
       rest_api_changed: ${{ steps.filter.outputs.rest_api }}
+      core_proto_changed: ${{ steps.filter.outputs.core_proto }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,6 +39,8 @@ jobs:
               - 'rest-api/**'
               - '.github/workflows/rest-*.yml'
               - 'helm/rest/**'
+            core_proto:
+              - 'crates/rpc/proto/**'
 
       - name: Decide whether REST CI should run
         id: gate
@@ -45,11 +48,15 @@ jobs:
           REF: ${{ github.ref }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           REST_API_CHANGED: ${{ steps.filter.outputs.rest_api }}
+          CORE_PROTO_CHANGED: ${{ steps.filter.outputs.core_proto }}
         run: |
           run_rest_ci=true
 
           if [[ "${REF}" =~ ^refs/heads/pull-request/[0-9]+$ ]]; then
-            run_rest_ci="${REST_API_CHANGED:-false}"
+            run_rest_ci=false
+            if [[ "${REST_API_CHANGED:-false}" == "true" || "${CORE_PROTO_CHANGED:-false}" == "true" ]]; then
+              run_rest_ci=true
+            fi
           fi
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then

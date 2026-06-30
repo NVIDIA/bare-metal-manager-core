@@ -270,6 +270,7 @@ impl InternalRBACRules {
             "GetSiteExplorationReport",
             vec![ForgeAdminCLI, Machineatron],
         );
+        x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
@@ -281,7 +282,8 @@ impl InternalRBACRules {
         x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
-        x.perm("GetExploredMlxDevices", vec![ForgeAdminCLI]);
+        x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
+        x.perm("FindExploredMlxDevicesByIds", vec![ForgeAdminCLI]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
@@ -305,6 +307,7 @@ impl InternalRBACRules {
         x.perm("GetMachineBootOverride", vec![ForgeAdminCLI]);
         x.perm("SetMachineBootOverride", vec![ForgeAdminCLI]);
         x.perm("ClearMachineBootOverride", vec![ForgeAdminCLI]);
+        x.perm("GetMachineBootInterfaces", vec![ForgeAdminCLI]);
         x.perm("GetNetworkTopology", vec![ForgeAdminCLI]);
         x.perm("FindNetworkDevicesByDeviceIds", vec![ForgeAdminCLI]);
         x.perm("CreateCredential", vec![ForgeAdminCLI]);
@@ -497,6 +500,7 @@ impl InternalRBACRules {
             "GetMachineValidationAttempt",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);

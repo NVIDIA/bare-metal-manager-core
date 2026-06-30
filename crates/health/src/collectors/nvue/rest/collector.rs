@@ -28,37 +28,93 @@ use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
-fn system_health_to_f64(status: Option<&str>) -> f64 {
+const SYSTEM_HEALTH_STATES: &[&str] = &["ok", "not_ok", "unknown"];
+
+fn system_health_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("OK") => 1.0,
-        Some("Not OK") => 2.0,
-        _ => 0.0,
+        Some("OK") => "ok",
+        Some("Not OK") => "not_ok",
+        _ => "unknown",
     }
 }
 
-fn partition_health_to_f64(status: Option<&str>) -> f64 {
+const PARTITION_HEALTH_STATES: &[&str] = &[
+    "healthy",
+    "degraded_bandwidth",
+    "degraded",
+    "unhealthy",
+    "unknown",
+];
+
+fn partition_health_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("healthy") => 1.0,
-        Some("degraded_bandwidth") => 2.0,
-        Some("degraded") => 3.0,
-        Some("unhealthy") => 4.0,
-        _ => 0.0,
+        Some("healthy") => "healthy",
+        Some("degraded_bandwidth") => "degraded_bandwidth",
+        Some("degraded") => "degraded",
+        Some("unhealthy") => "unhealthy",
+        _ => "unknown",
     }
 }
 
-fn app_status_to_f64(status: Option<&str>) -> f64 {
+const APP_STATUS_STATES: &[&str] = &["ok", "not_ok", "unknown"];
+
+fn app_status_to_state(status: Option<&str>) -> &'static str {
     match status {
-        Some("ok") => 1.0,
-        Some("not ok") => 2.0,
-        _ => 0.0,
+        Some("ok") => "ok",
+        Some("not ok") => "not_ok",
+        _ => "unknown",
     }
 }
 
-/// code "0" means no issue; any other opcode indicates a problem
+/// "0" -> no issue. Any other opcode indicates a problem
 fn diagnostic_opcode_to_f64(code: &str) -> f64 {
     match code {
         "0" => 0.0,
         _ => 1.0,
+    }
+}
+
+/// NVUE reports fan max-speed as a string (e.g. "33000"). Parse it to RPM.
+/// Returns None when the field is absent or unparseable.
+fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
+    max_speed
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+/// NVUE reports temps (current/max/crit) as Celsius strings (e.g. "105.00").
+/// Parse to f64. Returns None when the field is absent or unparseable.
+fn temp_to_f64(value: Option<&str>) -> Option<f64> {
+    value.and_then(|s| s.trim().parse::<f64>().ok())
+}
+
+const TEMP_STATE_STATES: &[&str] = &["ok", "not_ok"];
+
+/// Sensor `state` -> StateSet: "ok" (case-insensitive) => "ok", other present
+/// => "not_ok", absent => None.
+fn temp_state_to_state(state: Option<&str>) -> Option<&'static str> {
+    state.map(|s| {
+        if s.trim().eq_ignore_ascii_case("ok") {
+            "ok"
+        } else {
+            "not_ok"
+        }
+    })
+}
+
+const FAN_LED_STATES: &[&str] = &["ok", "not_ok"];
+
+/// `FAN_STATUS` LED -> StateSet: "green"/"ok" (case-insensitive) => "ok",
+/// other non-empty => "not_ok", absent/empty => None.
+fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
+    let s = state?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.eq_ignore_ascii_case("green") || s.eq_ignore_ascii_case("ok") {
+        Some("ok")
+    } else {
+        Some("not_ok")
     }
 }
 
@@ -135,8 +191,8 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
 
         match self.client.get_system_health().await {
             Ok(Some(health)) => {
-                let value = system_health_to_f64(health.status.as_deref());
-                self.emit_metric("system_health", None, value, "state", vec![]);
+                let current = system_health_to_state(health.status.as_deref());
+                self.emit_state_set("system_health", None, current, SYSTEM_HEALTH_STATES, vec![]);
                 entity_count += 1;
             }
             Ok(None) => {}
@@ -154,12 +210,12 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         match self.client.get_cluster_apps().await {
             Ok(Some(apps)) => {
                 for (name, app) in &apps {
-                    let value = app_status_to_f64(app.status.as_deref());
-                    self.emit_metric(
+                    let current = app_status_to_state(app.status.as_deref());
+                    self.emit_state_set(
                         "cluster_app",
                         Some(name),
-                        value,
-                        "state",
+                        current,
+                        APP_STATUS_STATES,
                         vec![(Cow::Borrowed("app_name"), name.clone())],
                     );
                     entity_count += 1;
@@ -181,18 +237,18 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             Ok(Some(partitions)) => {
                 for (part_id, partition) in &partitions {
                     let part_name = partition.name.as_deref().unwrap_or(part_id);
-                    let health_value = partition_health_to_f64(partition.health.as_deref());
+                    let health_state = partition_health_to_state(partition.health.as_deref());
                     let gpu_count = partition.num_gpus.unwrap_or(0) as f64;
 
                     let partition_labels = vec![
                         (Cow::Borrowed("partition_id"), part_id.clone()),
                         (Cow::Borrowed("partition_name"), part_name.to_string()),
                     ];
-                    self.emit_metric(
+                    self.emit_state_set(
                         "partition_health",
                         Some(part_id),
-                        health_value,
-                        "state",
+                        health_state,
+                        PARTITION_HEALTH_STATES,
                         partition_labels.clone(),
                     );
                     self.emit_metric(
@@ -242,6 +298,118 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect link diagnostics"
+                );
+            }
+        }
+
+        match self.client.get_platform_environment_fan().await {
+            Ok(Some(fans)) => {
+                for (fan_name, fan) in &fans {
+                    // Only emit when max-speed parses. Absent or garbage emits nothing.
+                    if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
+                        self.emit_metric(
+                            "fan_max_speed",
+                            Some(fan_name),
+                            value,
+                            "rpm",
+                            vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
+                        );
+                        entity_count += 1;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment fan"
+                );
+            }
+        }
+
+        match self.client.get_platform_environment_temperature().await {
+            Ok(Some(temps)) => {
+                for (sensor_name, temp) in &temps {
+                    // Each field is optional. Emit only those present and parseable.
+                    let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
+
+                    if let Some(value) = temp_to_f64(temp.current.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    if let Some(value) = temp_to_f64(temp.max.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature_max",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    if let Some(value) = temp_to_f64(temp.crit.as_deref()) {
+                        self.emit_metric(
+                            "platform_temperature_critical",
+                            Some(sensor_name),
+                            value,
+                            "celsius",
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                    // Absent state emits nothing. Present state emits one 0/1 series per state.
+                    if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
+                        self.emit_state_set(
+                            "platform_temperature_state",
+                            Some(sensor_name),
+                            current,
+                            TEMP_STATE_STATES,
+                            sensor_label(),
+                        );
+                        entity_count += 1;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment temperature"
+                );
+            }
+        }
+
+        match self.client.get_platform_environment().await {
+            Ok(Some(env)) => {
+                // Switch-level FAN_STATUS LED. Emit only when present and mappable.
+                if let Some(current) = env
+                    .get("FAN_STATUS")
+                    .and_then(|s| fan_led_to_state(s.state.as_deref()))
+                {
+                    self.emit_state_set("fan_led", None, current, FAN_LED_STATES, vec![]);
+                    entity_count += 1;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment status"
                 );
             }
         }
@@ -341,6 +509,38 @@ impl NvueRestCollector {
             .into(),
         ));
     }
+
+    /// Emit an OpenMetrics StateSet: one 0/1 series per state (current => 1.0),
+    /// each carrying `labels` plus a `state` label. `key_base` is suffixed with
+    /// the state name for a unique per-series key. Unit is always "state".
+    fn emit_state_set(
+        &self,
+        metric_type: &str,
+        key_base: Option<&str>,
+        current_state: &str,
+        all_states: &[&str],
+        labels: Vec<(Cow<'static, str>, String)>,
+    ) {
+        for state in all_states {
+            let mut series_labels = labels.clone();
+            series_labels.push((Cow::Borrowed("state"), state.to_string()));
+
+            // suffix state onto the qualifier for a unique per-series key
+            // (switch-level series use the state name alone).
+            let qualifier = match key_base {
+                Some(base) => format!("{base}:{state}"),
+                None => (*state).to_string(),
+            };
+
+            self.emit_metric(
+                metric_type,
+                Some(&qualifier),
+                if *state == current_state { 1.0 } else { 0.0 },
+                "state",
+                series_labels,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -357,30 +557,72 @@ mod tests {
     use crate::bmc::BoxFuture;
     use crate::config::NvueRestPaths;
 
+    /// Assert StateSet semantics: one 0/1 series per state (current => 1.0),
+    /// each with unit "state" and a `state` label. `entity` (if set) is present
+    /// on every series.
+    fn assert_state_set(
+        samples: &[MetricSample],
+        metric_type: &str,
+        entity: Option<(&str, &str)>,
+        all_states: &[&str],
+        current: &str,
+    ) {
+        let series: Vec<&MetricSample> = samples
+            .iter()
+            .filter(|s| s.metric_type == metric_type)
+            .collect();
+        assert_eq!(
+            series.len(),
+            all_states.len(),
+            "{metric_type}: expected one series per state"
+        );
+        for state in all_states {
+            let sample = series
+                .iter()
+                .find(|s| s.labels.iter().any(|(k, v)| k == "state" && v == state))
+                .unwrap_or_else(|| panic!("{metric_type}: missing series for state {state}"));
+            assert_eq!(sample.unit, "state", "state {state}");
+            assert_eq!(
+                sample.value,
+                if *state == current { 1.0 } else { 0.0 },
+                "{metric_type} state {state}: value (current={current})"
+            );
+            if let Some((label, value)) = entity {
+                assert!(
+                    sample.labels.iter().any(|(k, v)| k == label && v == value),
+                    "{metric_type} state {state}: missing entity label {label}={value}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_system_health_mapping() {
-        assert_eq!(system_health_to_f64(Some("OK")), 1.0);
-        assert_eq!(system_health_to_f64(Some("Not OK")), 2.0);
-        assert_eq!(system_health_to_f64(None), 0.0);
-        assert_eq!(system_health_to_f64(Some("unknown_value")), 0.0);
+        assert_eq!(system_health_to_state(Some("OK")), "ok");
+        assert_eq!(system_health_to_state(Some("Not OK")), "not_ok");
+        assert_eq!(system_health_to_state(None), "unknown");
+        assert_eq!(system_health_to_state(Some("unknown_value")), "unknown");
     }
 
     #[test]
     fn test_partition_health_mapping() {
-        assert_eq!(partition_health_to_f64(Some("unknown")), 0.0);
-        assert_eq!(partition_health_to_f64(Some("healthy")), 1.0);
-        assert_eq!(partition_health_to_f64(Some("degraded_bandwidth")), 2.0);
-        assert_eq!(partition_health_to_f64(Some("degraded")), 3.0);
-        assert_eq!(partition_health_to_f64(Some("unhealthy")), 4.0);
-        assert_eq!(partition_health_to_f64(None), 0.0);
+        assert_eq!(partition_health_to_state(Some("unknown")), "unknown");
+        assert_eq!(partition_health_to_state(Some("healthy")), "healthy");
+        assert_eq!(
+            partition_health_to_state(Some("degraded_bandwidth")),
+            "degraded_bandwidth"
+        );
+        assert_eq!(partition_health_to_state(Some("degraded")), "degraded");
+        assert_eq!(partition_health_to_state(Some("unhealthy")), "unhealthy");
+        assert_eq!(partition_health_to_state(None), "unknown");
     }
 
     #[test]
     fn test_app_status_mapping() {
-        assert_eq!(app_status_to_f64(Some("ok")), 1.0);
-        assert_eq!(app_status_to_f64(Some("not ok")), 2.0);
-        assert_eq!(app_status_to_f64(None), 0.0);
-        assert_eq!(app_status_to_f64(Some("other")), 0.0);
+        assert_eq!(app_status_to_state(Some("ok")), "ok");
+        assert_eq!(app_status_to_state(Some("not ok")), "not_ok");
+        assert_eq!(app_status_to_state(None), "unknown");
+        assert_eq!(app_status_to_state(Some("other")), "unknown");
     }
 
     #[test]
@@ -391,11 +633,459 @@ mod tests {
         assert_eq!(diagnostic_opcode_to_f64("57"), 1.0);
     }
 
+    #[test]
+    fn test_fan_max_speed_parsing() {
+        assert_eq!(fan_max_speed_to_f64(Some("33000")), Some(33000.0));
+        assert_eq!(fan_max_speed_to_f64(Some(" 33000 ")), Some(33000.0));
+        assert_eq!(fan_max_speed_to_f64(Some("6000")), Some(6000.0));
+        assert_eq!(fan_max_speed_to_f64(Some("NaN")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("inf")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("-1")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("not-a-number")), None);
+        assert_eq!(fan_max_speed_to_f64(Some("")), None);
+        assert_eq!(fan_max_speed_to_f64(None), None);
+    }
+
+    #[test]
+    fn test_temp_to_f64_parsing() {
+        assert_eq!(temp_to_f64(Some("105.00")), Some(105.0));
+        assert_eq!(temp_to_f64(Some(" 43 ")), Some(43.0));
+        assert_eq!(temp_to_f64(Some("120.00")), Some(120.0));
+        assert_eq!(temp_to_f64(Some("x")), None);
+        assert_eq!(temp_to_f64(Some("")), None);
+        assert_eq!(temp_to_f64(None), None);
+    }
+
+    #[test]
+    fn test_temp_state_to_state_mapping() {
+        assert_eq!(temp_state_to_state(Some("ok")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some("OK")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some(" ok ")), Some("ok"));
+        assert_eq!(temp_state_to_state(Some("warning")), Some("not_ok"));
+        assert_eq!(temp_state_to_state(Some("")), Some("not_ok"));
+        // absent => None (emit nothing, never fabricate)
+        assert_eq!(temp_state_to_state(None), None);
+    }
+
+    #[test]
+    fn test_fan_led_to_state_mapping() {
+        // green/ok (case-insensitive) => "ok"
+        assert_eq!(fan_led_to_state(Some("green")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("GREEN")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some(" green ")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("ok")), Some("ok"));
+        assert_eq!(fan_led_to_state(Some("OK")), Some("ok"));
+        // any other non-empty value => "not_ok"
+        assert_eq!(fan_led_to_state(Some("amber")), Some("not_ok"));
+        assert_eq!(fan_led_to_state(Some("red")), Some("not_ok"));
+        // absent/empty => None (emit nothing)
+        assert_eq!(fan_led_to_state(Some("")), None);
+        assert_eq!(fan_led_to_state(Some("   ")), None);
+        assert_eq!(fan_led_to_state(None), None);
+    }
+
+    /// Drives run_iteration's fan parse + emit logic against a captured sink,
+    /// asserting max-speed sample shape. Table-driven.
+    #[test]
+    fn test_fan_max_speed_emit() {
+        use crate::collectors::nvue::rest::client::FanEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        struct Case {
+            name: &'static str,
+            json: &'static str,
+            // (fan_name, expected_value) pairs that MUST be emitted.
+            expected: &'static [(&'static str, f64)],
+            // Fan names that MUST NOT produce a sample.
+            absent: &'static [&'static str],
+        }
+
+        let cases = [
+            Case {
+                name: "two healthy fans emit max-speed",
+                json: r#"{
+                    "FAN1/1": {"current-speed": "10096", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"},
+                    "FAN1/2": {"current-speed": "9800", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"}
+                }"#,
+                expected: &[("FAN1/1", 33000.0), ("FAN1/2", 33000.0)],
+                absent: &[],
+            },
+            Case {
+                name: "missing max-speed emits nothing",
+                json: r#"{
+                    "FAN1/1": {"current-speed": "10096", "min-speed": "6000", "state": "ok"}
+                }"#,
+                expected: &[],
+                absent: &["FAN1/1"],
+            },
+            Case {
+                name: "garbage max-speed emits nothing",
+                json: r#"{
+                    "FAN1/1": {"max-speed": "bogus", "state": "ok"}
+                }"#,
+                expected: &[],
+                absent: &["FAN1/1"],
+            },
+        ];
+
+        for case in cases {
+            let sink = Arc::new(CapturingSink {
+                samples: StdMutex::new(Vec::new()),
+            });
+            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+            collector.data_sink = Some(sink.clone());
+
+            let fans: FanEnvironmentResponse =
+                serde_json::from_str(case.json).expect("fan json parses");
+            // Mirror run_iteration's emit loop exactly.
+            for (fan_name, fan) in &fans {
+                if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
+                    collector.emit_metric(
+                        "fan_max_speed",
+                        Some(fan_name),
+                        value,
+                        "rpm",
+                        vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
+                    );
+                }
+            }
+
+            let samples = sink.samples.lock().unwrap();
+            assert_eq!(
+                samples.len(),
+                case.expected.len(),
+                "case '{}': unexpected emitted sample count",
+                case.name
+            );
+
+            for (fan_name, expected_value) in case.expected {
+                let sample = samples
+                    .iter()
+                    .find(|s| {
+                        s.labels
+                            .iter()
+                            .any(|(k, v)| k == "fan_name" && v == fan_name)
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("case '{}': no sample for fan {fan_name}", case.name)
+                    });
+
+                assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
+                assert_eq!(sample.metric_type, "fan_max_speed", "case '{}'", case.name);
+                assert_eq!(sample.unit, "rpm", "case '{}'", case.name);
+                assert_eq!(sample.value, *expected_value, "case '{}'", case.name);
+                assert_eq!(
+                    sample.key,
+                    format!("fan_max_speed:{fan_name}"),
+                    "case '{}'",
+                    case.name
+                );
+                assert_eq!(sample.labels.len(), 1, "case '{}'", case.name);
+                assert_eq!(sample.labels[0].0, "fan_name", "case '{}'", case.name);
+                assert_eq!(sample.labels[0].1, *fan_name, "case '{}'", case.name);
+            }
+
+            for fan_name in case.absent {
+                assert!(
+                    !samples.iter().any(|s| s
+                        .labels
+                        .iter()
+                        .any(|(k, v)| k == "fan_name" && v == fan_name)),
+                    "case '{}': fan {fan_name} should not emit a sample",
+                    case.name
+                );
+            }
+        }
+    }
+
+    /// Drives run_iteration's temperature parse + emit logic against a captured
+    /// sink. A full sensor (ASIC1) emits all four series. A sparse sensor
+    /// (current + state only) emits two and must NOT fabricate absent max/crit.
+    #[test]
+    fn test_platform_temperature_emit() {
+        use crate::collectors::nvue::rest::client::TemperatureEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        let json = r#"{
+            "ASIC1": {"crit": "120.00", "current": "43.00", "max": "105.00", "state": "ok"},
+            "Ambient-MNG-Temp": {"current": "27.00", "state": "ok"}
+        }"#;
+
+        let sink = Arc::new(CapturingSink {
+            samples: StdMutex::new(Vec::new()),
+        });
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let temps: TemperatureEnvironmentResponse =
+            serde_json::from_str(json).expect("temperature json parses");
+        // Mirror run_iteration's emit loop exactly.
+        for (sensor_name, temp) in &temps {
+            let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
+            if let Some(value) = temp_to_f64(temp.current.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(value) = temp_to_f64(temp.max.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature_max",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(value) = temp_to_f64(temp.crit.as_deref()) {
+                collector.emit_metric(
+                    "platform_temperature_critical",
+                    Some(sensor_name),
+                    value,
+                    "celsius",
+                    sensor_label(),
+                );
+            }
+            if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
+                collector.emit_state_set(
+                    "platform_temperature_state",
+                    Some(sensor_name),
+                    current,
+                    TEMP_STATE_STATES,
+                    sensor_label(),
+                );
+            }
+        }
+
+        let samples = sink.samples.lock().unwrap();
+        // ASIC1: current + max + crit (3) + state StateSet (2) = 5.
+        // Ambient-MNG-Temp: current (1) + state StateSet (2) = 3. Total 8.
+        assert_eq!(samples.len(), 8, "unexpected emitted sample count");
+
+        // Helper: find a sample by metric_type + sensor label.
+        let find = |metric_type: &str, sensor: &str| {
+            samples.iter().find(|s| {
+                s.metric_type == metric_type
+                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == sensor)
+            })
+        };
+
+        // ASIC1: the three scalar temperature series present with correct
+        // name/unit/value/label/key.
+        let expected_asic1: &[(&str, &str, f64)] = &[
+            ("platform_temperature", "celsius", 43.0),
+            ("platform_temperature_max", "celsius", 105.0),
+            ("platform_temperature_critical", "celsius", 120.0),
+        ];
+        for (metric_type, unit, value) in expected_asic1 {
+            let sample = find(metric_type, "ASIC1")
+                .unwrap_or_else(|| panic!("no ASIC1 sample for {metric_type}"));
+            assert_eq!(sample.name, COLLECTOR_NAME);
+            assert_eq!(&sample.metric_type, metric_type);
+            assert_eq!(&sample.unit, unit);
+            assert_eq!(sample.value, *value, "value for {metric_type}");
+            assert_eq!(sample.key, format!("{metric_type}:ASIC1"));
+            assert_eq!(sample.labels.len(), 1);
+            assert_eq!(sample.labels[0].0, "sensor");
+            assert_eq!(sample.labels[0].1, "ASIC1");
+        }
+
+        // ASIC1 state="ok" => StateSet: ok=1, not_ok=0. Sensor label preserved.
+        let asic1_state: Vec<MetricSample> = samples
+            .iter()
+            .filter(|s| {
+                s.metric_type == "platform_temperature_state"
+                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == "ASIC1")
+            })
+            .cloned()
+            .collect();
+        assert_state_set(
+            &asic1_state,
+            "platform_temperature_state",
+            Some(("sensor", "ASIC1")),
+            TEMP_STATE_STATES,
+            "ok",
+        );
+
+        // Ambient-MNG-Temp: only current + state StateSet emitted.
+        let ambient_current =
+            find("platform_temperature", "Ambient-MNG-Temp").expect("ambient current sample");
+        assert_eq!(ambient_current.value, 27.0);
+        assert_eq!(ambient_current.unit, "celsius");
+        let ambient_state: Vec<MetricSample> = samples
+            .iter()
+            .filter(|s| {
+                s.metric_type == "platform_temperature_state"
+                    && s.labels
+                        .iter()
+                        .any(|(k, v)| k == "sensor" && v == "Ambient-MNG-Temp")
+            })
+            .cloned()
+            .collect();
+        assert_state_set(
+            &ambient_state,
+            "platform_temperature_state",
+            Some(("sensor", "Ambient-MNG-Temp")),
+            TEMP_STATE_STATES,
+            "ok",
+        );
+
+        // A sensor missing max/crit must NOT emit those series.
+        assert!(
+            find("platform_temperature_max", "Ambient-MNG-Temp").is_none(),
+            "ambient sensor without max must not emit platform_temperature_max"
+        );
+        assert!(
+            find("platform_temperature_critical", "Ambient-MNG-Temp").is_none(),
+            "ambient sensor without crit must not emit platform_temperature_critical"
+        );
+    }
+
+    /// Drives run_iteration's fan_led parse + emit logic against a captured sink.
+    /// "green"/"ok" => 1.0, "amber" => 0.0, absent FAN_STATUS emits nothing.
+    #[test]
+    fn test_fan_led_emit() {
+        use crate::collectors::nvue::rest::client::PlatformEnvironmentResponse;
+
+        struct CapturingSink {
+            samples: StdMutex<Vec<MetricSample>>,
+        }
+
+        impl DataSink for CapturingSink {
+            fn sink_type(&self) -> &'static str {
+                "capturing_sink"
+            }
+
+            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+                if let CollectorEvent::Metric(sample) = event {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+            }
+        }
+
+        struct Case {
+            name: &'static str,
+            json: &'static str,
+            // expected current StateSet state, or None when nothing must emit.
+            expected: Option<&'static str>,
+        }
+
+        let cases = [
+            Case {
+                name: "green LED => ok",
+                json: r#"{"FAN_STATUS": {"state": "green", "type": "led"}}"#,
+                expected: Some("ok"),
+            },
+            Case {
+                name: "ok LED => ok",
+                json: r#"{"FAN_STATUS": {"state": "ok", "type": "led"}}"#,
+                expected: Some("ok"),
+            },
+            Case {
+                name: "amber LED => not_ok",
+                json: r#"{"FAN_STATUS": {"state": "amber", "type": "led"}}"#,
+                expected: Some("not_ok"),
+            },
+            Case {
+                name: "absent FAN_STATUS emits nothing",
+                json: r#"{"PSU_STATUS": {"state": "green", "type": "led"}}"#,
+                expected: None,
+            },
+        ];
+
+        for case in cases {
+            let sink = Arc::new(CapturingSink {
+                samples: StdMutex::new(Vec::new()),
+            });
+            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+            collector.data_sink = Some(sink.clone());
+
+            let env: PlatformEnvironmentResponse =
+                serde_json::from_str(case.json).expect("env json parses");
+            // Mirror run_iteration's emit logic exactly.
+            if let Some(current) = env
+                .get("FAN_STATUS")
+                .and_then(|s| fan_led_to_state(s.state.as_deref()))
+            {
+                collector.emit_state_set("fan_led", None, current, FAN_LED_STATES, vec![]);
+            }
+
+            let samples = sink.samples.lock().unwrap();
+            match case.expected {
+                Some(current) => {
+                    // switch-level StateSet: no per-entity label, but a `state`
+                    // label per series. Series keys are unique per state.
+                    assert_state_set(&samples, "fan_led", None, FAN_LED_STATES, current);
+                    for sample in samples.iter() {
+                        assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
+                        let state = sample
+                            .labels
+                            .iter()
+                            .find(|(k, _)| k == "state")
+                            .map(|(_, v)| v.clone())
+                            .expect("state label present");
+                        assert_eq!(
+                            sample.key,
+                            format!("fan_led:{state}"),
+                            "case '{}'",
+                            case.name
+                        );
+                        // switch-level: the only label is `state`.
+                        assert_eq!(
+                            sample.labels.len(),
+                            1,
+                            "case '{}': fan_led is switch-level (only the state label)",
+                            case.name
+                        );
+                    }
+                }
+                None => assert_eq!(
+                    samples.len(),
+                    0,
+                    "case '{}': absent FAN_STATUS must not emit a sample",
+                    case.name
+                ),
+            }
+        }
+    }
+
     struct ScriptedProvider {
         calls: AtomicUsize,
-        // Each call pops the front of this queue; an empty queue yields an
-        // error. `HealthError` is not `Clone`, so we store and consume by
-        // value rather than indexing + `.cloned()`.
+        // Each call pops the front. An empty queue yields an error. HealthError
+        // isn't Clone, so we consume by value.
         responses: StdMutex<std::collections::VecDeque<Result<BmcCredentials, HealthError>>>,
     }
 
@@ -442,6 +1132,9 @@ mod tests {
             cluster_apps_enabled: false,
             sdn_partitions_enabled: false,
             interfaces_enabled: false,
+            platform_environment_fan_enabled: false,
+            platform_environment_temperature_enabled: false,
+            platform_environment_status_enabled: false,
         }
     }
 
@@ -496,7 +1189,7 @@ mod tests {
         assert!(collector.client.has_credentials());
         assert_eq!(
             result.fetch_failures, 0,
-            "all four paths disabled → no HTTP, no failures"
+            "all paths disabled → no HTTP, no failures"
         );
         // Subsequent iterations reuse the already-installed credentials.
         collector

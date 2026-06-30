@@ -271,6 +271,7 @@ mod tests {
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
+                driver_version: None,
             })),
             rack_id: Some(RackId::new("RACK_1")),
         };

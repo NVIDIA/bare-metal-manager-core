@@ -1604,7 +1604,7 @@ func (idr *APIInstanceDeleteRequest) Validate() error {
 // cannot see. In particular, the `IsRepairTenant` capability gate
 // (TargetedInstanceCreation on the Tenant config) is an authorization
 // check that stays in the handler before this method runs.
-func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.InstanceReleaseRequest {
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *cwssaws.InstanceReleaseRequest {
 	req := instance.ToReleaseRequestProto()
 	if idr.MachineHealthIssue != nil {
 		req.Issue = &cwssaws.Issue{
@@ -1619,6 +1619,19 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.I
 	}
 	if idr.IsRepairTenant != nil {
 		req.IsRepairTenant = idr.IsRepairTenant
+	}
+
+	// Build the delete attribution proto
+	initiatedBy := &cwssaws.DeleteInitiatedBy{
+		Org:      instance.Tenant.Org,
+		UserId:   user.ID.String(),
+		TenantId: instance.Tenant.ID.String(),
+	}
+	if instance.Tenant.OrgDisplayName != nil {
+		initiatedBy.OrgDisplayName = *instance.Tenant.OrgDisplayName
+	}
+	req.DeleteAttribution = &cwssaws.DeleteAttribution{
+		InitiatedBy: initiatedBy,
 	}
 	return req
 }

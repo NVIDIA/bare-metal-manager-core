@@ -153,7 +153,7 @@ type DpuExtensionService struct {
 	IsMissingOnSite bool                            `bun:"is_missing_on_site,notnull,default:false"`
 	Created         time.Time                       `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated         time.Time                       `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted         time.Time                       `bun:"deleted,nullzero,default:null"`
+	Deleted         *time.Time                      `bun:"deleted,soft_delete"`
 	CreatedBy       uuid.UUID                       `bun:"created_by,type:uuid,notnull"`
 }
 

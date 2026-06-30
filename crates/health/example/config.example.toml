@@ -73,11 +73,22 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
 [sinks.tracing]
 enabled = false
 
+# Include Redfish diagnostic payload fields in tracing output.
+# Payload bodies are forwarded opaquely and may be large. If every
+# diagnostic-capable sink leaves diagnostics off, collectors do not attach them.
+include_diagnostics = false
+
 [sinks.prometheus]
 enabled = true
 
 [sinks.log_file]
 enabled = false
+
+# Include Redfish diagnostic payload fields in JSONL output.
+# If every diagnostic-capable sink leaves diagnostics off, collectors do not
+# attach them.
+include_diagnostics = false
+
 output_dir = "/tmp/logs"
 max_file_size = 104857600 # 100MB
 max_backups = 5
@@ -85,6 +96,13 @@ max_backups = 5
 [sinks.otlp]
 enabled = false
 endpoint = "http://localhost:4317"
+
+# Include Redfish diagnostic payload fields in OTLP logs.
+# If every diagnostic-capable sink leaves diagnostics off, collectors do not
+# attach them. OTLP exports parent logs normally and keeps diagnostics as
+# latest-wins per endpoint while the drain is backed up.
+include_diagnostics = false
+
 batch_size = 512
 flush_interval = "2s"
 
@@ -194,6 +212,9 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 [collectors.nmxt]
 scrape_interval = "1m"
 request_timeout = "30s"
+# Keep strict TLS certificate verification by default. Set true only when an
+# NMX-T HTTPS endpoint uses a certificate that cannot be verified normally.
+dangerously_skip_tls_verification = false
 
 [collectors.nvue.rest]
 poll_interval = "1m"
@@ -204,21 +225,32 @@ system_health_enabled = true
 cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
+platform_environment_fan_enabled = true
+platform_environment_temperature_enabled = true
+platform_environment_status_enabled = true
 
-# NVUE gNMI streaming collector (switches only, disabled by default).
-# Subscribes to gNMI SAMPLE paths and pushes metrics through the DataSink
-# pipeline. PrometheusSink serves the /metrics endpoint; OtlpSink (when
-# configured separately) pushes to an OTel Collector.
+# NVUE gNMI streaming collector which subscribes to
+# gNMI SAMPLE paths (components + interfaces, plus platform_general when
+# platform_general_enabled is true) and pushes metrics through the configured
+# sinks. gNMI ON_CHANGE targets system-events
 [collectors.nvue.gnmi]
+# periodic SAMPLE (components, interfaces, and platform_general when
+# platform_general_enabled is true)
 gnmi_port = 9339
 sample_interval = "5m"
 request_timeout = "30s"
-# gNMI ON_CHANGE subscription for system events
+# Keep strict TLS certificate and hostname verification by default. Set true only
+# for lab/self-signed NVOS gNMI endpoints where that dangerous bypass is required.
+dangerously_skip_tls_verification = false
+# streaming ON_CHANGE
 system_events_enabled = true
 
 [collectors.nvue.gnmi.paths]
 components_enabled = true
 interfaces_enabled = true
+# Switch-level memory and disk utilization from `/platform-general/state`
+# (a singleton, not keyed by interface or component name).
+platform_general_enabled = true
 
 # ==============================================================================
 # Processors

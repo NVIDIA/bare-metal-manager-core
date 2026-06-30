@@ -5,6 +5,7 @@
 .PHONY: build docker-build docker-build-local
 .PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
+.PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
 
 # Build configuration
@@ -259,7 +260,11 @@ docker-build:
 	docker build -t $(IMAGE_REGISTRY)/nico-nsm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-nsm .
 	docker build -t $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-mcp .
 
-core-proto: core-proto-fetch core-proto-fmt core-protogen
+core-proto:
+	$(MAKE) core-proto-clean
+	$(MAKE) core-proto-fetch
+	$(MAKE) core-proto-fmt
+	$(MAKE) core-protogen
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
@@ -694,6 +699,7 @@ generate-sdk:
 		-i $(OPENAPI_SPEC) \
 		-g go \
 		-o sdk/standard \
+		-t openapi/templates/go \
 		--package-name standard \
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
 		--global-property=apis,models,supportingFiles

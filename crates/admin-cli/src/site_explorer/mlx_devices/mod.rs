@@ -31,6 +31,7 @@ impl Run for Args {
             ctx.config.format,
             &ctx.api_client,
             self,
+            ctx.config.page_size,
         )
         .await
     }

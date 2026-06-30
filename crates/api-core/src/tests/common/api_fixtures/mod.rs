@@ -40,8 +40,10 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
+use carbide_nvlink_manager::{
+    NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
+};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -182,6 +184,7 @@ pub struct TestEnvOverrides {
     pub redfish_overrides: Option<RedfishOverrides>,
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
+    pub dhcp_lease_expiry_handling: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -298,6 +301,7 @@ pub struct TestEnv {
     pub underlay_segment: Option<NetworkSegmentId>,
     pub domain: uuid::Uuid,
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
+    pub switch_cert_monitor: Arc<Mutex<SwitchCertificateMonitor>>,
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
@@ -1008,6 +1012,19 @@ impl TestEnv {
             .unwrap();
     }
 
+    pub async fn run_switch_cert_monitor_iteration(
+        &self,
+    ) -> SwitchCertificateMonitorIterationResult {
+        let cancel_token = CancellationToken::new();
+        self.switch_cert_monitor
+            .lock()
+            .await
+            .run_single_iteration(&cancel_token)
+            .boxed()
+            .await
+            .unwrap()
+    }
+
     pub fn db_reader(&self) -> PgPoolReader {
         self.pool.clone().into()
     }
@@ -1288,6 +1305,10 @@ pub async fn create_test_env_with_overrides(
     config.compute_allocation_enforcement =
         overrides.compute_allocation_enforcement.unwrap_or_default();
 
+    if let Some(val) = overrides.dhcp_lease_expiry_handling {
+        config.dhcp_lease_expiry_handling = val;
+    }
+
     let config = Arc::new(config);
 
     let site_fabric_networks = overrides
@@ -1393,6 +1414,13 @@ pub async fn create_test_env_with_overrides(
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
         config.host_health,
+        api.work_lock_manager_handle.clone(),
+    );
+
+    let switch_cert_monitor = SwitchCertificateMonitor::new(
+        db_pool.clone(),
+        test_meter.meter(),
+        config.nvlink_config.clone().unwrap(),
         api.work_lock_manager_handle.clone(),
     );
 
@@ -1624,14 +1652,7 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build RackStateController");
 
-    let fake_endpoint_explorer = MockEndpointExplorer {
-        reports: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
-        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_control_failures: Arc::new(std::sync::Mutex::new(Default::default())),
-        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-    };
+    let fake_endpoint_explorer = MockEndpointExplorer::default();
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
     // on its own. TestEnv's site_explorer is a separate instance talking to the same database that
@@ -1767,6 +1788,7 @@ pub async fn create_test_env_with_overrides(
         underlay_segment,
         domain: domain.into(),
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
+        switch_cert_monitor: Arc::new(Mutex::new(switch_cert_monitor)),
         test_credential_manager: credential_manager.clone(),
         rms_sim,
         test_component_manager,
@@ -2239,6 +2261,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .instance
             .map(|instance| instance.dpu_extension_service_version),
         dpu_extension_services,
+        astra_config_status: None,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

@@ -29,8 +29,7 @@ type InstanceTypeCreateRequest struct {
 	// Description of the Instance Type
 	Description NullableString `json:"description,omitempty"`
 	// ID of the site
-	SiteId string `json:"siteId"`
-	// User-defined key-value labels for the Instance Type
+	SiteId string            `json:"siteId"`
 	Labels map[string]string `json:"labels,omitempty"`
 	// Site Controller assigned Machine type
 	ControllerMachineType NullableString `json:"controllerMachineType,omitempty"`
@@ -302,7 +301,7 @@ func (o *InstanceTypeCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

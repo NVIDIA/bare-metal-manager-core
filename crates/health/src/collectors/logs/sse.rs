@@ -24,15 +24,23 @@ use nv_redfish::core::{Bmc, EntityTypeRef};
 use nv_redfish::event_service::{Event, EventStreamPayload};
 use nv_redfish::resource::Health;
 
+use super::diagnostic::{
+    DiagnosticPayload, make_diagnostic_record, nullable_ref, nullable_str, redfish_enum_string,
+};
 use crate::HealthError;
 use crate::collectors::runtime::{EventStream, StreamingCollector, open_sse_stream};
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, LogRecord};
 
-pub struct SseLogCollectorConfig;
+/// Configuration for the Redfish SSE log collector.
+pub struct SseLogCollectorConfig {
+    /// Attach Redfish diagnostic payloads to emitted log records.
+    pub include_diagnostics: bool,
+}
 
 pub struct SseLogCollector<B: Bmc> {
     bmc: Arc<B>,
+    include_diagnostics: bool,
 }
 
 #[async_trait]
@@ -42,18 +50,22 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
     fn new_runner(
         bmc: Arc<B>,
         _endpoint: Arc<BmcEndpoint>,
-        _config: Self::Config,
+        config: Self::Config,
     ) -> Result<Self, HealthError> {
-        Ok(Self { bmc })
+        Ok(Self {
+            bmc,
+            include_diagnostics: config.include_diagnostics,
+        })
     }
 
     async fn connect(&mut self) -> Result<EventStream<'_>, HealthError> {
         let sse_stream = open_sse_stream(Arc::clone(&self.bmc)).await?;
 
         let bmc = Arc::clone(&self.bmc);
+        let include_diagnostics = self.include_diagnostics;
         let event_stream: EventStream<'_> = sse_stream
             .flat_map(move |result| {
-                let events = map_payload(result, bmc.as_ref());
+                let events = map_payload(result, bmc.as_ref(), include_diagnostics);
                 futures::stream::iter(events)
             })
             .boxed();
@@ -78,15 +90,21 @@ fn health_to_severity(h: &Health) -> &'static str {
 fn map_payload<B: Bmc>(
     result: Result<EventStreamPayload, HealthError>,
     bmc: &B,
+    include_diagnostics: bool,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
     match result {
-        Ok(EventStreamPayload::Event(event)) => event_to_logs(&event, bmc),
+        Ok(EventStreamPayload::Event(event)) => event_to_logs(&event, bmc, include_diagnostics),
         Ok(EventStreamPayload::MetricReport(_)) => Vec::new(),
         Err(e) => vec![Err(e)],
     }
 }
 
-fn event_to_logs<B: Bmc>(event: &Event, bmc: &B) -> Vec<Result<CollectorEvent, HealthError>> {
+/// Converts one Redfish SSE event into collector log events.
+fn event_to_logs<B: Bmc>(
+    event: &Event,
+    bmc: &B,
+    include_diagnostics: bool,
+) -> Vec<Result<CollectorEvent, HealthError>> {
     event
         .events
         .iter()
@@ -117,6 +135,13 @@ fn event_to_logs<B: Bmc>(event: &Event, bmc: &B) -> Vec<Result<CollectorEvent, H
                 .or(record.severity.as_deref())
                 .unwrap_or("Unknown")
                 .to_string();
+
+            // Reuse the same Redfish log-entry reference for the parent log
+            // attribute and the diagnostic correlation attribute.
+            let log_entry_id = record
+                .log_entry
+                .as_ref()
+                .map(|log_entry_ref| log_entry_ref.odata_id().to_string());
 
             let mut attributes = vec![
                 (Cow::Borrowed("message_id"), record.message_id.clone()),
@@ -149,11 +174,8 @@ fn event_to_logs<B: Bmc>(event: &Event, bmc: &B) -> Vec<Result<CollectorEvent, H
                     origin.odata_id.to_string(),
                 ));
             }
-            if let Some(log_entry_ref) = &record.log_entry {
-                attributes.push((
-                    Cow::Borrowed("log_entry_id"),
-                    log_entry_ref.odata_id().to_string(),
-                ));
+            if let Some(log_entry_id) = &log_entry_id {
+                attributes.push((Cow::Borrowed("log_entry_id"), log_entry_id.clone()));
             }
             if let Some(group_id) = record.event_group_id {
                 attributes.push((Cow::Borrowed("event_group_id"), group_id.to_string()));
@@ -162,10 +184,28 @@ fn event_to_logs<B: Bmc>(event: &Event, bmc: &B) -> Vec<Result<CollectorEvent, H
                 attributes.push((Cow::Borrowed("resolution"), resolution.clone()));
             }
 
+            let diagnostic_record = if include_diagnostics {
+                make_diagnostic_record(DiagnosticPayload {
+                    diagnostic_data: nullable_str(&record.diagnostic_data),
+                    diagnostic_data_type: nullable_ref(&record.diagnostic_data_type)
+                        .and_then(redfish_enum_string),
+                    oem_diagnostic_data_type: nullable_str(&record.oem_diagnostic_data_type),
+                    additional_data_uri: nullable_str(&record.additional_data_uri),
+                    additional_data_size_bytes: nullable_ref(&record.additional_data_size_bytes)
+                        .copied(),
+                    message_id: Some(record.message_id.as_str()),
+                    event_id: record.event_id.as_deref(),
+                    log_entry_id: log_entry_id.as_deref(),
+                })
+            } else {
+                None
+            };
+
             Ok(CollectorEvent::Log(Box::new(LogRecord {
                 body,
                 severity,
                 attributes,
+                diagnostic_record,
             })))
         })
         .collect()

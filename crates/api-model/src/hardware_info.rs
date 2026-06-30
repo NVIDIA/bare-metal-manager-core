@@ -362,6 +362,7 @@ impl Display for MachineInventorySoftwareComponent {
 pub struct MachineNvLinkInfo {
     pub domain_uuid: NvLinkDomainId,
     /// Chassis serial from the first GPU `GpuPlatformInfo` at discovery (or operator RPC).
+    #[serde(default)]
     pub chassis_serial: String,
     pub gpus: Vec<NvLinkGpu>,
 }
@@ -414,6 +415,36 @@ mod tests {
     const DPU_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_info.json");
     const DPU_BF3_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_bf3_info.json");
     const X86_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/x86_info.json");
+
+    /// Pre-NMX-C rows stored `nvlink_info` without `chassis_serial` (and GPUs carried `nmx_m_id`).
+    #[test]
+    fn machine_nvlink_info_deserializes_legacy_json_without_chassis_serial() {
+        let domain_uuid: NvLinkDomainId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".parse().unwrap();
+        let legacy_json = r#"{
+            "domain_uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "gpus": [{
+                "nmx_m_id": "legacy-partition-id",
+                "tray_index": 0,
+                "slot_id": 1,
+                "device_id": 1,
+                "guid": 12345
+            }]
+        }"#;
+
+        let info: MachineNvLinkInfo = serde_json::from_str(legacy_json).unwrap();
+
+        assert_eq!(info.domain_uuid, domain_uuid);
+        assert_eq!(info.chassis_serial, "");
+        assert_eq!(
+            info.gpus,
+            vec![NvLinkGpu {
+                tray_index: 0,
+                slot_id: 1,
+                device_id: 1,
+                guid: 12345,
+            }]
+        );
+    }
 
     #[test]
     fn test_machine_inventory_json_representation() {

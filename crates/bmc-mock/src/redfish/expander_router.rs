@@ -239,6 +239,7 @@ mod tests {
     use serde_json::Value;
     use tower::Service;
 
+    use crate::test_support::TEST_MAC_POOL;
     use crate::*;
 
     #[derive(Debug)]
@@ -256,10 +257,19 @@ mod tests {
 
     fn test_host_mock() -> Router {
         let callbacks = Arc::new(TestCallbacks {});
+        let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
+        let hw_type = HostHardwareType::DellPowerEdgeR750;
+        let ranges_config = mac_pool.allocate_range_config().unwrap();
         crate::machine_router(
             &MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::DellPowerEdgeR750,
-                vec![DpuMachineInfo::default()],
+                hw_type,
+                vec![DpuMachineInfo::new(
+                    hw_type,
+                    &mut mac_pool,
+                    DpuSettings::default(),
+                )],
+                &mut mac_pool,
+                ranges_config,
             )),
             callbacks,
             String::default(),
@@ -308,7 +318,6 @@ mod tests {
             else {
                 panic!("Network adapter must contain @odata.id");
             };
-            println!("{odata_id}");
             let upstream_network_adapter_body = subject
                 .call(
                     Request::builder()

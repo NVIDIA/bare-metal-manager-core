@@ -41,6 +41,18 @@ impl MachineFsm {
     }
 
     pub fn event(self, event: Event) -> (Self, Vec<Action>) {
+        // A managed DPU that applied a staged NIC-mode flip is now a plain NIC,
+        // not a DPU: converge it to the dormant BMC-only track from any active
+        // state. Producing this transition here (rather than assigning the state
+        // in the driver) keeps every FSM transition flowing through `event()`.
+        if matches!(event, Event::DpuFlippedToNicMode) {
+            return match self {
+                Self::BmcOnlyMachineUp | Self::BmcOnlyMachineDown => (self, vec![]),
+                // Clean up as the DPU parks: drop its relay handle and cached
+                // discovery state so the flipped NIC stops serving host DHCP.
+                _ => (Self::BmcOnlyMachineUp, vec![Action::CleanupOnPowerOff]),
+            };
+        }
         match self {
             Self::BmcInit { power_on, bmc_only } => self.fsm_bmc_init(event, power_on, bmc_only),
             Self::Init => self.fsm_init(event),
@@ -201,6 +213,13 @@ impl MachineFsm {
         match event {
             Event::PowerCycle => self.machine_down_on_power_cycle(),
             Event::PowerOff => self.machine_down_on_power_off(),
+            // A host whose OS failed and is parked waiting for a reboot -- e.g.
+            // its machine was force-deleted, so its agent hit `MachineNotFound`
+            // -- reboots when the controller powers it back on, so it re-PXEs and
+            // re-ingests. A real host always boots on power-on; a normally serving
+            // host treats a redundant `PowerOn` as a no-op (the `os_fsm`
+            // fall-through below), so scope the reboot to the failed-waiting case.
+            Event::PowerOn if os_fsm.is_awaiting_reboot() => self.machine_down_on_power_cycle(),
             _ => {
                 let (os_fsm, actions) = os_fsm.event(event);
                 (Self::MachineUp { os_fsm }, actions)
@@ -265,6 +284,7 @@ pub enum Event {
     AgentControlCompleted,
     MachineNotFound,
     NetworkObservationCompleted,
+    DpuFlippedToNicMode,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -322,6 +342,17 @@ impl OsFsm {
                 (Self::DpuAgent(dpu_agent_fsm), actions)
             }
         }
+    }
+
+    /// A failed OS parked waiting to be rebooted -- e.g. its machine was
+    /// force-deleted and its agent hit `MachineNotFound`. The host must reboot
+    /// on the next power-on to re-PXE and re-ingest.
+    pub fn is_awaiting_reboot(&self) -> bool {
+        matches!(
+            self,
+            Self::Scout(ScoutFsm::FailedAndWaitForReboot)
+                | Self::DpuAgent(DpuAgentFsm::FailedAndWaitForReboot)
+        )
     }
 }
 

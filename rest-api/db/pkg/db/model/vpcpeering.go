@@ -172,7 +172,11 @@ type VpcPeeringFilterInput struct {
 	IsMultiTenant             *bool
 	InfrastructureProviderIDs []uuid.UUID
 	TenantIDs                 []uuid.UUID
-	Statuses                  []string
+	// PeerTenantIDs filters peerings where vpc1 OR vpc2 belongs to any of the specified
+	// tenants. This is a user-requested filter and is distinct from TenantIDs, which
+	// scopes results to the caller's authorization context.
+	PeerTenantIDs []uuid.UUID
+	Statuses      []string
 }
 
 func (vp *VpcPeering) BeforeCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
@@ -348,6 +352,15 @@ func (vpsd VpcPeeringSQLDAO) setQueryWithFilter(filter VpcPeeringFilterInput, qu
 				WhereOr("vp.vpc2_id IN (SELECT id FROM vpc WHERE tenant_id IN (?))", bun.In(filter.TenantIDs))
 		})
 		vpsd.tracerSpan.SetAttribute(vpDAOSpan, "tenant_ids", filter.TenantIDs)
+	}
+
+	if len(filter.PeerTenantIDs) > 0 {
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				WhereOr("vp.vpc1_id IN (SELECT id FROM vpc WHERE tenant_id IN (?))", bun.In(filter.PeerTenantIDs)).
+				WhereOr("vp.vpc2_id IN (SELECT id FROM vpc WHERE tenant_id IN (?))", bun.In(filter.PeerTenantIDs))
+		})
+		vpsd.tracerSpan.SetAttribute(vpDAOSpan, "peer_tenant_ids", filter.PeerTenantIDs)
 	}
 
 	return query, nil

@@ -29,6 +29,7 @@ use crate::config::LogFileSinkConfig;
 /// files using sync I/O, safe to call from DataSink::handle_event.
 pub struct LogFileSink {
     writer: Mutex<SyncLogFileWriter>,
+    include_diagnostics: bool,
 }
 
 impl LogFileSink {
@@ -40,6 +41,7 @@ impl LogFileSink {
         )?;
         Ok(Self {
             writer: Mutex::new(writer),
+            include_diagnostics: config.include_diagnostics,
         })
     }
 }
@@ -54,7 +56,11 @@ impl DataSink for LogFileSink {
             return;
         };
 
-        let json_record = JsonLogRecord::from_event(context, record);
+        // Diagnostics are opt-in for log files. When enabled, fold the
+        // collector-only diagnostic carrier into the emitted body and
+        // attributes before JSONL serialization.
+        let record = record.emitted_log_record(self.include_diagnostics);
+        let json_record = JsonLogRecord::from_log_record(context, record.as_ref());
 
         let line = match serde_json::to_string(&json_record) {
             Ok(json) => json,
@@ -75,10 +81,21 @@ impl DataSink for LogFileSink {
     }
 }
 
+/// JSONL representation of a log event written by the file sink.
 #[derive(Serialize)]
 struct JsonLogRecord<'a> {
     endpoint: &'a str,
     collector: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine_serial: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    driver_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    component_type: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nvlink_domain_uuid: Option<String>,
     severity: &'a str,
     body: &'a str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -86,10 +103,16 @@ struct JsonLogRecord<'a> {
 }
 
 impl<'a> JsonLogRecord<'a> {
-    fn from_event(context: &'a EventContext, record: &'a LogRecord) -> Self {
+    /// Builds the JSONL representation for one emitted log record.
+    fn from_log_record(context: &'a EventContext, record: &'a LogRecord) -> Self {
         Self {
             endpoint: context.endpoint_key(),
             collector: context.collector_type,
+            machine_id: context.machine_id().map(|id| id.to_string()),
+            machine_serial: context.machine_serial(),
+            driver_version: context.driver_version(),
+            component_type: context.component_type(),
+            nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
             severity: &record.severity,
             body: &record.body,
             attributes: record
@@ -218,11 +241,14 @@ mod tests {
     use std::borrow::Cow;
     use std::str::FromStr;
 
+    use carbide_uuid::nvlink::NvLinkDomainId;
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::BmcAddr;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::sink::DiagnosticLogRecord;
 
+    /// Builds a base log context without endpoint metadata.
     fn test_context() -> EventContext {
         EventContext {
             endpoint_key: "aa:bb:cc:dd:ee:ff".to_string(),
@@ -237,10 +263,28 @@ mod tests {
         }
     }
 
+    /// Builds a log context with representative machine metadata.
+    fn machine_context() -> EventContext {
+        EventContext {
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: Some("MN-001".to_string()),
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
+                driver_version: Some("570.82".to_string()),
+            })),
+            ..test_context()
+        }
+    }
+
     #[test]
     fn test_ignores_non_log_events() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = LogFileSinkConfig {
+            include_diagnostics: false,
             output_dir: dir.path().to_string_lossy().into_owned(),
             max_file_size: 1024,
             max_backups: 2,
@@ -260,6 +304,7 @@ mod tests {
     fn test_writes_log_events_as_jsonl() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = LogFileSinkConfig {
+            include_diagnostics: false,
             output_dir: dir.path().to_string_lossy().into_owned(),
             max_file_size: 1024 * 1024,
             max_backups: 2,
@@ -272,6 +317,7 @@ mod tests {
                 body: "something happened".to_string(),
                 severity: "INFO".to_string(),
                 attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
+                diagnostic_record: None,
             }
             .into(),
         );
@@ -288,10 +334,139 @@ mod tests {
         assert_eq!(parsed["endpoint"], "aa:bb:cc:dd:ee:ff");
     }
 
+    /// Verifies log files embed diagnostics in the parent log body when enabled.
+    #[test]
+    fn test_writes_diagnostic_fields_in_parent_log_body() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = LogFileSinkConfig {
+            include_diagnostics: true,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+        let sink = LogFileSink::new(&config).expect("sink");
+        let ctx = test_context();
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "parent log".to_string(),
+                severity: "INFO".to_string(),
+                attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
+                diagnostic_record: Some(DiagnosticLogRecord {
+                    body: "opaque-cper".to_string(),
+                    attributes: vec![(
+                        Cow::Borrowed("redfish.diagnostic_data.type"),
+                        "CPER".to_string(),
+                    )],
+                }),
+            }
+            .into(),
+        );
+        sink.handle_event(&ctx, &event);
+
+        let log_path = dir.path().join("health_logs.jsonl");
+        let contents = fs::read_to_string(log_path).expect("read log");
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 1);
+
+        let parsed: serde_json::Value = serde_json::from_str(lines[0]).expect("valid json");
+        let body = parsed["body"].as_str().expect("body string");
+        let body: serde_json::Value = serde_json::from_str(body).expect("valid body json");
+
+        assert_eq!(body["message"], "parent log");
+        assert_eq!(body["diagnostic_data"], "opaque-cper");
+        assert_eq!(
+            body["diagnostic_attributes"][0]["key"],
+            "redfish.diagnostic_data.type"
+        );
+        assert_eq!(body["diagnostic_attributes"][0]["value"], "CPER");
+        assert_eq!(parsed["attributes"][1][0], "redfish.diagnostic_data.type");
+        assert_eq!(parsed["attributes"][1][1], "CPER");
+    }
+
+    /// Verifies log files omit diagnostic payloads by default.
+    #[test]
+    fn test_skips_diagnostic_log_record_by_default() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = LogFileSinkConfig {
+            include_diagnostics: false,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+        let sink = LogFileSink::new(&config).expect("sink");
+        let ctx = test_context();
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "parent log".to_string(),
+                severity: "INFO".to_string(),
+                attributes: Vec::new(),
+                diagnostic_record: Some(DiagnosticLogRecord {
+                    body: "opaque-cper".to_string(),
+                    attributes: Vec::new(),
+                }),
+            }
+            .into(),
+        );
+        sink.handle_event(&ctx, &event);
+
+        let log_path = dir.path().join("health_logs.jsonl");
+        let contents = fs::read_to_string(log_path).expect("read log");
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 1);
+
+        let parent: serde_json::Value = serde_json::from_str(lines[0]).expect("valid parent json");
+        assert_eq!(parent["body"], "parent log");
+    }
+
+    /// Verifies that machine metadata is emitted as top-level JSONL fields.
+    #[test]
+    fn test_writes_machine_metadata_as_jsonl_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = LogFileSinkConfig {
+            include_diagnostics: false,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+        let sink = LogFileSink::new(&config).expect("sink");
+        let ctx = machine_context();
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "xid event".to_string(),
+                severity: "WARN".to_string(),
+                attributes: Vec::new(),
+                diagnostic_record: None,
+            }
+            .into(),
+        );
+        sink.handle_event(&ctx, &event);
+
+        let log_path = dir.path().join("health_logs.jsonl");
+        let contents = fs::read_to_string(log_path).expect("read log");
+        let line = contents.lines().next().expect("one JSONL record");
+
+        let parsed: serde_json::Value = serde_json::from_str(line).expect("valid json");
+        assert_eq!(
+            parsed["machine_id"],
+            "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+        );
+        assert_eq!(parsed["machine_serial"], "MN-001");
+        assert_eq!(parsed["driver_version"], "570.82");
+        assert_eq!(parsed["component_type"], "compute_node");
+        assert_eq!(
+            parsed["nvlink_domain_uuid"],
+            "00000000-0000-0000-0000-000000000000"
+        );
+    }
+
     #[test]
     fn test_rotation_creates_backups() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = LogFileSinkConfig {
+            include_diagnostics: false,
             output_dir: dir.path().to_string_lossy().into_owned(),
             // tiny limit to force rotation quickly
             max_file_size: 50,
@@ -306,6 +481,7 @@ mod tests {
                     body: format!("log entry {i}"),
                     severity: "INFO".to_string(),
                     attributes: Vec::new(),
+                    diagnostic_record: None,
                 }
                 .into(),
             );
@@ -323,6 +499,7 @@ mod tests {
     fn test_rotation_zero_backups_truncates() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = LogFileSinkConfig {
+            include_diagnostics: false,
             output_dir: dir.path().to_string_lossy().into_owned(),
             max_file_size: 50,
             max_backups: 0,
@@ -336,6 +513,7 @@ mod tests {
                     body: format!("entry {i}"),
                     severity: "WARN".to_string(),
                     attributes: Vec::new(),
+                    diagnostic_record: None,
                 }
                 .into(),
             );

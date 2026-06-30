@@ -16,26 +16,22 @@
  */
 
 pub mod args;
-pub mod cmds;
+pub mod cmd;
 
 #[cfg(test)]
 mod tests;
 
 pub use args::Cmd;
 
-use crate::cfg::dispatch::Dispatch;
+use crate::cfg::dispatch::dispatch_via_run;
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
 
 impl Run for Cmd {
     async fn run(self, _ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmds::generate(self.shell)
+        cmd::generate(self.shell)
     }
 }
 
-impl Dispatch for Cmd {
-    async fn dispatch(self, mut ctx: RuntimeContext) -> CarbideCliResult<()> {
-        self.run(&mut ctx).await
-    }
-}
+dispatch_via_run!(Cmd);

@@ -4,6 +4,8 @@
 package flowgrpc
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	flowgrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/flowgrpc"
@@ -32,7 +34,24 @@ func makeGrpcClientMetrics() client.Metrics {
 			},
 			[]string{"grpc_method", "grpc_status_code"}),
 	}
-	prometheus.MustRegister(metrics.responseLatency)
+	// Use Register (not MustRegister) and tolerate a duplicate registration: the
+	// manager-level CreateGrpcClient is retried until it succeeds (e.g. while
+	// the Flow service is not yet reachable at startup), and each attempt
+	// re-enters this function. MustRegister would panic on the second attempt
+	// and turn an otherwise-recoverable retry into a crash loop. On a duplicate,
+	// reuse the already-registered collector.
+	if err := prometheus.Register(metrics.responseLatency); err != nil {
+		are := prometheus.AlreadyRegisteredError{}
+		if errors.As(err, &are) {
+			existing, ok := are.ExistingCollector.(*prometheus.HistogramVec)
+			if !ok {
+				panic(fmt.Errorf("flowgrpc: metric %q already registered as unexpected type %T", metricFlowGrpcLatency, are.ExistingCollector))
+			}
+			metrics.responseLatency = existing
+		} else {
+			panic(err)
+		}
+	}
 	return metrics
 }
 
@@ -56,7 +75,20 @@ func newWorkflowMetrics() flowgrpctypes.WorkflowMetrics {
 			},
 			[]string{"activity", "status"}),
 	}
-	prometheus.MustRegister(metrics.latency)
+	// See makeGrpcClientMetrics: tolerate a duplicate registration on retry
+	// instead of panicking, reusing the already-registered collector.
+	if err := prometheus.Register(metrics.latency); err != nil {
+		are := prometheus.AlreadyRegisteredError{}
+		if errors.As(err, &are) {
+			existing, ok := are.ExistingCollector.(*prometheus.HistogramVec)
+			if !ok {
+				panic(fmt.Errorf("flowgrpc: metric %q already registered as unexpected type %T", metricFlowWorkflowLatency, are.ExistingCollector))
+			}
+			metrics.latency = existing
+		} else {
+			panic(err)
+		}
+	}
 	return metrics
 }
 

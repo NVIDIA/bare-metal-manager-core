@@ -39,7 +39,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::NvLinkManager;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -392,6 +392,10 @@ pub async fn start_api(
         // lockdown key without operator action. No-op once seeded or if the BMC
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
+
+        // Initial credential-rotation bookkeeping is backfilled by the
+        // `*_credential_rotation_backfill` data migration (see its header for the
+        // ordering invariants), not seeded here.
     };
 
     let common_pools =
@@ -471,6 +475,7 @@ pub async fn start_api(
             .rotate_switch_nvos_credentials
             .clone(),
         carbide_config.site_explorer.explore_mode,
+        db_pool.clone(),
     );
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
@@ -1378,7 +1383,7 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvlPartitionMonitor::new(
+    NvLinkManager::new(
         db_pool.clone(),
         api_service.nmxc_client_pool.clone(),
         meter.clone(),

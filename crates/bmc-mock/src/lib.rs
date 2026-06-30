@@ -30,6 +30,7 @@ mod http;
 mod hw;
 pub mod injection;
 mod json;
+pub mod mac_address_pool;
 mod machine_info;
 mod middleware_router;
 mod mock_machine_router;
@@ -55,6 +56,8 @@ pub enum HostHardwareType {
     #[serde(rename = "dell_poweredge_r750")]
     #[default]
     DellPowerEdgeR750,
+    #[serde(rename = "dell_poweredge_r760_bf4")]
+    DellPowerEdgeR760Bf4,
     #[serde(rename = "wiwynn_gb200_nvl")]
     WiwynnGB200Nvl,
     #[serde(rename = "lenovo_gb300_nvl")]
@@ -82,6 +85,7 @@ impl fmt::Display for HostHardwareType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
+            Self::DellPowerEdgeR760Bf4 => "Dell PowerEdge R760 Bluefield-4".fmt(f),
             Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
             Self::LenovoGB300Nvl => "Lenovo GB300 NVL".fmt(f),
             Self::NvidiaDgxGb300 => "NVIDIA DGX GB300 NVL".fmt(f),
@@ -102,6 +106,7 @@ impl HostHardwareType {
     pub fn fixed_number_of_dpu(&self) -> Option<u8> {
         match self {
             Self::DellPowerEdgeR750 => None,
+            Self::DellPowerEdgeR760Bf4 => Some(1),
             Self::WiwynnGB200Nvl => Some(2),
             Self::LenovoGB300Nvl => Some(1),
             Self::NvidiaDgxGb300 => Some(1),

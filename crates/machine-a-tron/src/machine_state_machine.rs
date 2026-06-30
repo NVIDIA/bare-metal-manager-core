@@ -16,16 +16,15 @@
  */
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::convert::identity;
 use std::fmt::{Display, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostMachineInfo,
-    HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
-    SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
+    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -152,6 +151,10 @@ pub struct LiveState {
     pub api_state: String,
     pub tpm_ek_certificate: Option<Vec<u8>>,
     pub ssh_host_key: Option<String>,
+    /// For a DPU machine, whether its BlueField has flipped to NIC mode. Lets the
+    /// owning host observe the flip through the DPU handle and converge (detach
+    /// its DPU DHCP relay). Always false for a host machine.
+    pub dpu_flipped_to_nic_mode: bool,
 }
 
 impl Default for LiveState {
@@ -170,6 +173,7 @@ impl Default for LiveState {
             api_state: "Unknown".to_string(),
             tpm_ek_certificate: None,
             ssh_host_key: None,
+            dpu_flipped_to_nic_mode: false,
         }
     }
 }
@@ -209,27 +213,16 @@ pub enum PersistedMachine {
 impl MachineStateMachine {
     pub fn from_persisted(
         persisted_machine: PersistedMachine,
+        machine_info: MachineInfo,
         config: Arc<MachineConfig>,
         app_context: Arc<MachineATronContext>,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         dpu_dhcp_relay: Option<DpuDhcpRelay>,
         mat_host_id: Uuid,
     ) -> MachineStateMachine {
-        let (initial_os_image, tpm_ek_certificate, machine_info) = match persisted_machine {
-            PersistedMachine::Host(h) => (
-                h.installed_os,
-                h.tpm_ek_certificate,
-                MachineInfo::Host(HostMachineInfo {
-                    hw_type: h.hw_type.unwrap_or_default(),
-                    bmc_mac_address: h.bmc_mac_address,
-                    serial: h.serial,
-                    dpus: h.dpus.into_iter().map(Into::into).collect(),
-                    non_dpu_mac_address: h.non_dpu_mac_address,
-                    nvos_mac_addresses: h.nvos_mac_addresses,
-                    switch_serial_number: h.switch_serial_number,
-                }),
-            ),
-            PersistedMachine::Dpu(d) => (d.installed_os, None, MachineInfo::Dpu(d.into())),
+        let (initial_os_image, tpm_ek_certificate) = match persisted_machine {
+            PersistedMachine::Host(h) => (h.installed_os, h.tpm_ek_certificate),
+            PersistedMachine::Dpu(d) => (d.installed_os, None),
         };
         let (fsm, actions) = MachineFsm::init(true, Self::is_bmc_only(&machine_info, &config));
         MachineStateMachine {
@@ -403,6 +396,33 @@ impl MachineStateMachine {
                         bmc_state.on_event(event)
                     }
                     self.actions.pop_front();
+                    // A BlueField that just applied a staged NIC-mode flip on this
+                    // power-on is now a plain NIC, not a managed DPU. Converge to the
+                    // dormant BMC-only track: drop the queued boot actions and stop,
+                    // so it no longer PXE-boots or is re-discovered as a DPU, matching
+                    // a host configured `dpus_in_nic_mode` from the start.
+                    let flipped_to_nic = matches!(&self.machine_info, MachineInfo::Dpu(_))
+                        && self
+                            .bmc_state
+                            .as_ref()
+                            .and_then(|bmc_state| bmc_state.bluefield_nic_mode())
+                            .unwrap_or(false);
+                    let already_dormant = matches!(
+                        self.fsm,
+                        MachineFsm::BmcOnlyMachineUp | MachineFsm::BmcOnlyMachineDown
+                    );
+                    if flipped_to_nic && !already_dormant {
+                        // Stop the converged DPU completely: drop queued boot actions
+                        // and the pending timers, so `advance()` can't re-enqueue work
+                        // after the FSM converges to the dormant BMC-only track.
+                        self.actions.clear();
+                        self.machine_on_deadline = None;
+                        self.power_cycle_deadline = None;
+                        self.agent_polling_deadline = None;
+                        // Let the FSM own the transition: it is returned by `event()`,
+                        // not assigned here.
+                        self.fsm_event(Event::DpuFlippedToNicMode);
+                    }
                 }
                 FsmAction::InitialDiscoveryRequest(os_image) => {
                     match self.initial_discovery_request(*os_image).await {
@@ -513,22 +533,45 @@ impl MachineStateMachine {
 
         tracing::debug!("Sending Admin DHCP Request for {}", primary_mac);
         let start = Instant::now();
+        // Bound the relay wait so a vanished DPU (one mid-flip to NIC mode, its
+        // relay server gone) can't block the host actor indefinitely.
+        const DPU_DHCP_RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
         let machine_dhcp_info_result = if let Some(DpuDhcpRelay::HostEnd(relay_tx)) =
             &self.dpu_dhcp_relay
         {
+            // Relay this host's data-plane DHCP through its managed DPU, but fall
+            // back to a direct request on the host's own MAC if the relay does not
+            // answer promptly -- e.g. the DPU just flipped to NIC mode, so its relay
+            // server is gone. The same MAC is used either way, so a retained boot
+            // interface still matches on re-ingestion.
             let (reply_tx, reply_rx) = oneshot::channel();
-            match relay_tx.send(reply_tx).map_err(|_| {
-                DhcpRelayError::DpuRelayError("Error sending request, channel closed".to_string())
-            }) {
-                Ok(_) => reply_rx
+            let relayed = match relay_tx.send(reply_tx) {
+                Ok(()) => match tokio::time::timeout(DPU_DHCP_RELAY_TIMEOUT, reply_rx).await {
+                    // The relay answered -- use its result (success OR a real
+                    // DHCP/API error). Only fall back to a direct request when the
+                    // relay is genuinely gone: send failed, channel canceled, or
+                    // timed out.
+                    Ok(Ok(result)) => Some(result),
+                    Ok(Err(_)) | Err(_) => None,
+                },
+                Err(_) => None,
+            };
+            match relayed {
+                Some(result) => result,
+                None => {
+                    tracing::warn!(
+                        "DPU DHCP relay did not answer for {primary_mac}; falling back to a direct request (the DPU likely flipped to NIC mode)"
+                    );
+                    dhcp_wrapper::request_ip(
+                        self.app_context.api_client(),
+                        DhcpRequestInfo {
+                            mac_address: primary_mac,
+                            relay_address: self.config.admin_dhcp_relay_address,
+                            template_dir: self.config.template_dir.clone(),
+                        },
+                    )
                     .await
-                    .map_err(|_| {
-                        DhcpRelayError::DpuRelayError(
-                            "Error reading reply, channel closed".to_string(),
-                        )
-                    })
-                    .and_then(identity),
-                Err(err) => Err(err),
+                }
             }
         } else {
             dhcp_wrapper::request_ip(
@@ -766,6 +809,57 @@ impl MachineStateMachine {
             .bmc_state
             .as_ref()
             .and_then(|state| state.system_state.resolve_current_boot_selection());
+        live_state.dpu_flipped_to_nic_mode = matches!(&self.machine_info, MachineInfo::Dpu(_))
+            && self
+                .bmc_state
+                .as_ref()
+                .and_then(|state| state.bluefield_nic_mode())
+                .unwrap_or(false);
+    }
+
+    /// Whether this machine still relays its data-plane DHCP through a managed
+    /// DPU. False once the relay is detached (see `detach_dpu_dhcp_relay`) or for
+    /// a host that never had a managed DPU.
+    pub fn has_dpu_dhcp_relay(&self) -> bool {
+        self.dpu_dhcp_relay.is_some()
+    }
+
+    /// Stop relaying data-plane DHCP through the DPU. Once a DPU flips to NIC
+    /// mode it is a plain NIC, so the host DHCPs directly on its own (former-DPU
+    /// host) MAC -- the same MAC, so a retained boot interface still matches on
+    /// re-ingestion. Idempotent.
+    pub fn detach_dpu_dhcp_relay(&mut self) {
+        self.dpu_dhcp_relay = None;
+        self.dpu_dhcp_relay_handle = None;
+    }
+
+    /// Drop this host's managed DPUs from its reported inventory once they have
+    /// flipped to NIC mode, so the host BMC enumerates zero managed DPUs and the
+    /// host re-ingests (and rediscovers) as a zero-DPU NIC-mode machine -- the
+    /// PCIe/identity signal a real flipped host would present. The flipped DPU's
+    /// host-facing MAC becomes the host's own plain-NIC MAC, so the host keeps
+    /// DHCPing on the same MAC and a retained boot interface still matches.
+    /// No-op for a non-host machine or a host that already has no DPUs.
+    pub fn drop_managed_dpus(&mut self) {
+        if let MachineInfo::Host(host) = &mut self.machine_info {
+            if host.dpus.is_empty() {
+                return;
+            }
+            // `non_dpu_mac_address` holds a single MAC, so this faithfully models a
+            // single-DPU flip (the case this harness exercises): the former-DPU
+            // host-facing MAC becomes the host's plain-NIC MAC. Preserving every NIC
+            // of a multi-DPU host would need the host info to carry multiple NIC MACs
+            // -- a follow-up.
+            debug_assert!(
+                host.dpus.len() == 1,
+                "drop_managed_dpus preserves only the first former-DPU MAC; \
+                 multi-DPU flip preservation is a follow-up",
+            );
+            if host.non_dpu_mac_address.is_none() {
+                host.non_dpu_mac_address = host.dpus.first().map(|dpu| dpu.host_mac_address);
+            }
+            host.dpus.clear();
+        }
     }
 
     async fn run_machine_discovery(

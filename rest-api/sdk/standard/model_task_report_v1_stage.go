@@ -271,7 +271,7 @@ func (o *TaskReportV1Stage) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

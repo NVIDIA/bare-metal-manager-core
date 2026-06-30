@@ -163,7 +163,13 @@ func TestBuildUser(t *testing.T, dbSession *db.Session, starfleetID string, org 
 func TestBuildInfrastructureProvider(t *testing.T, dbSession *db.Session, name string, org string, user *User) *InfrastructureProvider {
 	ipDAO := NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, cutil.GetPtr(org), user)
+	ip, err := ipDAO.Create(context.Background(), nil, InfrastructureProviderCreateInput{
+		Name:           name,
+		DisplayName:    cutil.GetPtr("Test Provider"),
+		Org:            org,
+		OrgDisplayName: cutil.GetPtr(org),
+		CreatedBy:      user.ID,
+	})
 	assert.Nil(t, err)
 
 	return ip

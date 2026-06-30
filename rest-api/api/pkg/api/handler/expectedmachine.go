@@ -225,6 +225,7 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 				SlotID:                   apiRequest.SlotID,
 				TrayIdx:                  apiRequest.TrayIdx,
 				HostID:                   apiRequest.HostID,
+				IsDpfEnabled:             apiRequest.IsDpfEnabled,
 				Labels:                   apiRequest.Labels,
 				HostLifecycleProfile:     apiRequest.HostLifecycleProfile.ToDBModel(),
 				CreatedBy:                dbUser.ID,
@@ -704,6 +705,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 				TrayIdx:                  apiRequest.TrayIdx,
 				HostID:                   apiRequest.HostID,
 				Labels:                   apiRequest.Labels,
+				IsDpfEnabled:             apiRequest.IsDpfEnabled,
 				HostLifecycleProfile:     apiRequest.HostLifecycleProfile.ToDBModelPtr(),
 			},
 		)
@@ -1115,6 +1117,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 			TrayIdx:                  machineReq.TrayIdx,
 			HostID:                   machineReq.HostID,
 			Labels:                   machineReq.Labels,
+			IsDpfEnabled:             machineReq.IsDpfEnabled,
 			HostLifecycleProfile:     machineReq.HostLifecycleProfile.ToDBModel(),
 			CreatedBy:                dbUser.ID,
 		})
@@ -1551,6 +1554,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			TrayIdx:                  machineReq.TrayIdx,
 			HostID:                   machineReq.HostID,
 			Labels:                   machineReq.Labels,
+			IsDpfEnabled:             machineReq.IsDpfEnabled,
 			HostLifecycleProfile:     machineReq.HostLifecycleProfile.ToDBModelPtr(),
 		})
 	}

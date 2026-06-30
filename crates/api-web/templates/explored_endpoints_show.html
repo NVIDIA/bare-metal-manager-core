@@ -10,6 +10,7 @@
 <h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %} ({{ page.total_items() }})</h1>
 
 {% include "missing_credentials_warning.html" %}
+{% include "site_explorer_run_status.html" %}
 
 <details {% if active_vendor_filter != "all" || is_errors_only %}open{% endif %}>
 	<summary>Show filters</summary>

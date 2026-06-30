@@ -380,19 +380,19 @@ func OperationRunTargetFrom(dao *model.OperationRunTarget) *operationrun.Operati
 	}
 
 	return &operationrun.OperationRunTarget{
-		ID:              dao.ID,
-		OperationRunID:  dao.OperationRunID,
-		RackID:          dao.RackID,
-		SequenceIndex:   dao.SequenceIndex,
-		PhaseIndex:      dao.PhaseIndex,
-		ComponentFilter: dao.ComponentFilter,
-		TaskID:          dao.TaskID,
-		Status:          dao.Status,
-		Message:         dao.Message,
-		RetryAfter:      dao.RetryAfter,
-		RetryState:      dao.RetryState,
-		CreatedAt:       dao.CreatedAt,
-		UpdatedAt:       dao.UpdatedAt,
+		ID:               dao.ID,
+		OperationRunID:   dao.OperationRunID,
+		RackID:           dao.RackID,
+		SequenceIndex:    dao.SequenceIndex,
+		PhaseIndex:       dao.PhaseIndex,
+		ComponentsByType: dao.ComponentsByType.Clone(),
+		TaskID:           dao.TaskID,
+		Status:           dao.Status,
+		Message:          dao.Message,
+		RetryAfter:       dao.RetryAfter,
+		RetryState:       dao.RetryState,
+		CreatedAt:        dao.CreatedAt,
+		UpdatedAt:        dao.UpdatedAt,
 	}
 }
 
@@ -404,19 +404,19 @@ func OperationRunTargetTo(target *operationrun.OperationRunTarget) *model.Operat
 	}
 
 	return &model.OperationRunTarget{
-		ID:              target.ID,
-		OperationRunID:  target.OperationRunID,
-		RackID:          target.RackID,
-		SequenceIndex:   target.SequenceIndex,
-		PhaseIndex:      target.PhaseIndex,
-		ComponentFilter: target.ComponentFilter,
-		TaskID:          target.TaskID,
-		Status:          target.Status,
-		Message:         target.Message,
-		RetryAfter:      target.RetryAfter,
-		RetryState:      target.RetryState,
-		CreatedAt:       target.CreatedAt,
-		UpdatedAt:       target.UpdatedAt,
+		ID:               target.ID,
+		OperationRunID:   target.OperationRunID,
+		RackID:           target.RackID,
+		SequenceIndex:    target.SequenceIndex,
+		PhaseIndex:       target.PhaseIndex,
+		ComponentsByType: target.ComponentsByType.Clone(),
+		TaskID:           target.TaskID,
+		Status:           target.Status,
+		Message:          target.Message,
+		RetryAfter:       target.RetryAfter,
+		RetryState:       target.RetryState,
+		CreatedAt:        target.CreatedAt,
+		UpdatedAt:        target.UpdatedAt,
 	}
 }
 

@@ -276,7 +276,7 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 
 			// Create a status detail record for the SSH Key Group
 			sdDAO := cdbm.NewStatusDetailDAO(cskh.dbSession)
-			_, derr = sdDAO.CreateFromParams(ctx, tx, dbskg.ID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key creation, pending processing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: dbskg.ID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("Sync required due to SSH Key creation, pending processing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
@@ -418,7 +418,7 @@ func (uskh UpdateSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(uskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -586,7 +586,7 @@ func (gskh GetSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -706,7 +706,7 @@ func (gaskh GetAllSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gaskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -852,7 +852,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(dskh.dbSession)
 
-	tenants, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tenants, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
@@ -975,7 +975,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 			}
 
 			// Create a status detail record for the SSH Key Group
-			_, derr = sdDAO.CreateFromParams(ctx, tx, skgsa.SSHKeyGroupID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key deletion, pending processing"))
+			_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsa.SSHKeyGroupID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("Sync required due to SSH Key deletion, pending processing")})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)

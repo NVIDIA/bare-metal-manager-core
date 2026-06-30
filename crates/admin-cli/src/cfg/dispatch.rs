@@ -32,6 +32,29 @@ pub(crate) trait Dispatch {
 // trait and derive with: use crate::cfg::dispatch::Dispatch;
 pub(crate) use carbide_macros::Dispatch;
 
+/// Bridge a subcommand-less top-level command from `Run` to `Dispatch`, so
+/// `main` can dispatch every top-level command the same way.
+///
+/// Command *groups* derive `Dispatch` (the derive routes each variant to a
+/// `Run` leaf, or to a nested `#[dispatch]` group). A top-level command with
+/// no subcommands -- `ping`, `version`, `inventory`, `jump`, the `generate-*`
+/// trio -- is itself a leaf, so it implements `Run`; this gives it the trivial
+/// `Dispatch` impl that just runs it. Reach for this instead of hand-writing
+/// the same `self.run(&mut ctx)` wrapper on each one.
+macro_rules! dispatch_via_run {
+    ($ty:ty) => {
+        impl $crate::cfg::dispatch::Dispatch for $ty {
+            async fn dispatch(
+                self,
+                mut ctx: $crate::cfg::runtime::RuntimeContext,
+            ) -> $crate::errors::CarbideCliResult<()> {
+                $crate::cfg::run::Run::run(self, &mut ctx).await
+            }
+        }
+    };
+}
+pub(crate) use dispatch_via_run;
+
 #[cfg(test)]
 mod tests {
     use super::Dispatch;

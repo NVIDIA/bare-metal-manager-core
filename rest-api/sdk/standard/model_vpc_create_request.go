@@ -41,9 +41,8 @@ type VpcCreateRequest struct {
 	// Explicitly requested VNI for the VPC
 	Vni NullableInt32 `json:"vni,omitempty"`
 	// ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
-	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
-	// String key-value pairs describing VPC labels. Up to 10 key-value pairs can be specified
-	Labels map[string]string `json:"labels,omitempty"`
+	NvLinkLogicalPartitionId NullableString    `json:"nvLinkLogicalPartitionId,omitempty"`
+	Labels                   map[string]string `json:"labels,omitempty"`
 }
 
 type _VpcCreateRequest VpcCreateRequest
@@ -494,7 +493,7 @@ func (o *VpcCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

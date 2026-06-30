@@ -27,8 +27,30 @@ use crate::HealthError;
 use crate::collectors::inventory::{DiscoveredEntity, SharedInventory};
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
-use crate::metrics::sanitize_unit;
+use crate::metrics::{MetricLabel, sanitize_unit};
 use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample, SensorThresholdContext};
+
+#[derive(Clone, Copy)]
+enum SensorRangeKind {
+    Max,
+    Min,
+}
+
+impl SensorRangeKind {
+    fn metric_suffix(self) -> &'static str {
+        match self {
+            Self::Max => "range_max",
+            Self::Min => "range_min",
+        }
+    }
+
+    fn label_value(self) -> &'static str {
+        match self {
+            Self::Max => "reading_range_max",
+            Self::Min => "reading_range_min",
+        }
+    }
+}
 
 /// Configuration for the sensor collector.
 pub struct SensorCollectorConfig<B: Bmc> {
@@ -256,6 +278,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
         let metric_type = reading_type.to_snake_case().to_string();
         let unit = sanitize_unit(&unit);
+        let range_max = sensor.reading_range_max.flatten();
+        let range_min = sensor.reading_range_min.flatten();
 
         let (
             upper_fatal,
@@ -299,10 +323,10 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             MetricSample {
                 key: sensor.odata_id().to_string(),
                 name: "hw_sensor".to_string(),
-                metric_type,
-                unit,
+                metric_type: metric_type.clone(),
+                unit: unit.clone(),
                 value: reading,
-                labels: attributes,
+                labels: attributes.clone(),
                 context: Some(SensorThresholdContext {
                     entity_type: entity.entity_type().to_string(),
                     sensor_id: sensor.base.id.clone(),
@@ -312,14 +336,88 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     lower_critical,
                     upper_caution,
                     lower_caution,
-                    range_max: sensor.reading_range_max.flatten(),
-                    range_min: sensor.reading_range_min.flatten(),
+                    range_max,
+                    range_min,
                     bmc_health,
                 }),
             }
             .into(),
         ));
 
+        if self.include_sensor_thresholds {
+            self.emit_sensor_range_metric(
+                sensor.odata_id().to_string(),
+                &metric_type,
+                &unit,
+                &attributes,
+                SensorRangeKind::Max,
+                range_max,
+            );
+            self.emit_sensor_range_metric(
+                sensor.odata_id().to_string(),
+                &metric_type,
+                &unit,
+                &attributes,
+                SensorRangeKind::Min,
+                range_min,
+            );
+        }
+
         1
+    }
+
+    fn emit_sensor_range_metric(
+        &self,
+        sensor_key: String,
+        reading_type: &str,
+        unit: &str,
+        attributes: &[MetricLabel],
+        range_kind: SensorRangeKind,
+        value: Option<f64>,
+    ) {
+        let Some(value) = value else { return };
+        let metric_suffix = range_kind.metric_suffix();
+        let mut labels = attributes.to_vec();
+        labels.push((
+            Cow::Borrowed("sensor_range"),
+            range_kind.label_value().to_string(),
+        ));
+        self.emit_event(CollectorEvent::Metric(
+            MetricSample {
+                key: format!("{sensor_key}/{metric_suffix}"),
+                name: "hw_sensor".to_string(),
+                metric_type: format!("{reading_type}_{metric_suffix}"),
+                unit: unit.to_string(),
+                value,
+                labels,
+                context: None,
+            }
+            .into(),
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sensor_range_kind_uses_documented_metric_suffixes_and_label_values() {
+        assert_eq!(SensorRangeKind::Max.metric_suffix(), "range_max");
+        assert_eq!(SensorRangeKind::Max.label_value(), "reading_range_max");
+        assert_eq!(SensorRangeKind::Min.metric_suffix(), "range_min");
+        assert_eq!(SensorRangeKind::Min.label_value(), "reading_range_min");
+    }
+
+    #[test]
+    fn sensor_range_metric_contract_matches_matrix_surface() {
+        let reading_type = "fan_speed";
+        let range_kind = SensorRangeKind::Max;
+
+        assert_eq!(
+            format!("{reading_type}_{}", range_kind.metric_suffix()),
+            "fan_speed_range_max"
+        );
+        assert_eq!(range_kind.label_value(), "reading_range_max");
     }
 }

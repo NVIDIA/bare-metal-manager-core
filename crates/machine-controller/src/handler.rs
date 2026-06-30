@@ -105,6 +105,7 @@ use crate::config::{
 };
 use crate::context::{MachineStateHandlerContextObjects, MachineStateHandlerServices};
 use crate::dpf::DpfOperations;
+use crate::handler::firmware_artifact::ResolvedFirmwareArtifactSource;
 use crate::health_report::{
     create_host_update_health_report_dpufw, create_host_update_health_report_hostfw,
 };
@@ -116,6 +117,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 pub mod attestation;
 mod bios_config;
 mod dpf;
+mod firmware_artifact;
 mod helpers;
 mod machine_validation;
 mod power;
@@ -1832,10 +1834,7 @@ impl MachineStateHandler {
                 );
             }
             ManagedHostState::Failed { .. }
-                if is_unassigned_dpu_reprovision_host_boot_failure(
-                    managed_state,
-                    host_machine_id,
-                ) =>
+                if is_reprovision_restartable_failure(managed_state, host_machine_id) =>
             {
                 set_managed_host_topology_update_needed(
                     ctx.pending_db_writes,
@@ -1843,7 +1842,7 @@ impl MachineStateHandler {
                     &dpus_for_reprov,
                 );
 
-                // Host boot repair failures leave the host in top-level Failed; restart must
+                // These failures leave the host in top-level Failed; restart must
                 // reconstruct the reprovision map instead of trying to advance from Failed.
                 next_state = Some(
                     ReprovisionState::next_substate_based_on_bfb_support(
@@ -1880,10 +1879,11 @@ impl MachineStateHandler {
     }
 }
 
-fn is_unassigned_dpu_reprovision_host_boot_failure(
+fn is_reprovision_restartable_failure(
     managed_state: &ManagedHostState,
     host_machine_id: &MachineId,
 ) -> bool {
+    // BiosSetupFailed is always attributed to the host itself.
     matches!(
         managed_state,
         ManagedHostState::Failed {
@@ -1896,6 +1896,18 @@ fn is_unassigned_dpu_reprovision_host_boot_failure(
                 },
             ..
         } if machine_id == host_machine_id
+    ) ||
+    // DpfProvisioning may be attributed to a specific DPU (e.g. DPU entered
+    // error phase), so we do not guard on machine_id or source here.
+    matches!(
+        managed_state,
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning { .. },
+                ..
+            },
+            ..
+        }
     )
 }
 
@@ -4263,6 +4275,19 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::transition(next_state))
             }
             DpuInitState::WaitingForPlatformConfiguration => {
+                // A known BMC MAC is a hard precondition for setting the DPU UEFI
+                // password: it keys the dpu_uefi rotation bookkeeping recorded once
+                // uefi_setup succeeds below, so refuse to drive the device without
+                // it rather than discovering afterward that we cannot track it.
+                let dpu_bmc_mac =
+                    dpu_snapshot
+                        .bmc_info
+                        .mac
+                        .ok_or_else(|| StateHandlerError::MissingData {
+                            object_id: dpu_snapshot.id.to_string(),
+                            missing: "bmc_mac",
+                        })?;
+
                 let dpu_redfish_client = match ctx
                     .services
                     .create_redfish_client_from_machine(dpu_snapshot)
@@ -4384,7 +4409,27 @@ impl DpuMachineStateHandler {
                 let next_state = DpuInitState::PollingBiosSetup
                     .next_state(&state.managed_state, dpu_machine_id)?;
 
-                Ok(StateHandlerOutcome::transition(next_state))
+                // The DPU's UEFI password is now the site-wide value (just set via
+                // uefi_setup above): record dpu_uefi convergence so the rotation
+                // engine tracks this DPU from ingestion onward (mirrors the
+                // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
+                // validated as a precondition at the top of this state. Committed
+                // with the state transition below.
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db::credential_rotation::record_device_converged(
+                    &mut txn,
+                    dpu_bmc_mac,
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
+                )
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "record dpu_uefi credential rotation convergence failed: {}",
+                        e
+                    ))
+                })?;
+
+                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
             }
 
             DpuInitState::PollingBiosSetup => {
@@ -5300,6 +5345,19 @@ async fn handle_host_uefi_setup(
     state: &mut ManagedHostStateSnapshot,
     uefi_setup_info: UefiSetupInfo,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // A known BMC MAC is a hard precondition for driving UEFI setup: it keys the
+    // host_uefi rotation bookkeeping recorded once the password job completes, so
+    // refuse to touch the device if we cannot identify (and later track) it.
+    let host_bmc_mac =
+        state
+            .host_snapshot
+            .bmc_info
+            .mac
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: state.host_snapshot.id.to_string(),
+                missing: "bmc_mac",
+            })?;
+
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&state.host_snapshot)
@@ -5444,6 +5502,24 @@ async fn handle_host_uefi_setup(
                         e
                     ))
                 })?;
+
+            // The host's UEFI password is now the site-wide value: record it as
+            // converged to the current host_uefi target so the rotation engine
+            // tracks this host from ingestion onward (mirrors the backfill, which
+            // keys host UEFI by the host BMC MAC). The MAC was validated as a
+            // precondition at the top of this handler.
+            db::credential_rotation::record_device_converged(
+                &mut txn,
+                host_bmc_mac,
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!(
+                    "record host_uefi credential rotation convergence failed: {}",
+                    e
+                ))
+            })?;
 
             Ok(StateHandlerOutcome::transition(ManagedHostState::HostInit {
                 machine_state: MachineState::WaitingForLockdown {
@@ -8194,21 +8270,28 @@ impl HostUpgradeState {
             if let Some(to_install) =
                 need_host_fw_upgrade(&explored_endpoint, &fw_info, firmware_type)
             {
-                if let Some(scout_config) = &to_install.scout {
-                    let firmware_dir = ctx
+                let scout_script = crate::scout_firmware_scripts::find_scout_script(
+                    &ctx.services.site_config.pxe_public_base_url,
+                    fw_info.vendor,
+                    &fw_info.model,
+                    firmware_type,
+                )
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre!(
+                        "failed to resolve Scout firmware script for vendor={}, model={}, component={}: {error}",
+                        fw_info.vendor,
+                        fw_info.model,
+                        firmware_type
+                    ))
+                })?;
+
+                if let Some(scout_script) = scout_script {
+                    let firmware_dir = &ctx.services.site_config.firmware_global.firmware_directory;
+                    let pxe_public_base_url = ctx
                         .services
                         .site_config
-                        .firmware_global
-                        .firmware_directory
-                        .to_string_lossy();
-                    const PXE_URL: &str = "http://carbide-pxe.forge:8080";
-                    let to_pxe_url = |path: &str| -> String {
-                        let relative = path
-                            .strip_prefix(firmware_dir.as_ref())
-                            .unwrap_or(path)
-                            .trim_start_matches('/');
-                        format!("{PXE_URL}/public/firmware/{relative}")
-                    };
+                        .pxe_public_base_url
+                        .trim_end_matches('/');
 
                     let upgrade_task_id = uuid::Uuid::new_v4().to_string();
                     let file_artifact_count = to_install.files.len();
@@ -8217,20 +8300,23 @@ impl HostUpgradeState {
                         component_type: firmware_type.to_string(),
                         target_version: to_install.version.clone(),
                         script: Some(FileArtifact {
-                            url: to_pxe_url(&scout_config.script.filename),
-                            sha256: scout_config.script.sha256.clone(),
+                            url: scout_script.url,
+                            sha256: scout_script.sha256,
                         }),
-                        execution_timeout_seconds: scout_config.execution_timeout_seconds,
-                        artifact_download_timeout_seconds: scout_config
+                        execution_timeout_seconds: scout_script.execution_timeout_seconds,
+                        artifact_download_timeout_seconds: scout_script
                             .artifact_download_timeout_seconds,
                         file_artifacts: to_install
                             .files
-                            .into_iter()
-                            .map(|f| FileArtifact {
-                                url: to_pxe_url(&f.filename),
-                                sha256: f.sha256,
+                            .iter()
+                            .map(|artifact| {
+                                firmware_artifact::resolve_scout_file_artifact(
+                                    pxe_public_base_url,
+                                    firmware_dir,
+                                    artifact,
+                                )
                             })
-                            .collect(),
+                            .collect::<Result<Vec<_>, StateHandlerError>>()?,
                     };
 
                     // Scout uses a fixed timeout for the script download and applies the artifact
@@ -8238,8 +8324,8 @@ impl HostUpgradeState {
                     let started_at = Utc::now();
                     let deadline = scout_firmware_upgrade_deadline(
                         started_at,
-                        scout_config.execution_timeout_seconds,
-                        scout_config.artifact_download_timeout_seconds,
+                        scout_script.execution_timeout_seconds,
+                        scout_script.artifact_download_timeout_seconds,
                         file_artifact_count,
                     );
                     return Ok(StateHandlerOutcome::transition(
@@ -8260,11 +8346,13 @@ impl HostUpgradeState {
                         ),
                     ));
                 }
+
                 if to_install.script.is_some() {
                     return self
                         .by_script(to_install, state, explored_endpoint, scenario)
                         .await;
                 }
+
                 tracing::info!(%machine_id,
                     "Installing {:?} (number #{}) on {}",
                     to_install,
@@ -8648,20 +8736,46 @@ impl HostUpgradeState {
         let snapshot = &state.host_snapshot;
         let to_install = fw_info.to_install;
         let component_type = fw_info.component_type;
+        let artifact = firmware_artifact::resolve_firmware_artifact(
+            &ctx.services
+                .site_config
+                .firmware_global
+                .firmware_download_cache_directory,
+            to_install,
+            *fw_info.firmware_number,
+        )?;
 
-        if !self.downloader.available(
-            &to_install.get_filename(*fw_info.firmware_number),
-            &to_install.get_url(),
-            &to_install.get_checksum(),
-        ) {
-            tracing::debug!(
-                "{} is being downloaded from {}, update deferred",
-                to_install.get_filename(*fw_info.firmware_number).display(),
-                to_install.get_url()
-            );
+        match &artifact.source {
+            ResolvedFirmwareArtifactSource::Remote { url, sha256 } => {
+                if !self.downloader.available(&artifact.local_path, url, sha256) {
+                    tracing::debug!(
+                        "{} is being downloaded from {}, update deferred",
+                        artifact.local_path.display(),
+                        url
+                    );
 
-            return Ok(StateHandlerOutcome::do_nothing());
-        }
+                    return Ok(StateHandlerOutcome::do_nothing());
+                }
+            }
+            ResolvedFirmwareArtifactSource::Local => {
+                if !artifact.local_path.exists() {
+                    let reason = format!(
+                        "firmware artifact {} for machine {} is not present and no firmware artifact URL is configured",
+                        artifact.local_path.display(),
+                        snapshot.id
+                    );
+                    tracing::warn!("{reason}");
+                    return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                        HostReprovisionState::FailedFirmwareUpgrade {
+                            firmware_type: *component_type,
+                            report_time: Some(Utc::now()),
+                            reason: Some(reason),
+                        },
+                        state.managed_state.get_host_repro_retry_count(),
+                    )));
+                }
+            }
+        };
 
         let Ok(_active) = self.upload_limiter.try_acquire() else {
             tracing::debug!(
@@ -8715,7 +8829,7 @@ impl HostUpgradeState {
         }
 
         let machine_id = state.host_snapshot.id.to_string();
-        let filename = to_install.get_filename(*fw_info.firmware_number);
+        let filename = artifact.local_path;
         let redfish_component_type: libredfish::model::update_service::ComponentType =
             match to_install.install_only_specified {
                 false => libredfish::model::update_service::ComponentType::Unknown,
@@ -8922,9 +9036,12 @@ impl HostUpgradeState {
                                 component_info.known_firmware.iter().find(|&x| x.default)
                         {
                             let firmware_number = firmware_number.unwrap_or(0) + 1;
-                            if firmware_number
-                                < selected_firmware.filenames.len().try_into().unwrap_or(0)
-                            {
+                            let has_more_artifacts = usize::try_from(firmware_number)
+                                .map(|firmware_number| {
+                                    firmware_number < selected_firmware.artifact_count()
+                                })
+                                .unwrap_or(false);
+                            if has_more_artifacts {
                                 tracing::debug!(
                                     "Moving {:?} chain step {} on {} to CheckingFirmware",
                                     selected_firmware,
@@ -10994,6 +11111,25 @@ async fn set_host_boot_order(
                 }
             };
 
+            // Re-assert the platform BIOS config before reordering -- a NIC-mode
+            // reboot can de-enumerate the BlueField and revert HttpDev1 to the
+            // onboard default, and `set_boot_order_dpu_first` only reorders the
+            // boot options it finds, so it can't bring HttpDev1 back on its own.
+            // Re-running `machine_setup` (by interface id) restores the HTTP boot
+            // device for the reorder, the same recovery the BIOS-setup phase
+            // already does. Idempotent when it's already set, and applied by the
+            // existing RebootHost restart; the returned job id is dropped
+            // (zero-DPU hosts swallow it as `NoDpu`, and CheckBootOrder tracks
+            // the boot-order job below).
+            call_machine_setup_and_handle_no_dpu_error(
+                redfish_client,
+                Some(&boot_interface),
+                mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                &ctx.services.site_config,
+            )
+            .await
+            .map_err(|e| redfish_error("machine_setup", e))?;
+
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
                 &boot_interface,
@@ -11529,5 +11665,60 @@ mod tests {
 
         let cycle = get_reboot_cycle(expected_time, state_change_time, wait_period).unwrap();
         assert_eq!(cycle, 30);
+    }
+
+    #[test]
+    fn is_reprovision_restartable_failure_matches_expected_causes() {
+        let host_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        let make_failed = |cause: FailureCause, machine_id: MachineId| ManagedHostState::Failed {
+            details: FailureDetails {
+                cause,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id,
+            retry_count: 0,
+        };
+
+        // BiosSetupFailed on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(
+                FailureCause::BiosSetupFailed { err: "bios".into() },
+                host_id
+            ),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, host_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning attributed to a DPU → still restartable (no machine_id guard)
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, dpu_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host with any FailureSource → restartable
+        assert!(is_reprovision_restartable_failure(
+            &ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning { err: "dpf".into() },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: host_id,
+                retry_count: 0,
+            },
+            &host_id,
+        ));
     }
 }

@@ -45,8 +45,7 @@ type NetworkSecurityGroup struct {
 	RuleCount *int32 `json:"ruleCount,omitempty"`
 	// Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
 	AttachmentStats *NetworkSecurityGroupStats `json:"attachmentStats,omitempty"`
-	// Set of labels/tags for the Network Security Group
-	Labels map[string]string `json:"labels,omitempty"`
+	Labels          map[string]string          `json:"labels,omitempty"`
 	// Date/time when the Network Security Group was created
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Network Security Group was last updated
