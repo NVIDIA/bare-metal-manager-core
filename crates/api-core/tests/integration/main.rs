@@ -20,3 +20,4 @@ mod dhcp_lease_expiration;
 mod find_by_ids_guards;
 mod route_servers;
 mod static_address_management;
+mod tenant_keyset_find;

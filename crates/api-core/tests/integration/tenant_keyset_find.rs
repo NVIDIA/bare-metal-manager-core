@@ -16,21 +16,45 @@
  */
 
 use ::rpc::forge as rpc;
-use rpc::forge_server::Forge;
+use carbide_test_harness::prelude::*;
 
-use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::tenant::create_tenant_keyset;
+async fn create_tenant_keyset(
+    env: &TestHarness,
+    organization_id: impl Into<String>,
+) -> rpc::TenantKeyset {
+    let request = rpc::CreateTenantKeysetRequest {
+        keyset_identifier: Some(rpc::TenantKeysetIdentifier {
+            organization_id: organization_id.into(),
+            keyset_id: uuid::Uuid::new_v4().to_string(),
+        }),
+        keyset_content: Some(rpc::TenantKeysetContent {
+            public_keys: vec![rpc::TenantPublicKey {
+                public_key: "public key".to_string(),
+                comment: Some("key comment".to_string()),
+            }],
+        }),
+        version: uuid::Uuid::new_v4().to_string(),
+    };
 
-#[crate::sqlx_test]
-async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    env.api()
+        .create_tenant_keyset(tonic::Request::new(request))
+        .await
+        .expect("tenant keyset creation should succeed")
+        .into_inner()
+        .keyset
+        .expect("created tenant keyset response must include the keyset")
+}
+
+#[sqlx_test]
+async fn test_find_tenant_keyset_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     for i in 0..4 {
         let mut tenant_org_id = "tenant_org_1";
         if i % 2 != 0 {
             tenant_org_id = "tenant_org_2";
         }
-        let (_id, _keyset) = create_tenant_keyset(&env, tenant_org_id.to_string()).await;
+        create_tenant_keyset(&env, tenant_org_id.to_string()).await;
     }
 
     // test getting all ids
@@ -39,7 +63,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     });
 
     let ids_all = env
-        .api
+        .api()
         .find_tenant_keyset_ids(request_all)
         .await
         .map(|response| response.into_inner())
@@ -52,7 +76,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     });
 
     let ids_tenant = env
-        .api
+        .api()
         .find_tenant_keyset_ids(request_tenant)
         .await
         .map(|response| response.into_inner())
@@ -60,9 +84,9 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant.keyset_ids.len(), 2);
 }
 
-#[crate::sqlx_test]
-async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn test_find_tenant_keysets_by_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let mut keyset1 = rpc::TenantKeyset::default();
     let mut keyset3 = rpc::TenantKeyset::default();
@@ -71,7 +95,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
         if i % 2 != 0 {
             tenant_org_id = "tenant_org_2";
         }
-        let (_id, keyset) = create_tenant_keyset(&env, tenant_org_id.to_string()).await;
+        let keyset = create_tenant_keyset(&env, tenant_org_id.to_string()).await;
         if i == 1 {
             keyset1 = keyset
         } else if i == 3 {
@@ -85,7 +109,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     });
 
     let ids = env
-        .api
+        .api()
         .find_tenant_keyset_ids(request_ids)
         .await
         .map(|response| response.into_inner())
@@ -98,7 +122,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     });
 
     let keysets = env
-        .api
+        .api()
         .find_tenant_keysets_by_ids(request_keysets)
         .await
         .map(|response| response.into_inner())

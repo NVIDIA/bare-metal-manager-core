@@ -111,7 +111,6 @@ mod switch;
 mod switch_find;
 mod switch_health;
 mod switch_state_controller;
-mod tenant_keyset_find;
 mod tenants;
 mod tpm_ca;
 mod vpc;
