@@ -11,7 +11,7 @@ Service (RMS)** asynchronously and polls job status until completion.
   bring-up, before NVOS admin credentials are stored (`RotateOsPassword`).
 - Keep RMS-specific protobuf and job semantics behind the CM `NvSwitchManager`
   abstraction so the state handler stays backend-agnostic (RMS, NSM, mock).
-- Persist the async **job id** in controller state so restarts can resume polling.
+- Persist the async **job ID** in controller state so restarts can resume polling.
 
 ## Placement in the Switch FSM
 
