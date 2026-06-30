@@ -377,7 +377,7 @@ async fn test_vpc_prefix_controller_transitions_provisioning_to_ready(
 }
 
 #[crate::sqlx_test]
-async fn test_vpc_prefix_delete_rejects_network_prefix_refs(
+async fn test_vpc_prefix_delete_soft_deletes_with_network_prefix_refs(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
@@ -391,15 +391,13 @@ async fn test_vpc_prefix_delete_rejects_network_prefix_refs(
     assert!(network_prefix_ref_count(&env, id).await > 0);
 
     // Request deletion while durable network-prefix references still exist.
-    let err = env
-        .api
+    env.api
         .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
         .await
-        .expect_err("delete should reject referenced VPC prefixes");
+        .expect("delete should soft-delete referenced VPC prefixes");
 
-    // Verify the rejected delete leaves the prefix active and visible.
-    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
-    assert!(find_vpc_prefix(&env, id).await.is_some());
+    // Verify public active-only reads hide the soft-deleted prefix.
+    assert!(find_vpc_prefix(&env, id).await.is_none());
     let active_search_ids = env
         .api
         .search_vpc_prefixes(Request::new(VpcPrefixSearchQuery {
@@ -412,11 +410,25 @@ async fn test_vpc_prefix_delete_rejects_network_prefix_refs(
         .into_inner()
         .vpc_prefix_ids;
     assert!(
-        active_search_ids.contains(&id),
-        "default VPC-prefix search should keep rejected deletes visible"
+        !active_search_ids.contains(&id),
+        "active-only VPC-prefix search should hide soft-deleted prefixes"
+    );
+
+    // Verify the backing row remains soft-deleted while references still exist.
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(stored_vpc_prefix_is_deleted(&env, id).await);
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    // Drive the controller and verify the FK-backed references keep the row alive.
+    env.run_vpc_prefix_controller_iteration().await;
+    env.run_vpc_prefix_controller_iteration().await;
+    assert_eq!(
+        stored_vpc_prefix_controller_state(&env, id)
+            .await
+            .as_deref(),
+        Some("deleting")
     );
     assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
-    assert!(!stored_vpc_prefix_is_deleted(&env, id).await);
     assert!(network_prefix_ref_count(&env, id).await > 0);
 
     Ok(())
@@ -561,26 +573,24 @@ async fn test_vpc_prefix_final_delete_after_generated_segment_cleanup(
         .expect("VPC-prefix allocation should assign a generated segment");
     assert!(network_prefix_ref_count(&env, id).await > 0);
 
-    // Verify the generated segment reference blocks deletion requests.
-    let err = env
-        .api
+    // Delete while the generated segment still references this VPC prefix.
+    env.api
         .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
         .await
-        .expect_err("delete should reject referenced VPC prefixes");
-    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        .expect("delete should soft-delete referenced VPC prefixes");
     assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
-    assert!(!stored_vpc_prefix_is_deleted(&env, id).await);
+    assert!(stored_vpc_prefix_is_deleted(&env, id).await);
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    // Verify the controller will not hard-delete while FK-backed references remain.
+    env.run_vpc_prefix_controller_iteration().await;
+    env.run_vpc_prefix_controller_iteration().await;
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
     assert!(network_prefix_ref_count(&env, id).await > 0);
 
     // Release the instance so generated segment cleanup removes the prefix references.
     instance.delete().await;
     assert_eq!(network_prefix_ref_count(&env, id).await, 0);
-
-    // Delete the now-unreferenced prefix before running controller cleanup.
-    env.api
-        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
-        .await
-        .expect("delete should mark the unreferenced VPC prefix deleted");
 
     // Run VPC-prefix cleanup to advance through DBDelete after dependencies drain.
     env.run_vpc_prefix_controller_iteration().await;
