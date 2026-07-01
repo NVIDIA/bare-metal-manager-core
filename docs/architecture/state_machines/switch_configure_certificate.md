@@ -75,12 +75,12 @@ The switch state handler passes:
 | CM returns error on `get_configure_switch_certificate_job_status` | `StateHandlerError`; remain in `WaitForComplete` and retry on the next iteration. |
 | RMS job status is `Started` or `InProgress` | Wait; poll again on the next iteration. |
 | RMS job status is `Failed` | Transition to `Error` with the job error message. |
-| Component manager not configured while polling | Transition to `Error` (no job id to resume). |
+| Component manager not configured while polling | Transition to `Error` (no job ID to resume). |
 
 Rack NMX cluster maintenance uses a separate service list:
 `[rack_state_controller].nmx_cluster_switch_mtls_services` (defaults to
 ScaleUpFabric manager and telemetry interface services). See
-[rackstatemachine.md](rackstatemachine.md).
+[Rack State Machine](rackstatemachine.md).
 
 ## Component Manager API
 
@@ -102,9 +102,9 @@ CM exposes two methods used by the switch configuration handler:
 ### Backend matrix
 
 | Backend | `configure_switch_certificate` | `get_configure_switch_certificate_job_status` |
-|---------|----------------------------------|-----------------------------------------------|
+|---------|--------------------------------|-----------------------------------------------|
 | **RMS** (`RmsBackend`) | Resolve RMS node identity from DB; call RMS `configure_switch_certificate`. | Poll RMS job status and map RMS states to `ConfigureSwitchCertificateState`. |
-| **Mock** | Returns a mock job id. | Returns configured mock status. |
+| **Mock** | Returns a mock job ID. | Returns configured mock status. |
 | **NSM** | `InvalidArgument` (not supported). | `InvalidArgument` (not supported). |
 
 ## RMS integration
@@ -124,7 +124,7 @@ returns an internal error (the state handler normally skips earlier when
 ### RMS RPCs
 
 | RPC | Request (conceptual) | Response (conceptual) |
-|-----|----------------------|------------------------|
+|-----|----------------------|-----------------------|
 | `configure_switch_certificate` | Device (`NodeInfo`), optional `domain`, `services[]` | per-node `job_id`, batch status |
 | `get_configure_switch_certificate_job_status` | `job_id` | RMS job state (`queued`, `running`, `completed`, `failed`, ...) |
 
@@ -266,7 +266,7 @@ after job submission:
 }
 ```
 
-The job id is **only** in controller state (unlike rack firmware upgrade, which
+The job ID is **only** in controller state (unlike rack firmware upgrade, which
 also stores a separate `firmware_upgrade_job` row). This is sufficient for a
 single-switch, single-job certificate operation.
 

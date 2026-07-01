@@ -106,9 +106,9 @@ stateDiagram-v2
         R_Deleting --> [*] : final delete
     }
 
-    R_Created --> M_Created : check for newly created machines
-    R_Created --> S_Created : check for newly created switches
-    R_Discovering --> M_Ready : wait for all computes ready
+    R_Created --> M_Created : check for newly-created machines
+    R_Created --> S_Created : check for newly-created switches
+    R_Discovering --> M_Ready : wait for all machines ready
     R_Discovering --> S_Ready : wait for all switches ready
     R_Discovering --> PS_Ready : wait for all power shelves ready
     R_Maintenance --> S_ReProvisioning : request switch reprovision
@@ -139,7 +139,7 @@ stateDiagram-v2
     Created --> Discovering : expected devices present and discovery started
     Discovering --> Maintenance : all machines, switches, and power shelves ready
 
-    Maintenance --> Validating : maintenance Completed
+    Maintenance --> Validating : maintenance complete
     Maintenance --> Error : timeout or failure
 
     Validating --> Ready : RVS validation complete and all children ready
@@ -153,7 +153,7 @@ stateDiagram-v2
     Error --> Maintenance : maintenance_requested
 
     Ready --> Deleting : marked for deletion
-    Deleting --> [*] : final delete
+    Deleting --> [*] : final deletion
 ```
 
 ### Rack State Definitions
@@ -193,7 +193,7 @@ FirmwareUpgrade(Start -> WaitForComplete)
 |-----------|-------------|
 | **FirmwareUpgrade** | Rack-level RMS firmware upgrade for scoped machines and switches. Sets per-device `firmware_upgrade_status` and drives switch `ReProvisioning::WaitingForRackFirmwareUpgrade` / machine `HostReprovision`. |
 | **NVOSUpdate** | NVOS image update for scoped switches. Sets `nvos_update_status` and drives switch `ReProvisioning::WaitingForNVOSUpgrade`. |
-| **ConfigureNmxCluster** | NMX cluster setup. Configures mTLS certificates on the primary switch, disables ScaleUpFabric state on scoped switches, configures the primary switch fabric manager, then waits for fabric status. See substates below. |
+| **ConfigureNmxCluster** | NMX cluster setup. Configures mTLS certificates on the primary switch, disables ScaleUpFabric state on scoped switches, configures the primary switch fabric manager, then waits for fabric status. See sub-states below. |
 | **PowerSequence** | Optional power-on/off/reset sequencing for scoped devices. |
 | **Completed** | All requested maintenance activities finished; rack advances to validation. |
 
@@ -226,7 +226,7 @@ During `ConfigureCertificates`, the rack configures ScaleUpFabric mTLS services 
   - To **Discovering** when `topology_changed` is set (tray replacement).
   - To **Error** when any child switch, power shelf, or machine enters a terminal failure state.
 
-The rack is fully operational. While ready it monitors child health and accepts reprovision or on-demand maintenance requests.
+The rack is fully operational. While ready, it monitors child health and accepts reprovisioning or on-demand maintenance requests.
 
 #### Error (R_Error)
 
@@ -251,9 +251,9 @@ The Rack state machine drives or observes the Switch state machine as follows:
 | R_Discovering | Rack waits until all switches are `Ready` before moving to `Maintenance`. |
 | R_Maintenance (`FirmwareUpgrade`) | Rack sets `switch_reprovisioning_requested` and `firmware_upgrade_status`; switches enter `ReProvisioning::WaitingForRackFirmwareUpgrade`. |
 | R_Maintenance (`NVOSUpdate`) | Rack sets `nvos_update_status`; switches advance to `ReProvisioning::WaitingForNVOSUpgrade`. |
-| R_Maintenance (`ConfigureNmxCluster`) | Rack configures primary-switch certificates, fabric manager, and `fabric_manager_status`; switches advance to `ReProvisioning::WaitingForNMXCConfigure`. |
+| R_Maintenance (`ConfigureNmxCluster`) | Rack configures primary-switch certificates, fabric manager, and sets `fabric_manager_status`; switches advance to `ReProvisioning::WaitingForNMXCConfigure`. |
 | R_Maintenance (any) | If the rack enters `Error`, rack-initiated switch reprovisioning is aborted and switches return to `Ready`. |
-| R_Ready | Rack monitors switches in `Error`; any failed switch can move the rack to `Error`. |
+| R_Ready | Rack monitors for switches in `Error`; any failed switch can move the rack to `Error`. |
 
 These cross-state dependencies are shown in the [Combined State Diagram](#combined-state-diagram-machine-switch-power-shelf-rack).
 
@@ -285,7 +285,7 @@ The Rack state machine drives or observes the Machine (compute) state machine as
 
 | Rack state | Effect on Machine |
 |------------|-------------------|
-| R_Created | Rack checks for newly created compute machines (`ManagedHostState` ingestion states) that belong to this rack. |
+| R_Created | Rack checks for newly-created compute machines (`ManagedHostState` ingestion states) that belong to this rack. |
 | R_Discovering | Rack checks that all compute machines are `Ready` or `Assigned` before moving to `Maintenance`. |
 | R_Maintenance | Rack requests compute machine reprovision (`HostReprovision`); tracks when machines return to `Ready`. If a machine is stuck in `HostReprovision::FailedFirmwareUpgrade`, the Rack (or operator) may issue a fresh Host Reprovision request to restart the firmware upgrade flow without waiting for the auto-retry interval. |
 | R_Ready | If a tray is replaced, a new machine is created and the rack re-enters `Discovering`. |

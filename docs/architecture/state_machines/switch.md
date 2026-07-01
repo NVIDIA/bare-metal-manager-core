@@ -70,11 +70,11 @@ stateDiagram-v2
 | Created | Initializing (`WaitForOsMachineInterface`) | Controller processes switch |
 | Initializing (`WaitForOsMachineInterface`) | Configuring (`ConfigureCertificate` `Start`) | All NVOS interfaces associated for expected switch |
 | Initializing (`WaitForOsMachineInterface`) | Error | Expected switch has empty `nvos_mac_addresses` or MAC owned by another switch |
-| Configuring (`ConfigureCertificate` `Start`) | Configuring (`ConfigureCertificate` `WaitForComplete`) | Component manager returns RMS job id (`domain_name` = `rack_id`) |
+| Configuring (`ConfigureCertificate` `Start`) | Configuring (`ConfigureCertificate` `WaitForComplete`) | Component manager returns RMS job ID (`domain_name` = `rack_id`) |
 | Configuring (`ConfigureCertificate` `Start`) | Configuring (`RotateOsPassword`) | No `rack_id` or no component manager (skip certificate step) |
 | Configuring (`ConfigureCertificate` `WaitForComplete`) | Configuring (`RotateOsPassword`) | RMS job `Completed` |
 | Configuring (`ConfigureCertificate` `WaitForComplete`) | Error | RMS job `Failed` |
-| Configuring (`RotateOsPassword`) | FetchInfo | NVOS credentials stored or already in vault |
+| Configuring (`RotateOsPassword`) | FetchInfo | NVOS credentials stored or already in Vault |
 | Configuring (`RotateOsPassword`) | Error | No expected switch or missing BMC MAC |
 | FetchInfo | Validating (`ValidationComplete`) | Slot/tray lookup attempted (always advances) |
 | Validating (`ValidationComplete`) | BomValidating (`BomValidationComplete`) | Validation complete |
@@ -85,7 +85,7 @@ stateDiagram-v2
 | Ready | Error | Unknown `switch_reprovisioning_requested` initiator |
 | Maintenance (`PowerOn` / `PowerOff` / `Reset`) | Ready | BMC operation complete; maintenance request cleared |
 | Maintenance (`PowerOn` / `PowerOff` / `Reset`) | Error | BMC operation failed |
-| Maintenance (`ReconfigureCertificate` `Start`) | Maintenance (`ReconfigureCertificate` `WaitForComplete`) | Component manager returns RMS job id |
+| Maintenance (`ReconfigureCertificate` `Start`) | Maintenance (`ReconfigureCertificate` `WaitForComplete`) | Component manager returns RMS job ID |
 | Maintenance (`ReconfigureCertificate` `WaitForComplete`) | Ready | RMS job `Completed`; maintenance request cleared |
 | Maintenance (`ReconfigureCertificate` `WaitForComplete`) | Error | RMS job `Failed` |
 | ReProvisioning (`WaitingForRackFirmwareUpgrade`) | ReProvisioning (`WaitingForNVOSUpgrade`) | `firmware_upgrade_status` terminal `Completed` and `continue_after_firmware_upgrade` is true |
@@ -100,7 +100,7 @@ stateDiagram-v2
 | Error | Maintenance | `switch_maintenance_requested` is set |
 | Deleting | *(end)* | Final delete committed |
 
-## Rack-Level ReProvisioning
+## Rack-Level Re-Provisioning
 
 Rack maintenance drives switch reprovisioning by setting `switch_reprovisioning_requested` with an initiator prefixed `rack-`. The switch controller then walks these sub-states in order when `continue_after_firmware_upgrade` is true (the default):
 
@@ -110,7 +110,7 @@ WaitingForRackFirmwareUpgrade -> WaitingForNVOSUpgrade -> WaitingForNMXCConfigur
 
 The rack state machine updates per-switch `firmware_upgrade_status`, `nvos_update_status`, and `fabric_manager_status` while the switch waits in each sub-state. If the parent rack enters `Error`, the switch aborts reprovisioning and returns to `Ready`.
 
-## OnDemand Maintenance Operations
+## On-Demand Maintenance Operations
 
 The `Maintenance` state is entered when `switch_maintenance_requested` is posted (from `Ready` or `Error`). Supported operations:
 
@@ -123,5 +123,5 @@ The `Maintenance` state is entered when `switch_maintenance_requested` is posted
 
 - **State type**: `SwitchControllerState` in `crates/api-model/src/switch/mod.rs`.
 - **Handlers**: `crates/switch-controller/src/` — one module per top-level state (`created`, `initializing`, `configuring`, `fetch_info`, `validating`, `bom_validating`, `ready`, `maintenance`, `reprovisioning`, `error_state`, `deleting`).
-- **Certificate configuring design**: [switch_configure_certificate.md](switch_configure_certificate.md).
+- **Certificate configuration design**: [switch_configure_certificate.md](switch_configure_certificate.md).
 - **Orchestration**: `SwitchStateHandler` in `handler.rs` delegates to the handler for the current `controller_state`.
