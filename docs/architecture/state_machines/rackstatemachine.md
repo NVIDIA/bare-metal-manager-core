@@ -259,7 +259,7 @@ These cross-state dependencies are shown in the [Combined State Diagram](#combin
 
 ### Switch State Machine Flow (summary)
 
-The **Switch** state machine runs on each switch. The lifecycle runs from creation through initialization, certificate configuration, password rotation, slot/tray fetch, validation, BOM validation, and `Ready`. From `Ready` a switch can enter operator `Maintenance`, rack-driven `ReProvisioning`, or `Deleting`.
+The **Switch** state machine runs on each switch. The lifecycle runs from creation through initialization, certificate configuration, password rotation, slot/tray fetch, validation, BOM validation, and `Ready`. From `Ready` a switch can enter operator `Maintenance`, rack-driven `ReProvisioning`, `Deleting`, or `Error`.
 
 Bring-up flow:
 
