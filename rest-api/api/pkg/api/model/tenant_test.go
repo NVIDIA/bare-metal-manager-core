@@ -39,6 +39,9 @@ func TestNewAPITenant(t *testing.T) {
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
+	for _, deprecation := range tenantCapabilityDeprecations {
+		tnAPITenant.Deprecations = append(tnAPITenant.Deprecations, NewAPIDeprecation(deprecation))
+	}
 
 	tests := []struct {
 		name string
