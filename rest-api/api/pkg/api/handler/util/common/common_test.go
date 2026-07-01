@@ -2780,10 +2780,11 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 
 		selErr := &InfiniBandMachineSelectionError{SuggestedByDevice: match.SuggestedByDevice}
 		errs := selErr.ValidationError()
-		require.Len(t, errs, 3)
+		require.Len(t, errs, 1)
 		assert.Contains(t, errs, "infiniBandInterfaces")
-		assert.Contains(t, errs, "suggestedInfiniBandInterfaces[0].deviceInstance")
-		assert.Contains(t, errs, "suggestedInfiniBandInterfaces[1].deviceInstance")
+		errMsg := errs["infiniBandInterfaces"].Error()
+		assert.Contains(t, errMsg, "requested device instances are not available on any Machine for this Instance Type")
+		assert.Contains(t, errMsg, "Use deviceInstances: [0 2] for device: MT28908 Family [ConnectX-6]")
 		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
 	})
 }

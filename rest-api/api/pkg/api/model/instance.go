@@ -175,8 +175,8 @@ func ValidateInterfaces(ifcs *[]APIInterfaceCreateOrUpdateRequest) error {
 	return nil
 }
 
-// InfiniBandRequestMatchResult captures whether a machine can satisfy an InfiniBand interface request.
-type InfiniBandRequestMatchResult struct {
+// InfiniBandInterfaceRequestMatchResult captures whether a machine can satisfy an InfiniBand interface request.
+type InfiniBandInterfaceRequestMatchResult struct {
 	Satisfied                 bool
 	CountSatisfiable          bool
 	SuggestedByDevice         map[string][]int
@@ -185,13 +185,13 @@ type InfiniBandRequestMatchResult struct {
 
 // ValidateInfiniBandRequestForMachineCapability checks whether machine InfiniBand capabilities
 // can satisfy the requested interfaces.
-func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapability(machineIbCaps []cdbm.MachineCapability) InfiniBandRequestMatchResult {
+func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapability(machineIbCaps []cdbm.MachineCapability) InfiniBandInterfaceRequestMatchResult {
 	capByDevice := make(map[string]cdbm.MachineCapability, len(machineIbCaps))
 	for _, cap := range machineIbCaps {
 		capByDevice[cap.Name] = cap
 	}
 
-	result := InfiniBandRequestMatchResult{
+	result := InfiniBandInterfaceRequestMatchResult{
 		Satisfied:         true,
 		CountSatisfiable:  true,
 		SuggestedByDevice: make(map[string][]int, len(capByDevice)),
@@ -299,28 +299,28 @@ func ValidateInfiniBandInterfaces(itIbCaps []cdbm.MachineCapability, ibifcs []AP
 				}
 			}
 
-			// Check if the infiniband device name is present in the InfiniBand Capabilities
+			// Check if the infiniband device name is present in the  Instance Type's InfiniBand Capabilities
 			_, exists = deviceInstanceCountMap[ibifc.Device]
 			if !exists {
 				return validation.Errors{
-					"device": fmt.Errorf("Device %v is not present in InfiniBand Capabilities", ibifc.Device),
+					"device": fmt.Errorf("Device %v is not present in Instance Type's InfiniBand Capabilities", ibifc.Device),
 				}
 			}
 
-			// Check if the infiniband device vendor is present in the InfiniBand Capabilities
+			// Check if the infiniband device vendor is present in the  Instance Type's InfiniBand Capabilities
 			if ibifc.Vendor != nil && !deviceVendorMap[*ibifc.Vendor] {
 				return validation.Errors{
-					"vendor": fmt.Errorf("Vendor %v is not present in InfiniBand Capabilities", *ibifc.Vendor),
+					"vendor": fmt.Errorf("Vendor %v is not present in Instance Type's InfiniBand Capabilities", *ibifc.Vendor),
 				}
 			}
 
 			if ibifc.DeviceInstance >= deviceInstanceCountMap[ibifc.Device] {
 				return validation.Errors{
-					"deviceInstance": fmt.Errorf("Device Instance: %v for Device %v exceeds InfiniBand Capabilities count", ibifc.DeviceInstance, ibifc.Device),
+					"deviceInstance": fmt.Errorf("Device Instance: %v for Device %v exceeds Instance Type's InfiniBand Capabilities count", ibifc.DeviceInstance, ibifc.Device),
 				}
 			}
 
-			// Check if the specified InfiniBand device instance is inactive
+			// Check if the specified Instance Type's InfiniBand device instance is inactive
 			_, exists = deviceInactiveInstanceMap[ibifc.Device]
 			if exists {
 				_, exists = deviceInactiveInstanceMap[ibifc.Device][ibifc.DeviceInstance]

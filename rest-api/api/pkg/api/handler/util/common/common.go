@@ -94,18 +94,14 @@ func (e *InfiniBandMachineSelectionError) Error() string {
 
 // ValidationError returns a validation error that includes suggested device instances.
 func (e *InfiniBandMachineSelectionError) ValidationError() validation.Errors {
-	errs := validation.Errors{
-		"infiniBandInterfaces": fmt.Errorf("requested device instances are not available on any Machine for this Instance Type"),
-	}
-	i := 0
+	errMsg := "requested device instances are not available on any Machine for this Instance Type"
+
 	for device, deviceInstances := range e.SuggestedByDevice {
-		for _, deviceInstance := range deviceInstances {
-			errs[fmt.Sprintf("suggestedInfiniBandInterfaces[%d].deviceInstance", i)] = fmt.Errorf(
-				"use device instance %d for device %s", deviceInstance, device)
-			i++
-		}
+		errMsg += fmt.Sprintf(". Use deviceInstances: %v for device: %s", deviceInstances, device)
 	}
-	return errs
+	return validation.Errors{
+		"infiniBandInterfaces": errors.New(errMsg),
+	}
 }
 
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
@@ -340,7 +336,6 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 		},
 	)
 
-	// If InfiniBand Interfaces are specified in the request, verify that the Machine has matching InfiniBand Interfaces
 	var infiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
 	if apiRequest != nil {
 		infiniBandInterfaces = apiRequest.InfiniBandInterfaces
