@@ -27,7 +27,9 @@ use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::default_config;
-use model::firmware::{FirmwareComponentType, FirmwareEntry, FirmwareFileArtifact};
+use model::firmware::{
+    FirmwareComponentType, FirmwareEntry, FirmwareFileArtifact, HostFirmwareConfig,
+};
 use model::site_explorer::{InitialResetPhase, PowerDrainState, PreingestionState};
 use rpc::forge::DhcpDiscovery;
 
@@ -223,6 +225,78 @@ async fn test_preingestion_bmc_upgrade(pool: PgPool) -> Result<(), Box<dyn std::
             .len()
             == 1
     );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_preingestion_bmc_upgrade_uses_runtime_host_firmware_config(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool.clone()).build().await;
+    let domain = env.test_domain().await;
+    let nc = env.network_controller();
+    let underlay_segment = nc.create_underlay_segment(&domain).await;
+    let config = default_config::get();
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        config.preingestion_manager(),
+        Arc::new(RedfishSim::default()),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api().work_lock_manager_handle(),
+        config.ntp_servers.clone(),
+    );
+
+    let response = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", underlay_segment.relay_address)
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let mut runtime_config = HostFirmwareConfig::from(config.host_models.get("1").unwrap().clone());
+    let bmc_component = runtime_config
+        .components
+        .get_mut(&FirmwareComponentType::Bmc)
+        .unwrap();
+    bmc_component.preingest_upgrade_when_below = Some("6.50.00.00".to_string());
+    bmc_component.known_firmware = vec![FirmwareEntry::standard("6.50.00.00")];
+
+    let mut txn = pool.begin().await.unwrap();
+    let addr = response.address.as_str();
+    common::insert_endpoint_version(&mut txn, addr, "5.1", "1.13.2", false).await?;
+    db::host_firmware_config::upsert(&mut txn, &runtime_config).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints =
+        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+    assert_eq!(endpoints.len(), 1);
+    let endpoint = endpoints.first().unwrap();
+    match &endpoint.preingestion_state {
+        PreingestionState::UpgradeFirmwareWait {
+            final_version,
+            upgrade_type,
+            ..
+        } => {
+            assert_eq!(final_version.as_str(), "6.50.00.00");
+            assert_eq!(*upgrade_type, FirmwareComponentType::Bmc);
+        }
+        _ => {
+            panic!("Bad preingestion state: {endpoint:?}");
+        }
+    }
     txn.commit().await?;
 
     Ok(())
