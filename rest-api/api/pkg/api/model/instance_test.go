@@ -2650,7 +2650,7 @@ func TestValidateInfiniBandRequestForMachineCapability(t *testing.T) {
 		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
 		assert.True(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
-		assert.Equal(t, []int{0, 2}, match.AvailableByDevice["MT28908 Family [ConnectX-6]"])
+		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
 	})
 
 	t.Run("not satisfied but count satisfiable when requested device instance is inactive on machine", func(t *testing.T) {

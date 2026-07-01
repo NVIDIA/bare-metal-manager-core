@@ -1105,17 +1105,20 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			var ibCapCount int
 			var ibCaps []cdbm.MachineCapability
 
-			ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Machine")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Machine, DB error", nil)
-			}
-
-			if ibCapCount == 0 && instanceTypeID != nil {
+			if instanceTypeID != nil {
 				ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{*instanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 				if err != nil {
 					logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Instance Type")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Instance Type, DB error", nil)
+				}
+			}
+
+			// If Instance Type does not have InfiniBand Capability, get capabilities from Machine
+			if ibCapCount == 0 {
+				ibCaps, ibCapCount, err = mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+				if err != nil {
+					logger.Error().Err(err).Msg("error retrieving Machine Capabilities from DB for Machine")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Machine, DB error", nil)
 				}
 			}
 

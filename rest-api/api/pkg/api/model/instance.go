@@ -179,7 +179,7 @@ func ValidateInterfaces(ifcs *[]APIInterfaceCreateOrUpdateRequest) error {
 type InfiniBandRequestMatchResult struct {
 	Satisfied                 bool
 	CountSatisfiable          bool
-	AvailableByDevice         map[string][]int
+	SuggestedByDevice         map[string][]int
 	UnsatisfiedRequestIndices []int
 }
 
@@ -194,7 +194,7 @@ func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapabili
 	result := InfiniBandRequestMatchResult{
 		Satisfied:         true,
 		CountSatisfiable:  true,
-		AvailableByDevice: make(map[string][]int, len(capByDevice)),
+		SuggestedByDevice: make(map[string][]int, len(capByDevice)),
 	}
 
 	// Build the available by device map from the capabilities
@@ -216,7 +216,7 @@ func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapabili
 			}
 		}
 		// Add the active device instances to the available by device map
-		result.AvailableByDevice[device] = active
+		result.SuggestedByDevice[device] = active
 	}
 
 	requestedByDevice := make(map[string]int)
@@ -234,11 +234,11 @@ func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapabili
 			result.UnsatisfiedRequestIndices = append(result.UnsatisfiedRequestIndices, idx)
 		}
 
-		activeSet := make(map[int]bool, len(result.AvailableByDevice[ibifc.Device]))
-		for _, deviceInstance := range result.AvailableByDevice[ibifc.Device] {
-			activeSet[deviceInstance] = true
+		activeDeviceInstance := make(map[int]bool, len(result.SuggestedByDevice[ibifc.Device]))
+		for _, deviceInstance := range result.SuggestedByDevice[ibifc.Device] {
+			activeDeviceInstance[deviceInstance] = true
 		}
-		if !activeSet[ibifc.DeviceInstance] {
+		if !activeDeviceInstance[ibifc.DeviceInstance] {
 			result.Satisfied = false
 			result.UnsatisfiedRequestIndices = append(result.UnsatisfiedRequestIndices, idx)
 		}
@@ -247,7 +247,7 @@ func (req *APIInstanceCreateRequest) ValidateInfiniBandRequestForMachineCapabili
 	}
 
 	for device, requestedCount := range requestedByDevice {
-		if len(result.AvailableByDevice[device]) < requestedCount {
+		if len(result.SuggestedByDevice[device]) < requestedCount {
 			result.CountSatisfiable = false
 		}
 	}

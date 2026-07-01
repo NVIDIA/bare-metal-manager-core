@@ -2778,7 +2778,24 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 		assert.False(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
 
-		available := AvailableInfiniBandInterfaces(req.InfiniBandInterfaces, match.AvailableByDevice)
+		available := make([]cam.APIInfiniBandInterfaceCreateOrUpdateRequest, 0, len(req.InfiniBandInterfaces))
+		seenDeviceInstanceMap := make(map[string]map[int]bool)
+		for _, ibifc := range req.InfiniBandInterfaces {
+			if seenDeviceInstanceMap[ibifc.Device] == nil {
+				seenDeviceInstanceMap[ibifc.Device] = make(map[int]bool)
+			}
+			for _, deviceInstance := range match.SuggestedByDevice[ibifc.Device] {
+				if seenDeviceInstanceMap[ibifc.Device][deviceInstance] {
+					continue
+				}
+				suggestion := ibifc
+				suggestion.DeviceInstance = deviceInstance
+				available = append(available, suggestion)
+				seenDeviceInstanceMap[ibifc.Device][deviceInstance] = true
+			}
+		}
+		require.Len(t, available, 2)
 		assert.Equal(t, 0, available[0].DeviceInstance)
+		assert.Equal(t, 2, available[1].DeviceInstance)
 	})
 }
