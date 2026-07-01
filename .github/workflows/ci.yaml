@@ -1655,7 +1655,7 @@ jobs:
   # Fails iff any required job listed in `needs` is `failure` or `cancelled`.
   # `skipped` counts as pass — that's how rest-only PRs unblock when the
   # `changes` gate intentionally skips the core pipeline.
-  # Every stage of each release-artifact chain is listed so an upstream failure
+  # Every stage of each gated release chain is listed so an upstream failure
   # cannot be hidden when its downstream jobs become SKIPPED.
   # `changes` + `prepare` are also included so a gate or prepare failure doesn't
   # silently pass.
@@ -1667,7 +1667,13 @@ jobs:
     needs:
       - changes
       - prepare
+      # x86_64 release-container chain
+      - build-container-x86_64
+      - build-runtime-container-x86_64
       - build-release-container-x86_64
+      # aarch64 release-container chain
+      - build-container-aarch64
+      - build-runtime-container-aarch64
       - build-release-container-aarch64
       - test-release-container-services
       # x86_64 release-artifact chain
