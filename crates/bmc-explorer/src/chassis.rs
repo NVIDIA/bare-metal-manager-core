@@ -132,9 +132,10 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     }
 
     pub fn is_bluefield4(&self) -> bool {
-        self.members
-            .iter()
-            .any(|c| c.chassis.hardware_id().model == Some(Model::new("B4240")))
+        self.members.iter().any(|c| {
+            c.chassis.hardware_id().model == Some(Model::new("B4240"))
+                || c.chassis.hardware_id().model == Some(Model::new("B4240V"))
+        })
     }
 
     pub fn dpu_card1_serial_number(&self) -> Result<Option<&str>, Error<B>> {

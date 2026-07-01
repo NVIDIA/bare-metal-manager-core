@@ -25,10 +25,19 @@ use serde_json::json;
 
 use crate::{Callbacks, LogService, LogServices, hw, redfish};
 
+#[derive(Clone, Copy, Debug)]
+pub enum Mode {
+    // B4240V installed on VR NVL.
+    B4240V,
+    // Air Cooled Bluefield-4 DPU
+    B4240,
+}
+
 pub struct Bluefield4<'a> {
     pub product_serial_number: Cow<'a, str>,
     pub host_mac_address: MacAddress,
     pub bmc_mac_address: MacAddress,
+    pub mode: Mode,
 }
 
 impl Bluefield4<'_> {
@@ -53,7 +62,7 @@ impl Bluefield4<'_> {
                     id: "Bluefield_BMC".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some("Nvidia".into()),
-                    model: Some("B4240".into()),
+                    model: Some(self.model().into()),
                     part_number: Some(self.part_number().into()),
                     pcie_devices: Some(vec![]),
                     sensors: Some(vec![]),
@@ -160,15 +169,27 @@ impl Bluefield4<'_> {
     }
 
     pub fn host_nic(&self) -> hw::nic::Nic<'static> {
-        hw::nic::Nic {
-            mac_address: self.host_mac_address,
-            serial_number: Some(format!("{}", self.product_serial_number).into()),
-            manufacturer: Some("Mellanox Technologies".into()),
-            model: Some("B4240".into()),
-            description: Some("CX9 Family [ConnectX-9]".into()),
-            part_number: Some(self.part_number().into()),
-            firmware_version: Some("82.48.0802".into()),
-            is_mat_dpu: true,
+        match self.mode {
+            Mode::B4240 => hw::nic::Nic {
+                mac_address: self.host_mac_address,
+                serial_number: Some(format!("{}", self.product_serial_number).into()),
+                manufacturer: Some("Mellanox Technologies".into()),
+                model: Some("B4240".into()),
+                description: Some("CX9 Family [ConnectX-9]".into()),
+                part_number: Some(self.part_number().into()),
+                firmware_version: Some("82.48.0802".into()),
+                is_mat_dpu: true,
+            },
+            Mode::B4240V => hw::nic::Nic {
+                mac_address: self.host_mac_address,
+                serial_number: Some(format!("{}", self.product_serial_number).into()),
+                manufacturer: Some("NVIDIA".into()),
+                model: Some("NVIDIA BlueField-4 B4240V 800G Liquid Cooled DPU, Dual-port 400GbE / NDR, QSFP112, PCIe Gen6 x16, 64 Arm cores, 128GB LPDDR5x, integrated BMC, Crypto Enabled, Secure Boot Enabled".into()),
+                description: None,
+                part_number: Some(self.part_number().into()),
+                firmware_version: None,
+                is_mat_dpu: true,
+            },
         }
     }
 
@@ -197,8 +218,18 @@ impl Bluefield4<'_> {
         }
     }
 
+    pub fn model(&self) -> &'static str {
+        match self.mode {
+            Mode::B4240V => "B4240V",
+            Mode::B4240 => "B4240",
+        }
+    }
+
     fn part_number(&self) -> &'static str {
-        "900-9D4B4-CWAA-TSA"
+        match self.mode {
+            Mode::B4240 => "900-9D4B4-CWAA-TSA",
+            Mode::B4240V => "900-9D4A4-00CB-TS4",
+        }
     }
 }
 
