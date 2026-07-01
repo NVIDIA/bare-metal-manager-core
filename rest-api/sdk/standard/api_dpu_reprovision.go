@@ -78,7 +78,7 @@ func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovision
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/dpu-reprovision"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/dpu/reprovision"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"machineId"+"}", url.PathEscape(parameterValueToString(r.machineId, "machineId")), -1)
 
