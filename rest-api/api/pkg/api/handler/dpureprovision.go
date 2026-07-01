@@ -46,7 +46,7 @@ func NewDpuReprovisionHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *c
 // @Param id path string true "ID of Machine"
 // @Param request body model.APIDpuReprovisionRequest true "DPU reprovision request"
 // @Success 202 {object} model.APIMessageResponse
-// @Router /v2/org/{org}/nico/machine/{machineId}/dpu-reprovision [patch]
+// @Router /v2/org/{org}/nico/machine/{machineId}/dpu/reprovision [patch]
 func (h DpuReprovisionHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("DpuReprovision", "Trigger", c, h.tracerSpan)
 	if handlerSpan != nil {
