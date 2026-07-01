@@ -237,6 +237,20 @@ impl DpuMachineInfo {
             DpuType::Bluefield4 => self.bluefield4().discovery_info(),
         }
     }
+
+    pub fn oem_state(&self) -> redfish::oem::State {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => redfish::oem::State::NvidiaBluefield(
+                redfish::oem::nvidia::bluefield::BluefieldState::new_bf3(
+                    self.settings.nic_mode,
+                    self.host_mac_address,
+                ),
+            ),
+            DpuType::Bluefield4 => redfish::oem::State::NvidiaBluefield(
+                redfish::oem::nvidia::bluefield::BluefieldState::new_bf4(),
+            ),
+        }
+    }
 }
 
 impl HostMachineInfo {
@@ -838,12 +852,7 @@ impl MachineInfo {
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
-            MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
-                redfish::oem::nvidia::bluefield::BluefieldState::new(
-                    dpu.settings.nic_mode,
-                    dpu.host_mac_address,
-                ),
-            ),
+            MachineInfo::Dpu(dpu) => dpu.oem_state(),
         }
     }
 
