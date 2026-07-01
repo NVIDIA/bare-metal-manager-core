@@ -118,6 +118,9 @@ tags:
 
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
+  - name: BMC Credential
+    description: |-
+      BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -188,6 +191,17 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: BMC Reset
+    x-displayName: BMC Reset
+    description: |-
+      BMC Reset allows resetting a Machine's BMC
+  - name: DPU Reprovision
+    x-DisplayName: DPU Reprovision
+    description: |-
+      DPU Reprovision allows re-provisioning Machine's DPUs
+  - name: Health Report
+    description: |-
+      Machine Health Report contains information about the health of a Machine including user enforced overrides
   - name: Machine Capability
     description: |-
       Machine Capability defines the hardware capabilities of a Machine. Machine Capabilities can be used to group Machines into Instance Types.
@@ -302,39 +316,6 @@ tags:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
 paths:
-  '/v2/org/{org}/nico/credential/bmc':
-    parameters:
-      - schema:
-          type: string
-        name: org
-        in: path
-        required: true
-        description: Name of the Org
-    put:
-      summary: Create Or Update BMC Credential
-      tags:
-        - BMC Credential
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BMCCredentialRequest'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BMCCredential'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
-      operationId: create-or-update-bmc-credential
-      description: |-
-        Create or update a site-wide or per-BMC root credential. Equivalent
-        to `carbide-admin-cli credential add-bmc`.
-
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/service-account/current':
     parameters:
       - schema:
@@ -819,7 +800,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -1090,7 +1071,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -1179,6 +1160,39 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
+  '/v2/org/{org}/nico/credential/bmc':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    put:
+      summary: Create Or Update BMC Credential
+      tags:
+        - BMC Credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BMCCredentialRequest'
+      responses:
+        '202':
+          description: Machine power control request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BMCCredential'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      operationId: create-or-update-bmc-credential
+      description: |-
+        Create or update a site-wide or per-BMC root credential. Equivalent
+        to `carbide-admin-cli credential add-bmc`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
     parameters:
       - schema:
@@ -1525,7 +1539,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -1958,7 +1972,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -2440,7 +2454,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -4982,7 +4996,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -5312,7 +5326,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -5706,7 +5720,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -5950,7 +5964,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -6973,7 +6987,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -8288,7 +8302,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -9124,7 +9138,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -9143,6 +9157,209 @@ paths:
           description: Describes an error response for 500 Internal Server Error
           $ref: '#/components/responses/GenericHttpError'
       description: Org must have an Infrastructure Provider entity. Machine must belong to the Provider. User must have authorization role with `PROVIDER_ADMIN` suffix. Machine must meet certain criteria to be eligible for deletion.
+  '/v2/org/{org}/nico/machine/{machineId}/bmc-reset':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    post:
+      summary: Reset Machine BMC
+      tags:
+        - BMC Reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BmcResetRequest'
+      responses:
+        '202':
+          description: Machine BMC reset request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Machine BMC reset request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: reset-machine-bmc
+      description: |-
+        Reset BMC of a specific Machine.
+        
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/dpu-reprovision':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    patch:
+      summary: Reprovision Machine DPUs
+      tags:
+        - DPU Reprovision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DpuReprovisionRequest'
+      responses:
+        '202':
+          description: DPU reprovisioning request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: DPU reprovisioning request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: reprovision-machine-dpu
+      description: |-
+        Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/health-report':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve all Machine health reports
+      tags:
+        - Health Report
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineHealthReportEntry'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-machine-health-report
+      description: |-
+        Get all health reports for a specific Machine.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+    put:
+      summary: Create or update Machine health report
+      tags:
+        - Health Report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineHealthReportEntryRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineHealthReportEntry'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: create-or-update-machine-health-report
+      description: |-
+        Add or update health report override for a specific Machine.
+        
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/health-report/{source}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+      - schema:
+          type: string
+        name: source
+        in: path
+        required: true
+        description: Health report source
+    delete:
+      summary: Delete Machine health report
+      tags:
+        - Health Report
+      responses:
+        '204':
+          description: Machine health report was successfully removed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: delete-machine-health-report
+      description: |-
+        Remove a health report override for a specific Machine.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/power':
     parameters:
       - schema:
@@ -9175,12 +9392,16 @@ paths:
                 value:
                   action: ForceRestart
       responses:
-        '200':
-          description: OK
+        '202':
+          description: Machine power control request was accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MachinePowerControlResponse'
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Power control accepted
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -9191,9 +9412,9 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: machine-power-control-machine
       description: |-
-        Power control a Machine through NICo Core. The request is authorized,
-        machine-scoped, and proxied to the Machine's owning Site. User must have
-        authorization role with `PROVIDER_ADMIN` suffix.
+        Execute power control actions for a specific Machine.
+        
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -11644,7 +11865,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -12223,7 +12444,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -12518,7 +12739,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionAcceptedResponse'
+                $ref: '#/components/schemas/MessageResponse'
               examples:
                 example-1:
                   value:
@@ -13300,6 +13521,117 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    BmcResetRequest:
+      type: object
+      title: BmcResetRequest
+      description: Request to reset a Machine BMC
+      properties:
+        useIpmiTool:
+          type: boolean
+          default: false
+          description: Reset the BMC via ipmitool instead of Redfish.
+      examples:
+        - useIpmiTool: true
+    DpuReprovisionRequest:
+      type: object
+      title: DpuReprovisionRequest
+      description: Request to trigger DPU reprovisioning for a Machine
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          description: DPU reprovisioning mode.
+          enum:
+            - Set
+            - Clear
+            - Restart
+        updateFirmware:
+          type: boolean
+          default: false
+          description: Whether to update firmware during reprovisioning.
+      examples:
+        - mode: Restart
+          updateFirmware: true
+    MachineHealthReportEntry:
+      type: object
+      title: MachineHealthReportEntry
+      description: Machine health report entry
+      required:
+        - source
+        - mode
+      properties:
+        source:
+          type: string
+          description: Health report source.
+        triggeredBy:
+          type: string
+          description: Person or system that triggered this health report.
+        observedAt:
+          type: string
+          format: date-time
+          description: Date/time when the health report was observed.
+        successes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineHealthProbeSuccess'
+          description: Results from successful health probes for the Machine.
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineHealthProbeAlert'
+          description: Results from failed health probes for the Machine.
+        mode:
+          type: string
+          description: How this health report was updated
+          enum:
+            - Merge
+            - Replace
+      examples:
+        - source: overrides.sre
+          triggeredBy: operator
+          observedAt: '2026-06-24T12:00:00Z'
+          mode: Merge
+          alerts:
+            - id: dpu.reprovision.in.progress
+              message: DPU reprovisioning in progress
+              classifications:
+                - maintenance
+    MachineHealthReportEntryRequest:
+      type: object
+      title: MachineHealthReportEntryRequest
+      description: Request to add or update a Machine health report override.
+      required:
+        - source
+        - mode
+      properties:
+        source:
+          type: string
+          description: Health report source.
+        successes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineHealthProbeSuccess'
+          description: Results from successful health probes for the Machine.
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineHealthProbeAlert'
+          description: Results from failed health probes for the Machine.
+        mode:
+          type: string
+          description: How updates to this health report should be handled
+          enum:
+            - Merge
+            - Replace
+      examples:
+        - source: overrides.sre
+          mode: Merge
+          alerts:
+            - id: dpu.reprovision.in.progress
+              message: DPU reprovisioning in progress
+              classifications:
+                - maintenance
     HostFirmwareArtifact:
       type: object
       title: HostFirmwareArtifact
@@ -13595,7 +13927,7 @@ components:
     MachinePowerControlRequest:
       type: object
       title: MachinePowerControlRequest
-      description: Request to power control a Machine through NICo Core.
+      description: Request to power control a Machine
       required:
         - action
       properties:
@@ -13612,26 +13944,6 @@ components:
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine.
-    MachinePowerControlResponse:
-      type: object
-      title: MachinePowerControlResponse
-      description: Response for a Machine power control request.
-      required:
-        - machineId
-        - action
-        - message
-      properties:
-        machineId:
-          type: string
-          description: ID of the Machine.
-        action:
-          type: string
-          description: Power control action accepted.
-        message:
-          type:
-            - string
-            - 'null'
-          description: Optional message returned by NICo Core.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -20473,6 +20785,8 @@ components:
       title: MachineHealthProbeSuccess
       type: object
       description: Describes results of successful Machine health probe
+      required:
+        - id
       examples:
         - id: FanSpeed
           target: System Board Fan1A
@@ -20489,6 +20803,9 @@ components:
       title: MachineHealthProbeAlert
       type: object
       description: Describes results of a failed Machine health probe
+      required:
+        - id
+        - message
       examples:
         - id: FailedValidationTest
           target: DcgmFullShort
@@ -20514,6 +20831,7 @@ components:
           type:
             - string
             - 'null'
+          format: date-time
           description: Date/time since the alert has been in effect
         message:
           type: string
@@ -23698,16 +24016,16 @@ components:
         notice:
           type: string
           description: Message describing the deprecation
-    DeletionAcceptedResponse:
-      title: DeletionAcceptedResponse
+    MessageResponse:
+      title: MessageResponse
       type: object
-      description: JSON body for accepted asynchronous DELETE requests
+      description: Structured response with a human-readable message
       required:
         - message
       properties:
         message:
           type: string
-          description: Human-readable outcome of the delete request
+          description: Human-readable outcome of the request
       example:
         message: Deletion request was accepted
     NICoAPIError:
@@ -24356,7 +24674,7 @@ components:
       properties:
         id:
           type: string
-          description: ID of the DPU Machine (matches the host Machine ID for the DPU as reported by NICo Core)
+          description: ID of the DPU Machine
         infrastructureProviderId:
           type: string
           format: uuid
@@ -24397,7 +24715,7 @@ components:
           description: Labels associated with the DPU
         state:
           type: string
-          description: Lifecycle state of the DPU as reported by NICo Core
+          description: Lifecycle state of the DPU
         dpuNetworkConfig:
           $ref: '#/components/schemas/DpuNetworkConfig'
           description: Complete network configuration sent to the DPU agent
@@ -24406,7 +24724,7 @@ components:
             - string
             - 'null'
           format: date-time
-          description: Last reboot timestamp reported by NICo Core
+          description: Last reboot timestamp
         placementInRack:
           $ref: '#/components/schemas/PlacementInRack'
           description: 'Physical placement of the DPU Machine within its Rack, when known'

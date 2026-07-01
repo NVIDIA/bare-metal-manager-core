@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/rs/zerolog"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -22,22 +21,14 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-func logAPIError(logger zerolog.Logger, apiErr *cutil.APIError, msg string) {
-	if apiErr.Data != nil {
-		logger.Error().Err(apiErr.Data).Msg(msg)
-		return
-	}
-	logger.Error().Err(apiErr).Msg(msg)
-}
-
-type MachinePowerControlHandler struct {
+type BmcResetHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-func NewMachinePowerControlHandler(dbSession *cdb.Session, scp *sc.ClientPool, _ *config.Config) MachinePowerControlHandler {
-	return MachinePowerControlHandler{
+func NewBmcResetHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) BmcResetHandler {
+	return BmcResetHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -45,19 +36,19 @@ func NewMachinePowerControlHandler(dbSession *cdb.Session, scp *sc.ClientPool, _
 }
 
 // Handle godoc
-// @Summary Machine Power Control
-// @Description Power control a Machine through NICo Core. Provider Admin only.
-// @Tags machine-power
+// @Summary Reset Machine BMC
+// @Description Reset a Machine BMC through NICo Core. Provider Admin only.
+// @Tags bmc-reset
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of Machine"
-// @Param request body model.APIMachinePowerControlRequest true "Power control request"
+// @Param request body model.APIBmcResetRequest true "BMC reset request"
 // @Success 202 {object} model.APIMessageResponse
-// @Router /v2/org/{org}/nico/machine/{machineId}/power [patch]
-func (h MachinePowerControlHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachinePower", "Control", c, h.tracerSpan)
+// @Router /v2/org/{org}/nico/machine/{machineId}/bmc-reset [post]
+func (h BmcResetHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("BmcReset", "Reset", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -82,7 +73,8 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
 	}
 
-	var apiReq model.APIMachinePowerControlRequest
+	var apiReq model.APIBmcResetRequest
+
 	err = c.Bind(&apiReq)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
@@ -90,7 +82,7 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 
 	err = apiReq.Validate()
 	if err != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate request data", err)
 	}
 
 	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
@@ -118,13 +110,8 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 	}
 
 	if machine.IsMissingOnSite {
-		logger.Error().Msg("Machine is missing on site, unable to power control")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to power control", nil)
-	}
-
-	if machine.IsAssigned && (apiReq.AcknowledgeAttachedInstance == nil || !*apiReq.AcknowledgeAttachedInstance) {
-		logger.Error().Msg("Machine is currently in use by an Instance and cannot be power controlled without acknowledging the attached Instance")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is currently in use by an Instance, set acknowledgeAttachedInstance to true to proceed", nil)
+		logger.Error().Msg("Machine is missing on site, unable to reset BMC")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to reset BMC", nil)
 	}
 
 	if machine.Site == nil {
@@ -145,16 +132,16 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
 	}
 
-	logger.Info().Str("machine_id", machineID).Str("action", string(apiReq.Action)).Str("site_id", site.ID.String()).Msg("Sending Machine power control request via Core gRPC proxy")
+	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", *apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
 
-	coreResp := &cwssaws.AdminPowerControlResponse{}
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminPowerControl_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
+	coreResp := &cwssaws.AdminBmcResetResponse{}
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminBmcReset_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
 	if apiErr != nil {
-		logAPIError(logger, apiErr, "Failed to execute Machine power control request via Core gRPC proxy")
+		logAPIError(logger, apiErr, "Failed to reset Machine BMC via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	return c.JSON(http.StatusAccepted, model.APIMessageResponse{
-		Message: coreResp.GetMsg(),
+		Message: "Machine BMC reset request was accepted",
 	})
 }

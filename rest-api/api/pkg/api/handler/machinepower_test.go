@@ -113,7 +113,7 @@ func (f machinePowerHandlerFixture) request(t *testing.T, method, target string,
 	}
 	rec := httptest.NewRecorder()
 	ec := e.NewContext(req, rec)
-	ec.SetParamNames("orgName", "machineId")
+	ec.SetParamNames("orgName", "id")
 	ec.SetParamValues(f.org, f.machineID)
 	ec.Set("user", f.user)
 
@@ -126,7 +126,7 @@ func TestMachinePowerControlHandlerProxiesRequest(t *testing.T) {
 	fixture := newMachinePowerHandlerFixture(t, &cwssaws.AdminPowerControlResponse{Msg: &msg})
 
 	rec := fixture.request(t, http.MethodPatch, "/", model.APIMachinePowerControlRequest{Action: model.MachinePowerActionForceRestart})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Equal(t, cwssaws.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
 	assert.Empty(t, fixture.proxiedReq.EncryptedSecrets)
 
@@ -135,12 +135,9 @@ func TestMachinePowerControlHandlerProxiesRequest(t *testing.T) {
 	assert.Equal(t, fixture.machineID, coreReq.GetMachineId())
 	assert.Equal(t, cwssaws.AdminPowerControlRequest_ForceRestart, coreReq.GetAction())
 
-	var apiResp model.APIMachinePowerControlResponse
+	var apiResp model.APIMessageResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiResp))
-	assert.Equal(t, fixture.machineID, apiResp.MachineID)
-	assert.Equal(t, model.MachinePowerActionForceRestart, apiResp.Action)
-	require.NotNil(t, apiResp.Message)
-	assert.Equal(t, "power control accepted", *apiResp.Message)
+	assert.Equal(t, "power control accepted", apiResp.Message)
 	assert.NotContains(t, rec.Body.String(), "password")
 }
 
@@ -207,7 +204,7 @@ func TestMachinePowerControlHandlerRejectsMachineWithInstanceWithAcknowledgement
 	require.NoError(t, err)
 
 	rec := fixture.request(t, http.MethodPatch, "/", model.APIMachinePowerControlRequest{Action: model.MachinePowerActionOn, AcknowledgeAttachedInstance: cutil.GetPtr(true)})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Equal(t, cwssaws.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 

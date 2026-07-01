@@ -176,7 +176,7 @@ func (r ApiDeleteSiteRequest) PurgeMachines(purgeMachines bool) ApiDeleteSiteReq
 	return r
 }
 
-func (r ApiDeleteSiteRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteSiteRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteSiteExecute(r)
 }
 
@@ -205,13 +205,13 @@ func (a *SiteAPIService) DeleteSite(ctx context.Context, org string, siteId stri
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *SiteAPIService) DeleteSiteExecute(r ApiDeleteSiteRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *SiteAPIService) DeleteSiteExecute(r ApiDeleteSiteRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SiteAPIService.DeleteSite")

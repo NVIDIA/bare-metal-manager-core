@@ -211,7 +211,7 @@ type ApiDeleteNetworkSecurityGroupRequest struct {
 	networkSecurityGroupId string
 }
 
-func (r ApiDeleteNetworkSecurityGroupRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteNetworkSecurityGroupRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteNetworkSecurityGroupExecute(r)
 }
 
@@ -240,13 +240,13 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroup(ctx context.
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r ApiDeleteNetworkSecurityGroupRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r ApiDeleteNetworkSecurityGroupRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.DeleteNetworkSecurityGroup")

@@ -167,7 +167,7 @@ type ApiDeleteSshKeyGroupRequest struct {
 	sshKeyGroupId string
 }
 
-func (r ApiDeleteSshKeyGroupRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteSshKeyGroupRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteSshKeyGroupExecute(r)
 }
 
@@ -196,13 +196,13 @@ func (a *SSHKeyGroupAPIService) DeleteSshKeyGroup(ctx context.Context, org strin
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *SSHKeyGroupAPIService) DeleteSshKeyGroupExecute(r ApiDeleteSshKeyGroupRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *SSHKeyGroupAPIService) DeleteSshKeyGroupExecute(r ApiDeleteSshKeyGroupRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SSHKeyGroupAPIService.DeleteSshKeyGroup")

@@ -645,14 +645,12 @@ func (ahps *APIMachineHealthProbeSuccess) FromDBModel(success cdbm.HealthProbeSu
 }
 
 type APIMachineHealthProbeAlert struct {
-	ID                      string   `json:"id"`
-	Target                  *string  `json:"target"`
-	InAlertSince            *string  `json:"inAlertSince"`
-	InAlertSinceDeprecated  *string  `json:"in_alert_since"`
-	Message                 string   `json:"message"`
-	TenantMessage           *string  `json:"tenantMessage"`
-	TenantMessageDeprecated *string  `json:"tenant_message"`
-	Classifications         []string `json:"classifications"`
+	ID              string   `json:"id"`
+	Target          *string  `json:"target"`
+	InAlertSince    *string  `json:"inAlertSince"`
+	Message         string   `json:"message"`
+	TenantMessage   *string  `json:"tenantMessage"`
+	Classifications []string `json:"classifications"`
 }
 
 // FromProto populates an APIMachineHealthProbeAlert from its protobuf form.
@@ -666,10 +664,8 @@ func (ahpa *APIMachineHealthProbeAlert) FromProto(protoAlert *cwssaws.HealthProb
 	if protoAlert.InAlertSince != nil {
 		inAlertSince := protoAlert.InAlertSince.AsTime().Format(time.RFC3339)
 		ahpa.InAlertSince = cutil.GetPtr(inAlertSince)
-		ahpa.InAlertSinceDeprecated = cutil.GetPtr(inAlertSince)
 	}
 	ahpa.TenantMessage = protoAlert.TenantMessage
-	ahpa.TenantMessageDeprecated = protoAlert.TenantMessage
 	ahpa.Classifications = protoAlert.Classifications
 }
 
@@ -679,9 +675,7 @@ func (ahpa *APIMachineHealthProbeAlert) FromDBModel(alert cdbm.HealthProbeAlert)
 	ahpa.Target = alert.Target
 	ahpa.Message = alert.Message
 	ahpa.InAlertSince = alert.InAlertSince
-	ahpa.InAlertSinceDeprecated = alert.InAlertSince
 	ahpa.TenantMessage = alert.TenantMessage
-	ahpa.TenantMessageDeprecated = alert.TenantMessage
 	ahpa.Classifications = alert.Classifications
 }
 

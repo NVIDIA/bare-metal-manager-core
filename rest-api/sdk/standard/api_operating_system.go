@@ -173,7 +173,7 @@ type ApiDeleteOperatingSystemRequest struct {
 	operatingSystemId string
 }
 
-func (r ApiDeleteOperatingSystemRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteOperatingSystemRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteOperatingSystemExecute(r)
 }
 
@@ -202,13 +202,13 @@ func (a *OperatingSystemAPIService) DeleteOperatingSystem(ctx context.Context, o
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *OperatingSystemAPIService) DeleteOperatingSystemExecute(r ApiDeleteOperatingSystemRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *OperatingSystemAPIService) DeleteOperatingSystemExecute(r ApiDeleteOperatingSystemRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.DeleteOperatingSystem")

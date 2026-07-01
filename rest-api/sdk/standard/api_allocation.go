@@ -170,7 +170,7 @@ type ApiDeleteAllocationRequest struct {
 	allocationId string
 }
 
-func (r ApiDeleteAllocationRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteAllocationRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteAllocationExecute(r)
 }
 
@@ -199,13 +199,13 @@ func (a *AllocationAPIService) DeleteAllocation(ctx context.Context, org string,
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *AllocationAPIService) DeleteAllocationExecute(r ApiDeleteAllocationRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *AllocationAPIService) DeleteAllocationExecute(r ApiDeleteAllocationRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "AllocationAPIService.DeleteAllocation")

@@ -547,11 +547,6 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewGetMachineHandler(dbSession, tc, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/machine/:machineId/power",
-			Method:  http.MethodPatch,
-			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
-		},
-		{
 			Path:    apiPathPrefix + "/machine/:id",
 			Method:  http.MethodPatch,
 			Handler: apiHandler.NewUpdateMachineHandler(dbSession, tc, scp, cfg),
@@ -572,6 +567,37 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetAllDpuMachineHandler(dbSession, scp),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/dpu/reprovision",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewDpuReprovisionHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/bmc-reset",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewBmcResetHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewListMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewInsertMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report/:source",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewRemoveMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
+		},
+
 		// Machine GPU Stats endpoint
 		{
 			Path:    apiPathPrefix + "/machine/gpu/stats",

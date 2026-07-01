@@ -1,5 +1,11 @@
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `bmc-root` of the request property `kind`
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `site-wide-root` of the request property `kind`
-API POST /v2/org/{org}/nico/instance the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
-API POST /v2/org/{org}/nico/instance/batch the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
-API PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+POST /v2/org/{org}/nico/instance the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+POST /v2/org/{org}/nico/instance/batch the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
+PATCH /v2/org/{org}/nico/machine/{machineId}/power removed the success response with the status `200`
+PUT /v2/org/{org}/nico/credential/bmc removed the success response with the status `200`
+GET /v2/org/{org}/nico/machine the `items/health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
+GET /v2/org/{org}/nico/machine/{machineId} the `health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
+PATCH /v2/org/{org}/nico/machine/{machineId} the `health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
+GET /v2/org/{org}/nico/machine/{machineId}/dpu the `items/health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`

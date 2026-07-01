@@ -47,6 +47,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func assertDeletionAcceptedResponse(t *testing.T, body []byte) {
+	t.Helper()
+
+	var resp model.APIMessageResponse
+	require.NoError(t, json.Unmarshal(body, &resp))
+	assert.Equal(t, model.DeletionRequestAcceptedMessage, resp.Message)
+}
+
 func testInstanceInitDB(t *testing.T) *cdb.Session {
 	dbSession := cdbu.GetTestDBSession(t, false)
 	dbSession.DB.AddQueryHook(bundebug.NewQueryHook(

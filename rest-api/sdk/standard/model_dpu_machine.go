@@ -25,7 +25,7 @@ var _ MappedNullable = &DpuMachine{}
 
 // DpuMachine A DPU Machine with its complete network configuration sent to the DPU agent.
 type DpuMachine struct {
-	// ID of the DPU Machine (matches the host Machine ID for the DPU as reported by NICo Core)
+	// ID of the DPU Machine
 	Id string `json:"id"`
 	// ID of the Infrastructure Provider that owns the host Machine
 	InfrastructureProviderId string `json:"infrastructureProviderId"`
@@ -47,11 +47,11 @@ type DpuMachine struct {
 	Health *MachineHealth `json:"health,omitempty"`
 	// Labels associated with the DPU
 	Labels map[string]string `json:"labels,omitempty"`
-	// Lifecycle state of the DPU as reported by NICo Core
+	// Lifecycle state of the DPU
 	State string `json:"state"`
 	// Complete network configuration sent to the DPU agent
 	DpuNetworkConfig DpuNetworkConfig `json:"dpuNetworkConfig"`
-	// Last reboot timestamp reported by NICo Core
+	// Last reboot timestamp
 	LastRebooted NullableTime `json:"lastRebooted,omitempty"`
 	// Physical placement of the DPU Machine within its Rack, when known
 	PlacementInRack *PlacementInRack `json:"placementInRack,omitempty"`

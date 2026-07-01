@@ -57,7 +57,11 @@ type APIClient struct {
 
 	BMCCredentialAPI *BMCCredentialAPIService
 
+	BMCResetAPI *BMCResetAPIService
+
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
+
+	DPUReprovisionAPI *DPUReprovisionAPIService
 
 	ExpectedMachineAPI *ExpectedMachineAPIService
 
@@ -66,6 +70,8 @@ type APIClient struct {
 	ExpectedRackAPI *ExpectedRackAPIService
 
 	ExpectedSwitchAPI *ExpectedSwitchAPIService
+
+	HealthReportAPI *HealthReportAPIService
 
 	HostFirmwareConfigAPI *HostFirmwareConfigAPIService
 
@@ -143,11 +149,14 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.AllocationAPI = (*AllocationAPIService)(&c.common)
 	c.AuditAPI = (*AuditAPIService)(&c.common)
 	c.BMCCredentialAPI = (*BMCCredentialAPIService)(&c.common)
+	c.BMCResetAPI = (*BMCResetAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
+	c.DPUReprovisionAPI = (*DPUReprovisionAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
 	c.ExpectedPowerShelfAPI = (*ExpectedPowerShelfAPIService)(&c.common)
 	c.ExpectedRackAPI = (*ExpectedRackAPIService)(&c.common)
 	c.ExpectedSwitchAPI = (*ExpectedSwitchAPIService)(&c.common)
+	c.HealthReportAPI = (*HealthReportAPIService)(&c.common)
 	c.HostFirmwareConfigAPI = (*HostFirmwareConfigAPIService)(&c.common)
 	c.IPBlockAPI = (*IPBlockAPIService)(&c.common)
 	c.InfiniBandPartitionAPI = (*InfiniBandPartitionAPIService)(&c.common)

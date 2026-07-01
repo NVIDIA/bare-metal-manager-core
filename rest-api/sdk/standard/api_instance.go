@@ -317,7 +317,7 @@ func (r ApiDeleteInstanceRequest) InstanceDeleteRequest(instanceDeleteRequest In
 	return r
 }
 
-func (r ApiDeleteInstanceRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteInstanceRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteInstanceExecute(r)
 }
 
@@ -344,13 +344,13 @@ func (a *InstanceAPIService) DeleteInstance(ctx context.Context, org string, ins
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *InstanceAPIService) DeleteInstanceExecute(r ApiDeleteInstanceRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *InstanceAPIService) DeleteInstanceExecute(r ApiDeleteInstanceRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceAPIService.DeleteInstance")

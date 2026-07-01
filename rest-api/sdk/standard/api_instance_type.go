@@ -308,7 +308,7 @@ type ApiDeleteInstanceTypeRequest struct {
 	instanceTypeId string
 }
 
-func (r ApiDeleteInstanceTypeRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteInstanceTypeRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteInstanceTypeExecute(r)
 }
 
@@ -335,13 +335,13 @@ func (a *InstanceTypeAPIService) DeleteInstanceType(ctx context.Context, org str
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTypeRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTypeRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceType")
@@ -429,7 +429,7 @@ type ApiDeleteInstanceTypeMachineAssociationRequest struct {
 	machineAssociationId string
 }
 
-func (r ApiDeleteInstanceTypeMachineAssociationRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteInstanceTypeMachineAssociationRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteInstanceTypeMachineAssociationExecute(r)
 }
 
@@ -460,13 +460,13 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociation(ctx contex
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r ApiDeleteInstanceTypeMachineAssociationRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r ApiDeleteInstanceTypeMachineAssociationRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceTypeMachineAssociation")

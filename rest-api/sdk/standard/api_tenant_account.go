@@ -169,7 +169,7 @@ type ApiDeleteTenantAccountRequest struct {
 	accountId  string
 }
 
-func (r ApiDeleteTenantAccountRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteTenantAccountRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteTenantAccountExecute(r)
 }
 
@@ -198,13 +198,13 @@ func (a *TenantAccountAPIService) DeleteTenantAccount(ctx context.Context, org s
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *TenantAccountAPIService) DeleteTenantAccountExecute(r ApiDeleteTenantAccountRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *TenantAccountAPIService) DeleteTenantAccountExecute(r ApiDeleteTenantAccountRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.DeleteTenantAccount")

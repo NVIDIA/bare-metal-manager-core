@@ -169,7 +169,7 @@ type ApiDeleteIpblockRequest struct {
 	ipBlockId  string
 }
 
-func (r ApiDeleteIpblockRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteIpblockRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteIpblockExecute(r)
 }
 
@@ -198,13 +198,13 @@ func (a *IPBlockAPIService) DeleteIpblock(ctx context.Context, org string, ipBlo
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *IPBlockAPIService) DeleteIpblockExecute(r ApiDeleteIpblockRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *IPBlockAPIService) DeleteIpblockExecute(r ApiDeleteIpblockRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IPBlockAPIService.DeleteIpblock")

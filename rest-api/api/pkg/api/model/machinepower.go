@@ -39,8 +39,6 @@ var validMachinePowerActionsAny = func() []interface{} {
 }()
 
 type APIMachinePowerControlRequest struct {
-	// MachineID is the ID of the machine to power cycle
-	MachineID string `param:"machineId" json:"-"`
 	// Action is the power control action to perform on the machine
 	Action MachinePowerAction `json:"action"`
 	// AcknowledgeAttachedInstance is a boolean to indicate caller is aware that an Instance is currently attached to the machine
@@ -49,28 +47,17 @@ type APIMachinePowerControlRequest struct {
 
 func (r *APIMachinePowerControlRequest) Validate() error {
 	return validation.ValidateStruct(r,
-		validation.Field(&r.MachineID,
-			validation.Required.Error("machineId is required")),
 		validation.Field(&r.Action,
 			validation.Required.Error(validationErrorValueRequired),
 			validation.In(validMachinePowerActionsAny...).Error(fmt.Sprintf("must be one of %v", validMachinePowerActions))),
 	)
 }
 
-func (r *APIMachinePowerControlRequest) ToProto() *cwssaws.AdminPowerControlRequest {
+func (r *APIMachinePowerControlRequest) ToProto(machineID string) *cwssaws.AdminPowerControlRequest {
 	return &cwssaws.AdminPowerControlRequest{
-		MachineId: &r.MachineID,
+		MachineId: &machineID,
 		Action:    r.Action.ToProto(),
 	}
-}
-
-type APIMachinePowerControlResponse struct {
-	// MachineID is the ID of the machine that was powered
-	MachineID string `json:"machineId"`
-	// Action is the power control action that was performed
-	Action MachinePowerAction `json:"action"`
-	// Message is the message returned from the power control operation
-	Message *string `json:"message"`
 }
 
 func (action MachinePowerAction) ToProto() cwssaws.AdminPowerControlRequest_SystemPowerControl {

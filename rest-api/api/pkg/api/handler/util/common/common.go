@@ -1419,6 +1419,10 @@ func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient
 		return nil, "", cutil.NewAPIError(http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
 	}
 
+	if site.Status != cdbm.SiteStatusRegistered {
+		return nil, "", cutil.NewAPIError(http.StatusBadRequest, "Site is not in Registered state, unable to execute operation on Site", nil)
+	}
+
 	stc, err := in.SCP.GetClientByID(site.ID)
 	if err != nil {
 		in.Logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")

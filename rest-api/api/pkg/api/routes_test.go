@@ -56,7 +56,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   7,
+		"machine":                   12,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,
@@ -113,7 +113,12 @@ func TestNewAPIRoutes(t *testing.T) {
 			bmcCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/bmc"
 			assertRouteExists(t, got, http.MethodPut, bmcCredentialPath)
 
-			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:machineId"
+			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
+			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/bmc-reset")
+			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/dpu/reprovision")
+			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/health-report")
+			assertRouteExists(t, got, http.MethodPut, machineAdminPath+"/health-report")
+			assertRouteExists(t, got, http.MethodDelete, machineAdminPath+"/health-report/:source")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/power")
 
 			expectedMachineBatchPath := "/org/:orgName/" + cfg.GetAPIName() + "/expected-machine/batch"

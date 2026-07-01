@@ -167,7 +167,7 @@ type ApiDeleteInfinibandPartitionRequest struct {
 	infiniBandPartitionId string
 }
 
-func (r ApiDeleteInfinibandPartitionRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteInfinibandPartitionRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteInfinibandPartitionExecute(r)
 }
 
@@ -196,13 +196,13 @@ func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartition(ctx context.Co
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartitionExecute(r ApiDeleteInfinibandPartitionRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartitionExecute(r ApiDeleteInfinibandPartitionRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.DeleteInfinibandPartition")

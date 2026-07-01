@@ -167,7 +167,7 @@ type ApiDeleteVpcRequest struct {
 	vpcId      string
 }
 
-func (r ApiDeleteVpcRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteVpcRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteVpcExecute(r)
 }
 
@@ -194,13 +194,13 @@ func (a *VPCAPIService) DeleteVpc(ctx context.Context, org string, vpcId string)
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *VPCAPIService) DeleteVpcExecute(r ApiDeleteVpcRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *VPCAPIService) DeleteVpcExecute(r ApiDeleteVpcRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCAPIService.DeleteVpc")

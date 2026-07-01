@@ -625,7 +625,12 @@ func TestAuthorizeProviderSiteForCore(t *testing.T) {
 	ip := TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, user)
 	assert.NotNil(t, ip)
 	site := TestBuildSite(t, dbSession, ip, "Test Site", user)
-	assert.NotNil(t, site)
+	sDAO := cdbm.NewSiteDAO(dbSession)
+	_, err := sDAO.Update(context.Background(), nil, cdbm.SiteUpdateInput{
+		SiteID: site.ID,
+		Status: cutil.GetPtr(cdbm.SiteStatusRegistered),
+	})
+	require.NoError(t, err)
 
 	otherOrg := "other-provider-org"
 	otherUser := TestBuildUser(t, dbSession, uuid.NewString(), otherOrg, []string{authz.ProviderAdminRole})

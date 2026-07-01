@@ -5,19 +5,31 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	tmocks "go.temporal.io/sdk/mocks"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -173,6 +185,107 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	assert.Nil(t, ipamStorage.ApplyDbSchema())
 	assert.Nil(t, ipamStorage.DeleteAllPrefixes(context.Background(), ""))
 
+}
+
+type TestSetupProviderMachineHandlerFixture struct {
+	Org            string
+	SiteID         string
+	MachineID      string
+	User           interface{}
+	DBSession      *cdb.Session
+	SiteClientPool *sc.ClientPool
+	Config         *config.Config
+	ProxiedReq     *coreproxy.Request
+}
+
+func NewTestSetupProviderMachineHandlerFixture(t *testing.T, response proto.Message) TestSetupProviderMachineHandlerFixture {
+	t.Helper()
+
+	dbSession := TestInitDB(t)
+	t.Cleanup(dbSession.Close)
+	TestSetupSchema(t, dbSession)
+
+	org := "test-org"
+	user := TestBuildUser(t, dbSession, "test-starfleet-id", org, []string{authz.ProviderAdminRole})
+	ip := TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, user)
+	site := TestBuildSite(t, dbSession, ip, "Test Site", user)
+	sDAO := cdbm.NewSiteDAO(dbSession)
+	_, err := sDAO.Update(context.Background(), nil, cdbm.SiteUpdateInput{
+		SiteID: site.ID,
+		Status: cutil.GetPtr(cdbm.SiteStatusRegistered),
+	})
+	require.NoError(t, err)
+	it := TestBuildInstanceType(t, dbSession, "test-instance-type", cutil.GetPtr(site.ID), site, nil, user)
+	machine := TestBuildMachine(t, dbSession, ip, site, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+
+	proxiedReq := &coreproxy.Request{}
+	wrun := &tmocks.WorkflowRun{}
+	wrun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		if response == nil {
+			return
+		}
+		out := args.Get(1).(*coreproxy.Response)
+		respJSON, err := protojson.Marshal(response)
+		require.NoError(t, err)
+		out.ResponseJSON = respJSON
+	}).Return(nil)
+
+	tsc := &tmocks.Client{}
+	tsc.On(
+		"ExecuteWorkflow",
+		mock.Anything,
+		mock.Anything,
+		coreproxy.WorkflowName,
+		mock.MatchedBy(func(req coreproxy.Request) bool {
+			*proxiedReq = req
+			return true
+		}),
+	).Return(wrun, nil)
+
+	scp := sc.NewClientPool(nil)
+	scp.IDClientMap[site.ID.String()] = tsc
+
+	return TestSetupProviderMachineHandlerFixture{
+		Org:            org,
+		SiteID:         site.ID.String(),
+		MachineID:      machine.ID,
+		User:           user,
+		DBSession:      dbSession,
+		SiteClientPool: scp,
+		Config:         GetTestConfig(),
+		ProxiedReq:     proxiedReq,
+	}
+}
+
+func (f TestSetupProviderMachineHandlerFixture) Request(t *testing.T, handler echo.HandlerFunc, method, target string, body any, source string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var reqBody string
+	if body != nil {
+		bodyBytes, err := json.Marshal(body)
+		require.NoError(t, err)
+		reqBody = string(bodyBytes)
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(method, target, strings.NewReader(reqBody))
+	if body != nil {
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	}
+	rec := httptest.NewRecorder()
+	ec := e.NewContext(req, rec)
+	names := []string{"orgName", "id"}
+	values := []string{f.Org, f.MachineID}
+	if source != "" {
+		names = append(names, "source")
+		values = append(values, source)
+	}
+	ec.SetParamNames(names...)
+	ec.SetParamValues(values...)
+	ec.Set("user", f.User)
+
+	require.NoError(t, handler(ec))
+	return rec
 }
 
 // TestBuildInfrastructureProvider creates a test Infrastructure Provider

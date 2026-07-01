@@ -167,7 +167,7 @@ type ApiDeleteNvlinkLogicalPartitionRequest struct {
 	nvLinkLogicalPartitionId string
 }
 
-func (r ApiDeleteNvlinkLogicalPartitionRequest) Execute() (*DeletionAcceptedResponse, *http.Response, error) {
+func (r ApiDeleteNvlinkLogicalPartitionRequest) Execute() (*MessageResponse, *http.Response, error) {
 	return r.ApiService.DeleteNvlinkLogicalPartitionExecute(r)
 }
 
@@ -194,13 +194,13 @@ func (a *NVLinkLogicalPartitionAPIService) DeleteNvlinkLogicalPartition(ctx cont
 
 // Execute executes the request
 //
-//	@return DeletionAcceptedResponse
-func (a *NVLinkLogicalPartitionAPIService) DeleteNvlinkLogicalPartitionExecute(r ApiDeleteNvlinkLogicalPartitionRequest) (*DeletionAcceptedResponse, *http.Response, error) {
+//	@return MessageResponse
+func (a *NVLinkLogicalPartitionAPIService) DeleteNvlinkLogicalPartitionExecute(r ApiDeleteNvlinkLogicalPartitionRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *DeletionAcceptedResponse
+		localVarReturnValue *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NVLinkLogicalPartitionAPIService.DeleteNvlinkLogicalPartition")
