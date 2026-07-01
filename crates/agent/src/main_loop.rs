@@ -449,7 +449,14 @@ impl CurrentNetworkVersion {
             && self.instance_network_config_version.as_deref() == instance_network_config_version;
         match (config_versions_identical, self.unversioned_fields_hash) {
             (true, Some(unversioned_fields_hash)) => {
-                unversioned_fields_hash == Self::hash_unversioned_fields(conf)
+                if unversioned_fields_hash == Self::hash_unversioned_fields(conf) {
+                    true
+                } else {
+                    tracing::info!(
+                        "An unversioned field in ManagedHostNetworkConfigResponse has changed"
+                    );
+                    false
+                }
             }
             (false, _) => false,
             (_, None) => false,
