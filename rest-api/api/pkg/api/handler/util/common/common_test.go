@@ -2768,7 +2768,7 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 		},
 	}
 
-	t.Run("suggests available device instance when requested device instance is inactive on machine", func(t *testing.T) {
+	t.Run("builds validation errors from suggested device instances", func(t *testing.T) {
 		req := cam.APIInstanceCreateRequest{
 			InfiniBandInterfaces: []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
 				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
@@ -2778,24 +2778,12 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 		assert.False(t, match.Satisfied)
 		assert.True(t, match.CountSatisfiable)
 
-		available := make([]cam.APIInfiniBandInterfaceCreateOrUpdateRequest, 0, len(req.InfiniBandInterfaces))
-		seenDeviceInstanceMap := make(map[string]map[int]bool)
-		for _, ibifc := range req.InfiniBandInterfaces {
-			if seenDeviceInstanceMap[ibifc.Device] == nil {
-				seenDeviceInstanceMap[ibifc.Device] = make(map[int]bool)
-			}
-			for _, deviceInstance := range match.SuggestedByDevice[ibifc.Device] {
-				if seenDeviceInstanceMap[ibifc.Device][deviceInstance] {
-					continue
-				}
-				suggestion := ibifc
-				suggestion.DeviceInstance = deviceInstance
-				available = append(available, suggestion)
-				seenDeviceInstanceMap[ibifc.Device][deviceInstance] = true
-			}
-		}
-		require.Len(t, available, 2)
-		assert.Equal(t, 0, available[0].DeviceInstance)
-		assert.Equal(t, 2, available[1].DeviceInstance)
+		selErr := &InfiniBandMachineSelectionError{SuggestedByDevice: match.SuggestedByDevice}
+		errs := selErr.ValidationError()
+		require.Len(t, errs, 3)
+		assert.Contains(t, errs, "infiniBandInterfaces")
+		assert.Contains(t, errs, "suggestedInfiniBandInterfaces[0].deviceInstance")
+		assert.Contains(t, errs, "suggestedInfiniBandInterfaces[1].deviceInstance")
+		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
 	})
 }

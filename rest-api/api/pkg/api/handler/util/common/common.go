@@ -85,7 +85,7 @@ var (
 // InfiniBandMachineSelectionError is returned when no machine satisfies the requested InfiniBand
 // device instances but enough active ports exist on a candidate machine.
 type InfiniBandMachineSelectionError struct {
-	SuggestedInfiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
+	SuggestedByDevice map[string][]int
 }
 
 func (e *InfiniBandMachineSelectionError) Error() string {
@@ -97,9 +97,13 @@ func (e *InfiniBandMachineSelectionError) ValidationError() validation.Errors {
 	errs := validation.Errors{
 		"infiniBandInterfaces": fmt.Errorf("requested device instances are not available on any Machine for this Instance Type"),
 	}
-	for i, ibifc := range e.SuggestedInfiniBandInterfaces {
-		errs[fmt.Sprintf("suggestedInfiniBandInterfaces[%d].deviceInstance", i)] = fmt.Errorf(
-			"use device instance %d for device %s", ibifc.DeviceInstance, ibifc.Device)
+	i := 0
+	for device, deviceInstances := range e.SuggestedByDevice {
+		for _, deviceInstance := range deviceInstances {
+			errs[fmt.Sprintf("suggestedInfiniBandInterfaces[%d].deviceInstance", i)] = fmt.Errorf(
+				"use device instance %d for device %s", deviceInstance, device)
+			i++
+		}
 	}
 	return errs
 }
@@ -342,7 +346,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 		infiniBandInterfaces = apiRequest.InfiniBandInterfaces
 	}
 	requireInfiniBandMatch := len(infiniBandInterfaces) > 0
-	var suggestedInfiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
+	var suggestedByDevice map[string][]int
 	foundInfiniBandSuggestion := false
 
 	// Get all Machine InfiniBand Capabilities for the Machines
@@ -403,23 +407,9 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 					// if foundInfiniBandSuggestion is true, we have already found a suggestion and we don't need to find another one
 					if match.CountSatisfiable && !foundInfiniBandSuggestion {
 						foundInfiniBandSuggestion = true
-						// build the suggested InfiniBand Interfaces by iterating over the requested InfiniBand Interfaces and adding the available device instances
-						suggestedInfiniBandInterfaces = make([]cam.APIInfiniBandInterfaceCreateOrUpdateRequest, 0, len(infiniBandInterfaces))
-						// track the devices and device instances that have been used
-						seenDeviceInstanceMap := make(map[string]map[int]bool)
-						for _, ibifc := range infiniBandInterfaces {
-							if seenDeviceInstanceMap[ibifc.Device] == nil {
-								seenDeviceInstanceMap[ibifc.Device] = make(map[int]bool)
-							}
-							for _, deviceInstance := range match.SuggestedByDevice[ibifc.Device] {
-								if seenDeviceInstanceMap[ibifc.Device][deviceInstance] {
-									continue
-								}
-								suggestion := ibifc
-								suggestion.DeviceInstance = deviceInstance
-								suggestedInfiniBandInterfaces = append(suggestedInfiniBandInterfaces, suggestion)
-								seenDeviceInstanceMap[ibifc.Device][deviceInstance] = true
-							}
+						suggestedByDevice = make(map[string][]int, len(match.SuggestedByDevice))
+						for device, instances := range match.SuggestedByDevice {
+							suggestedByDevice[device] = append([]int(nil), instances...)
 						}
 					}
 					continue
@@ -443,7 +433,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 	}
 	// If we found a suggestion, return the error with the suggestion
 	if foundInfiniBandSuggestion {
-		return nil, &InfiniBandMachineSelectionError{SuggestedInfiniBandInterfaces: suggestedInfiniBandInterfaces}
+		return nil, &InfiniBandMachineSelectionError{SuggestedByDevice: suggestedByDevice}
 	}
 	return nil, ErrInstanceTypeMachineNotFound
 }
