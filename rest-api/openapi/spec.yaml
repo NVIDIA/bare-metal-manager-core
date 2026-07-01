@@ -9205,7 +9205,7 @@ paths:
         Reset BMC of a specific Machine.
         
         User must have authorization role with `PROVIDER_ADMIN` suffix.
-  '/v2/org/{org}/nico/machine/{machineId}/dpu-reprovision':
+  '/v2/org/{org}/nico/machine/{machineId}/dpu/reprovision':
     parameters:
       - schema:
           type: string
