@@ -160,11 +160,28 @@ pub async fn dpf_dpudevices_and_dpunode_crs_noexist(
 ///   creation and propagate to DPU CRs, but are not part of selectors.
 pub struct CarbideDPFLabeler {
     node_label_key: String,
+    /// Per-deployment node selector labels: DPUDeployment CR name → labels.
+    /// Populated for each configured deployment so that [`build_deployment`]
+    /// can look up the correct `dpuNodeSelector.matchLabels` by deployment name.
+    deployment_node_labels: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl CarbideDPFLabeler {
     pub fn new(node_label_key: String) -> Self {
-        Self { node_label_key }
+        Self {
+            node_label_key,
+            deployment_node_labels: BTreeMap::new(),
+        }
+    }
+
+    /// Register per-deployment node selector labels. Call once per configured
+    /// DPUDeployment before passing the labeler to the DPF SDK builder.
+    pub fn with_deployment_node_labels(
+        mut self,
+        deployment_node_labels: BTreeMap<String, BTreeMap<String, String>>,
+    ) -> Self {
+        self.deployment_node_labels = deployment_node_labels;
+        self
     }
 }
 
@@ -195,6 +212,13 @@ impl ResourceLabeler for CarbideDPFLabeler {
                 "true".to_string(),
             ),
         ])
+    }
+
+    fn node_labels_for_deployment(&self, deployment_name: &str) -> BTreeMap<String, String> {
+        self.deployment_node_labels
+            .get(deployment_name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {

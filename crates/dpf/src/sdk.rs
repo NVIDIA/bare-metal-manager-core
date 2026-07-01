@@ -105,9 +105,15 @@ pub trait ResourceLabeler: Send + Sync {
     }
 
     /// Static labels applied to DPUNode resources on creation.
-    /// Also used as the `dpu_node_selector` in DPUDeployment
-    /// and removed on node deletion.
+    /// Also used for removal patches on node deletion.
     fn node_labels(&self) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
+
+    /// Node selector labels for a specific DPUDeployment CR.
+    /// Used by [`build_deployment`] to populate `dpuNodeSelector.matchLabels`.
+    /// Returns an empty map by default (no selector).
+    fn node_labels_for_deployment(&self, _deployment_name: &str) -> BTreeMap<String, String> {
         BTreeMap::new()
     }
 
@@ -741,7 +747,7 @@ pub fn build_deployment<L: ResourceLabeler>(
         "feature.node.kubernetes.io/dpu-enabled".to_string(),
         "true".to_string(),
     )]);
-    for (k, v) in labeler.node_labels() {
+    for (k, v) in labeler.node_labels_for_deployment(deployment_name) {
         node_labels.insert(k, v);
     }
 

@@ -1048,6 +1048,10 @@ pub struct DpfConfig {
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
     pub proxy: Option<DpfProxyDetails>,
+    /// Additional named DPUDeployments (e.g. `bf4_generic`).
+    /// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+    #[serde(default)]
+    pub deployments: DpfDeploymentsConfig,
 }
 
 impl Default for DpfConfig {
@@ -1061,6 +1065,7 @@ impl Default for DpfConfig {
             docker_image_pull_secret: None,
             services: Box::default(),
             proxy: None,
+            deployments: DpfDeploymentsConfig::default(),
         }
     }
 }
@@ -1156,6 +1161,31 @@ pub struct DpfServiceConfig {
     /// Secret to use to pull the docker images.
     #[serde(default = "default_dpf_image_pull_secret")]
     pub docker_image_pull_secret: String,
+}
+
+/// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
+/// Services are inherited from the top-level [`DpfConfig`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfDeploymentConfig {
+    /// URL to the BlueField firmware bundle (BFB) for DPU provisioning.
+    pub bfb_url: String,
+    /// Kubernetes DPUFlavor CR name.
+    #[serde(default = "default_dpf_flavor_name")]
+    pub flavor_name: String,
+    /// Kubernetes DPUDeployment CR name.
+    pub deployment_name: String,
+    /// Label key applied to DPUNode CRs for this deployment's node selector.
+    #[serde(default = "default_dpf_node_label_key")]
+    pub node_label_key: String,
+}
+
+/// Named DPUDeployment configurations under `[dpf.deployments]`.
+/// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfDeploymentsConfig {
+    /// BF4 generic deployment (NICo + BF4 via DPF).
+    #[serde(default)]
+    pub bf4_generic: Option<DpfDeploymentConfig>,
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
