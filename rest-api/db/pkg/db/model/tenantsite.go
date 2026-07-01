@@ -30,6 +30,17 @@ var (
 	}
 )
 
+// TenantSiteConfig holds per-tenant-site configuration. Fields must stay flat so
+// jsonb partial merge works.
+type TenantSiteConfig struct {
+	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
+}
+
+// TenantSiteConfigUpdateInput carries partial updates for tenant_site.config.
+type TenantSiteConfigUpdateInput struct {
+	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
+}
+
 // TenantSite captures the relationship between a Tenant and a Site
 type TenantSite struct {
 	bun.BaseModel `bun:"table:tenant_site,alias:ts"`
@@ -40,9 +51,9 @@ type TenantSite struct {
 	TenantOrg           string                 `bun:"tenant_org,notnull"`
 	SiteID              uuid.UUID              `bun:"site_id,type:uuid,notnull"`
 	Site                *Site                  `bun:"rel:belongs-to,join:site_id=id"`
-	EnableSerialConsole bool                   `bun:"enable_serial_console,notnull"`
-	Config              map[string]interface{} `bun:"config,type:jsonb,json_use_number"`
-	Created             time.Time              `bun:"created,nullzero,notnull,default:current_timestamp"`
+	EnableSerialConsole bool           `bun:"enable_serial_console,notnull"`
+	Config              TenantSiteConfig `bun:"config,type:jsonb,notnull,default:'{}'::jsonb"`
+	Created             time.Time        `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated             time.Time              `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted             *time.Time             `bun:"deleted,soft_delete"`
 	CreatedBy           uuid.UUID              `bun:"type:uuid,notnull"`
@@ -53,15 +64,16 @@ type TenantSiteCreateInput struct {
 	TenantID  uuid.UUID
 	TenantOrg string
 	SiteID    uuid.UUID
-	Config    map[string]interface{}
+	Config    *TenantSiteConfig
 	CreatedBy uuid.UUID
 }
 
 // TenantSiteUpdateInput input parameters for Update method
 type TenantSiteUpdateInput struct {
-	TenantSiteID        uuid.UUID
-	EnableSerialConsole *bool
-	Config              map[string]interface{}
+	TenantSiteID                 uuid.UUID
+	EnableSerialConsole          *bool
+	Config                       *TenantSiteConfigUpdateInput
+	RemoveTargetedInstanceCreation bool
 }
 
 type TenantSiteFilterInput struct {
@@ -240,11 +252,9 @@ func (tssd TenantSiteSQLDAO) Create(ctx context.Context, tx *db.Tx, input Tenant
 		defer tnsDAOSpan.End()
 	}
 
-	var normConfig map[string]interface{}
+	var normConfig TenantSiteConfig
 	if input.Config != nil {
-		normConfig = input.Config
-	} else {
-		normConfig = map[string]interface{}{}
+		normConfig = *input.Config
 	}
 
 	ts := &TenantSite{
@@ -292,15 +302,32 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		tssd.tracerSpan.SetAttribute(tnsDAOSpan, "enable_serial_console", *input.EnableSerialConsole)
 	}
 
-	if input.Config != nil {
-		ts.Config = input.Config
-		updatedFields = append(updatedFields, "config")
-	}
-
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
 		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().Model(ts).Column(updatedFields...).Where("id = ?", input.TenantSiteID).Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if input.Config != nil {
+		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
+			Model(ts).
+			Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
+			Where("id = ?", input.TenantSiteID).
+			Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if input.RemoveTargetedInstanceCreation {
+		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
+			Model(ts).
+			Set("config = config - 'targetedInstanceCreation', updated = current_timestamp").
+			Where("id = ?", input.TenantSiteID).
+			Exec(ctx)
 		if err != nil {
 			return nil, err
 		}

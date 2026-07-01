@@ -69,6 +69,8 @@ func (tacr APITenantAccountCreateRequest) Validate() error {
 type APITenantAccountUpdateRequest struct {
 	// TenantContactID is the ID of the requesting user
 	TenantContactID *string `json:"tenantContactId"`
+	// SiteCapabilities replaces the provider-scoped capability configuration for the TenantAccount
+	SiteCapabilities APITenantAccountSiteCapabilitiesUpdateRequest `json:"siteCapabilities"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -77,6 +79,11 @@ func (taur APITenantAccountUpdateRequest) Validate() error {
 		validation.Field(&taur.TenantContactID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 	)
+}
+
+// HasSiteCapabilities reports whether the request includes a siteCapabilities replace payload.
+func (taur APITenantAccountUpdateRequest) HasSiteCapabilities() bool {
+	return len(taur.SiteCapabilities) > 0
 }
 
 // APITenantAccount is the data structure to capture API representation of a TenantAccount
@@ -115,6 +122,8 @@ type APITenantAccount struct {
 	Updated time.Time `json:"updated"`
 	// Deprecations is the list of deprecations for the TenantAccount
 	Deprecations []APIDeprecation `json:"deprecations"`
+	// SiteCapabilities describes provider-scoped TargetedInstanceCreation settings
+	SiteCapabilities []APITenantAccountSiteCapability `json:"siteCapabilities,omitempty"`
 }
 
 // APITenantAccountStats is a data structure to capture information about a TenantAccount stats at the API layer
@@ -132,7 +141,7 @@ type APITenantAccountStats struct {
 }
 
 // NewAPITenantAccount accepts a DB layer TenantAccount object returns an API layer object
-func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, allocationCount int) *APITenantAccount {
+func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, allocationCount int, tenantSites []cdbm.TenantSite) *APITenantAccount {
 	apiTenantAccount := APITenantAccount{
 		ID:                        dbta.ID.String(),
 		InfrastructureProviderID:  dbta.InfrastructureProviderID.String(),
@@ -174,6 +183,8 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 	for _, deprecation := range tenantAccountDeprecations {
 		apiTenantAccount.Deprecations = append(apiTenantAccount.Deprecations, NewAPIDeprecation(deprecation))
 	}
+
+	apiTenantAccount.SiteCapabilities = tenantAccountSiteCapabilitiesToAPI(dbta, filterTenantSitesForAccount(dbta, tenantSites))
 
 	return &apiTenantAccount
 }

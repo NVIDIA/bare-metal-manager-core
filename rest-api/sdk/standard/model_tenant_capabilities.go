@@ -22,7 +22,8 @@ var _ MappedNullable = &TenantCapabilities{}
 
 // TenantCapabilities TenantCapabilities defines the set of features enabled for Tenant
 type TenantCapabilities struct {
-	// Indicates whether Tenant can create Instances by specifying Machine ID
+	// Deprecated in favor of TenantAccount.siteCapabilities. Indicates whether Tenant can create Instances by specifying Machine ID.
+	// Deprecated
 	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }
 
@@ -44,6 +45,7 @@ func NewTenantCapabilitiesWithDefaults() *TenantCapabilities {
 }
 
 // GetTargetedInstanceCreation returns the TargetedInstanceCreation field value if set, zero value otherwise.
+// Deprecated
 func (o *TenantCapabilities) GetTargetedInstanceCreation() bool {
 	if o == nil || IsNil(o.TargetedInstanceCreation) {
 		var ret bool
@@ -54,6 +56,7 @@ func (o *TenantCapabilities) GetTargetedInstanceCreation() bool {
 
 // GetTargetedInstanceCreationOk returns a tuple with the TargetedInstanceCreation field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// Deprecated
 func (o *TenantCapabilities) GetTargetedInstanceCreationOk() (*bool, bool) {
 	if o == nil || IsNil(o.TargetedInstanceCreation) {
 		return nil, false
@@ -71,6 +74,7 @@ func (o *TenantCapabilities) HasTargetedInstanceCreation() bool {
 }
 
 // SetTargetedInstanceCreation gets a reference to the given bool and assigns it to the TargetedInstanceCreation field.
+// Deprecated
 func (o *TenantCapabilities) SetTargetedInstanceCreation(v bool) {
 	o.TargetedInstanceCreation = &v
 }

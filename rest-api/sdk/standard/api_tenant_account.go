@@ -628,16 +628,16 @@ func (a *TenantAccountAPIService) GetTenantAccountExecute(r ApiGetTenantAccountR
 }
 
 type ApiUpdateTenantAccountRequest struct {
-	ctx        context.Context
-	ApiService *TenantAccountAPIService
-	org        string
-	accountId  string
-	body       *map[string]interface{}
+	ctx                        context.Context
+	ApiService                 *TenantAccountAPIService
+	org                        string
+	accountId                  string
+	tenantAccountUpdateRequest *TenantAccountUpdateRequest
 }
 
 // No parameters are required; an empty request body is sufficient.
-func (r ApiUpdateTenantAccountRequest) Body(body map[string]interface{}) ApiUpdateTenantAccountRequest {
-	r.body = &body
+func (r ApiUpdateTenantAccountRequest) TenantAccountUpdateRequest(tenantAccountUpdateRequest TenantAccountUpdateRequest) ApiUpdateTenantAccountRequest {
+	r.tenantAccountUpdateRequest = &tenantAccountUpdateRequest
 	return r
 }
 
@@ -710,7 +710,7 @@ func (a *TenantAccountAPIService) UpdateTenantAccountExecute(r ApiUpdateTenantAc
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.body
+	localVarPostBody = r.tenantAccountUpdateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

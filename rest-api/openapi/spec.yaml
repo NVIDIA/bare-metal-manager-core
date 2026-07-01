@@ -15226,6 +15226,11 @@ components:
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
           description: Features that are enabled/disabled for Tenant
+        deprecations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deprecation'
+          description: Deprecation notices for Tenant fields
     TenantCapabilities:
       title: TenantCapabilities
       type: object
@@ -15235,9 +15240,9 @@ components:
       properties:
         targetedInstanceCreation:
           type: boolean
-          format: uuid
-          description: Indicates whether Tenant can create Instances by specifying Machine ID
+          deprecated: true
           readOnly: true
+          description: Deprecated in favor of TenantAccount.siteCapabilities. Indicates whether Tenant can create Instances by specifying Machine ID.
     TenantStats:
       title: TenantStats
       type: object
@@ -15477,6 +15482,35 @@ components:
           description: 'Date/time when the Tenant Account was last updated'
           format: date-time
           readOnly: true
+        siteCapabilities:
+          type: array
+          description: Provider-scoped TargetedInstanceCreation settings for this Tenant Account
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
+    TenantAccountSiteCapabilityScope:
+      title: TenantAccountSiteCapabilityScope
+      type: string
+      enum:
+        - global
+        - limited
+    TenantAccountSiteCapability:
+      title: TenantAccountSiteCapability
+      type: object
+      required:
+        - scope
+        - targetedInstanceCreation
+      properties:
+        scope:
+          $ref: '#/components/schemas/TenantAccountSiteCapabilityScope'
+        siteIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Required when scope is limited; must be omitted or empty when scope is global
+        targetedInstanceCreation:
+          type: boolean
+          description: Whether TargetedInstanceCreation is enabled for the scope
     TenantAccountStatus:
       title: TenantAccountStatus
       type: string
@@ -15515,9 +15549,21 @@ components:
       description: |-
         Request data to update a TenantAccount.
 
-        No params needed, an empty request will suffice.
+        Provider Admins may replace `siteCapabilities` only.
+        Tenant Admins may accept an invite via `tenantContactId` only.
+        Requests containing both fields are rejected with 400.
       examples:
-        - {}
+        - tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+      properties:
+        tenantContactId:
+          type: string
+          format: uuid
+          description: Tenant Admin invite acceptance; must match the requesting user
+        siteCapabilities:
+          type: array
+          description: Provider Admin replace payload for TargetedInstanceCreation scoping
+          items:
+            $ref: '#/components/schemas/TenantAccountSiteCapability'
     Site:
       title: Site
       type: object

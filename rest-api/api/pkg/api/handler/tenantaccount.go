@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
 
 	"go.opentelemetry.io/otel/attribute"
 	temporalClient "go.temporal.io/sdk/client"
@@ -212,7 +214,7 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiInstance := model.NewAPITenantAccount(ta, []cdbm.StatusDetail{*ssd}, 0)
+	apiInstance := model.NewAPITenantAccount(ta, []cdbm.StatusDetail{*ssd}, 0, nil)
 
 	logger.Info().Msg("finishing API handler")
 
@@ -442,7 +444,7 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		if tmpTa.TenantID != nil {
 			allocationCount = allocationCountByProviderAndTenant[tmpTa.InfrastructureProviderID][*tmpTa.TenantID]
 		}
-		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], allocationCount)
+		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], allocationCount, nil)
 		apiTas = append(apiTas, apiTa)
 	}
 
@@ -567,8 +569,14 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
 	}
 
+	tenantSites, err := loadTenantSitesForTenantAccount(ctx, gtah.dbSession, ta)
+	if err != nil {
+		logger.Error().Err(err).Msg("error retrieving Tenant Sites for Tenant Account")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+	}
+
 	// Create response
-	apiTenantAccount := model.NewAPITenantAccount(ta, ssds, total)
+	apiTenantAccount := model.NewAPITenantAccount(ta, ssds, total, tenantSites)
 
 	logger.Info().Msg("finishing API handler")
 
@@ -627,11 +635,11 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role, only Tenant Admins are allowed to update TenantAccount
-	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role with org, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
+	isProviderAdmin := auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole)
+	isTenantAdmin := auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
+	if !isProviderAdmin && !isTenantAdmin {
+		logger.Warn().Msg("user does not have Provider Admin or Tenant Admin role with org, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin or Tenant Admin role with org", nil)
 	}
 
 	// Get tenant account ID from URL param
@@ -645,10 +653,7 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Tenant Account ID in URL", nil)
 	}
 
-	taDAO := cdbm.NewTenantAccountDAO(utah.dbSession)
-
 	// Validate request
-	// Bind request data to API model
 	apiRequest := model.APITenantAccountUpdateRequest{}
 	err = c.Bind(&apiRequest)
 	if err != nil {
@@ -656,35 +661,73 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	// Validate request attributes
 	verr := apiRequest.Validate()
 	if verr != nil {
 		logger.Warn().Err(verr).Msg("error validating Tenant Account update request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Tenant Account update request data", verr)
 	}
 
-	// Check that TenantAccount exists
+	hasSiteCapabilities := apiRequest.HasSiteCapabilities()
+	hasTenantContact := apiRequest.TenantContactID != nil
+	if hasSiteCapabilities && hasTenantContact {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Request cannot include both tenantContactId and siteCapabilities", nil)
+	}
+
+	if hasSiteCapabilities {
+		if !isProviderAdmin {
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+		}
+		if verr = apiRequest.SiteCapabilities.Validate(); verr != nil {
+			logger.Warn().Err(verr).Msg("error validating Tenant Account siteCapabilities")
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Tenant Account siteCapabilities", verr)
+		}
+		return utah.handleProviderSiteCapabilitiesUpdate(c, ctx, logger, org, dbUser, taID, apiRequest)
+	}
+
+	if !isTenantAdmin {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
+	}
+
+	return utah.handleTenantInviteAcceptance(c, ctx, logger, org, dbUser, taID, apiRequest)
+}
+
+func loadTenantSitesForTenantAccount(ctx context.Context, dbSession *cdb.Session, ta *cdbm.TenantAccount) ([]cdbm.TenantSite, error) {
+	if ta == nil || ta.TenantID == nil {
+		return nil, nil
+	}
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	tenantSites, _, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{*ta.TenantID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+	if err != nil {
+		return nil, err
+	}
+
+	return tenantSites, nil
+}
+
+func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Context, ctx context.Context, logger zerolog.Logger, org string, dbUser *cdbm.User, taID uuid.UUID, apiRequest model.APITenantAccountUpdateRequest) error {
+	taDAO := cdbm.NewTenantAccountDAO(utah.dbSession)
+
 	ta, err := taDAO.GetByID(ctx, nil, taID, nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error retrieving TenantAccount DB entity")
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve TenantAccount to update", nil)
 	}
 
-	// Check that the org's tenant matches tenant in tenant-account
 	tn, err := common.GetTenantForOrg(ctx, nil, utah.dbSession, org)
 	if err != nil {
 		logger.Warn().Err(err).Msg("tenant does not exist for org")
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Org does not have tenant", nil)
 	}
 
-	// CHeck that Tenant in TenantAccount matches tenant in org
 	if ta.TenantID == nil || *ta.TenantID != tn.ID {
 		logger.Warn().Msg("tenant in tenant account does not match tenant in org")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest,
 			"Tenant in org does not match tenant in TenantAccount", nil)
 	}
 
-	// Check that the tenant contact id if exists, matches the requesting user
 	if apiRequest.TenantContactID != nil {
 		tnContactID, err1 := uuid.Parse(*apiRequest.TenantContactID)
 		if err1 != nil {
@@ -697,7 +740,6 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	// Check that the tenant account status is invited
 	if ta.Status != cdbm.TenantAccountStatusInvited {
 		logger.Warn().Msg("tenant account status is not Invited")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Tenant Account status is not Invited", nil)
@@ -735,8 +777,155 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 		return common.HandleTxError(c, logger, err, "Failed to update Tenant Account, DB transaction error")
 	}
 
-	// Create response
-	apiInstance := model.NewAPITenantAccount(uta, ssds, 0)
+	apiInstance := model.NewAPITenantAccount(uta, ssds, 0, nil)
+
+	logger.Info().Msg("finishing API handler")
+
+	return c.JSON(http.StatusOK, apiInstance)
+}
+
+func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c echo.Context, ctx context.Context, logger zerolog.Logger, org string, dbUser *cdbm.User, taID uuid.UUID, apiRequest model.APITenantAccountUpdateRequest) error {
+	taDAO := cdbm.NewTenantAccountDAO(utah.dbSession)
+
+	ta, err := taDAO.GetByID(ctx, nil, taID, nil)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error retrieving TenantAccount DB entity")
+		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve TenantAccount to update", nil)
+	}
+
+	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, utah.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for current org", nil)
+	}
+	if ip.ID != ta.InfrastructureProviderID {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant Account is not associated with org", nil)
+	}
+	if ta.TenantID == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Tenant Account does not have an associated Tenant", nil)
+	}
+
+	err = cdb.WithTx(ctx, utah.dbSession, func(tx *cdb.Tx) error {
+		lockKey := fmt.Sprintf("tenant-account-capabilities-%s-%s", ta.TenantID.String(), ta.InfrastructureProviderID.String())
+		derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(lockKey), nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to acquire advisory lock for TenantAccount siteCapabilities update")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+		}
+
+		globalVal := model.GlobalTargetedInstanceCreationFromRequest(apiRequest.SiteCapabilities)
+		if globalVal == nil {
+			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one global entry", nil)
+		}
+
+		_, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{
+			TenantAccountID: taID,
+			Config: &cdbm.TenantAccountConfigUpdateInput{
+				TargetedInstanceCreation: globalVal,
+			},
+		})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error updating TenantAccount config in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+		}
+
+		tsDAO := cdbm.NewTenantSiteDAO(utah.dbSession)
+		limitedUpdates := map[uuid.UUID]bool{}
+		limitedSiteIDs := map[uuid.UUID]struct{}{}
+
+		for _, cap := range apiRequest.SiteCapabilities {
+			if cap.Scope != model.TenantAccountSiteCapabilityScopeLimited {
+				continue
+			}
+			for _, siteIDStr := range cap.SiteIDs {
+				siteID, perr := uuid.Parse(siteIDStr)
+				if perr != nil {
+					return cutil.NewAPIError(http.StatusBadRequest, "Invalid Site ID in siteCapabilities", nil)
+				}
+				limitedUpdates[siteID] = cap.TargetedInstanceCreation
+				limitedSiteIDs[siteID] = struct{}{}
+			}
+		}
+
+		for siteID := range limitedUpdates {
+			ts, gerr := tsDAO.GetByTenantIDAndSiteID(ctx, tx, *ta.TenantID, siteID, []string{"Site"})
+			if gerr != nil {
+				if gerr == cdb.ErrDoesNotExist {
+					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Site %s is not associated with Tenant", siteID.String()), nil)
+				}
+				logger.Error().Err(gerr).Msg("error retrieving TenantSite for siteCapabilities update")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+			}
+			if ts.Site == nil || ts.Site.InfrastructureProviderID != ta.InfrastructureProviderID {
+				return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Site %s is not owned by the Tenant Account Infrastructure Provider", siteID.String()), nil)
+			}
+
+			_, derr = tsDAO.Update(ctx, tx, cdbm.TenantSiteUpdateInput{
+				TenantSiteID: ts.ID,
+				Config: &cdbm.TenantSiteConfigUpdateInput{
+					TargetedInstanceCreation: cutil.GetPtr(limitedUpdates[siteID]),
+				},
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating TenantSite config for siteCapabilities")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+			}
+		}
+
+		allTenantSites, _, gerr := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
+			TenantIDs: []uuid.UUID{*ta.TenantID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+		if gerr != nil {
+			logger.Error().Err(gerr).Msg("error retrieving Tenant Sites for capability override cleanup")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+		}
+
+		for _, ts := range allTenantSites {
+			if ts.Site == nil || ts.Site.InfrastructureProviderID != ta.InfrastructureProviderID {
+				continue
+			}
+			if _, listed := limitedSiteIDs[ts.SiteID]; listed {
+				continue
+			}
+			if ts.Config.TargetedInstanceCreation == nil {
+				continue
+			}
+			_, derr = tsDAO.Update(ctx, tx, cdbm.TenantSiteUpdateInput{
+				TenantSiteID:                   ts.ID,
+				RemoveTargetedInstanceCreation: true,
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error clearing stale TenantSite capability override")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return common.HandleTxError(c, logger, err, "Failed to update Tenant Account capabilities")
+	}
+
+	ta, err = taDAO.GetByID(ctx, nil, taID, nil)
+	if err != nil {
+		logger.Error().Err(err).Msg("error retrieving updated TenantAccount")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve updated Tenant Account", nil)
+	}
+
+	tenantSites, err := loadTenantSitesForTenantAccount(ctx, utah.dbSession, ta)
+	if err != nil {
+		logger.Error().Err(err).Msg("error retrieving Tenant Sites for updated Tenant Account")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+	}
+
+	sdDAO := cdbm.NewStatusDetailDAO(utah.dbSession)
+	ssds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{ta.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
+	if err != nil {
+		logger.Error().Err(err).Msg("error retrieving Status Details for TenantAccount from DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
+	}
+
+	apiInstance := model.NewAPITenantAccount(ta, ssds, 0, tenantSites)
 
 	logger.Info().Msg("finishing API handler")
 

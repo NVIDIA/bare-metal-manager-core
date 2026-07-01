@@ -46,7 +46,7 @@ func createAndPopulateTenantSiteUpMigrationfunc(ctx context.Context, db *bun.DB)
 				TenantOrg:           allocation.Tenant.Org,
 				SiteID:              allocation.SiteID,
 				EnableSerialConsole: false,
-				Config:              map[string]interface{}{},
+				Config:              model.TenantSiteConfig{},
 				CreatedBy:           allocation.CreatedBy,
 			}
 			_, err = tx.NewInsert().Model(&tenantSite).Exec(ctx)

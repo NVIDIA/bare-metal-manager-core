@@ -53,6 +53,9 @@ func testCommonSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create Tenant table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.Tenant)(nil))
 	assert.Nil(t, err)
+	// create TenantAccount table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.TenantAccount)(nil))
+	assert.Nil(t, err)
 	// create TenantSite table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.TenantSite)(nil))
 	assert.Nil(t, err)
@@ -2885,4 +2888,82 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 		assert.Contains(t, errMsg, "Use deviceInstances: [0 2] for device: MT28908 Family [ConnectX-6]")
 		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
 	})
+}
+
+func TestTenantHasTargetedInstanceCreation(t *testing.T) {
+	tests := []struct {
+		name     string
+		tenant   *cdbm.Tenant
+		expected bool
+	}{
+		{name: "nil tenant", tenant: nil, expected: false},
+		{name: "nil config", tenant: &cdbm.Tenant{Config: nil}, expected: false},
+		{name: "disabled", tenant: &cdbm.Tenant{Config: &cdbm.TenantConfig{}}, expected: false},
+		{name: "enabled", tenant: &cdbm.Tenant{Config: &cdbm.TenantConfig{TargetedInstanceCreation: true}}, expected: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, TenantHasTargetedInstanceCreation(tc.tenant))
+		})
+	}
+}
+
+func TestEffectiveTargetedInstanceCreation(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testCommonInitDB(t)
+	defer dbSession.Close()
+
+	testCommonSetupSchema(t, dbSession)
+
+	org := "test-eff-org"
+	user := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{org}, []string{authz.ProviderAdminRole})
+	ip := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider", org, user)
+	site := testCommonBuildSite(t, dbSession, ip, "Test Site", user)
+	site2 := testCommonBuildSite(t, dbSession, ip, "Test Site 2", user)
+	site3 := testCommonBuildSite(t, dbSession, ip, "Test Site 3", user)
+
+	tnDAO := cdbm.NewTenantDAO(dbSession)
+	tenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+		Name:      "tenant",
+		Org:       org + "-tenant",
+		CreatedBy: user.ID,
+	})
+	assert.Nil(t, err)
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &tenant.ID,
+		TenantOrg:                 tenant.Org,
+		InfrastructureProviderID:  ip.ID,
+		InfrastructureProviderOrg: ip.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+
+	cdbm.TestBuildTenantSite(t, dbSession, tenant, site, nil, user)
+	ts2 := cdbm.TestBuildTenantSite(t, dbSession, tenant, site2, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, user)
+
+	tests := []struct {
+		name     string
+		siteID   uuid.UUID
+		expected bool
+	}{
+		{name: "global default when no override", siteID: site.ID, expected: true},
+		{name: "limited override disables site", siteID: site2.ID, expected: false},
+		{name: "global default when no tenant_site override", siteID: site3.ID, expected: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, gerr := EffectiveTargetedInstanceCreation(ctx, nil, dbSession, tenant, tc.siteID)
+			assert.Nil(t, gerr)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	_ = ts2
 }

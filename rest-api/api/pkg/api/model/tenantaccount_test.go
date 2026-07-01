@@ -229,7 +229,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := NewAPITenantAccount(tc.dbObj, tc.sdObj, 2)
+			got := NewAPITenantAccount(tc.dbObj, tc.sdObj, 2, nil)
 			assert.Equal(t, tc.apiObj.ID, got.ID)
 			assert.Equal(t, tc.apiObj.InfrastructureProviderID, got.InfrastructureProviderID)
 			assert.Equal(t, tc.apiObj.InfrastructureProviderOrg, got.InfrastructureProviderOrg)

@@ -1103,7 +1103,12 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 		// Begin validating Machine ID
 		if apiRequest.MachineID != nil {
-			if tenant.Config == nil || !tenant.Config.TargetedInstanceCreation {
+			enabledForSite, derr := common.EffectiveTargetedInstanceCreation(ctx, tx, cih.dbSession, tenant, site.ID)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to verify capability for Site", nil)
+			}
+			if !enabledForSite {
 				logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
 				return cutil.NewAPIError(http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
 			}
@@ -5222,8 +5227,13 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		// capability. By the time `ToProto` runs the request is safe
 		// to trust.
 		if apiRequest.IsRepairTenant != nil && *apiRequest.IsRepairTenant {
-			if instance.Tenant.Config == nil || !instance.Tenant.Config.TargetedInstanceCreation {
-				logger.Warn().Msg("tenant does not have capability to set IsRepairTenant")
+			enabledForSite, derr := common.EffectiveTargetedInstanceCreation(ctx, tx, dih.dbSession, instance.Tenant, instance.SiteID)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Instance's Site")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to verify capability for Instance's Site", nil)
+			}
+			if !enabledForSite {
+				logger.Warn().Msg("tenant does not have capability to set IsRepairTenant for the Instance's Site")
 				return cutil.NewAPIError(http.StatusForbidden, "Tenant does not have capability to set IsRepairTenant", nil)
 			}
 		}

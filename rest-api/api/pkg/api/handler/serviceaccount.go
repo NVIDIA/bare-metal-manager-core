@@ -97,16 +97,11 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	}
 
 	if len(tns) == 0 {
-		// Create Tenant
-		tenantConfig := &cdbm.TenantConfig{
-			// Enable targeted instance creation for org
-			TargetedInstanceCreation: true,
-		}
+		// Create Tenant without legacy capability flags; capability is managed on TenantAccount.
 		tn, serr = tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
 			Name:           org,
 			Org:            org,
 			OrgDisplayName: cutil.GetPtr(org),
-			Config:         tenantConfig,
 			CreatedBy:      dbUser.ID,
 		})
 		if serr != nil {
@@ -115,22 +110,9 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 		}
 	} else {
 		tn = &tns[0]
-
-		// Check if Tenant has targeted instance creation enabled
-		if !tn.Config.TargetedInstanceCreation {
-			// Update Tenant to enable targeted instance creation
-			tenantConfig := tn.Config
-			tenantConfig.TargetedInstanceCreation = true
-			tn, serr = tnDAO.Update(ctx, nil, cdbm.TenantUpdateInput{
-				TenantID: tn.ID,
-				Config:   tenantConfig,
-			})
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error updating Tenant DB entity")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Tenant capabilities for org, DB error", nil)
-			}
-		}
 	}
+
+	accountConfig := &cdbm.TenantAccountConfig{TargetedInstanceCreation: true}
 
 	// Create Tenant Account if it doesn't exist
 	taDAO := cdbm.NewTenantAccountDAO(gcsah.dbSession)
@@ -153,6 +135,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 				InfrastructureProviderID:  ip.ID,
 				InfrastructureProviderOrg: ip.Org,
 				Status:                    cdbm.TenantAccountStatusReady,
+				Config:                    accountConfig,
 				CreatedBy:                 dbUser.ID,
 			})
 			if derr != nil {
@@ -174,6 +157,17 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 		})
 		if serr != nil {
 			return common.HandleTxError(c, logger, serr, "Failed to create Tenant Account, DB transaction error")
+		}
+	} else if !tas[0].Config.TargetedInstanceCreation {
+		_, serr = taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
+			TenantAccountID: tas[0].ID,
+			Config: &cdbm.TenantAccountConfigUpdateInput{
+				TargetedInstanceCreation: cutil.GetPtr(true),
+			},
+		})
+		if serr != nil {
+			logger.Error().Err(serr).Msg("error updating Tenant Account capabilities for org")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Tenant Account capabilities for org, DB error", nil)
 		}
 	}
 

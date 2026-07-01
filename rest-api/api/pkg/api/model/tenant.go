@@ -6,6 +6,7 @@ package model
 import (
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
@@ -15,6 +16,18 @@ var (
 
 	// errMsgTenantUpdateEndpointDeprecated is the error message to indicate that update endpoint is deprecated
 	ErrMsgTenantUpdateEndpointDeprecated = "PATCH '/org/:orgName/nico/tenant/current' endpoint has been deprecated"
+
+	// Time when Tenant.capabilities.targetedInstanceCreation will be deprecated
+	tenantTargetedInstanceCreationDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	tenantCapabilityDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "capabilities.targetedInstanceCreation",
+			NewValue:     cutil.GetPtr("tenantAccount.siteCapabilities"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: tenantTargetedInstanceCreationDeprecationTime,
+		},
+	}
 )
 
 // APITenant is the data structure to capture API representation of a Tenant
@@ -31,6 +44,8 @@ type APITenant struct {
 	Updated time.Time `json:"updated"`
 	// Capabilities describes tenant-level feature flags
 	Capabilities *APITenantCapabilities `json:"capabilities"`
+	// Deprecations is the list of deprecations for the Tenant
+	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
 // NewAPITenant accepts a DB layer Tenant object returns an API layer object
@@ -42,6 +57,10 @@ func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
 		Capabilities:   tenantToAPITenantCapabilities(dbtn),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
+	}
+
+	for _, deprecation := range tenantCapabilityDeprecations {
+		atn.Deprecations = append(atn.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return &atn

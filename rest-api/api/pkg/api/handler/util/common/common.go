@@ -1499,11 +1499,77 @@ func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve tenant for org, DB error", nil)
 	}
 
-	if requirePrivileged && !tenant.Config.TargetedInstanceCreation {
+	if requirePrivileged && !TenantHasTargetedInstanceCreation(tenant) {
 		return nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled", nil)
 	}
 
 	return tenant, nil
+}
+
+// TenantHasTargetedInstanceCreation reports whether the Tenant has the
+// TargetedInstanceCreation capability enabled at the tenant level (the legacy
+// "ceiling"). It is nil-safe so callers don't have to repeat the tenant/Config
+// nil checks.
+//
+// This is the coarse filter for discovery/listing paths without site context.
+// Site-scoped capability actions should use EffectiveTargetedInstanceCreation.
+func TenantHasTargetedInstanceCreation(tenant *cdbm.Tenant) bool {
+	return tenant != nil && tenant.Config != nil && tenant.Config.TargetedInstanceCreation
+}
+
+// EffectiveTargetedInstanceCreation reports whether the TargetedInstanceCreation
+// capability is effective for a Tenant on a specific Site. It resolves the
+// provider-scoped global default from a Ready TenantAccount and an optional
+// per-site override from TenantSite.config:
+//
+//	effective = siteOverride ?? tenantAccount.config.targetedInstanceCreation
+//
+// When no Ready TenantAccount exists for the Site's Infrastructure Provider,
+// the result is false. The provider relationship gate (TenantAccount existence)
+// is intentionally enforced here so action paths share one resolution helper.
+func EffectiveTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant, siteID uuid.UUID) (bool, error) {
+	if tenant == nil {
+		return false, nil
+	}
+
+	siteDAO := cdbm.NewSiteDAO(dbSession)
+	site, err := siteDAO.GetByID(ctx, tx, siteID, nil, false)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+		InfrastructureProviderID: &site.InfrastructureProviderID,
+		TenantIDs:                []uuid.UUID{tenant.ID},
+		Statuses:                 []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	if err != nil {
+		return false, err
+	}
+	if len(tas) == 0 {
+		return false, nil
+	}
+
+	global := tas[0].Config.TargetedInstanceCreation
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, siteID, nil)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return global, nil
+		}
+		return false, err
+	}
+
+	if ts.Config.TargetedInstanceCreation != nil {
+		return *ts.Config.TargetedInstanceCreation, nil
+	}
+
+	return global, nil
 }
 
 // IsProviderOrTenant ensures that user is authorized to act as a Provider Admin or/and Tenant Admin for the org.
@@ -1557,7 +1623,7 @@ func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *c
 		}
 
 		if tenant != nil && requirePrivilegedTenant {
-			if !tenant.Config.TargetedInstanceCreation {
+			if !TenantHasTargetedInstanceCreation(tenant) {
 				if infrastructureProvider == nil {
 					return nil, nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have targeted Instance creation capability enabled", nil)
 				}

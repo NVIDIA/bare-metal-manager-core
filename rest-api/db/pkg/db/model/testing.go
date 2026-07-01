@@ -222,7 +222,7 @@ func TestBuildSite(t *testing.T, dbSession *db.Session, ip *InfrastructureProvid
 }
 
 // TestBuildTenantSite creates a test Tenant/Site relationship
-func TestBuildTenantSite(t *testing.T, dbSession *db.Session, tn *Tenant, st *Site, config map[string]interface{}, user *User) *TenantSite {
+func TestBuildTenantSite(t *testing.T, dbSession *db.Session, tn *Tenant, st *Site, config *TenantSiteConfig, user *User) *TenantSite {
 	tsDAO := NewTenantSiteDAO(dbSession)
 
 	ts, err := tsDAO.Create(context.Background(), nil, TenantSiteCreateInput{
