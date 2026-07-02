@@ -35,8 +35,8 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 # 1. Build all container images from this clone, then push them to your registry.
 #    See docs/manuals/building_nico_containers.md for the build-host prerequisites.
 export IMAGE_REGISTRY=my-registry.example.com/infra-controller
-make images IMAGE_REGISTRY="${IMAGE_REGISTRY}"   # NICo Core (nico) + REST service images
-#    Then: docker push "${IMAGE_REGISTRY}/nico:latest"
+make images IMAGE_REGISTRY="${IMAGE_REGISTRY}"   # NICo Core (nvmetal-carbide) + REST service images
+#    Then: docker push "${IMAGE_REGISTRY}/nvmetal-carbide:latest"
 #          docker push "${IMAGE_REGISTRY}/nico-rest-api:latest"   # ...and the other nico-rest-* images
 
 # 2. Set environment variables

@@ -76,7 +76,7 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 #   make images        Build the deployable service stack: NICo Core + REST images
 #   make images-all    Build everything: the stack plus machine-validation and
 #                       boot-artifact images (needs the full mkosi build host)
-#   make images-core   NICo Core image (nico) only
+#   make images-core   NICo Core image (nvmetal-carbide) only
 #   make images-rest   REST service images only
 #
 # Images are tagged $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY
@@ -102,7 +102,7 @@ PLATFORM ?= linux/amd64
 images: images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
 	@echo ""
 	@echo "Deployable images built under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
-	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
+	@echo "  $(IMAGE_REGISTRY)/nvmetal-carbide:$(IMAGE_TAG)   (NICo Core)"
 	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
 
 images-all: images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
@@ -111,14 +111,14 @@ images-base: ## Build the x86 build + runtime base containers (prerequisite for 
 	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER) .
 	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.runtime-container-x86_64 -t $(CORE_RUNTIME_CONTAINER) .
 
-images-core: images-base ## Build the NICo Core image (nico)
+images-core: images-base ## Build the NICo Core image (nvmetal-carbide)
 	docker build --platform $(PLATFORM) \
 		--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER) \
 		--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
 		--file dev/docker/Dockerfile.release-container-sa-x86_64 \
-		-t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) .
+		-t $(IMAGE_REGISTRY)/nvmetal-carbide:$(IMAGE_TAG) .
 
 images-rest: ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm)
 	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG)

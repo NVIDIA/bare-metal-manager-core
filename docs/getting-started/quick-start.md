@@ -72,29 +72,32 @@ helm plugin install https://github.com/databus23/helm-diff
 
 ## Step 3 — Configure the Site
 
-Everything in this step must be done **before** running `setup.sh`. Skipping any item will either cause setup to fail or result in a deployment with incorrect site configuration that is hard to fix after the fact.
+Review this entire step **before** running `setup.sh` and complete every item that applies to your environment. Missing required values can cause setup to fail or produce an incorrectly configured deployment that is hard to fix afterward.
 
-### 3a. Set Required Environment Variables
+### 3a. Set Deployment Environment Variables
 
 ```bash
-export KUBECONFIG=/path/to/kubeconfig          # your cluster kubeconfig
-export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>  # your registry pull credential
+# export KUBECONFIG=/path/to/kubeconfig        # optional if the current kubectl context is correct
 export NICO_IMAGE_REGISTRY=my-registry.example.com/nico  # base registry for all NICo images
 export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>  # e.g. v2025.12.30-rc1
 export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # e.g. v1.0.4
+# Optional for authenticated registries:
+# export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>
+# export REGISTRY_PULL_USERNAME='$oauthtoken'  # default for NGC API-key auth
 ```
 
 `NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup.
 
-Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**.
+For authenticated NGC pulls, obtain an API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**. `REGISTRY_PULL_SECRET` may remain unset when images are public, preloaded, or an existing pull secret is configured in the values files.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `REGISTRY_PULL_SECRET` | **Yes** | Pull secret and API key for your image registry. Used to create the image pull secret for both NICo Core and NICo REST. |
-| `NICO_IMAGE_REGISTRY` | **Yes** | Base image registry for all NICo images (e.g. `my-registry.example.com/nico`). Used for NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). |
-| `NICO_CORE_IMAGE_TAG` | **Yes** | NICo Core image tag (e.g. `v2025.12.30`). |
-| `NICO_REST_IMAGE_TAG` | **Yes** | NICo REST image tag (e.g. `v1.0.4`). |
-| `KUBECONFIG` | **Yes** | Path to your cluster kubeconfig. |
+| `REGISTRY_PULL_SECRET` | No | Raw registry password or API key used to create image pull secrets. |
+| `REGISTRY_PULL_USERNAME` | No | Username for generated pull secrets. Defaults to `$oauthtoken`. |
+| `NICO_IMAGE_REGISTRY` | Unless `--skip-core --skip-rest` | Base image registry for all NICo images (e.g. `my-registry.example.com/nico`). Used for NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). |
+| `NICO_CORE_IMAGE_TAG` | Unless `--skip-core` | NICo Core image tag (e.g. `v2025.12.30`). |
+| `NICO_REST_IMAGE_TAG` | Unless `--skip-rest` | NICo REST image tag (e.g. `v1.0.4`). |
+| `KUBECONFIG` | No | Path to the target cluster kubeconfig. Omit it when the current `kubectl` context is already correct. |
 | `NICO_SITE_UUID` | No | Stable UUID for this site. If unset, `setup.sh` generates a random UUID each run. |
 
 ### 3b. Set your Site Name
@@ -274,7 +277,7 @@ The `preflight.sh` script checks the following:
 
 | Category | Checks |
 |----------|--------|
-| Environment variables | Required vars are set; no `https://` prefix on registry; version tags start with `v`; UUID is valid if set; KUBECONFIG path exists if set |
+| Environment variables | Conditional image variables are set; registry has no URL scheme; UUID is valid if set; KUBECONFIG path exists if set |
 | Required tools | `helm`, `helmfile`, `kubectl`, `jq`, `ssh-keygen` are in PATH |
 | `values/metallb-config.yaml` | File exists; YAML is valid; at least one IPAddressPool defined; exactly one advertisement mode active (BGP or L2, not both); example placeholder hostnames not still present |
 | Cluster reachability | `kubectl` can reach the API server. |
@@ -300,6 +303,19 @@ cd helm-prereqs/
 ./setup.sh -y     # non-interactive — deploys everything
 ```
 
+Common options can be combined as needed:
+
+| Option | Effect |
+|--------|--------|
+| `-y` | Accept setup prompts automatically. |
+| `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
+| `--skip-rest` | Skip all Phase 7 NICo REST phases. |
+| `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
+| `--core-values <file>` | Use site-specific NICo Core values for Phase 6. |
+| `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
+| `--site-overlay <dir>` | Apply a site kustomize overlay after Phase 6. |
+| `--debug` | Enable shell tracing. This may print secrets, so protect the logs. |
+
 The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
 
 <Anchor id="setup-script-phases"/>
@@ -315,29 +331,32 @@ The `setup.sh` script installs all prerequisites and NICo components in sequenti
 | 4 | Vault init + unseal + SSH host key |
 | 5 | external-secrets + nico-prereqs + nico-pg-cluster |
 | 6 | **NICo Core** (nico helm release) |
-| 7a-7h | **NICo REST** full stack (postgres, Keycloak, Temporal, nico-rest, site-agent) |
+| 7a-7g | **NICo REST** base stack (source and CA setup, PostgreSQL, Keycloak, Temporal, REST services) |
+| 7h | **NICo Flow** (Flow, PSM, and NSM), unless `--skip-flow` is used |
+| 7i | **NICo REST site-agent** |
 
 The following components are deployed:
 
-```
+```text
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
 metallb                    (metallb/metallb 0.14.5 - LoadBalancer IPs via BGP or L2)
 postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-cluster)
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
-nico-prereqs            (this Helm chart - nico-system namespace)
+nico-prereqs               (this Helm chart - nico-system namespace)
 NICo Core                  (../helm - nico-core.yaml values)
-NICo REST                  (rest-api/helm/charts/nico-rest)
+NICo REST                  (../helm/rest/nico-rest)
   ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
-  ├── nico-rest          (API, cert-manager, workflow, site-manager)
-  └── nico-rest-site-agent (StatefulSet, bootstrap via site-manager)
+  └── nico-rest             (API, cert-manager, workflow, site-manager)
+NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
+NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 ```
 
-For manual phase-by-phase installation, re-running individual phases, or debugging failures, refer to the [Reference Installation](../installation-options/reference-install.md) guide.
+For manual phase-by-phase installation, re-running individual phases, or debugging failures, refer to the [Reference Installation](installation-options/reference-install.md) guide.
 
 ## Step 5 — Verify the Site Controller
 
@@ -492,7 +511,7 @@ kubectl get pods -n temporal
 kubectl get certificate core-grpc-client-site-agent-certs -n nico-rest
 ```
 
-For troubleshooting common issues, refer to the [Reference Installation — Troubleshooting](../installation-options/reference-install.md#troubleshooting) guide.
+For troubleshooting common issues, refer to the [Reference Installation — Troubleshooting](installation-options/reference-install.md#troubleshooting) guide.
 
 ## Step 6 — Connect the OOB Network
 
@@ -506,7 +525,7 @@ Configure the out-of-band network to relay BMC DHCP requests to the NICo DHCP se
    kubectl logs -n nico-system -l app.kubernetes.io/name=nico-dhcp --tail=20
    ```
 
-For detailed OOB network requirements, refer to the [BMC and Out-of-Band Setup](../prerequisites/bmc-oob-setup.md) guide.
+For detailed OOB network requirements, refer to the [BMC and Out-of-Band Setup](prerequisites/bmc-oob-setup.md) guide.
 
 ## Step 7 — Discover Your First Host
 
