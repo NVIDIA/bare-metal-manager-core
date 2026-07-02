@@ -130,6 +130,8 @@ const (
 // Each payload decides which phase/run stats it needs through its fields.
 type SafetyGate interface {
 	SafetyGateKind() SafetyGateKind
+	SafetyGateScope() SafetyGateScope
+	IsTripped(failed int, total int) bool
 	Validate() error
 }
 
@@ -151,6 +153,15 @@ type FailureRateGate struct {
 
 func (*FailureRateGate) SafetyGateKind() SafetyGateKind {
 	return SafetyGateKindFailureRate
+}
+
+func (g *FailureRateGate) SafetyGateScope() SafetyGateScope {
+	return g.Scope
+}
+
+func (g *FailureRateGate) IsTripped(failed int, total int) bool {
+	return total > 0 &&
+		failed*100 >= int(g.FailureThresholdPercent)*total
 }
 
 func (g *FailureRateGate) Validate() error {
@@ -176,6 +187,14 @@ type FailureCountGate struct {
 
 func (*FailureCountGate) SafetyGateKind() SafetyGateKind {
 	return SafetyGateKindFailureCount
+}
+
+func (g *FailureCountGate) SafetyGateScope() SafetyGateScope {
+	return g.Scope
+}
+
+func (g *FailureCountGate) IsTripped(failed int, total int) bool {
+	return failed >= int(g.FailureThresholdCount)
 }
 
 func (g *FailureCountGate) Validate() error {

@@ -138,6 +138,21 @@ func TestOperationRunToRebuildsConfigurationFromInternalJSON(t *testing.T) {
 	)
 }
 
+func TestOperationRunStatusConversionIncludesCompletedWithFailures(t *testing.T) {
+	require.Equal(
+		t,
+		pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES,
+		OperationRunStatusTo(operationrun.OperationRunStatusCompletedWithFailures),
+	)
+	require.Equal(
+		t,
+		operationrun.OperationRunStatusCompletedWithFailures,
+		OperationRunStatusFrom(
+			pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES,
+		),
+	)
+}
+
 func TestOperationRunFromRejectsMissingConfiguration(t *testing.T) {
 	req := &pb.CreateOperationRunRequest{Name: "firmware canary"}
 
@@ -436,6 +451,21 @@ func TestOperationRunTargetToUsesResolvedComponentsByType(t *testing.T) {
 	require.Equal(t, []*pb.UUID{UUIDTo(componentA), UUIDTo(componentB)}, groups[0].GetComponentIds())
 	require.Equal(t, pb.ComponentType_COMPONENT_TYPE_NVSWITCH, groups[1].GetType())
 	require.Equal(t, []*pb.UUID{UUIDTo(componentC)}, groups[1].GetComponentIds())
+}
+
+func TestOperationRunTargetStatusClaimedRoundTrip(t *testing.T) {
+	require.Equal(
+		t,
+		pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_CLAIMED,
+		OperationRunTargetStatusTo(operationrun.OperationRunTargetStatusClaimed),
+	)
+	require.Equal(
+		t,
+		operationrun.OperationRunTargetStatusClaimed,
+		OperationRunTargetStatusFrom(
+			pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_CLAIMED,
+		),
+	)
 }
 
 func mustUnmarshalSelector(

@@ -15,12 +15,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/planner"
-	operationrunstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/store"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
-var _ operationrunstore.Store = (*mockStore)(nil)
+var _ Store = (*mockStore)(nil)
 var _ planner.TargetLookup = (*mockTargetLookup)(nil)
 
 func TestCreatePersistsRunAndPlannedTargets(t *testing.T) {
@@ -93,7 +92,7 @@ type mockStore struct {
 
 func newTestManager(
 	t *testing.T,
-	store operationrunstore.Store,
+	store Store,
 	plan planner.Planner,
 ) *ManagerImpl {
 	t.Helper()

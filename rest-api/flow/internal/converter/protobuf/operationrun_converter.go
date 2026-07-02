@@ -1393,6 +1393,8 @@ func OperationRunStatusTo(
 		return pb.OperationRunStatus_OPERATION_RUN_STATUS_PAUSED
 	case operationrun.OperationRunStatusCompleted:
 		return pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED
+	case operationrun.OperationRunStatusCompletedWithFailures:
+		return pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES
 	case operationrun.OperationRunStatusCancelled:
 		return pb.OperationRunStatus_OPERATION_RUN_STATUS_CANCELLED
 	case operationrun.OperationRunStatusFailed:
@@ -1417,6 +1419,8 @@ func OperationRunStatusFrom(
 		return operationrun.OperationRunStatusPaused
 	case pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED:
 		return operationrun.OperationRunStatusCompleted
+	case pb.OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES:
+		return operationrun.OperationRunStatusCompletedWithFailures
 	case pb.OperationRunStatus_OPERATION_RUN_STATUS_CANCELLED:
 		return operationrun.OperationRunStatusCancelled
 	case pb.OperationRunStatus_OPERATION_RUN_STATUS_FAILED:
@@ -1475,6 +1479,8 @@ func OperationRunTargetStatusTo(
 	switch status {
 	case operationrun.OperationRunTargetStatusPending:
 		return pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_PENDING
+	case operationrun.OperationRunTargetStatusClaimed:
+		return pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_CLAIMED
 	case operationrun.OperationRunTargetStatusBlocked:
 		return pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_BLOCKED
 	case operationrun.OperationRunTargetStatusSubmitted:
@@ -1501,6 +1507,8 @@ func OperationRunTargetStatusFrom(
 	switch status {
 	case pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_PENDING:
 		return operationrun.OperationRunTargetStatusPending
+	case pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_CLAIMED:
+		return operationrun.OperationRunTargetStatusClaimed
 	case pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_BLOCKED:
 		return operationrun.OperationRunTargetStatusBlocked
 	case pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_SUBMITTED:

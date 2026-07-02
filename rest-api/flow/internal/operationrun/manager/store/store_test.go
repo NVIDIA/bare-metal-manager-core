@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,6 +15,19 @@ import (
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
+
+type fakeSQLResult struct {
+	rowsAffected int64
+	err          error
+}
+
+func (r fakeSQLResult) LastInsertId() (int64, error) {
+	return 0, nil
+}
+
+func (r fakeSQLResult) RowsAffected() (int64, error) {
+	return r.rowsAffected, r.err
+}
 
 func TestCreateTargetsValidatesComponentsByType(t *testing.T) {
 	runID := uuid.New()
@@ -68,6 +82,53 @@ func TestCreateTargetsValidatesComponentsByType(t *testing.T) {
 			)
 
 			require.ErrorContains(t, err, "operation run target 0 components_by_type")
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestFetchRunnableIDsRejectsNonPositiveLimit(t *testing.T) {
+	store := &PostgresStore{}
+
+	ids, err := store.FetchRunnableIDs(context.Background(), 0)
+
+	require.Nil(t, ids)
+	require.ErrorContains(t, err, "fetch runnable operation run limit must be greater than 0")
+}
+
+func TestRequireUpdatedRow(t *testing.T) {
+	id := uuid.New()
+
+	tests := []struct {
+		name    string
+		result  fakeSQLResult
+		wantErr string
+	}{
+		{
+			name:   "updated",
+			result: fakeSQLResult{rowsAffected: 1},
+		},
+		{
+			name:    "missing",
+			result:  fakeSQLResult{},
+			wantErr: "operation run target " + id.String() + " not found",
+		},
+		{
+			name: "rows affected error",
+			result: fakeSQLResult{
+				err: errors.New("driver result failed"),
+			},
+			wantErr: "check operation run target " + id.String() + " update result: driver result failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireUpdatedRow(tt.result, "operation run target", id)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
