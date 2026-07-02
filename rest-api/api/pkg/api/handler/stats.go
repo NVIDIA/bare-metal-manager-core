@@ -75,33 +75,17 @@ func (gmgsh GetMachineGPUStatsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have access to the specified site", nil)
 	}
 
-	// Fetch all machines for the site (exclude metadata for performance)
-	machineDAO := cdbm.NewMachineDAO(gmgsh.dbSession)
-	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
-		SiteIDs:         []uuid.UUID{site.ID},
-		ExcludeMetadata: true,
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	// Aggregate GPU stats for the site in the database.
+	gpuStats, err := common.GetSiteGPUStats(ctx, nil, gmgsh.dbSession, logger, &infrastructureProvider.ID, &site.ID)
 	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving machines for site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve machines", nil)
+		logger.Error().Err(err).Msg("error retrieving GPU stats for site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve GPU stats", nil)
 	}
 
-	if len(machines) == 0 {
-		return c.JSON(http.StatusOK, []model.APIMachineGPUStats{})
+	result := gpuStats[site.ID]
+	if result == nil {
+		result = []model.APIMachineGPUStats{}
 	}
-
-	machineIDs := lo.Map(machines, func(m cdbm.Machine, _ int) string { return m.ID })
-
-	// Fetch GPU capabilities for all machines
-	mcDAO := cdbm.NewMachineCapabilityDAO(gmgsh.dbSession)
-	capabilities, _, err := mcDAO.GetAll(ctx, nil, machineIDs, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeGPU),
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving GPU capabilities")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve GPU capabilities", nil)
-	}
-
-	result := model.NewAPIMachineGPUStatsList(capabilities)
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusOK, result)

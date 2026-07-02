@@ -897,6 +897,11 @@ paths:
           name: includeMachineStats
           description: Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
         - schema:
+            type: boolean
+          in: query
+          name: includeGpuStats
+          description: Include a per-Site breakdown of GPU counts grouped by GPU type. Requires Provider Admin role.
+        - schema:
             type: string
           in: query
           name: query
@@ -14653,6 +14658,11 @@ components:
         machineStats:
           $ref: '#/components/schemas/SiteMachineStats'
           description: 'Machine counts by status for the Site'
+        gpuStats:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineGPUStats'
+          description: 'GPU counts grouped by GPU type for the Site. Populated when includeGpuStats is set'
     SiteSummary:
       title: SiteSummary
       type: object

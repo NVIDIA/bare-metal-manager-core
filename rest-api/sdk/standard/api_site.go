@@ -306,6 +306,7 @@ type ApiGetAllSiteRequest struct {
 	isNVLinkPartitionEnabled      *bool
 	isFlowEnabled                 *bool
 	includeMachineStats           *bool
+	includeGpuStats               *bool
 	query                         *string
 	includeRelation               *string
 	pageNumber                    *int32
@@ -358,6 +359,12 @@ func (r ApiGetAllSiteRequest) IsFlowEnabled(isFlowEnabled bool) ApiGetAllSiteReq
 // Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
 func (r ApiGetAllSiteRequest) IncludeMachineStats(includeMachineStats bool) ApiGetAllSiteRequest {
 	r.includeMachineStats = &includeMachineStats
+	return r
+}
+
+// Include a per-Site breakdown of GPU counts grouped by GPU type. Requires Provider Admin role.
+func (r ApiGetAllSiteRequest) IncludeGpuStats(includeGpuStats bool) ApiGetAllSiteRequest {
+	r.includeGpuStats = &includeGpuStats
 	return r
 }
 
@@ -460,6 +467,9 @@ func (a *SiteAPIService) GetAllSiteExecute(r ApiGetAllSiteRequest) ([]Site, *htt
 	}
 	if r.includeMachineStats != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "includeMachineStats", r.includeMachineStats, "form", "")
+	}
+	if r.includeGpuStats != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeGpuStats", r.includeGpuStats, "form", "")
 	}
 	if r.query != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "query", r.query, "form", "")
