@@ -17,4 +17,5 @@
 
 // Keep the suites in one executable: sqlx-testing's migrated template is process-local.
 mod env;
+mod firmware_upgrade_completion;
 mod rack_firmware_upgrade;

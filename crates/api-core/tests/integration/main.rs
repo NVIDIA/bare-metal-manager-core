@@ -30,6 +30,7 @@ mod nvlink_domain_health;
 mod power_shelf_find;
 mod rack_find;
 mod route_servers;
+mod scout_firmware_upgrade_status;
 mod static_address_management;
 mod storage;
 mod switch_find;
