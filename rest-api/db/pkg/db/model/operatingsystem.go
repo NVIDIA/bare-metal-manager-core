@@ -37,10 +37,19 @@ const (
 
 	// OperatingSystemRelationName is the relation name for the OperatingSystem model
 	OperatingSystemRelationName = "OperatingSystem"
-	// OperatingSystemTypeIPXE is the ipxe based OperatingSystem type
+	// OperatingSystemTypeIPXE is the raw iPXE script based OperatingSystem type
 	OperatingSystemTypeIPXE = "iPXE"
+	// OperatingSystemTypeTemplatedIPXE is the iPXE template based OperatingSystem type
+	OperatingSystemTypeTemplatedIPXE = "Templated iPXE"
 	// OperatingSystemTypeImage is the image based OperatingSystem type
 	OperatingSystemTypeImage = "Image"
+
+	// OperatingSystemScopeLocal means single site, bidirectional sync (provider-owned OS from nico-core).
+	OperatingSystemScopeLocal = "Local"
+	// OperatingSystemScopeLimited means carbide-rest is the source of truth for a fixed list of sites.
+	OperatingSystemScopeLimited = "Limited"
+	// OperatingSystemScopeGlobal means carbide-rest is the source of truth for all owner sites.
+	OperatingSystemScopeGlobal = "Global"
 
 	// OperatingSystemOrderByDefault default field to be used for ordering when none specified
 	OperatingSystemOrderByDefault = "created"
@@ -49,6 +58,15 @@ const (
 	OperatingSystemAuthTypeBasic = "Basic"
 	// OperatingSystemAuthTypeBearer is the bearer image auth type
 	OperatingSystemAuthTypeBearer = "Bearer"
+
+	// OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded caches the artifact locally when possible.
+	OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded = "CacheAsNeeded"
+	// OperatingSystemIpxeArtifactCacheStrategyLocalOnly marks the artifact URL as usable only on-site.
+	OperatingSystemIpxeArtifactCacheStrategyLocalOnly = "LocalOnly"
+	// OperatingSystemIpxeArtifactCacheStrategyCachedOnly requires the artifact to be cached locally.
+	OperatingSystemIpxeArtifactCacheStrategyCachedOnly = "CachedOnly"
+	// OperatingSystemIpxeArtifactCacheStrategyRemoteOnly always fetches the artifact from the remote URL.
+	OperatingSystemIpxeArtifactCacheStrategyRemoteOnly = "RemoteOnly"
 )
 
 var (
@@ -71,10 +89,123 @@ var (
 	}
 	//OperatingSystemsTypeMap is a list of valid type for the OperatingSystem model
 	OperatingSystemsTypeMap = map[string]bool{
-		OperatingSystemTypeIPXE:  true,
-		OperatingSystemTypeImage: true,
+		OperatingSystemTypeIPXE:          true,
+		OperatingSystemTypeTemplatedIPXE: true,
+		OperatingSystemTypeImage:         true,
+	}
+
+	// OperatingSystemIpxeArtifactCacheStrategyFromProtoMap maps proto cache strategies to their model string values.
+	OperatingSystemIpxeArtifactCacheStrategyFromProtoMap = map[cwssaws.IpxeTemplateArtifactCacheStrategy]string{
+		cwssaws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED: OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded,
+		cwssaws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY:      OperatingSystemIpxeArtifactCacheStrategyLocalOnly,
+		cwssaws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY:     OperatingSystemIpxeArtifactCacheStrategyCachedOnly,
+		cwssaws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY:     OperatingSystemIpxeArtifactCacheStrategyRemoteOnly,
+	}
+
+	// OperatingSystemIpxeArtifactCacheStrategyToProtoMap maps model cache strategy strings to their proto values.
+	OperatingSystemIpxeArtifactCacheStrategyToProtoMap = map[string]cwssaws.IpxeTemplateArtifactCacheStrategy{
+		OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded: cwssaws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED,
+		OperatingSystemIpxeArtifactCacheStrategyLocalOnly:     cwssaws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyCachedOnly:    cwssaws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyRemoteOnly:    cwssaws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY,
+	}
+
+	// OperatingSystemTypeFromProtoMap maps nico-core OS types to their model string values.
+	OperatingSystemTypeFromProtoMap = map[cwssaws.OperatingSystemType]string{
+		cwssaws.OperatingSystemType_OS_TYPE_IPXE:           OperatingSystemTypeIPXE,
+		cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE: OperatingSystemTypeTemplatedIPXE,
+	}
+
+	// OperatingSystemStatusFromProtoMap maps nico-core tenant states to OperatingSystem status values.
+	OperatingSystemStatusFromProtoMap = map[cwssaws.TenantState]string{
+		cwssaws.TenantState_PROVISIONING: OperatingSystemStatusProvisioning,
+		cwssaws.TenantState_READY:        OperatingSystemStatusReady,
+		cwssaws.TenantState_CONFIGURING:  OperatingSystemStatusSyncing,
+		cwssaws.TenantState_TERMINATING:  OperatingSystemStatusDeleting,
+		cwssaws.TenantState_FAILED:       OperatingSystemStatusError,
 	}
 )
+
+// IsIPXEType returns true if the given OS type is any iPXE variant (raw script or templated).
+func IsIPXEType(osType string) bool {
+	return osType == OperatingSystemTypeIPXE || osType == OperatingSystemTypeTemplatedIPXE
+}
+
+// OperatingSystemIpxeParameter holds a single iPXE parameter name/value pair (stored as JSONB).
+// These are only populated for iPXE-based OS definitions synced with nico-core.
+type OperatingSystemIpxeParameter struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// FromProto fills the receiver from a proto IpxeTemplateParameter. A nil proto resets the receiver.
+func (osip *OperatingSystemIpxeParameter) FromProto(protoParam *cwssaws.IpxeTemplateParameter) {
+	if protoParam == nil {
+		*osip = OperatingSystemIpxeParameter{}
+		return
+	}
+	osip.Name = protoParam.Name
+	osip.Value = protoParam.Value
+}
+
+// ToProto converts the receiver to a proto IpxeTemplateParameter.
+func (osip *OperatingSystemIpxeParameter) ToProto() *cwssaws.IpxeTemplateParameter {
+	return &cwssaws.IpxeTemplateParameter{
+		Name:  osip.Name,
+		Value: osip.Value,
+	}
+}
+
+// OperatingSystemIpxeArtifact holds a single iPXE artifact descriptor (stored as JSONB).
+// These are only populated for iPXE-based OS definitions synced with nico-core.
+//
+// The proto IpxeTemplateArtifact has a cached_url field that is intentionally NOT
+// represented here: cached_url is a per-site value populated by nico-core after a
+// successful download, so there is no meaningful global value for it on the rest side.
+// The push path must therefore never emit cached_url to core (preserving per-site
+// values), and the inbound (pull) path must never store cached_url on the global row.
+type OperatingSystemIpxeArtifact struct {
+	Name          string  `json:"name"`
+	URL           string  `json:"url"`
+	SHA           *string `json:"sha"`
+	AuthType      *string `json:"authType"`
+	AuthToken     *string `json:"authToken"`
+	CacheStrategy string  `json:"cacheStrategy"`
+}
+
+// FromProto fills the receiver from a proto IpxeTemplateArtifact. A nil proto resets the receiver.
+// The proto's cached_url field is intentionally ignored; see the type doc.
+func (osia *OperatingSystemIpxeArtifact) FromProto(protoArtifact *cwssaws.IpxeTemplateArtifact) {
+	if protoArtifact == nil {
+		*osia = OperatingSystemIpxeArtifact{}
+		return
+	}
+	osia.Name = protoArtifact.Name
+	osia.URL = protoArtifact.Url
+	osia.SHA = protoArtifact.Sha
+	osia.AuthType = protoArtifact.AuthType
+	osia.AuthToken = protoArtifact.AuthToken
+
+	cacheStrategy := OperatingSystemIpxeArtifactCacheStrategyFromProtoMap[protoArtifact.CacheStrategy]
+	if cacheStrategy == "" {
+		cacheStrategy = OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded
+	}
+	osia.CacheStrategy = cacheStrategy
+}
+
+// ToProto converts the receiver to a proto IpxeTemplateArtifact. cached_url is always left
+// nil so the rest side never overwrites the per-site value managed by nico-core.
+func (osia *OperatingSystemIpxeArtifact) ToProto() *cwssaws.IpxeTemplateArtifact {
+	return &cwssaws.IpxeTemplateArtifact{
+		Name:          osia.Name,
+		Url:           osia.URL,
+		Sha:           osia.SHA,
+		AuthType:      osia.AuthType,
+		AuthToken:     osia.AuthToken,
+		CacheStrategy: OperatingSystemIpxeArtifactCacheStrategyToProtoMap[osia.CacheStrategy],
+		CachedUrl:     nil,
+	}
+}
 
 // OperatingSystem describes the attributes of the operating system
 // that can be used on instances
@@ -100,17 +231,27 @@ type OperatingSystem struct {
 	RootFsID                    *string                 `bun:"root_fs_id"`
 	RootFsLabel                 *string                 `bun:"root_fs_label"`
 	IpxeScript                  *string                 `bun:"ipxe_script"`
-	UserData                    *string                 `bun:"user_data"`
-	AllowOverride               bool                    `bun:"allow_override,notnull"`
-	EnableBlockStorage          bool                    `bun:"enable_block_storage,notnull"`
-	PhoneHomeEnabled            bool                    `bun:"phone_home_enabled,notnull"`
-	IsActive                    bool                    `bun:"is_active,notnull"`
-	DeactivationNote            *string                 `bun:"deactivation_note"` // Note for deactivation, if any
-	Status                      string                  `bun:"status,notnull"`
-	Created                     time.Time               `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                     time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted                     *time.Time              `bun:"deleted,soft_delete"`
-	CreatedBy                   uuid.UUID               `bun:"type:uuid,notnull"`
+	// iPXE template fields, populated for Templated iPXE OS definitions synced with nico-core.
+	IpxeTemplateId             *string                        `bun:"ipxe_template_id"`
+	IpxeTemplateParameters     []OperatingSystemIpxeParameter `bun:"ipxe_template_parameters,type:jsonb"`
+	IpxeTemplateArtifacts      []OperatingSystemIpxeArtifact  `bun:"ipxe_template_artifacts,type:jsonb"`
+	IpxeTemplateDefinitionHash *string                        `bun:"ipxe_template_definition_hash"`
+	// IpxeOsScope controls synchronization direction between carbide-rest and nico-core for
+	// iPXE OS definitions: "Local" is bidirectional/provider-owned from nico-core, while
+	// "Global" and "Limited" make carbide-rest the source of truth. nil for Image-type OS;
+	// legacy iPXE rows with nil scope are treated as "Local".
+	IpxeOsScope        *string    `bun:"ipxe_os_scope"`
+	UserData           *string    `bun:"user_data"`
+	AllowOverride      bool       `bun:"allow_override,notnull"`
+	EnableBlockStorage bool       `bun:"enable_block_storage,notnull"`
+	PhoneHomeEnabled   bool       `bun:"phone_home_enabled,notnull"`
+	IsActive           bool       `bun:"is_active,notnull"`
+	DeactivationNote   *string    `bun:"deactivation_note"` // Note for deactivation, if any
+	Status             string     `bun:"status,notnull"`
+	Created            time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated            time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted            *time.Time `bun:"deleted,soft_delete"`
+	CreatedBy          uuid.UUID  `bun:"type:uuid,notnull"`
 }
 
 // GetSiteID returns the OperatingSystem ID to use when communicating
@@ -165,6 +306,9 @@ func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *cwssaws.Del
 
 // OperatingSystemCreateInput input parameters for Create method
 type OperatingSystemCreateInput struct {
+	// ID optionally pre-specifies the primary key. When set (e.g. during inventory sync from
+	// nico-core), the same UUID is used on both sides. When zero, a new UUID is generated.
+	ID                          uuid.UUID
 	Name                        string
 	Description                 *string
 	Org                         string
@@ -181,12 +325,18 @@ type OperatingSystemCreateInput struct {
 	RootFsId                    *string
 	RootFsLabel                 *string
 	IpxeScript                  *string
-	UserData                    *string
-	AllowOverride               bool
-	EnableBlockStorage          bool
-	PhoneHomeEnabled            bool
-	Status                      string
-	CreatedBy                   uuid.UUID
+	// iPXE template definition fields (for nico-core synced iPXE OS definitions)
+	IpxeTemplateId         *string
+	IpxeTemplateParameters []OperatingSystemIpxeParameter
+	IpxeTemplateArtifacts  []OperatingSystemIpxeArtifact
+	IpxeOSHash             *string
+	IpxeOsScope            *string
+	UserData               *string
+	AllowOverride          bool
+	EnableBlockStorage     bool
+	PhoneHomeEnabled       bool
+	Status                 string
+	CreatedBy              uuid.UUID
 }
 
 // OperatingSystemUpdateInput input parameters for Update method
@@ -208,13 +358,19 @@ type OperatingSystemUpdateInput struct {
 	RootFsId                    *string
 	RootFsLabel                 *string
 	IpxeScript                  *string
-	UserData                    *string
-	AllowOverride               *bool
-	EnableBlockStorage          *bool
-	PhoneHomeEnabled            *bool
-	IsActive                    *bool
-	DeactivationNote            *string
-	Status                      *string
+	// iPXE template definition fields (for nico-core synced iPXE OS definitions)
+	IpxeTemplateId         *string
+	IpxeTemplateParameters *[]OperatingSystemIpxeParameter
+	IpxeTemplateArtifacts  *[]OperatingSystemIpxeArtifact
+	IpxeOSHash             *string
+	Scope                  *string
+	UserData               *string
+	AllowOverride          *bool
+	EnableBlockStorage     *bool
+	PhoneHomeEnabled       *bool
+	IsActive               *bool
+	DeactivationNote       *string
+	Status                 *string
 }
 
 // OperatingSystemClearInput input parameters for Clear method
@@ -235,6 +391,12 @@ type OperatingSystemClearInput struct {
 	IpxeScript                  bool
 	UserData                    bool
 	DeactivationNote            bool
+	// iPXE template definition fields (for nico-core synced iPXE OS definitions)
+	IpxeTemplateId         bool
+	IpxeTemplateParameters bool
+	IpxeTemplateArtifacts  bool
+	IpxeOSHash             bool
+	Scope                  bool
 }
 
 type OperatingSystemFilterInput struct {
@@ -248,6 +410,10 @@ type OperatingSystemFilterInput struct {
 	SearchQuery              *string
 	OperatingSystemIds       []uuid.UUID
 	IsActive                 *bool
+	// Scopes filters iPXE OS definitions by their scope (e.g. "Global", "Limited", "Local").
+	Scopes []string
+	// IncludeDeleted includes soft-deleted records (used by inventory sync to detect deletions).
+	IncludeDeleted bool
 }
 
 var _ bun.BeforeAppendModelHook = (*OperatingSystem)(nil)
@@ -309,8 +475,12 @@ func (ossd OperatingSystemSQLDAO) Create(ctx context.Context, tx *db.Tx, input O
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "name", input.Name)
 	}
 
+	id := input.ID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
 	os := &OperatingSystem{
-		ID:                          uuid.New(),
+		ID:                          id,
 		Name:                        input.Name,
 		Description:                 input.Description,
 		Org:                         input.Org,
@@ -332,10 +502,15 @@ func (ossd OperatingSystemSQLDAO) Create(ctx context.Context, tx *db.Tx, input O
 		EnableBlockStorage:          input.EnableBlockStorage,
 		PhoneHomeEnabled:            input.PhoneHomeEnabled,
 		// WARNING: there is a bug in 'bun' and we cannot use non-nullable AND default=true at this time:
-		IsActive:         true, // input.IsActive,
-		DeactivationNote: nil,  //input.DeactivationNote,
-		Status:           input.Status,
-		CreatedBy:        input.CreatedBy,
+		IsActive:                   true, // input.IsActive,
+		DeactivationNote:           nil,  //input.DeactivationNote,
+		Status:                     input.Status,
+		CreatedBy:                  input.CreatedBy,
+		IpxeTemplateId:             input.IpxeTemplateId,
+		IpxeTemplateParameters:     input.IpxeTemplateParameters,
+		IpxeTemplateArtifacts:      input.IpxeTemplateArtifacts,
+		IpxeTemplateDefinitionHash: input.IpxeOSHash,
+		IpxeOsScope:                input.IpxeOsScope,
 	}
 
 	_, err := db.GetIDB(tx, ossd.dbSession).NewInsert().Model(os).Exec(ctx)
@@ -450,6 +625,20 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	if filter.IsActive != nil {
 		query = query.Where("os.is_active = ?", *filter.IsActive)
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "is_active", *filter.IsActive)
+	}
+	if filter.Scopes != nil {
+		// Scope only applies to iPXE OS rows; restrict the match to iPXE types so Image rows
+		// (which have a NULL scope) are not coerced to "Local" by the COALESCE.
+		query = query.Where(
+			"os.type IN (?) AND COALESCE(os.ipxe_os_scope, ?) IN (?)",
+			bun.In([]string{OperatingSystemTypeIPXE, OperatingSystemTypeTemplatedIPXE}),
+			OperatingSystemScopeLocal,
+			bun.In(filter.Scopes),
+		)
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "scopes", filter.Scopes)
+	}
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
 	}
 
 	for _, relation := range includeRelations {
@@ -607,6 +796,26 @@ func (ossd OperatingSystemSQLDAO) Update(ctx context.Context, tx *db.Tx, input O
 		updatedFields = append(updatedFields, "status")
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "status", *input.Status)
 	}
+	if input.IpxeTemplateId != nil {
+		it.IpxeTemplateId = input.IpxeTemplateId
+		updatedFields = append(updatedFields, "ipxe_template_id")
+	}
+	if input.IpxeTemplateParameters != nil {
+		it.IpxeTemplateParameters = *input.IpxeTemplateParameters
+		updatedFields = append(updatedFields, "ipxe_template_parameters")
+	}
+	if input.IpxeTemplateArtifacts != nil {
+		it.IpxeTemplateArtifacts = *input.IpxeTemplateArtifacts
+		updatedFields = append(updatedFields, "ipxe_template_artifacts")
+	}
+	if input.IpxeOSHash != nil {
+		it.IpxeTemplateDefinitionHash = input.IpxeOSHash
+		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
+	}
+	if input.Scope != nil {
+		it.IpxeOsScope = input.Scope
+		updatedFields = append(updatedFields, "ipxe_os_scope")
+	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
@@ -702,6 +911,26 @@ func (ossd OperatingSystemSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Op
 	if input.DeactivationNote {
 		it.DeactivationNote = nil
 		updatedFields = append(updatedFields, "deactivation_note")
+	}
+	if input.IpxeTemplateId {
+		it.IpxeTemplateId = nil
+		updatedFields = append(updatedFields, "ipxe_template_id")
+	}
+	if input.IpxeTemplateParameters {
+		it.IpxeTemplateParameters = nil
+		updatedFields = append(updatedFields, "ipxe_template_parameters")
+	}
+	if input.IpxeTemplateArtifacts {
+		it.IpxeTemplateArtifacts = nil
+		updatedFields = append(updatedFields, "ipxe_template_artifacts")
+	}
+	if input.IpxeOSHash {
+		it.IpxeTemplateDefinitionHash = nil
+		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
+	}
+	if input.Scope {
+		it.IpxeOsScope = nil
+		updatedFields = append(updatedFields, "ipxe_os_scope")
 	}
 
 	if len(updatedFields) > 0 {
