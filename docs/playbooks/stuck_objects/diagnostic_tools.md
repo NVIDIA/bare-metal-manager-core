@@ -41,7 +41,7 @@ Common connection options:
 ## Query State History
 
 ```bash
-nico-admin-cli -c <api-url> -f json machine show <machine-id>
+nico-admin-cli -a <api-url> -f json machine show <machine-id>
 ```
 
 Use this to inspect state transitions, timestamps, and handler outcomes.

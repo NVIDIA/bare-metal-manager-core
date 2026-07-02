@@ -116,7 +116,7 @@ https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT
 Run this command to update the desired Host and DPU BMC password:
 
 ```bash
-nico-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='x'
+nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='x'
 ```
 
 ### Update Host UEFI Password
@@ -124,19 +124,19 @@ nico-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password=
 Run this command to generate the desired host UEFI password:
 
 ```bash
-nico-admin-cli -c <api-url> host generate-host-uefi-password
+nico-admin-cli -a <api-url> host generate-host-uefi-password
 ```
 
 
 Run this command to update host uefi password:
 
 ```bash
-nico-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
+nico-admin-cli -a <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
 ```
 
 Run this command to update DPU uefi password:
 ```bash
-nico-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
+nico-admin-cli -a <api-url> credential add-uefi --kind=dpu --password='x'
 ```
 
 ## Add Expected Machines Table
@@ -197,7 +197,7 @@ Each entry supports additional optional fields:
 When the file is ready, upload it to the site with the following command:
 
 ```bash
-nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -a <api-url> em replace-all --filename expected_machines.json
 ```
 
 ## Approve all Machines for Ingestion
@@ -206,7 +206,7 @@ NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to 
 The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
-nico-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+nico-admin-cli -a <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 ## What Happens After Approval: Ingestion to Ready
@@ -234,8 +234,8 @@ When a machine is not being created or is stuck in a pre-`Ready` state, `nico-ap
 You can check the current detailed state of any managed host using:
 
 ```bash
-nico-admin-cli -c <api-url> managed-host show --all
-nico-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -a <api-url> managed-host show --all
+nico-admin-cli -a <api-url> managed-host show <machine-id>
 ```
 
 For a full guide on diagnosing stuck objects, including how to use the NICo Grafana dashboard and how to read state handler error logs, see [Stuck Objects Runbook](../playbooks/stuck_objects/stuck_objects.md).
@@ -275,7 +275,7 @@ The following are the conditions in which Site Explorer cannot complete pairing 
 For DPU pairing failures, including `dpu_pf0_mac_missing` and cases where the DPU is in an unknown or corrupt state, a common fix is to install a vanilla pre-ingestion BFB image via rshim to return the DPU to a clean state. This runs as part of the preingestion state machine:
 
 ```bash
-nico-admin-cli -c <api-url> site-explorer copy-bfb-to-dpu-rshim \
+nico-admin-cli -a <api-url> site-explorer copy-bfb-to-dpu-rshim \
   --host-bmc-ip <host-bmc-ip> \
   <dpu-bmc-ip>
 ```
@@ -302,9 +302,9 @@ The expected machines table in the nico-api database holds the following fields 
 Use `nico-admin-cli` to operate on individual entries:
 
 ```bash
-nico-admin-cli -c <api-url> em update ...
-nico-admin-cli -c <api-url> em add ...
-nico-admin-cli -c <api-url> em delete ...
+nico-admin-cli -a <api-url> em update ...
+nico-admin-cli -a <api-url> em add ...
+nico-admin-cli -a <api-url> em delete ...
 ```
 
 ### Bulk operations
@@ -312,13 +312,13 @@ nico-admin-cli -c <api-url> em delete ...
 Replace all entries from a JSON file:
 
 ```bash
-nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -a <api-url> em replace-all --filename expected_machines.json
 ```
 
 Erase all entries:
 
 ```bash
-nico-admin-cli -c <api-url> em erase
+nico-admin-cli -a <api-url> em erase
 ```
 
 ### Export
@@ -326,5 +326,5 @@ nico-admin-cli -c <api-url> em erase
 Export the current table as JSON:
 
 ```bash
-nico-admin-cli -c <api-url> -f json em show
+nico-admin-cli -a <api-url> -f json em show
 ```

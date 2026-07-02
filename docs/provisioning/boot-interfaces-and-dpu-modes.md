@@ -98,7 +98,7 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 **CLI** (single host):
 
 ```bash
-nico-admin-cli -c <api-url> em add \
+nico-admin-cli -a <api-url> em add \
   --bmc-mac-address C4:5A:B1:C8:38:0D \
   --bmc-username root --bmc-password default-password1 \
   --chassis-serial-number SERIAL-1 \
@@ -168,8 +168,8 @@ NICo keeps the DPUs explored, linked, and underlay-addressed (running agents for
 To change a host that's already ingested (e.g. from managed-DPU to NIC mode), update its Expected Machine `dpu_mode`, then force-delete and let it re-ingest so site-explorer re-explores and applies the new mode:
 
 ```bash
-nico-admin-cli -c <api-url> em patch --bmc-mac-address <bmc-mac> --dpu-mode nic-mode
-nico-admin-cli -c <api-url> machine force-delete --machine <machine-id> --delete-interfaces
+nico-admin-cli -a <api-url> em patch --bmc-mac-address <bmc-mac> --dpu-mode nic-mode
+nico-admin-cli -a <api-url> machine force-delete --machine <machine-id> --delete-interfaces
 ```
 
 See the [Force Delete playbook](../playbooks/force_delete.md) for the full re-ingest procedure. NICo preserves the host's boot-interface **Redfish id** across the deletion gap via the retained-boot-interface mechanism ([Section 7.3](#73-retained-boot-interfaces)), so the host can be re-targeted for boot before a fresh exploration completes. After a flip, you can re-apply the resolved boot interface with one click via **Restore Boot Interface** in the web UI ([Section 5](#5-web-ui)).
@@ -324,7 +324,7 @@ The same precedence applies wherever NICo picks a boot interface, over owned row
 **Check a host's boot interface:**
 
 ```bash
-nico-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -a <api-url> managed-host show <machine-id>
 ```
 
 The interfaces section shows each NIC's MAC, segment, and which one is `primary` (the boot interface). The web UI machine-detail page shows the same with a primary indicator.

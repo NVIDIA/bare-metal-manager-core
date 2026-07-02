@@ -42,8 +42,8 @@ nicocli instance get <instance-id>
 Core gRPC operation is required:
 
 ```bash
-nico-admin-cli -c <core-api-url> instance release --instance <instance-id>
-nico-admin-cli -c <core-api-url> instance release --machine <machine-id>
+nico-admin-cli -a <core-api-url> instance release --instance <instance-id>
+nico-admin-cli -a <core-api-url> instance release --machine <machine-id>
 ```
 
 `<core-api-url>` is the NICo Core gRPC API endpoint used by
@@ -111,19 +111,19 @@ If cleanup progress is unclear from the instance lifecycle, check the
 managed-host state:
 
 ```bash
-nico-admin-cli -c <core-api-url> managed-host show <machine-id>
+nico-admin-cli -a <core-api-url> managed-host show <machine-id>
 ```
 
 Check the machine view for state history and platform details:
 
 ```bash
-nico-admin-cli -c <core-api-url> machine show <machine-id>
+nico-admin-cli -a <core-api-url> machine show <machine-id>
 ```
 
 Check health reports when cleanup appears blocked:
 
 ```bash
-nico-admin-cli -c <core-api-url> machine health-report show <machine-id>
+nico-admin-cli -a <core-api-url> machine health-report show <machine-id>
 ```
 
 ### Happy Path Verification
@@ -133,8 +133,8 @@ A normal release can be verified with this sequence:
 ```bash
 nicocli instance delete <instance-id>
 nicocli instance status-history <instance-id>
-nico-admin-cli -c <core-api-url> managed-host show <machine-id>
-nico-admin-cli -c <core-api-url> machine health-report show <machine-id>
+nico-admin-cli -a <core-api-url> managed-host show <machine-id>
+nico-admin-cli -a <core-api-url> machine health-report show <machine-id>
 ```
 
 Success indicators:
@@ -249,8 +249,8 @@ firmware management, measured boot, and site policy.
 Useful attestation commands include:
 
 ```bash
-nico-admin-cli -c <core-api-url> attestation measured-boot machine show <machine-id>
-nico-admin-cli -c <core-api-url> att mb machine show <machine-id>
+nico-admin-cli -a <core-api-url> attestation measured-boot machine show <machine-id>
+nico-admin-cli -a <core-api-url> att mb machine show <machine-id>
 ```
 
 ## Return-to-Pool Checklist
@@ -288,8 +288,8 @@ If the REST lifecycle does not explain the stall, inspect the Core cleanup
 state:
 
 ```bash
-nico-admin-cli -c <core-api-url> managed-host show <machine-id>
-nico-admin-cli -c <core-api-url> machine health-report show <machine-id>
+nico-admin-cli -a <core-api-url> managed-host show <machine-id>
+nico-admin-cli -a <core-api-url> machine health-report show <machine-id>
 ```
 
 | State | What it means | Checks |
