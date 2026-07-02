@@ -33,6 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Env {
     pub test_harness: TestHarness,
+    pub redfish_sim: Arc<RedfishSim>,
     machine_controller: StateController<MachineStateControllerIO>,
     _cancel_token: CancellationToken,
 }
@@ -74,13 +75,14 @@ impl EnvBuilder {
         } = self;
         let redfish_sim = Arc::new(RedfishSim::default());
         let controller_redfish_sim = redfish_sim.clone();
+        let api_redfish_sim = redfish_sim.clone();
         let runtime_config = Arc::new(runtime_config);
         let api_runtime_config = runtime_config.clone();
         let test_harness = TestHarness::builder(pool.clone())
             .with_api_builder_fn(move |builder| {
                 builder
                     .with_runtime_config(api_runtime_config)
-                    .with_redfish_pool(redfish_sim)
+                    .with_redfish_pool(api_redfish_sim)
             })
             .build()
             .await;
@@ -154,6 +156,7 @@ impl EnvBuilder {
 
         Env {
             test_harness,
+            redfish_sim,
             machine_controller,
             _cancel_token: cancel_token,
         }

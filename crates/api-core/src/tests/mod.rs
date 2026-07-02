@@ -67,7 +67,6 @@ mod machine_history;
 mod machine_interfaces;
 mod machine_metadata;
 mod machine_network;
-mod machine_power;
 mod machine_states;
 mod machine_topology;
 pub mod machine_update_manager;
