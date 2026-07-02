@@ -189,6 +189,9 @@ where
 
             if let Some(service) = &grpc_service {
                 request_span.record(
+                    // TODO: Consider eliminating this, since RPC_METHOD is already fully-qualified
+                    // and thus includes the service name.
+                    #[allow(deprecated)]
                     opentelemetry_semantic_conventions::trace::RPC_SERVICE,
                     service,
                 );
@@ -254,8 +257,15 @@ where
                             })
                             .unwrap_or_else(String::new);
 
+                        // TODO: Drop the deprecated RPC_GRPC_STATUS_CODE key in favor of only
+                        // logging the correct RPC_RESPONSE_STATUS_CODE below
                         request_span.record(
+                            #[allow(deprecated)]
                             opentelemetry_semantic_conventions::attribute::RPC_GRPC_STATUS_CODE,
+                            code as u64,
+                        );
+                        request_span.record(
+                            opentelemetry_semantic_conventions::attribute::RPC_RESPONSE_STATUS_CODE,
                             code as u64,
                         );
                         request_span.record(
