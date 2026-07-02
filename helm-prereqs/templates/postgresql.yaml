@@ -45,6 +45,11 @@ spec:
     nico-system.nico:
       - superuser
       - createdb
+    {{- if .Values.rest.enabled }}
+    nico-rest.nico:
+      - superuser
+      - createdb
+    {{- end }}
     {{- if .Values.flow.enabled }}
     flow.nico:
       - superuser
@@ -58,6 +63,9 @@ spec:
     {{- end }}
   databases:
     nico_system_nico: nico-system.nico
+    {{- if .Values.rest.enabled }}
+    nico_rest: nico-rest.nico
+    {{- end }}
     {{- if .Values.flow.enabled }}
     flow: flow.nico
     psm: psm.nico

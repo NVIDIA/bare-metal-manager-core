@@ -381,6 +381,20 @@ until kubectl get postgresql nico-pg-cluster -n postgres \
 done
 echo "nico-pg-cluster is Running"
 
+# Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
+# Zalando's preparedDatabases conflicts with the databases section, so we install
+# the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
+_PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
+    2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
+if [[ -n "${_PG_PRIMARY}" ]]; then
+    echo "Installing pg_trgm extension on nico_rest (primary: ${_PG_PRIMARY})..."
+    kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+        su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
+        2>/dev/null && echo "pg_trgm ready" || \
+        echo "  pg_trgm: nico_rest not yet ready — will be created when rest.enabled=true"
+fi
+
 echo "Waiting for DB credentials to be synced by ESO..."
 until kubectl get secret nico-system.nico.nico-pg-cluster.credentials \
     -n nico-system &>/dev/null; do
@@ -709,6 +723,21 @@ echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
 # --- 7g. NICo REST helm chart -------------------------------------------------
+# Wait for ESO to sync the Zalando-generated REST DB credentials into nico-rest.
+# nico-rest-db-eso ClusterExternalSecret creates db-creds once the nico-rest
+# namespace (created in 7a) is visible to ESO. The nico-rest-db pre-install hook
+# will fail immediately if the secret is missing.
+echo "Waiting for REST DB credentials to be synced by ESO (nico-rest-pg-creds in nico-rest)..."
+until kubectl get secret nico-rest-pg-creds -n nico-rest &>/dev/null; do
+    echo "  nico-rest-pg-creds not yet synced — retrying in 5s..."
+    sleep 5
+done
+echo "REST DB credentials ready"
+_NICO_REST_DB_USER="$(kubectl get secret nico-rest-pg-creds -n nico-rest \
+    -o jsonpath='{.data.username}' | base64 -d)"
+_NICO_REST_DB_PASS="$(kubectl get secret nico-rest-pg-creds -n nico-rest \
+    -o jsonpath='{.data.password}' | base64 -d)"
+
 NICO_HELM_CHART="${NICO_REST_HELM_DIR}/nico-rest"
 NICO_REST_CMD=(
     helm upgrade --install nico-rest "${NICO_HELM_CHART}"
@@ -716,6 +745,8 @@ NICO_REST_CMD=(
     -f "${SCRIPT_DIR}/values/nico-rest.yaml"
     --set global.image.repository="${NICO_IMAGE_REGISTRY}"
     --set global.image.tag="${NICO_REST_IMAGE_TAG}"
+    --set "nico-rest-common.secrets.dbCreds.username=${_NICO_REST_DB_USER}"
+    --set "nico-rest-common.secrets.dbCreds.password=${_NICO_REST_DB_PASS}"
     --timeout 600s --wait
 )
 
