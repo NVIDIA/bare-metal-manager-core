@@ -70,6 +70,13 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
     ) -> Result<libredfish::PowerState, EndpointExplorationError>;
 
+    /// Fetch PF0 MAC directly from BF4 NDF0 Redfish endpoint(s).
+    async fn get_dpu_pf0_mac_from_ndf0(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<Option<MacAddress>, EndpointExplorationError>;
+
     async fn redfish_power_control(
         &self,
         address: SocketAddr,

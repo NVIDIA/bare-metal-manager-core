@@ -30,6 +30,7 @@ use carbide_redfish::libredfish::{
 };
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::Credentials;
+use libredfish::model::ODataId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
@@ -444,6 +445,18 @@ impl RedfishClient {
         client.get_power_state().await.map_err(map_redfish_error)
     }
 
+    pub async fn get_dpu_pf0_mac_from_ndf0(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<Option<MacAddress>, EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+        Ok(get_base_mac_from_bf4_ndf0(client.as_ref()).await)
+    }
+
     pub async fn power(
         &self,
         bmc_ip_address: SocketAddr,
@@ -825,7 +838,6 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
                 None
             }
         };
-
         nic_mode = match client.get_nic_mode().await {
             Ok(nic_mode) => nic_mode,
             Err(e) => return Err(map_redfish_error(e)),
@@ -1126,6 +1138,32 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
+}
+
+async fn get_base_mac_from_bf4_ndf0(client: &dyn Redfish) -> Option<MacAddress> {
+    let ndf0_paths = [
+        "/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0",
+        "/redfish/v1/Chassis/Card1/NetworkAdapters/Bluefield_NIC/NetworkDeviceFunctions/0",
+    ];
+    for path in ndf0_paths {
+        let resource = match client.get_resource(ODataId::from(path)).await {
+            Ok(resource) => resource,
+            Err(RedfishError::NotSupported(_)) => continue,
+            Err(_) => continue,
+        };
+        let body: serde_json::Value = match serde_json::from_str(resource.raw.get()) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(mac) = body
+            .pointer("/Ethernet/PermanentMACAddress")
+            .and_then(serde_json::Value::as_str)
+            && let Ok(parsed) = deserialize_input_mac_to_address(mac)
+        {
+            return Some(parsed);
+        }
+    }
+    None
 }
 
 async fn fetch_boot_order(
