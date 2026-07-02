@@ -37,7 +37,7 @@ gen-doc: ## Generate gRPC API documentation (Markdown for GitLab, HTML for local
 
 flow:
 	mkdir -p build
-	VERSION=$$(grep -v -e '^#' -e "^$$" ../VERSION) && \
+	VERSION=$$(git describe --tags --first-parent --always --long) && \
 	BUILD_TIME=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
 	GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
 	go build -C build \
@@ -47,7 +47,7 @@ flow:
 		..
 
 container: flow
-	docker build -t nico-flow:$$(grep -v -e '^#' -e "^$$" ../VERSION)-$(CURDATE)-$$(git rev-parse HEAD) -t nico-flow:latest .
+	docker build -t nico-flow:$$(git describe --tags --first-parent --always --long)-$(CURDATE)-$$(git rev-parse HEAD) -t nico-flow:latest .
 
 # test-local runs tests locally with a postgres container
 # Requires: ./scripts/start-test-postgres.sh to be running
