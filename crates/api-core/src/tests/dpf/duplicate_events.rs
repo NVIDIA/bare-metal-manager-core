@@ -58,7 +58,13 @@ fn dpf_left_operator_provisioning_substates(host: &ManagedHostState) -> bool {
 fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
-        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployments: crate::cfg::file::DpfDeploymentsConfig {
+            bf3: crate::cfg::file::DpfDeploymentConfig {
+                bfb_url: "http://example.com/test.bfb".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -67,7 +73,7 @@ fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| DpuDeploymentType::Bf3);
+        .returning(|_| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
 }
 

@@ -202,7 +202,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
-            deployment_type: dpf_sdk.deployment_type_for_dpu(dpu),
+            deployment_type: dpf_sdk.deployment_type_for_dpu(dpu).map_err(dpf_error)?,
         };
         dpf_sdk
             .register_dpu_device(device_info)
@@ -218,7 +218,9 @@ async fn create_and_register_dpudevices_and_dpunode(
             object_id: state.host_snapshot.id.to_string(),
             missing: "primary_dpu_snapshot",
         })?;
-    let deployment_type = dpf_sdk.deployment_type_for_dpu(primary_dpu);
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(primary_dpu)
+        .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
         .dpu_snapshots
@@ -491,7 +493,9 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
-    let deployment_type = dpf_sdk.deployment_type_for_dpu(dpu_snapshot);
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(dpu_snapshot)
+        .map_err(dpf_error)?;
     if !dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
         .await

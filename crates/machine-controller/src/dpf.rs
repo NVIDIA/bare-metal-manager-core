@@ -29,7 +29,7 @@ use carbide_dpf::{
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
-use model::site_explorer::is_bf3_dpu_part_number;
+use model::site_explorer::{is_bf3_dpu_part_number, is_bf4_dpu_part_number};
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
@@ -87,7 +87,9 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
     /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> DpuDeploymentType;
+    /// Returns `Err` when the part number is absent or does not match any known generation,
+    /// so unrecognized hardware never silently routes to a wrong deployment.
+    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError>;
 
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
@@ -530,7 +532,7 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> DpuDeploymentType {
+    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
         let part_number = dpu
             .hardware_info
             .as_ref()
@@ -538,10 +540,21 @@ impl DpfOperations for DpfSdkOps {
             .map(|d| d.part_number.as_str())
             .unwrap_or_default();
 
+        if part_number.is_empty() {
+            return Err(DpfError::InvalidState(format!(
+                "cannot determine DPU deployment type for machine {}: part number is absent",
+                dpu.id,
+            )));
+        }
         if is_bf3_dpu_part_number(part_number) {
-            DpuDeploymentType::Bf3
+            Ok(DpuDeploymentType::Bf3)
+        } else if is_bf4_dpu_part_number(part_number) {
+            Ok(DpuDeploymentType::Bf4Generic)
         } else {
-            DpuDeploymentType::Bf4Generic
+            Err(DpfError::InvalidState(format!(
+                "cannot determine DPU deployment type for machine {}: unrecognized part number {part_number:?}",
+                dpu.id,
+            )))
         }
     }
 

@@ -651,44 +651,50 @@ async fn initialize_dpf_sdk(
 
     let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
 
+    carbide_config
+        .dpf
+        .deployments
+        .validate_unique_identifiers()
+        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
+
     let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
 
     // This is just temporary code until we make v2 only option. (just 2 weeks)
     // Soon v2 flag will be removed and will become only mode for dpf handling.
-    let init_config = carbide_dpf::InitDpfResourcesConfig {
-        bfb_url: carbide_config.dpf.bfb_url.clone(),
-        flavor_name: carbide_config.dpf.flavor_name.clone(),
-        deployment_name: carbide_config.dpf.deployment_name.clone(),
-        services: crate::dpf_services::mandatory_services(&mandatory_services),
-        proxy: carbide_config.dpf.proxy.clone(),
-        deployment_type: DpuDeploymentType::Bf3,
-    };
-
     let deployment_type_labels = build_deployment_type_labels(carbide_config);
 
     let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
         .with_labeler(
-            CarbideDPFLabeler::new(carbide_config.dpf.node_label_key.clone())
+            CarbideDPFLabeler::new(carbide_config.dpf.deployments.bf3.node_label_key.clone())
                 .with_deployment_type_labels(deployment_type_labels),
         )
         .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
         .with_join_set(join_set)
-        .initialize(&init_config)
+        .build_without_resources()
         .await
         .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
 
-    // Initialize any additional named deployments (e.g. bf4_generic).
-    // Services are inherited from the top-level DPF config.
-    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-        let bf4_init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: bf4.bfb_url.clone(),
-            flavor_name: bf4.flavor_name.clone(),
-            deployment_name: bf4.deployment_name.clone(),
+    let make_init_config = |deployment: &crate::cfg::file::DpfDeploymentConfig,
+                            deployment_type: DpuDeploymentType| {
+        carbide_dpf::InitDpfResourcesConfig {
+            bfb_url: deployment.bfb_url.clone(),
+            flavor_name: deployment.flavor_name.clone(),
+            deployment_name: deployment.deployment_name.clone(),
             services: crate::dpf_services::mandatory_services(&mandatory_services),
             proxy: carbide_config.dpf.proxy.clone(),
-            deployment_type: DpuDeploymentType::Bf4Generic,
-        };
-        sdk.create_initialization_objects(&bf4_init_config)
+            deployment_type,
+        }
+    };
+
+    sdk.create_initialization_objects(&make_init_config(
+        &carbide_config.dpf.deployments.bf3,
+        DpuDeploymentType::Bf3,
+    ))
+    .await
+    .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+
+    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
+        sdk.create_initialization_objects(&make_init_config(bf4, DpuDeploymentType::Bf4Generic))
             .await
             .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
@@ -720,7 +726,7 @@ fn build_deployment_type_labels(
 
     let mut map = std::collections::BTreeMap::from([(
         DpuDeploymentType::Bf3,
-        make_labels(&carbide_config.dpf.node_label_key),
+        make_labels(&carbide_config.dpf.deployments.bf3.node_label_key),
     )]);
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {

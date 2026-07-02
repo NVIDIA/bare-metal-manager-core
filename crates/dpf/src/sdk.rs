@@ -115,10 +115,8 @@ pub trait ResourceLabeler: Send + Sync {
     /// Returns `ConfigError` if no deployment is configured for the requested type.
     fn node_labels_for_deployment_type(
         &self,
-        _deployment_type: DpuDeploymentType,
-    ) -> Result<BTreeMap<String, String>, crate::DpfError> {
-        Ok(BTreeMap::new())
-    }
+        deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, crate::DpfError>;
 
     /// Contextual labels applied to DPUNode resources on creation only.
     /// Unlike `node_labels`, these are NOT used for selectors or removal
@@ -137,7 +135,14 @@ pub trait ResourceLabeler: Send + Sync {
 /// Default labeler that applies no labels.
 pub struct NoLabels;
 
-impl ResourceLabeler for NoLabels {}
+impl ResourceLabeler for NoLabels {
+    fn node_labels_for_deployment_type(
+        &self,
+        _deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, crate::DpfError> {
+        Ok(BTreeMap::new())
+    }
+}
 
 /// The main DPF SDK interface.
 ///
@@ -2295,6 +2300,13 @@ mod tests {
 
         fn node_labels(&self) -> BTreeMap<String, String> {
             BTreeMap::from([("test/node".to_string(), "true".to_string())])
+        }
+
+        fn node_labels_for_deployment_type(
+            &self,
+            _deployment_type: DpuDeploymentType,
+        ) -> Result<BTreeMap<String, String>, crate::DpfError> {
+            Ok(self.node_labels())
         }
 
         fn node_context_labels(&self, _info: &DpuNodeInfo) -> BTreeMap<String, String> {

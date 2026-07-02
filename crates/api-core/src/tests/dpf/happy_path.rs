@@ -42,7 +42,7 @@ fn default_mock() -> MockDpfOperations {
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| DpuDeploymentType::Bf3);
+        .returning(|_| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
 }
@@ -54,7 +54,13 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.dpf = crate::cfg::file::DpfConfig {
         enabled: true,
-        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployments: crate::cfg::file::DpfDeploymentsConfig {
+            bf3: crate::cfg::file::DpfDeploymentConfig {
+                bfb_url: "http://example.com/test.bfb".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         ..Default::default()
     };
 
