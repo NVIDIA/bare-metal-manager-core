@@ -6,12 +6,14 @@ package activity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/rs/zerolog/log"
+	tClient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -224,4 +226,86 @@ func osImageFindFallback(ctx context.Context, grpcClient *cClient.CoreGrpcClient
 		ids = append(ids, it.GetAttributes().Id)
 	}
 	return ids, items.GetImages(), nil
+}
+
+// ManageOperatingSystemInventory is an activity wrapper for Operating System (iPXE /
+// Templated iPXE definition) inventory collection and publishing. This is the inbound
+// (pull) path: it reads OS definitions from on-site nico-core and publishes them to the
+// cloud for reconciliation with the operating_system table. Outbound pushes are handled
+// by the generic Core gRPC proxy, not here.
+type ManageOperatingSystemInventory struct {
+	config ManageInventoryConfig
+}
+
+// NewManageOperatingSystemInventory returns a ManageOperatingSystemInventory activity
+func NewManageOperatingSystemInventory(config ManageInventoryConfig) ManageOperatingSystemInventory {
+	return ManageOperatingSystemInventory{config: config}
+}
+
+// DiscoverOperatingSystemInventory collects Operating System inventory from nico-core and
+// publishes it to the cloud Temporal queue for reconciliation with the operating_system table.
+func (m *ManageOperatingSystemInventory) DiscoverOperatingSystemInventory(ctx context.Context) error {
+	logger := log.With().Str("Activity", "DiscoverOperatingSystemInventory").Logger()
+	logger.Info().Msg("Starting activity")
+
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:        fmt.Sprintf("update-operating-system-inventory-%s", m.config.SiteID.String()),
+		TaskQueue: m.config.TemporalPublishQueue,
+	}
+	workflowName := "UpdateOperatingSystemInventory"
+
+	coreGrpcClient := m.config.CoreGrpcAtomicClient.GetClient()
+	if coreGrpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
+	}
+	forgeClient := coreGrpcClient.GrpcServiceClient()
+
+	publishError := func(cause error) error {
+		inv := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			StatusMsg:       cause.Error(),
+			Timestamp:       timestamppb.Now(),
+		}
+		if _, execErr := m.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, m.config.SiteID, inv); execErr != nil {
+			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
+			return execErr
+		}
+		return cause
+	}
+
+	// Step 1: fetch all active OS definition IDs from nico-core.
+	idList, err := forgeClient.FindOperatingSystemIds(ctx, &cwssaws.OperatingSystemSearchFilter{})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to retrieve OS definition IDs from nico-core")
+		return publishError(err)
+	}
+
+	// Step 2: fetch full definitions for all returned IDs.
+	var osDefs []*cwssaws.OperatingSystem
+	if len(idList.GetIds()) > 0 {
+		osList, ferr := forgeClient.FindOperatingSystemsByIds(ctx, &cwssaws.OperatingSystemsByIdsRequest{
+			Ids: idList.GetIds(),
+		})
+		if ferr != nil {
+			logger.Warn().Err(ferr).Msg("Failed to retrieve OS definitions by IDs from nico-core")
+			return publishError(ferr)
+		}
+		osDefs = osList.GetOperatingSystems()
+	}
+
+	inventory := &cwssaws.OperatingSystemInventory{
+		InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		StatusMsg:        "Successfully retrieved from nico-core",
+		Timestamp:        timestamppb.Now(),
+		OperatingSystems: osDefs,
+	}
+
+	if _, err = m.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, m.config.SiteID, inventory); err != nil {
+		logger.Error().Err(err).Msg("Failed to publish OS definition inventory to Cloud")
+		return err
+	}
+
+	logger.Info().Msgf("Published %d Operating Systems to Cloud", len(osDefs))
+	logger.Info().Msg("Completed activity")
+	return nil
 }
