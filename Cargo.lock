@@ -2538,6 +2538,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-ssh",
  "carbide-test-harness",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",

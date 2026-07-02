@@ -7873,6 +7873,18 @@ async fn rack_failed_abort_host_reprovision_outcome(
 }
 
 impl HostUpgradeState {
+    async fn host_firmware_config_snapshot(
+        &self,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<FirmwareConfigSnapshot, StateHandlerError> {
+        let host_firmware_configs =
+            db::host_firmware_config::list_configs(&ctx.services.db_pool).await?;
+
+        Ok(self
+            .parsed_hosts
+            .create_snapshot_with_overrides(host_firmware_configs))
+    }
+
     // Handles when in HostReprovisioning or when entering it
     async fn handle_host_reprovision(
         &self,
@@ -8334,11 +8346,8 @@ impl HostUpgradeState {
             )));
         };
 
-        let Some(fw_info) = self
-            .parsed_hosts
-            .create_snapshot()
-            .find_fw_info_for_host(&explored_endpoint)
-        else {
+        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+        let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&explored_endpoint) else {
             return Ok(StateHandlerOutcome::transition(scenario.complete_state()));
         };
 
@@ -9115,41 +9124,59 @@ impl HostUpgradeState {
                         // If we have multiple firmware files to be uploaded, do the next one.
                         if let Some(endpoint) =
                             find_explored_refreshed_endpoint(state, machine_id, ctx).await?
-                            && let Some(fw_info) = self
-                                .parsed_hosts
-                                .create_snapshot()
-                                .find_fw_info_for_host(&endpoint)
-                            && let Some(component_info) = fw_info.components.get(firmware_type)
-                            && let Some(selected_firmware) =
-                                component_info.known_firmware.iter().find(|&x| x.default)
                         {
-                            let firmware_number = firmware_number.unwrap_or(0) + 1;
-                            let has_more_artifacts = usize::try_from(firmware_number)
-                                .map(|firmware_number| {
-                                    firmware_number < selected_firmware.artifact_count()
-                                })
-                                .unwrap_or(false);
-                            if has_more_artifacts {
-                                tracing::debug!(
-                                    "Moving {:?} chain step {} on {} to CheckingFirmware",
-                                    selected_firmware,
-                                    firmware_number,
-                                    endpoint.address
-                                );
+                            let fw_config_snapshot =
+                                self.host_firmware_config_snapshot(ctx).await?;
+                            let selected_firmware = fw_config_snapshot
+                                .find_fw_info_for_host(&endpoint)
+                                .and_then(|fw_info| {
+                                    fw_info.components.get(firmware_type).and_then(
+                                        |component_info| {
+                                            component_info
+                                                .known_firmware
+                                                .iter()
+                                                .find(|&x| x.version == final_version.as_str())
+                                                .or_else(|| {
+                                                    component_info
+                                                        .known_firmware
+                                                        .iter()
+                                                        .find(|&x| x.default)
+                                                })
+                                                .cloned()
+                                        },
+                                    )
+                                });
 
-                                // There are more files to install.
-                                // Move to CheckingFirmware and start installing
-                                let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
-                                    firmware_type: Some(*firmware_type),
-                                    firmware_number: Some(firmware_number),
-                                };
+                            if let Some(selected_firmware) = selected_firmware {
+                                let firmware_number = firmware_number.unwrap_or(0) + 1;
+                                let has_more_artifacts = usize::try_from(firmware_number)
+                                    .map(|firmware_number| {
+                                        firmware_number < selected_firmware.artifact_count()
+                                    })
+                                    .unwrap_or(false);
+                                if has_more_artifacts {
+                                    tracing::debug!(
+                                        "Moving {:?} chain step {} on {} to CheckingFirmware",
+                                        selected_firmware,
+                                        firmware_number,
+                                        endpoint.address
+                                    );
 
-                                return Ok(StateHandlerOutcome::transition(
-                                    scenario.actual_new_state(
-                                        reprovision_state,
-                                        state.managed_state.get_host_repro_retry_count(),
-                                    ),
-                                ));
+                                    // There are more files to install.
+                                    // Move to CheckingFirmware and start installing
+                                    let reprovision_state =
+                                        HostReprovisionState::CheckingFirmwareV2 {
+                                            firmware_type: Some(*firmware_type),
+                                            firmware_number: Some(firmware_number),
+                                        };
+
+                                    return Ok(StateHandlerOutcome::transition(
+                                        scenario.actual_new_state(
+                                            reprovision_state,
+                                            state.managed_state.get_host_repro_retry_count(),
+                                        ),
+                                    ));
+                                }
                             }
                         }
 
@@ -9233,10 +9260,8 @@ impl HostUpgradeState {
                             return Ok(StateHandlerOutcome::do_nothing());
                         };
 
-                        if let Some(fw_info) = self
-                            .parsed_hosts
-                            .create_snapshot()
-                            .find_fw_info_for_host(&endpoint)
+                        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+                        if let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&endpoint)
                             && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *firmware_type)
                             && current_version == final_version
@@ -9514,11 +9539,8 @@ impl HostUpgradeState {
             return Ok(StateHandlerOutcome::do_nothing());
         };
 
-        let Some(fw_info) = self
-            .parsed_hosts
-            .create_snapshot()
-            .find_fw_info_for_host(&endpoint)
-        else {
+        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+        let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&endpoint) else {
             tracing::error!("Could no longer find firmware info for {machine_id}");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {

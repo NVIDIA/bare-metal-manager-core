@@ -19,11 +19,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use carbide_firmware::FirmwareConfig;
 use carbide_uuid::machine::MachineId;
-use db::{self, desired_firmware};
+use db::{self, desired_firmware, host_firmware_config};
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use opentelemetry::metrics::Meter;
@@ -38,7 +39,13 @@ pub struct HostFirmwareUpdate {
     pub metrics: HostFirmwareUpdateMetrics,
     config: Arc<CarbideConfig>,
     firmware_config: FirmwareConfig,
-    firmware_dir_last_read: Arc<Mutex<Option<std::time::SystemTime>>>,
+    firmware_catalog_last_read: Arc<Mutex<Option<FirmwareCatalogMarker>>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FirmwareCatalogMarker {
+    firmware_dir_mod_time: Option<SystemTime>,
+    host_firmware_config_summary: host_firmware_config::HostFirmwareConfigSummary,
 }
 
 #[async_trait]
@@ -60,20 +67,15 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
         let mut txn = db::Transaction::begin(pool).await?;
-        if let Ok(mut firmware_dir_last_read) = self.firmware_dir_last_read.try_lock() {
-            let firmware_dir_mod_time = self.firmware_config.config_update_time();
-            if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
-                || (firmware_dir_mod_time.is_some_and(|firmware_dir_mod_time| {
-                firmware_dir_last_read.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                    < firmware_dir_mod_time // Using an auto firmware directory, and a new file has been created or this is the first run
-            })) {
+        if let Ok(mut firmware_catalog_last_read) = self.firmware_catalog_last_read.try_lock() {
+            let catalog_marker = self.firmware_catalog_marker(&mut txn).await?;
+            if firmware_catalog_last_read.as_ref() != Some(&catalog_marker) {
                 // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
-                let fw_config_snapshot = self.firmware_config.create_snapshot();
+                let fw_config_snapshot = self.effective_firmware_config_snapshot(&mut txn).await?;
                 tracing::info!("Firmware config now: {:?}", fw_config_snapshot);
                 let models = fw_config_snapshot.into_values().collect::<Vec<_>>();
                 desired_firmware::snapshot_desired_firmware(&mut txn, &models).await?;
-                *firmware_dir_last_read =
-                    Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
+                *firmware_catalog_last_read = Some(catalog_marker);
             }
         }
 
@@ -171,8 +173,28 @@ impl HostFirmwareUpdate {
             firmware_config,
             config,
             metrics,
-            firmware_dir_last_read: Arc::new(Mutex::new(None)),
+            firmware_catalog_last_read: Arc::new(Mutex::new(None)),
         })
+    }
+
+    async fn firmware_catalog_marker(
+        &self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<FirmwareCatalogMarker> {
+        Ok(FirmwareCatalogMarker {
+            firmware_dir_mod_time: self.firmware_config.config_update_time(),
+            host_firmware_config_summary: host_firmware_config::summary(txn).await?,
+        })
+    }
+
+    async fn effective_firmware_config_snapshot(
+        &self,
+        txn: &mut PgConnection,
+    ) -> CarbideResult<carbide_firmware::FirmwareConfigSnapshot> {
+        let host_firmware_configs = host_firmware_config::list_configs(txn).await?;
+        Ok(self
+            .firmware_config
+            .create_snapshot_with_overrides(host_firmware_configs))
     }
 
     pub async fn check_for_updates(

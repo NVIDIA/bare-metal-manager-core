@@ -18,13 +18,17 @@
 use model::firmware::FirmwareComponentType;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    DeleteHostFirmwareConfigRequest, HostFirmwareArtifact, HostFirmwareComponentConfigResponse,
-    HostFirmwareComponentType, HostFirmwareVersionConfig, UpsertHostFirmwareComponentConfig,
-    UpsertHostFirmwareConfigRequest,
+    DeleteHostFirmwareConfigRequest, GetDesiredFirmwareVersionsRequest, HostFirmwareArtifact,
+    HostFirmwareComponentConfigResponse, HostFirmwareComponentType, HostFirmwareVersionConfig,
+    UpsertHostFirmwareComponentConfig, UpsertHostFirmwareConfigRequest,
 };
 use tonic::{Code, Request};
 
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::machine_update_manager::MachineUpdateManager;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides,
+    get_config,
+};
 
 #[crate::sqlx_test]
 async fn upsert_host_firmware_config_creates_and_merges_versions(
@@ -90,7 +94,7 @@ async fn upsert_host_firmware_config_creates_and_merges_versions(
     txn.commit().await?;
 
     assert_eq!(stored.ordering, vec![FirmwareComponentType::Cx7]);
-    assert!(stored.explicit_start_needed);
+    assert_eq!(stored.explicit_start_needed, Some(true));
     let stored_cx7 = stored
         .components
         .get(&FirmwareComponentType::Cx7)
@@ -244,14 +248,139 @@ async fn delete_host_firmware_config_returns_not_found_for_missing_pair(
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn get_desired_firmware_versions_merges_runtime_config_with_static_catalog(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    env.api
+        .upsert_host_firmware_config(Request::new(upsert_request_for(
+            "Dell",
+            "PowerEdge R750",
+            vec![component_config(
+                HostFirmwareComponentType::Bmc,
+                vec![version_config("9.99.99.99", true)],
+                None,
+            )],
+            vec![HostFirmwareComponentType::Bmc],
+            Some(false),
+        )))
+        .await?;
+
+    let response = env
+        .api
+        .get_desired_firmware_versions(Request::new(GetDesiredFirmwareVersionsRequest {}))
+        .await?
+        .into_inner();
+    let dell_vendor = bmc_vendor::BMCVendor::Dell.to_string();
+    let dell = response
+        .entries
+        .iter()
+        .find(|entry| entry.vendor == dell_vendor && entry.model == "PowerEdge R750")
+        .unwrap_or_else(|| {
+            panic!(
+                "Dell PowerEdge R750 desired firmware entry; got {:?}",
+                response.entries
+            )
+        });
+
+    assert_eq!(
+        dell.component_versions.get("bmc").map(String::as_str),
+        Some("9.99.99.99")
+    );
+    assert_eq!(
+        dell.component_versions.get("uefi").map(String::as_str),
+        Some("1.13.2")
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn upsert_host_firmware_config_drives_machine_update_manager(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = get_config();
+    config.host_models.clear();
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            config: Some(config),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    env.api
+        .upsert_host_firmware_config(Request::new(upsert_request_for(
+            "Dell",
+            "PowerEdge R750",
+            vec![component_config(
+                HostFirmwareComponentType::Bmc,
+                vec![version_config("9.99.99.99", true)],
+                None,
+            )],
+            vec![HostFirmwareComponentType::Bmc],
+            Some(false),
+        )))
+        .await?;
+
+    let managed_host = create_managed_host(&env).await;
+    let update_manager = MachineUpdateManager::new(
+        env.pool.clone(),
+        env.config.clone(),
+        env.test_meter.meter(),
+        env.api.work_lock_manager_handle.clone(),
+        None,
+    );
+
+    update_manager.run_single_iteration().await?;
+
+    let desired_bmc_version: Option<String> = sqlx::query_scalar(
+        r#"
+            SELECT versions->'Versions'->>'bmc'
+            FROM desired_firmware
+            WHERE vendor = 'Dell' AND model = 'PowerEdge R750'
+        "#,
+    )
+    .fetch_optional(&env.pool)
+    .await?;
+    assert_eq!(desired_bmc_version.as_deref(), Some("9.99.99.99"));
+
+    let mut txn = env.pool.begin().await?;
+    let host = managed_host.host().db_machine(&mut txn).await;
+    txn.commit().await?;
+
+    assert!(host.host_reprovision_requested.is_some());
+
+    Ok(())
+}
+
 fn upsert_request(
     components: Vec<UpsertHostFirmwareComponentConfig>,
     ordering: Vec<HostFirmwareComponentType>,
     explicit_start_needed: Option<bool>,
 ) -> UpsertHostFirmwareConfigRequest {
+    upsert_request_for(
+        "Nvidia",
+        "DGXH100",
+        components,
+        ordering,
+        explicit_start_needed,
+    )
+}
+
+fn upsert_request_for(
+    vendor: &str,
+    model: &str,
+    components: Vec<UpsertHostFirmwareComponentConfig>,
+    ordering: Vec<HostFirmwareComponentType>,
+    explicit_start_needed: Option<bool>,
+) -> UpsertHostFirmwareConfigRequest {
     UpsertHostFirmwareConfigRequest {
-        vendor: "Nvidia".to_string(),
-        model: "DGXH100".to_string(),
+        vendor: vendor.to_string(),
+        model: model.to_string(),
         components,
         explicit_start_needed,
         ordering: ordering

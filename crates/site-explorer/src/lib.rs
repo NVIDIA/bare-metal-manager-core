@@ -367,6 +367,15 @@ impl SiteExplorer {
         Ok(())
     }
 
+    async fn firmware_config_snapshot(&self) -> SiteExplorerResult<FirmwareConfigSnapshot> {
+        let host_firmware_configs =
+            db::host_firmware_config::list_configs(&self.database_connection).await?;
+
+        Ok(self
+            .firmware_config
+            .create_snapshot_with_overrides(host_firmware_configs))
+    }
+
     async fn run(&mut self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
@@ -2160,7 +2169,7 @@ impl SiteExplorer {
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
             expected_count - index.all_matched_expected_machines().len();
-        let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
+        let fw_config_snapshot = Arc::new(self.firmware_config_snapshot().await?);
 
         let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {

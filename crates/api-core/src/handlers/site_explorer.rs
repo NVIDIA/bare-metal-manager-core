@@ -404,7 +404,11 @@ pub(crate) async fn refresh_endpoint_report(
         let report = match result {
             Ok(mut report) => {
                 report.last_exploration_latency = Some(start.elapsed());
-                let fw_config_snapshot = runtime_config.get_firmware_config().create_snapshot();
+                let host_firmware_configs =
+                    db::host_firmware_config::list_configs(&database_connection).await?;
+                let fw_config_snapshot = runtime_config
+                    .get_firmware_config()
+                    .create_snapshot_with_overrides(host_firmware_configs);
                 enrich_endpoint_exploration_report(&mut report, &fw_config_snapshot);
                 report
             }

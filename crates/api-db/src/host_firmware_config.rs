@@ -16,25 +16,32 @@
  */
 
 use chrono::{DateTime, Utc};
-use model::firmware::Firmware;
+use model::firmware::HostFirmwareConfig;
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct HostFirmwareConfigRow {
     pub vendor: String,
     pub model: String,
-    pub config: Json<Firmware>,
+    pub config: Json<HostFirmwareConfig>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl HostFirmwareConfigRow {
-    pub fn into_config(self) -> Firmware {
+    pub fn into_config(self) -> HostFirmwareConfig {
         self.config.0
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, sqlx::FromRow)]
+pub struct HostFirmwareConfigSummary {
+    pub row_count: i64,
+    pub latest_updated_at: Option<DateTime<Utc>>,
 }
 
 /// Serializes read-merge-write operations for one vendor/model key.
@@ -64,7 +71,7 @@ pub async fn lock_for_update(
 
 pub async fn upsert(
     txn: &mut PgConnection,
-    config: &Firmware,
+    config: &HostFirmwareConfig,
 ) -> DatabaseResult<HostFirmwareConfigRow> {
     let query = r#"
         INSERT INTO host_firmware_config (vendor, model, config)
@@ -104,6 +111,39 @@ pub async fn get(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+pub async fn list(db_reader: impl DbReader<'_>) -> DatabaseResult<Vec<HostFirmwareConfigRow>> {
+    let query = r#"
+        SELECT vendor, model, config, created_at, updated_at
+        FROM host_firmware_config
+        ORDER BY vendor, lower(model)
+    "#;
+
+    sqlx::query_as(query)
+        .fetch_all(db_reader)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn list_configs(db_reader: impl DbReader<'_>) -> DatabaseResult<Vec<HostFirmwareConfig>> {
+    Ok(list(db_reader)
+        .await?
+        .into_iter()
+        .map(HostFirmwareConfigRow::into_config)
+        .collect())
+}
+
+pub async fn summary(db_reader: impl DbReader<'_>) -> DatabaseResult<HostFirmwareConfigSummary> {
+    let query = r#"
+        SELECT COUNT(*)::BIGINT AS row_count, MAX(updated_at) AS latest_updated_at
+        FROM host_firmware_config
+    "#;
+
+    sqlx::query_as(query)
+        .fetch_one(db_reader)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn delete(txn: &mut PgConnection, vendor: &str, model: &str) -> DatabaseResult<()> {
     let query = r#"
         DELETE FROM host_firmware_config
@@ -134,15 +174,16 @@ mod tests {
     use std::collections::HashMap;
 
     use model::firmware::{
-        Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry, FirmwareFileArtifact,
+        FirmwareComponent, FirmwareComponentType, FirmwareEntry, FirmwareFileArtifact,
+        HostFirmwareConfig,
     };
     use regex::Regex;
 
-    fn test_config(version: &str) -> Firmware {
-        Firmware {
+    fn test_config(version: &str) -> HostFirmwareConfig {
+        HostFirmwareConfig {
             vendor: "nvidia".into(),
             model: "DGXH100".to_string(),
-            explicit_start_needed: true,
+            explicit_start_needed: Some(true),
             ordering: vec![FirmwareComponentType::Cx7],
             components: HashMap::from([(
                 FirmwareComponentType::Cx7,
@@ -187,6 +228,34 @@ mod tests {
             .get(&FirmwareComponentType::Cx7)
             .expect("cx7 component");
         assert_eq!(cx7.known_firmware[0].version, "28.47.2682");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn list_and_summary_reflect_persisted_rows(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let empty_summary = super::summary(txn.as_mut()).await?;
+        assert_eq!(empty_summary.row_count, 0);
+        assert!(empty_summary.latest_updated_at.is_none());
+
+        let inserted = super::upsert(&mut txn, &test_config("28.47.2682")).await?;
+        let rows = super::list(txn.as_mut()).await?;
+        let summary = super::summary(txn.as_mut()).await?;
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].vendor, "Nvidia");
+        assert_eq!(rows[0].model, "DGXH100");
+        assert_eq!(summary.row_count, 1);
+        assert_eq!(summary.latest_updated_at, Some(inserted.updated_at));
+
+        super::delete(&mut txn, "Nvidia", "DGXH100").await?;
+        let summary = super::summary(txn.as_mut()).await?;
+        assert_eq!(summary.row_count, 0);
+        assert!(summary.latest_updated_at.is_none());
 
         Ok(())
     }

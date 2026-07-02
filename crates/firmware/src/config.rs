@@ -23,7 +23,9 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use model::DpuModel;
-use model::firmware::Firmware;
+use model::firmware::{
+    Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry, HostFirmwareConfig,
+};
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use serde::{Deserialize, Serialize};
 
@@ -143,6 +145,19 @@ impl FirmwareConfig {
         FirmwareConfigSnapshot { data }
     }
 
+    /// Builds an effective catalog by applying runtime configs after the static
+    /// and metadata.toml catalog has been loaded.
+    pub fn create_snapshot_with_overrides(
+        &self,
+        overrides: impl IntoIterator<Item = HostFirmwareConfig>,
+    ) -> FirmwareConfigSnapshot {
+        let mut snapshot = self.create_snapshot();
+        for firmware in overrides {
+            merge_firmware_override(&mut snapshot.data, firmware);
+        }
+        snapshot
+    }
+
     pub fn config_update_time(&self) -> Option<std::time::SystemTime> {
         if self.firmware_directory.to_string_lossy() == "" {
             return None;
@@ -251,6 +266,106 @@ impl FirmwareConfig {
     #[cfg(test)]
     pub(crate) fn add_test_override(&mut self, ovrd: String) {
         self.test_overrides.push(ovrd);
+    }
+}
+
+// Runtime DB configs overlay the already-built catalog. Metadata entries remain
+// unless the runtime config supplies the same component or firmware version.
+fn merge_firmware_override(
+    map: &mut HashMap<String, Firmware>,
+    override_config: HostFirmwareConfig,
+) {
+    let HostFirmwareConfig {
+        vendor,
+        model,
+        components,
+        explicit_start_needed,
+        ordering,
+    } = override_config;
+    let key = vendor_model_to_key(vendor, &model);
+
+    let Some(cur_model) = map.get_mut(&key) else {
+        map.insert(
+            key,
+            Firmware {
+                vendor,
+                model,
+                components,
+                explicit_start_needed: explicit_start_needed.unwrap_or(false),
+                ordering,
+            },
+        );
+        return;
+    };
+
+    cur_model.vendor = vendor;
+    cur_model.model = model;
+    if let Some(explicit_start_needed) = explicit_start_needed {
+        cur_model.explicit_start_needed = explicit_start_needed;
+    }
+    append_override_ordering(&mut cur_model.ordering, &ordering);
+
+    for (component_type, override_component) in components {
+        if let Some(cur_component) = cur_model.components.get_mut(&component_type) {
+            merge_component_override(cur_component, override_component);
+        } else {
+            cur_model
+                .components
+                .insert(component_type, override_component);
+        }
+    }
+}
+
+// Keep metadata ordering stable and append only ordering entries introduced by
+// the runtime config.
+fn append_override_ordering(
+    current_ordering: &mut Vec<FirmwareComponentType>,
+    override_ordering: &[FirmwareComponentType],
+) {
+    for component_type in override_ordering {
+        if !current_ordering.contains(component_type) {
+            current_ordering.push(*component_type);
+        }
+    }
+}
+
+// Component-level runtime values win where they are provided; omitted fields
+// keep the metadata value.
+fn merge_component_override(
+    cur_component: &mut FirmwareComponent,
+    override_component: FirmwareComponent,
+) {
+    if override_component.current_version_reported_as.is_some() {
+        cur_component.current_version_reported_as = override_component.current_version_reported_as;
+    }
+    if override_component.preingest_upgrade_when_below.is_some() {
+        cur_component.preingest_upgrade_when_below =
+            override_component.preingest_upgrade_when_below;
+    }
+    if override_component
+        .known_firmware
+        .iter()
+        .any(|firmware| firmware.default)
+    {
+        for firmware in &mut cur_component.known_firmware {
+            firmware.default = false;
+        }
+    }
+
+    for firmware in override_component.known_firmware {
+        upsert_firmware_entry(&mut cur_component.known_firmware, firmware);
+    }
+}
+
+// Runtime versions are upserts keyed by version string, not blind appends.
+fn upsert_firmware_entry(entries: &mut Vec<FirmwareEntry>, firmware: FirmwareEntry) {
+    if let Some(index) = entries
+        .iter()
+        .position(|existing| existing.version == firmware.version)
+    {
+        entries[index] = firmware;
+    } else {
+        entries.push(firmware);
     }
 }
 
