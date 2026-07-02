@@ -384,15 +384,31 @@ echo "nico-pg-cluster is Running"
 # Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
 # Zalando's preparedDatabases conflicts with the databases section, so we install
 # the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
-_PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
-    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
-    2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
-if [[ -n "${_PG_PRIMARY}" ]]; then
-    echo "Installing pg_trgm extension on nico_rest (primary: ${_PG_PRIMARY})..."
-    kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+# Wait up to 120s for the Zalando operator to create the nico_rest database.
+_pg_trgm_installed=false
+for _pg_i in $(seq 1 24); do
+    _PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
+        -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
+        2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
+    if [[ -z "${_PG_PRIMARY}" ]]; then
+        echo "  pg_trgm: no Patroni primary yet (${_pg_i}/24) — retrying in 5s..."
+        sleep 5
+        continue
+    fi
+    if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
         su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
-        2>/dev/null && echo "pg_trgm ready" || \
-        echo "  pg_trgm: nico_rest not yet ready — will be created when rest.enabled=true"
+        2>/dev/null; then
+        echo "pg_trgm ready"
+        _pg_trgm_installed=true
+        break
+    fi
+    echo "  pg_trgm: nico_rest not yet created by operator (${_pg_i}/24) — retrying in 5s..."
+    sleep 5
+done
+if [[ "${_pg_trgm_installed}" == "false" ]]; then
+    echo "  pg_trgm: nico_rest unavailable after 120s."
+    echo "    → If rest.enabled=false in nico-prereqs, the nico_rest database is not created — this is expected."
+    echo "    → If rest.enabled=true, the nico-rest-db migration will fail on the GIN index step."
 fi
 
 echo "Waiting for DB credentials to be synced by ESO..."
@@ -724,29 +740,42 @@ echo "Temporal namespaces ready"
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
 # --- 7g. NICo REST helm chart -------------------------------------------------
 # Wait for ESO to sync the Zalando-generated REST DB credentials into nico-rest.
-# nico-rest-db-eso ClusterExternalSecret creates db-creds once the nico-rest
-# namespace (created in 7a) is visible to ESO. The nico-rest-db pre-install hook
-# will fail immediately if the secret is missing.
+# nico-rest-db-eso ClusterExternalSecret creates nico-rest-pg-creds once the
+# nico-rest namespace (created in 7a) is visible to ESO. The nico-rest-db
+# pre-install hook will fail immediately if the secret is missing.
 echo "Waiting for REST DB credentials to be synced by ESO (nico-rest-pg-creds in nico-rest)..."
-until kubectl get secret nico-rest-pg-creds -n nico-rest &>/dev/null; do
-    echo "  nico-rest-pg-creds not yet synced — retrying in 5s..."
+for _rdc_i in $(seq 1 24); do
+    if kubectl get secret nico-rest-pg-creds -n nico-rest &>/dev/null; then
+        break
+    fi
+    if [[ "${_rdc_i}" -eq 24 ]]; then
+        echo "ERROR: nico-rest-pg-creds not synced after 120s." >&2
+        echo "  Check: kubectl describe clusterexternalsecret nico-rest-db-eso" >&2
+        echo "  Ensure the nico-rest namespace exists and rest.enabled=true in nico-prereqs." >&2
+        exit 1
+    fi
+    echo "  nico-rest-pg-creds not yet synced (${_rdc_i}/24) — retrying in 5s..."
     sleep 5
 done
 echo "REST DB credentials ready"
-_NICO_REST_DB_USER="$(kubectl get secret nico-rest-pg-creds -n nico-rest \
-    -o jsonpath='{.data.username}' | base64 -d)"
-_NICO_REST_DB_PASS="$(kubectl get secret nico-rest-pg-creds -n nico-rest \
-    -o jsonpath='{.data.password}' | base64 -d)"
+
+# Write credentials to a temp file rather than --set so they are not visible
+# in process arguments and are not subject to Helm's --set special-char escaping.
+_NICO_REST_CREDS_FILE="$(mktemp)"
+chmod 600 "${_NICO_REST_CREDS_FILE}"
+printf 'nico-rest-common:\n  secrets:\n    dbCreds:\n      username: "%s"\n      password: "%s"\n' \
+    "$(kubectl get secret nico-rest-pg-creds -n nico-rest -o jsonpath='{.data.username}' | base64 -d)" \
+    "$(kubectl get secret nico-rest-pg-creds -n nico-rest -o jsonpath='{.data.password}' | base64 -d)" \
+    > "${_NICO_REST_CREDS_FILE}"
 
 NICO_HELM_CHART="${NICO_REST_HELM_DIR}/nico-rest"
 NICO_REST_CMD=(
     helm upgrade --install nico-rest "${NICO_HELM_CHART}"
     --namespace nico-rest
     -f "${SCRIPT_DIR}/values/nico-rest.yaml"
+    -f "${_NICO_REST_CREDS_FILE}"
     --set global.image.repository="${NICO_IMAGE_REGISTRY}"
     --set global.image.tag="${NICO_REST_IMAGE_TAG}"
-    --set "nico-rest-common.secrets.dbCreds.username=${_NICO_REST_DB_USER}"
-    --set "nico-rest-common.secrets.dbCreds.password=${_NICO_REST_DB_PASS}"
     --timeout 600s --wait
 )
 
@@ -783,7 +812,9 @@ else
 fi
 if [[ "${_nico_reply:-Y}" =~ ^[Yy]$ ]]; then
     "${NICO_REST_CMD[@]}"
+    rm -f "${_NICO_REST_CREDS_FILE}"
 else
+    rm -f "${_NICO_REST_CREDS_FILE}"
     echo "Skipped NICo REST. Re-run with -y or answer Y to deploy."
     echo ""
     echo "=== Setup complete (NICo REST skipped) ==="
