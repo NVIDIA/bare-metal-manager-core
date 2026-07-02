@@ -1170,13 +1170,12 @@ pub struct DpfDeploymentConfig {
     /// URL to the BlueField firmware bundle (BFB) for DPU provisioning.
     pub bfb_url: String,
     /// Kubernetes DPUFlavor CR name.
-    #[serde(default = "default_dpf_flavor_name")]
     pub flavor_name: String,
     /// Kubernetes DPUDeployment CR name.
     pub deployment_name: String,
     /// Label key applied to DPUNode CRs for this deployment's node selector.
-    #[serde(default = "default_dpf_node_label_key")]
     pub node_label_key: String,
+    // TODO: add optional services handling here.
 }
 
 /// Named DPUDeployment configurations under `[dpf.deployments]`.

@@ -76,11 +76,11 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails, DpuDeviceInfo, DpuDeviceSummary,
-    DpuMismatch, DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
-    DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot,
-    InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
-    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails, DpuDeploymentType, DpuDeviceInfo,
+    DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary, DpuPhase,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
+    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -110,11 +110,14 @@ pub trait ResourceLabeler: Send + Sync {
         BTreeMap::new()
     }
 
-    /// Node selector labels for a specific DPUDeployment CR.
+    /// Node selector labels for a specific deployment type.
     /// Used by [`build_deployment`] to populate `dpuNodeSelector.matchLabels`.
-    /// Returns an empty map by default (no selector).
-    fn node_labels_for_deployment(&self, _deployment_name: &str) -> BTreeMap<String, String> {
-        BTreeMap::new()
+    /// Returns `ConfigError` if no deployment is configured for the requested type.
+    fn node_labels_for_deployment_type(
+        &self,
+        _deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, crate::DpfError> {
+        Ok(BTreeMap::new())
     }
 
     /// Contextual labels applied to DPUNode resources on creation only.
@@ -459,8 +462,9 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     namespace: &str,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
 ) -> Result<String, DpfError> {
-    let mut flavor = crate::flavor::default_flavor(namespace, proxy)?;
+    let mut flavor = crate::flavor::default_flavor_for(namespace, proxy, deployment_type)?;
     let name = flavor.unique_name(default_flavor_name)?;
     flavor.metadata.name = Some(name.clone());
 
@@ -650,14 +654,14 @@ pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPU
     })
 }
 
-pub fn build_deployment<L: ResourceLabeler>(
+pub fn build_deployment(
     services: &[ServiceDefinition],
     deployment_name: &str,
     bfb_name: &str,
     flavor_name: &str,
     namespace: &str,
-    labeler: &L,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    deployment_node_labels: BTreeMap<String, String>,
 ) -> DPUDeployment {
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
@@ -747,9 +751,7 @@ pub fn build_deployment<L: ResourceLabeler>(
         "feature.node.kubernetes.io/dpu-enabled".to_string(),
         "true".to_string(),
     )]);
-    for (k, v) in labeler.node_labels_for_deployment(deployment_name) {
-        node_labels.insert(k, v);
-    }
+    node_labels.extend(deployment_node_labels);
 
     DPUDeployment {
         metadata: ObjectMeta {
@@ -1075,8 +1077,10 @@ async fn create_flavor_services_and_deployment<
     bfb_name: &str,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
 ) -> Result<(), DpfError> {
-    let flavor_name = create_dpu_flavor(repo, namespace, default_flavor_name, proxy).await?;
+    let flavor_name =
+        create_dpu_flavor(repo, namespace, default_flavor_name, proxy, deployment_type).await?;
 
     let interfaces = build_dpu_interfaces_vec();
 
@@ -1094,14 +1098,15 @@ async fn create_flavor_services_and_deployment<
         }
     }
 
+    let deployment_node_labels = labeler.node_labels_for_deployment_type(deployment_type)?;
     let deployment = build_deployment(
         services,
         deployment_name,
         bfb_name,
         &flavor_name,
         namespace,
-        labeler,
         &interfaces,
+        deployment_node_labels,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -1146,6 +1151,7 @@ impl<
             &bfb_name,
             &config.flavor_name,
             &config.proxy,
+            config.deployment_type,
         )
         .await?;
 
@@ -1270,7 +1276,9 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 name: Some(node_name.clone()),
                 namespace: Some(self.namespace.clone()),
                 labels: {
-                    let mut labels = self.labeler.node_labels();
+                    let mut labels = self
+                        .labeler
+                        .node_labels_for_deployment_type(info.deployment_type)?;
                     labels.extend(self.labeler.node_context_labels(&info));
                     if labels.is_empty() {
                         None
@@ -1330,14 +1338,20 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
     /// labeler's `node_labels()`. Returns `false` when the node exists but
     /// has stale labels (e.g. from a previous label version). Returns `true`
     /// when the node does not exist yet.
-    pub async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
+    pub async fn verify_node_labels(
+        &self,
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<bool, DpfError> {
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
 
         let Some(node) = node else {
             return Ok(true);
         };
 
-        let required_labels = self.labeler.node_labels();
+        let required_labels = self
+            .labeler
+            .node_labels_for_deployment_type(deployment_type)?;
         let node_labels = node.metadata.labels.as_ref();
 
         Ok(required_labels.iter().all(|(key, required_value)| {
@@ -1877,8 +1891,8 @@ mod tests {
             "bfb",
             "flavor",
             TEST_NAMESPACE,
-            &NoLabels,
             &[],
+            BTreeMap::new(),
         );
 
         let otel = deployment
@@ -2165,6 +2179,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2188,6 +2203,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string(), "dpu-002".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2215,6 +2231,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2244,6 +2261,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2300,6 +2318,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2336,6 +2355,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2360,6 +2380,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2385,6 +2406,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_node(info).await.unwrap();
@@ -2453,6 +2475,7 @@ mod tests {
             serial_number: "SN123".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(device_info).await.unwrap();
 
@@ -2550,6 +2573,7 @@ mod tests {
             serial_number: "SN111".to_string(),
             dpu_machine_id: "dpu-111".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         let info2 = DpuDeviceInfo {
@@ -2559,6 +2583,7 @@ mod tests {
             serial_number: "SN222".to_string(),
             dpu_machine_id: "dpu-222".to_string(),
             is_primary: false,
+            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk1.register_dpu_device(info1).await.unwrap();
@@ -2718,6 +2743,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
         let err = sdk.register_dpu_device(info).await.unwrap_err();
         assert!(
@@ -2763,6 +2789,7 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }
@@ -2799,6 +2826,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
         let err = sdk.register_dpu_node(info).await.unwrap_err();
         assert!(
@@ -2838,6 +2866,7 @@ mod tests {
             node_id: "host-001".to_string(),
             host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
+            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_node(info).await.unwrap();
     }
@@ -2850,6 +2879,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -2886,6 +2916,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &proxy,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -2937,6 +2968,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -2968,6 +3000,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -2997,6 +3030,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -3179,6 +3213,7 @@ mod tests {
                     node_id: "host-001".to_string(),
                     host_bmc_ip: "10.0.0.1".parse().unwrap(),
                     device_ids: vec!["dpu-001".to_string()],
+                    deployment_type: DpuDeploymentType::Bf3,
                 })
                 .await
                 .unwrap();
@@ -3186,7 +3221,7 @@ mod tests {
 
             // DpfError isn't PartialEq, so render it to a String for the
             // table's Outcome comparison; these rows all expect success anyway.
-            sdk.verify_node_labels(row.query)
+            sdk.verify_node_labels(row.query, DpuDeploymentType::Bf3)
                 .await
                 .map_err(|e| e.to_string())
         };

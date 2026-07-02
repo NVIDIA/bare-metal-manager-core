@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
 use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
+use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{
@@ -78,7 +78,9 @@ fn provisioning_mock_with_dpu_count(
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
-    mock.expect_verify_node_labels().returning(|_| Ok(true));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_| DpuDeploymentType::Bf3);
+    mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock.expect_snapshot_host()
         .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
     mock.expect_get_dpu_phase().returning(move |_, _| {
@@ -376,7 +378,9 @@ fn capturing_mock(
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
-    mock.expect_verify_node_labels().returning(|_| Ok(true));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_| DpuDeploymentType::Bf3);
+    mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock.expect_snapshot_host()
         .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
 

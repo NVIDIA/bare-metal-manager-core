@@ -23,12 +23,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use carbide_dpf::types::{HostDpfSnapshot, ServiceTemplateVersion};
 use carbide_dpf::{
-    BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
-    KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    BmcPasswordProvider, DpfError, DpfSdk, DpuDeploymentType, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
+    DpuWatcher, KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
-use model::machine::ManagedHostStateSnapshot;
+use model::machine::{Machine, ManagedHostStateSnapshot};
+use model::site_explorer::is_bf3_dpu_part_number;
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
@@ -85,9 +86,16 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Mark DPU node as rebooted (clear the external reboot required annotation).
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
+    /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
+    fn deployment_type_for_dpu(&self, dpu: &Machine) -> DpuDeploymentType;
+
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
-    async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError>;
+    async fn verify_node_labels(
+        &self,
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<bool, DpfError>;
 
     /// Curated snapshot of all DPF CRs related to one host (DPUNode +
     /// DPUDevices + DPUs). `node_name` is the full DPUNode CR name.
@@ -160,27 +168,27 @@ pub async fn dpf_dpudevices_and_dpunode_crs_noexist(
 ///   creation and propagate to DPU CRs, but are not part of selectors.
 pub struct CarbideDPFLabeler {
     node_label_key: String,
-    /// Per-deployment node selector labels: DPUDeployment CR name → labels.
+    /// Per-deployment-type node selector labels: DpuDeploymentType → labels.
     /// Populated for each configured deployment so that [`build_deployment`]
-    /// can look up the correct `dpuNodeSelector.matchLabels` by deployment name.
-    deployment_node_labels: BTreeMap<String, BTreeMap<String, String>>,
+    /// can look up the correct `dpuNodeSelector.matchLabels` by type.
+    deployment_type_labels: BTreeMap<DpuDeploymentType, BTreeMap<String, String>>,
 }
 
 impl CarbideDPFLabeler {
     pub fn new(node_label_key: String) -> Self {
         Self {
             node_label_key,
-            deployment_node_labels: BTreeMap::new(),
+            deployment_type_labels: BTreeMap::new(),
         }
     }
 
-    /// Register per-deployment node selector labels. Call once per configured
+    /// Register per-deployment-type node selector labels. Call once per configured
     /// DPUDeployment before passing the labeler to the DPF SDK builder.
-    pub fn with_deployment_node_labels(
+    pub fn with_deployment_type_labels(
         mut self,
-        deployment_node_labels: BTreeMap<String, BTreeMap<String, String>>,
+        deployment_type_labels: BTreeMap<DpuDeploymentType, BTreeMap<String, String>>,
     ) -> Self {
-        self.deployment_node_labels = deployment_node_labels;
+        self.deployment_type_labels = deployment_type_labels;
         self
     }
 }
@@ -214,11 +222,18 @@ impl ResourceLabeler for CarbideDPFLabeler {
         ])
     }
 
-    fn node_labels_for_deployment(&self, deployment_name: &str) -> BTreeMap<String, String> {
-        self.deployment_node_labels
-            .get(deployment_name)
+    fn node_labels_for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        self.deployment_type_labels
+            .get(&deployment_type)
             .cloned()
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                DpfError::ConfigError(format!(
+                    "no DPUDeployment configured for {deployment_type:?}",
+                ))
+            })
     }
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
@@ -515,8 +530,29 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
-        self.sdk.verify_node_labels(node_name).await
+    fn deployment_type_for_dpu(&self, dpu: &Machine) -> DpuDeploymentType {
+        let part_number = dpu
+            .hardware_info
+            .as_ref()
+            .and_then(|hw| hw.dpu_info.as_ref())
+            .map(|d| d.part_number.as_str())
+            .unwrap_or_default();
+
+        if is_bf3_dpu_part_number(part_number) {
+            DpuDeploymentType::Bf3
+        } else {
+            DpuDeploymentType::Bf4Generic
+        }
+    }
+
+    async fn verify_node_labels(
+        &self,
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<bool, DpfError> {
+        self.sdk
+            .verify_node_labels(node_name, deployment_type)
+            .await
     }
 
     async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {

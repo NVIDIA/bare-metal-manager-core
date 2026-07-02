@@ -22,6 +22,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use carbide_dpa::DpaInfo;
 use carbide_dpa_manager::DpaMonitor;
+use carbide_dpf::DpuDeploymentType;
 use carbide_firmware::FirmwareDownloader;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ib_fabric::IbFabricMonitor;
@@ -492,111 +493,13 @@ pub async fn start_api(
         .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
-    // Create DPF SDK and initialize CRs if enabled
-    // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
-    let dpf_sdk: Option<Arc<dyn DpfOperations>> = if carbide_config.dpf.enabled {
-        tracing::info!("Initializing DPF SDK");
-        let repo = carbide_dpf::KubeRepository::new()
-            .await
-            .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
-
-        let provider = CarbideBmcPasswordProvider::new(credential_manager.clone(), db_pool.clone());
-
-        let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
-        let dpf_mandatory_services = vec![
-            crate::dpf_services::dts_service(&mandatory_services.dts),
-            crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
-            crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
-            crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
-            crate::dpf_services::fmds_service(&mandatory_services.fmds),
-            crate::dpf_services::otelcol_service(&mandatory_services.otel),
-        ];
-
-        // This is just temparary code until we make v2 only option. (just 2 weeks)
-        // Soon v2 flag will be removed and will become only mode for dpf handling.
-        let init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: carbide_config.dpf.bfb_url.clone(),
-            flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: carbide_config.dpf.deployment_name.clone(),
-            services: dpf_mandatory_services,
-            proxy: carbide_config.dpf.proxy.clone(),
-        };
-
-        // Build per-deployment node selector labels for the labeler registry.
-        // BF3 (the default deployment) is always registered; additional deployments
-        // are added from [dpf.deployments].
-        let deployment_node_labels = {
-            let make_labels = |key: &str| {
-                std::collections::BTreeMap::from([
-                    (
-                        "feature.node.kubernetes.io/dpu-enabled".to_string(),
-                        "true".to_string(),
-                    ),
-                    (key.to_string(), "true".to_string()),
-                ])
-            };
-            let mut map = std::collections::BTreeMap::from([(
-                carbide_config.dpf.deployment_name.clone(),
-                make_labels(&carbide_config.dpf.node_label_key),
-            )]);
-            if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-                map.insert(
-                    bf4.deployment_name.clone(),
-                    make_labels(&bf4.node_label_key),
-                );
-            }
-            map
-        };
-
-        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-            .with_labeler(
-                CarbideDPFLabeler::new(carbide_config.dpf.node_label_key.clone())
-                    .with_deployment_node_labels(deployment_node_labels),
-            )
-            .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
-            .with_join_set(join_set)
-            .initialize(&init_config)
-            .await
-            .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
-
-        // Initialize any additional named deployments (e.g. bf4_generic).
-        // Services are inherited from the top-level DPF config.
-        if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-            let inherited_services = carbide_config.dpf.resolved_mandatory_services();
-            let bf4_init_config = carbide_dpf::InitDpfResourcesConfig {
-                bfb_url: bf4.bfb_url.clone(),
-                flavor_name: bf4.flavor_name.clone(),
-                deployment_name: bf4.deployment_name.clone(),
-                services: vec![
-                    crate::dpf_services::dts_service(&inherited_services.dts),
-                    crate::dpf_services::doca_hbn_service(&inherited_services.doca_hbn),
-                    crate::dpf_services::dhcp_server_service(&inherited_services.dhcp_server),
-                    crate::dpf_services::dpu_agent_service(&inherited_services.dpu_agent),
-                    crate::dpf_services::fmds_service(&inherited_services.fmds),
-                    crate::dpf_services::otelcol_service(&inherited_services.otel),
-                ],
-                proxy: carbide_config.dpf.proxy.clone(),
-            };
-            sdk.create_initialization_objects(&bf4_init_config)
-                .await
-                .map_err(|err| {
-                    eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}")
-                })?;
-        }
-
-        Some(Arc::new(DpfSdkOps::new(
-            Arc::new(sdk),
-            db_pool.clone(),
-            join_set,
-        )?))
-    } else {
-        tracing::warn!(
-            removed_in = "v2.1",
-            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
-            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
-        );
-        None
-    };
+    let dpf_sdk = initialize_dpf_sdk(
+        &carbide_config,
+        credential_manager.clone(),
+        db_pool.clone(),
+        join_set,
+    )
+    .await?;
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
         match component_manager::component_manager::build_component_manager(
@@ -720,6 +623,114 @@ pub async fn start_api(
         .ok();
 
     Ok(())
+}
+
+/// Initialize the DPF SDK and create all required Kubernetes CRs.
+///
+/// Returns `None` (with a deprecation warning) when DPF is disabled.
+async fn initialize_dpf_sdk(
+    carbide_config: &CarbideConfig,
+    credential_manager: Arc<dyn CredentialManager>,
+    db_pool: PgPool,
+    join_set: &mut JoinSet<()>,
+) -> eyre::Result<Option<Arc<dyn DpfOperations>>> {
+    if !carbide_config.dpf.enabled {
+        tracing::warn!(
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
+        return Ok(None);
+    }
+
+    tracing::info!("Initializing DPF SDK");
+
+    let repo = carbide_dpf::KubeRepository::new()
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+
+    let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
+
+    let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
+
+    // This is just temporary code until we make v2 only option. (just 2 weeks)
+    // Soon v2 flag will be removed and will become only mode for dpf handling.
+    let init_config = carbide_dpf::InitDpfResourcesConfig {
+        bfb_url: carbide_config.dpf.bfb_url.clone(),
+        flavor_name: carbide_config.dpf.flavor_name.clone(),
+        deployment_name: carbide_config.dpf.deployment_name.clone(),
+        services: crate::dpf_services::mandatory_services(&mandatory_services),
+        proxy: carbide_config.dpf.proxy.clone(),
+        deployment_type: DpuDeploymentType::Bf3,
+    };
+
+    let deployment_type_labels = build_deployment_type_labels(carbide_config);
+
+    let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+        .with_labeler(
+            CarbideDPFLabeler::new(carbide_config.dpf.node_label_key.clone())
+                .with_deployment_type_labels(deployment_type_labels),
+        )
+        .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+        .with_join_set(join_set)
+        .initialize(&init_config)
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+
+    // Initialize any additional named deployments (e.g. bf4_generic).
+    // Services are inherited from the top-level DPF config.
+    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
+        let bf4_init_config = carbide_dpf::InitDpfResourcesConfig {
+            bfb_url: bf4.bfb_url.clone(),
+            flavor_name: bf4.flavor_name.clone(),
+            deployment_name: bf4.deployment_name.clone(),
+            services: crate::dpf_services::mandatory_services(&mandatory_services),
+            proxy: carbide_config.dpf.proxy.clone(),
+            deployment_type: DpuDeploymentType::Bf4Generic,
+        };
+        sdk.create_initialization_objects(&bf4_init_config)
+            .await
+            .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
+    }
+
+    Ok(Some(Arc::new(DpfSdkOps::new(
+        Arc::new(sdk),
+        db_pool,
+        join_set,
+    )?)))
+}
+
+/// Build per-deployment-type node selector labels for the DPF labeler registry.
+///
+/// Each deployment gets two labels: the shared `dpu-enabled` marker and its
+/// own deployment-specific key. BF3 is always included;
+/// BF4Generic is added when configured.
+fn build_deployment_type_labels(
+    carbide_config: &CarbideConfig,
+) -> std::collections::BTreeMap<DpuDeploymentType, std::collections::BTreeMap<String, String>> {
+    let make_labels = |key: &str| {
+        std::collections::BTreeMap::from([
+            (
+                "feature.node.kubernetes.io/dpu-enabled".to_string(),
+                "true".to_string(),
+            ),
+            (key.to_string(), "true".to_string()),
+        ])
+    };
+
+    let mut map = std::collections::BTreeMap::from([(
+        DpuDeploymentType::Bf3,
+        make_labels(&carbide_config.dpf.node_label_key),
+    )]);
+
+    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
+        map.insert(
+            DpuDeploymentType::Bf4Generic,
+            make_labels(&bf4.node_label_key),
+        );
+    }
+
+    map
 }
 
 #[derive(Debug)]

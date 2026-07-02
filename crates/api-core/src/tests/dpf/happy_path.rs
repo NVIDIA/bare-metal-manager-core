@@ -20,7 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
+use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::DpfOperations;
 use model::machine::ManagedHostState;
 use tokio::time::timeout;
@@ -41,7 +41,9 @@ fn default_mock() -> MockDpfOperations {
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
-    mock.expect_verify_node_labels().returning(|_| Ok(true));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_| DpuDeploymentType::Bf3);
+    mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
 }
 
