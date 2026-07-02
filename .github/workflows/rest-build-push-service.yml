@@ -147,6 +147,7 @@ jobs:
           build-args: |
             TARGETOS=linux
             TARGETARCH=${{ matrix.arch }}
+            VERSION=${{ steps.docker-tags.outputs.primary_tag }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
