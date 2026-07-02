@@ -6914,7 +6914,6 @@ impl StateHandler for InstanceStateHandler {
                             .services
                             .site_config
                             .restart_ovs_on_use_admin_network_change
-                            .load(std::sync::atomic::Ordering::Relaxed)
                     {
                         process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
                     }
@@ -7273,7 +7272,6 @@ impl StateHandler for InstanceStateHandler {
                             .services
                             .site_config
                             .restart_ovs_on_use_admin_network_change
-                            .load(std::sync::atomic::Ordering::Relaxed)
                     {
                         process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
                     }

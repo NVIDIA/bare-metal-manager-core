@@ -865,9 +865,10 @@ pub(crate) async fn record_dpu_network_status(
         && machine_obs.network_config_version.as_ref() == Some(&dpu_machine.network_config.version)
     {
         tracing::info!(
-            "DPU {} reported network config version {}; reset use_admin_network_changed in the database.",
-            &dpu_machine_id,
-            dpu_machine.network_config.version,
+            dpu_id = %dpu_machine_id,
+            network_config_version = %dpu_machine.network_config.version,
+            agent_version = ?machine_obs.agent_version,
+            "Clearing use_admin_network_changed after matching-version ACK; OVS restart may have been skipped by agents that do not support the flag"
         );
         db::machine::clear_use_admin_network_changed_if_version_matches(
             &mut txn,

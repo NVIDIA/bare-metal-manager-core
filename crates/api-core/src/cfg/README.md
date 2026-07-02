@@ -423,6 +423,7 @@ Extends `StateControllerConfig` with:
 | `dpu_nic_firmware_update_versions` | `Vec<String>` | *(BF2+BF3 NIC versions)* | DPU NIC firmware version strings. |
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
 | `num_of_vfs` | `u32` | `16` | Number of VFs configured per DPU PF during BlueField provisioning. Max `126`. |
+| `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
 
 ### `NetworkSecurityGroupConfig`
 
