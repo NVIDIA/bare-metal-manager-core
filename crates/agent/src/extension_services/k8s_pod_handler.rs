@@ -60,6 +60,16 @@ const CONTAINERD_PROXY_FILE: &str = "/etc/systemd/system/containerd@mgmt.service
 const OTEL_CONTRIB_DPU_EXT_PATH: &str = "/etc/otelcol-contrib/config-fragments";
 const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 
+// Possible pod sandbox message errors when image pull fails
+const IMAGE_PULL_ERROR_MARKERS: [&str; 6] = [
+    "errimagepull",
+    "imagepullbackoff",
+    "failed to pull image",
+    "failed to resolve reference",
+    "manifest unknown",
+    "not found",
+];
+
 /// Handler for KUBERNETES_POD extension services
 #[derive(Default)]
 pub struct KubernetesPodServicesHandler {
@@ -375,13 +385,18 @@ impl KubernetesPodServicesHandler {
     /// Compute an overall deployment status from per-container states and intent.
     ///
     /// Inputs:
+    /// - `pod_status`: normalized sandbox state from `crictl inspectp` (e.g. "SANDBOX_READY").
+    /// - `pod_message`: optional sandbox message from `crictl inspectp` `status.message`; populated
+    ///   by containerd on image-pull and other sandbox-level failures.
     /// - `statuses`: normalized container states (e.g. "RUNNING", "EXITED", "CREATED", "UNKNOWN").
     /// - `has_exited_with_error`: true when any EXITED container has non-zero exit code.
     /// - `expected_deploy`: whether we expect the service to be up (deployed) now.
     ///
     /// Rules:
     /// - If no containers:
-    ///     - expected -> PENDING
+    ///     - expected + SANDBOX_NOTREADY + image-pull message -> ERROR
+    ///     - expected (other) -> PENDING
+    ///     - not expected + SANDBOX_NOTREADY -> TERMINATING
     ///     - not expected -> TERMINATED
     /// - When expected to be deployed:
     ///     - all containers RUNNING or clean EXITED -> RUNNING
@@ -395,13 +410,24 @@ impl KubernetesPodServicesHandler {
     fn aggregate_status(
         &self,
         pod_status: &str,
+        pod_message: Option<&str>,
         statuses: &[String],
         has_exited_with_error: bool,
         expected_deploy: bool,
     ) -> rpc::DpuExtensionServiceDeploymentStatus {
         if statuses.is_empty() {
             return if expected_deploy {
-                rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+                // A SANDBOX_NOTREADY pod whose message indicates an image-pull failure will never
+                // produce containers - it must be reported as Error rather than left in Pending.
+                if pod_status == "SANDBOX_NOTREADY"
+                    && pod_message
+                        .map(Self::is_image_pull_failure_message)
+                        .unwrap_or(false)
+                {
+                    rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
+                } else {
+                    rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+                }
             } else if pod_status == "SANDBOX_NOTREADY" {
                 rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating
             } else {
@@ -493,32 +519,56 @@ impl KubernetesPodServicesHandler {
             })
     }
 
-    /// Inspect the pod sandbox status from the crictl output
-    async fn get_pod_sandbox_status(&self, pod_id: &str) -> Result<String> {
+    /// Returns true when `message` contains a known image-pull failure marker.
+    fn is_image_pull_failure_message(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        IMAGE_PULL_ERROR_MARKERS
+            .iter()
+            .any(|marker| lower.contains(marker))
+    }
+
+    /// Inspect the pod sandbox status from the crictl output.
+    ///
+    /// Returns `(state, message)` where `message` is the optional `status.message` field from
+    /// `crictl inspectp`; this field is populated by containerd when image-pull or other sandbox
+    /// errors occur.
+    async fn get_pod_sandbox_status(&self, pod_id: &str) -> Result<(String, Option<String>)> {
         let pod = Self::crictl_output(&["inspectp", pod_id])
             .await
             .wrap_err("Failed to inspect pod sandbox")?;
 
+        let status_obj = pod.get("status");
+
         // Assume the pod state is in nested field status.state
-        let pod_state = pod
-            .get("status")
+        let pod_state = status_obj
             .and_then(|s| s.get("state"))
             .and_then(|v| v.as_str())
             // Fallback for older outputs where "status" is already a string
-            .or_else(|| pod.get("status").and_then(|v| v.as_str()))
+            .or_else(|| status_obj.and_then(|v| v.as_str()))
             .unwrap_or("UNKNOWN");
 
-        Ok(self.parse_pod_state(pod_state).to_string())
+        let pod_message = status_obj
+            .and_then(|s| s.get("message"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
+        Ok((self.parse_pod_state(pod_state).to_string(), pod_message))
     }
 
     /// Build the error message for a service status based on pod/container states
     fn build_service_error_message(
         &self,
         pod_state: &str,
+        pod_message: Option<&str>,
         containers_with_issues: &[String],
         service_error: Option<&str>,
     ) -> String {
         let mut parts = vec![format!("pod state: {}", pod_state)];
+
+        if let Some(msg) = pod_message {
+            parts.push(format!("pod message: {}", msg));
+        }
 
         if !containers_with_issues.is_empty() {
             parts.push(format!(
@@ -578,8 +628,8 @@ impl KubernetesPodServicesHandler {
         };
 
         // Check pod overall status
-        let pod_state = match self.get_pod_sandbox_status(&pod_id).await {
-            Ok(pod_state) => pod_state,
+        let (pod_state, pod_message) = match self.get_pod_sandbox_status(&pod_id).await {
+            Ok(info) => info,
             Err(e) => {
                 return Ok(rpc::DpuExtensionServiceStatusObservation {
                     service_id: service.id.to_string(),
@@ -667,6 +717,7 @@ impl KubernetesPodServicesHandler {
         // Aggregate overall state
         let state_enum = self.aggregate_status(
             &pod_state,
+            pod_message.as_deref(),
             &container_statuses,
             has_exited_with_error,
             expected_deploy,
@@ -677,8 +728,12 @@ impl KubernetesPodServicesHandler {
             .service_errors
             .get(&(service.id.to_string(), service.version.version_nr()))
             .map(|s| s.as_str());
-        let err_message =
-            self.build_service_error_message(&pod_state, &containers_with_issues, service_error);
+        let err_message = self.build_service_error_message(
+            &pod_state,
+            pod_message.as_deref(),
+            &containers_with_issues,
+            service_error,
+        );
 
         Ok(rpc::DpuExtensionServiceStatusObservation {
             service_id: service.id.to_string(),
@@ -1528,7 +1583,7 @@ spec:
         let handler = KubernetesPodServicesHandler::default();
         let statuses = vec!["RUNNING".to_string(), "RUNNING".to_string()];
 
-        let status = handler.aggregate_status("SANDBOX_READY", &statuses, false, true);
+        let status = handler.aggregate_status("SANDBOX_READY", None, &statuses, false, true);
         assert_eq!(
             status,
             rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
@@ -1540,15 +1595,15 @@ spec:
         let handler = KubernetesPodServicesHandler::default();
         let statuses: Vec<String> = vec![];
 
-        // Expected to be deployed: should be PENDING
-        let status = handler.aggregate_status("SANDBOX_READY", &statuses, false, true);
+        // Expected to be deployed, sandbox healthy: should be PENDING (pod still initializing)
+        let status = handler.aggregate_status("SANDBOX_READY", None, &statuses, false, true);
         assert_eq!(
             status,
             rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
         );
 
         // Not expected to be deployed: should be TERMINATED
-        let status = handler.aggregate_status("SANDBOX_READY", &statuses, false, false);
+        let status = handler.aggregate_status("SANDBOX_READY", None, &statuses, false, false);
         assert_eq!(
             status,
             rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
@@ -1560,10 +1615,62 @@ spec:
         let handler = KubernetesPodServicesHandler::default();
         let statuses = vec!["RUNNING".to_string(), "EXITED".to_string()];
 
-        let status = handler.aggregate_status("SANDBOX_READY", &statuses, false, true);
+        let status = handler.aggregate_status("SANDBOX_READY", None, &statuses, false, true);
         assert_eq!(
             status,
             rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
+        );
+    }
+
+    #[test]
+    fn test_k8s_pod_handler_aggregate_status_image_pull_failure() {
+        let handler = KubernetesPodServicesHandler::default();
+        let statuses: Vec<String> = vec![];
+
+        // SANDBOX_NOTREADY with image-pull error
+        let status = handler.aggregate_status(
+            "SANDBOX_NOTREADY",
+            Some("ImagePullBackOff: failed to pull image \"nvcr.io/org/image:tag\""),
+            &statuses,
+            false,
+            true,
+        );
+        assert_eq!(
+            status,
+            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
+        );
+
+        // ErrImagePull variant
+        let status = handler.aggregate_status(
+            "SANDBOX_NOTREADY",
+            Some("ErrImagePull: failed to resolve reference \"nvcr.io/org/image:tag\""),
+            &statuses,
+            false,
+            true,
+        );
+        assert_eq!(
+            status,
+            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
+        );
+
+        // SANDBOX_NOTREADY but no message
+        let status = handler.aggregate_status("SANDBOX_NOTREADY", None, &statuses, false, true);
+        assert_eq!(
+            status,
+            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+        );
+
+        // SANDBOX_NOTREADY with image-pull error but NOT expected
+        let status = handler.aggregate_status(
+            "SANDBOX_NOTREADY",
+            Some("ImagePullBackOff"),
+            &statuses,
+            false,
+            false,
+        );
+        assert_eq!(
+            status,
+            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating
         );
     }
 
