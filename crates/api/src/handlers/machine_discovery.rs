@@ -25,6 +25,7 @@ use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
+use libnmxc::{Endpoint, NMX_C_GATEWAY_ID};
 use model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -33,7 +34,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, attestation as attest};
+use crate::{CarbideError, CarbideResult, attestation as attest};
 
 pub(crate) async fn discover_machine(
     api: &Api,
@@ -93,8 +94,8 @@ pub(crate) async fn discover_machine(
         })?;
     log_machine_id(&stable_machine_id);
 
-    // Build NVLink info from scout GPU platform info. domain_uuid is backfilled by the
-    // NVLink partition monitor from NMX-C hello.
+    // Before opening a database transaction, get information from nvlink if we need it.
+    // Discover NVLink info if this is a GBX00 machine and we have platform info for any GPU.
     let gpu_platform_infos: Vec<&GpuPlatformInfo> = hardware_info
         .gpus
         .iter()
@@ -103,13 +104,16 @@ pub(crate) async fn discover_machine(
 
     let nvlink_info = if hardware_info.is_gbx00()
         && !gpu_platform_infos.is_empty()
-        && api
-            .runtime_config
-            .nvlink_config
-            .as_ref()
-            .is_some_and(|config| config.enabled)
+        && let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
+        && nvlink_config.enabled
     {
-        nvlink_info_from_gpu_platform_infos(&gpu_platform_infos)
+        get_nvlink_info_from_nmx_c(api, &gpu_platform_infos)
+            .await
+            .map_err(|e| {
+                tracing::warn!("Failed to get NVLink info from NMX-C: {e}");
+                e
+            })
+            .ok()
     } else {
         None
     };
@@ -494,16 +498,56 @@ pub(crate) async fn discovery_completed(
 }
 
 /// Builds NVLink discovery info from scout `GpuPlatformInfo` for every GPU that reported it.
-fn nvlink_info_from_gpu_platform_infos(
+/// Resolves `domain_uuid` from NMX-C `Hello` (`server_header.domain_uuid`).
+async fn get_nvlink_info_from_nmx_c(
+    api: &Api,
     platform_infos: &[&GpuPlatformInfo],
-) -> Option<MachineNvLinkInfo> {
+) -> CarbideResult<MachineNvLinkInfo> {
     let chassis_serial = platform_infos
         .first()
         .map(|p| p.chassis_serial.clone())
         .unwrap_or_default();
     if chassis_serial.trim().is_empty() {
-        return None;
+        return Err(CarbideError::internal(
+            "Missing chassis_serial in GpuPlatformInfo for NMX-C hello".to_string(),
+        ));
     }
+
+    let mut txn = api.txn_begin().await?;
+    let endpoint =
+        db::nvlink_nmxc_endpoints::find_by_chassis_serial(&mut txn, chassis_serial.trim())
+            .await?
+            .map(|row| row.endpoint)
+            .ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "No NMX-C endpoint configured for chassis serial {}",
+                    chassis_serial.trim()
+                ))
+            })?;
+    txn.commit().await?;
+
+    let mut nmx_c_client = api
+        .nmxc_client_pool
+        .create_client(Endpoint::new(&endpoint).map_err(|e| CarbideError::internal(e.to_string()))?)
+        .await
+        .map_err(|e| CarbideError::internal(format!("Failed to create NMX-C client: {e}")))?;
+
+    let hello = nmx_c_client
+        .hello(NMX_C_GATEWAY_ID)
+        .await
+        .map_err(|e| CarbideError::internal(format!("Failed to call NMX-C hello: {e}")))?;
+
+    let domain_uuid = hello
+        .server_header
+        .as_ref()
+        .and_then(|header| uuid::Uuid::parse_str(&header.domain_uuid).ok())
+        .ok_or_else(|| {
+            CarbideError::internal(format!(
+                "Failed to parse domain UUID from NMX-C hello response: {hello:?}"
+            ))
+        })?;
+
+    let domain_uuid = NvLinkDomainId::from(domain_uuid);
 
     let gpus = platform_infos
         .iter()
@@ -525,8 +569,8 @@ fn nvlink_info_from_gpu_platform_infos(
         })
         .collect();
 
-    Some(MachineNvLinkInfo {
-        domain_uuid: NvLinkDomainId::nil(),
+    Ok(MachineNvLinkInfo {
+        domain_uuid,
         chassis_serial,
         gpus,
     })
