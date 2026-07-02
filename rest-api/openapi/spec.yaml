@@ -182,6 +182,10 @@ tags:
   - name: Operating System
     description: |-
       Operating Systems in NICo are typically iPXE scripts that are used to boot Machines.
+
+      Deprecation history:
+
+      - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
@@ -7846,7 +7850,7 @@ paths:
                       rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
                       ipxeScript: null
                       userData: null
-                      isCloudInit: true
+                      isCloudInit: false
                       phoneHomeEnabled: false
                       allowOverride: false
                       siteAssociations:
@@ -8133,7 +8137,7 @@ paths:
                   rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
                   rootFsLabel: null
                   userData: null
-                  isCloudInit: true
+                  isCloudInit: false
                   phoneHomeEnabled: false
                   allowOverride: false
       tags:
@@ -8181,7 +8185,7 @@ paths:
                     rootFsLabel: null
                     ipxeScript: null
                     userData: null
-                    isCloudInit: true
+                    isCloudInit: false
                     phoneHomeEnabled: false
                     allowOverride: false
                     siteAssociations:
@@ -16502,7 +16506,7 @@ components:
           rootFsLabel: null
           ipxeScript: null
           userData: null
-          isCloudInit: true
+          isCloudInit: false
           phoneHomeEnabled: false
           isActive: true
           deactivationNote: null
@@ -16678,7 +16682,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is cloud-init based
+          description: Whether the Operating System is cloud-init based; true if there is non-empty `userData`, false otherwise.
         phoneHomeEnabled:
           type: boolean
           description: Indicates whether the Phone Home service should be enabled or disabled for Operating System
@@ -16811,7 +16815,7 @@ components:
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
-          isCloudInit: true
+          isCloudInit: false
           allowOverride: false
       description: Request data to create an OperatingSystem
       properties:
@@ -16898,7 +16902,8 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is cloud-init based
+          deprecated: true
+          description: 'Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.'
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
@@ -16920,7 +16925,7 @@ components:
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
-          isCloudInit: true
+          isCloudInit: false
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
@@ -16993,7 +16998,8 @@ components:
           type:
             - boolean
             - 'null'
-          description: Specified when the Operating System is cloud-init based
+          deprecated: true
+          description: 'Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.'
         allowOverride:
           type:
             - boolean

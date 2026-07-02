@@ -827,6 +827,35 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	}
 }
 
+func TestIsCloudInitFromUserData(t *testing.T) {
+	tests := []struct {
+		desc     string
+		userData *string
+		want     bool
+	}{
+		{
+			desc:     "nil user data",
+			userData: nil,
+			want:     false,
+		},
+		{
+			desc:     "empty user data",
+			userData: cutil.GetPtr(""),
+			want:     false,
+		},
+		{
+			desc:     "non-empty user data",
+			userData: cutil.GetPtr("#cloud-config"),
+			want:     true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsCloudInitFromUserData(tc.userData))
+		})
+	}
+}
+
 func TestAPIOperatingSystemNew(t *testing.T) {
 	dbOS := &cdbm.OperatingSystem{
 		ID:                       uuid.New(),
@@ -837,7 +866,6 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 		TenantID:                 cutil.GetPtr(uuid.New()),
 		IpxeScript:               cutil.GetPtr("ipxe"),
 		UserData:                 cutil.GetPtr("ud"),
-		IsCloudInit:              true,
 		AllowOverride:            false,
 		Status:                   cdbm.OperatingSystemStatusPending,
 		Created:                  cdb.GetCurTime(),
@@ -887,6 +915,7 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 			got := NewAPIOperatingSystem(tc.dbObj, tc.sdObj, tc.osas, tc.sttsmap)
 			assert.Equal(t, tc.dbObj.ID.String(), got.ID)
 			assert.Equal(t, *tc.dbObj.Description, *got.Description)
+			assert.Equal(t, IsCloudInitFromUserData(tc.dbObj.UserData), got.IsCloudInit)
 		})
 	}
 }
