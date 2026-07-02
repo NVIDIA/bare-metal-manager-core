@@ -8,14 +8,14 @@ operation incident.
 `nico-admin-cli` is the primary operator CLI for NICo site state.
 
 ```bash
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 ```
 
 Common connection options:
 
 | Option | Meaning |
 |---|---|
-| `-c <url>` | NICo API gRPC endpoint. |
+| `-a <url>` | NICo API gRPC endpoint. |
 | `-f json` | JSON output for scripting. |
 | `API_URL` | Environment variable for the API URL. |
 | `https_proxy=socks5://...` | SOCKS5 proxy when reaching the site from off-site. |

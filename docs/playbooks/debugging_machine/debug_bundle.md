@@ -80,7 +80,7 @@ nico-admin-cli -a <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> [--
 
 **Required:**
 
-- `-c <API_URL>`: NICo API endpoint
+- `-a <API_URL>`: NICo API endpoint
   - From outside cluster: `https://<your-nico-api-url>/`
   - From inside cluster: `https://127.0.0.1:1079`
 - `<MACHINE_ID>`: The machine ID to collect debug information for
