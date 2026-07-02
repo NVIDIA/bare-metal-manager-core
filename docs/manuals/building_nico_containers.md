@@ -45,7 +45,7 @@ Once the prerequisites above are installed, build the NICo container images from
 top of the repo with a single `make` command:
 
 ```sh
-make images          # deployable stack: NICo Core (nvmetal-carbide) + the REST service images
+make images          # deployable stack: NICo Core (nico) + the REST service images
 make images-all      # the above plus the machine-validation and x86 boot-artifact images
 ```
 
@@ -79,7 +79,7 @@ The count should be exactly 14:
 
 | Image | Target |
 |---|---|
-| `nvmetal-carbide` | `images-core` |
+| `nico` | `images-core` |
 | `nico-rest-api` | `images-rest` |
 | `nico-rest-workflow` | `images-rest` |
 | `nico-rest-site-manager` | `images-rest` |
@@ -141,10 +141,10 @@ docker build --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 
 
 ```
 
-## Building the NICo Core container
+## Building nico-core container
 
 ```sh
-docker build --build-arg "CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=nico-buildcontainer-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t nvmetal-carbide .
+docker build --build-arg "CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64" --build-arg "CONTAINER_BUILD_X86_64=nico-buildcontainer-x86_64" -f dev/docker/Dockerfile.release-container-sa-x86_64 -t nico .
 ```
 
 ## Building the AARCH64 Containers and artifacts
