@@ -8085,6 +8085,7 @@ type RuntimeConfig struct {
 	RackValidationEnabled                           bool     `protobuf:"varint,50,opt,name=rack_validation_enabled,json=rackValidationEnabled,proto3" json:"rack_validation_enabled,omitempty"`
 	CompileTimeHelmVersion                          string   `protobuf:"bytes,51,opt,name=compile_time_helm_version,json=compileTimeHelmVersion,proto3" json:"compile_time_helm_version,omitempty"`
 	CompileTimeDockerVersion                        string   `protobuf:"bytes,52,opt,name=compile_time_docker_version,json=compileTimeDockerVersion,proto3" json:"compile_time_docker_version,omitempty"`
+	RestartOvsOnUseAdminNetworkChange               bool     `protobuf:"varint,53,opt,name=restart_ovs_on_use_admin_network_change,json=restartOvsOnUseAdminNetworkChange,proto3" json:"restart_ovs_on_use_admin_network_change,omitempty"`
 	unknownFields                                   protoimpl.UnknownFields
 	sizeCache                                       protoimpl.SizeCache
 }
@@ -8454,6 +8455,13 @@ func (x *RuntimeConfig) GetCompileTimeDockerVersion() string {
 		return x.CompileTimeDockerVersion
 	}
 	return ""
+}
+
+func (x *RuntimeConfig) GetRestartOvsOnUseAdminNetworkChange() bool {
+	if x != nil {
+		return x.RestartOvsOnUseAdminNetworkChange
+	}
+	return false
 }
 
 type EchoRequest struct {
@@ -24036,6 +24044,10 @@ type ManagedHostNetworkConfigResponse struct {
 	// BGP session with the its TOR
 	BgpLeafSessionPassword *string      `protobuf:"bytes,118,opt,name=bgp_leaf_session_password,json=bgpLeafSessionPassword,proto3,oneof" json:"bgp_leaf_session_password,omitempty"`
 	AstraConfig            *AstraConfig `protobuf:"bytes,119,opt,name=astra_config,json=astraConfig,proto3,oneof" json:"astra_config,omitempty"`
+	// Tracks admin->tenant and tenant->admin change. The DPU agent will
+	// restart openvswitch-switch if this is set. Other actions could also
+	// be added based on this tracking variable.
+	UseAdminNetworkChanged *bool `protobuf:"varint,120,opt,name=use_admin_network_changed,json=useAdminNetworkChanged,proto3,oneof" json:"use_admin_network_changed,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -24341,6 +24353,13 @@ func (x *ManagedHostNetworkConfigResponse) GetAstraConfig() *AstraConfig {
 		return x.AstraConfig
 	}
 	return nil
+}
+
+func (x *ManagedHostNetworkConfigResponse) GetUseAdminNetworkChanged() bool {
+	if x != nil && x.UseAdminNetworkChanged != nil {
+		return *x.UseAdminNetworkChanged
+	}
+	return false
 }
 
 type TrafficInterceptConfig struct {
@@ -60367,7 +60386,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"build_user\x18\x05 \x01(\tR\tbuildUser\x12%\n" +
 	"\x0ebuild_hostname\x18\x06 \x01(\tR\rbuildHostname\x12@\n" +
 	"\x0eruntime_config\x182 \x01(\v2\x14.forge.RuntimeConfigH\x00R\rruntimeConfig\x88\x01\x01B\x11\n" +
-	"\x0f_runtime_config\"\x8d\x16\n" +
+	"\x0f_runtime_config\"\xe1\x16\n" +
 	"\rRuntimeConfig\x12\x16\n" +
 	"\x06listen\x18\x01 \x01(\tR\x06listen\x12)\n" +
 	"\x10metrics_endpoint\x18\x02 \x01(\tR\x0fmetricsEndpoint\x12!\n" +
@@ -60419,7 +60438,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"dpfEnabled\x126\n" +
 	"\x17rack_validation_enabled\x182 \x01(\bR\x15rackValidationEnabled\x129\n" +
 	"\x19compile_time_helm_version\x183 \x01(\tR\x16compileTimeHelmVersion\x12=\n" +
-	"\x1bcompile_time_docker_version\x184 \x01(\tR\x18compileTimeDockerVersion\x1aN\n" +
+	"\x1bcompile_time_docker_version\x184 \x01(\tR\x18compileTimeDockerVersion\x12R\n" +
+	"'restart_ovs_on_use_admin_network_change\x185 \x01(\bR!restartOvsOnUseAdminNetworkChange\x1aN\n" +
 	" DpuNicFirmwareUpdateVersionEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x16\n" +
@@ -61878,7 +61898,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x13MachineHardwareInfo\x12*\n" +
 	"\x04gpus\x18\x01 \x03(\v2\x16.machine_discovery.GpuR\x04gpus\"Z\n" +
 	"\x1fManagedHostNetworkConfigRequest\x127\n" +
-	"\x0edpu_machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\fdpuMachineId\"\xe3\x14\n" +
+	"\x0edpu_machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\fdpuMachineId\"\xc1\x15\n" +
 	" ManagedHostNetworkConfigResponse\x12\x10\n" +
 	"\x03asn\x18\x02 \x01(\rR\x03asn\x12!\n" +
 	"\fdhcp_servers\x18\x03 \x03(\tR\vdhcpServers\x12\x1d\n" +
@@ -61924,7 +61944,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0ftenant_host_asn\x18t \x01(\rH\vR\rtenantHostAsn\x88\x01\x01\x122\n" +
 	"\x13site_global_vpc_vni\x18u \x01(\rH\fR\x10siteGlobalVpcVni\x88\x01\x01\x12>\n" +
 	"\x19bgp_leaf_session_password\x18v \x01(\tH\rR\x16bgpLeafSessionPassword\x88\x01\x01\x12:\n" +
-	"\fastra_config\x18w \x01(\v2\x12.forge.AstraConfigH\x0eR\vastraConfig\x88\x01\x01B\x0e\n" +
+	"\fastra_config\x18w \x01(\v2\x12.forge.AstraConfigH\x0eR\vastraConfig\x88\x01\x01\x12>\n" +
+	"\x19use_admin_network_changed\x18x \x01(\bH\x0fR\x16useAdminNetworkChanged\x88\x01\x01B\x0e\n" +
 	"\f_instance_idB\x1e\n" +
 	"\x1c_network_virtualization_typeB\n" +
 	"\n" +
@@ -61940,7 +61961,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10_tenant_host_asnB\x16\n" +
 	"\x14_site_global_vpc_vniB\x1c\n" +
 	"\x1a_bgp_leaf_session_passwordB\x0f\n" +
-	"\r_astra_configJ\x04\b\x01\x10\x02J\x04\bi\x10j\"\xbc\x02\n" +
+	"\r_astra_configB\x1c\n" +
+	"\x1a_use_admin_network_changedJ\x04\b\x01\x10\x02J\x04\bi\x10j\"\xbc\x02\n" +
 	"\x16TrafficInterceptConfig\x12@\n" +
 	"\x1aadditional_overlay_vtep_ip\x18\x01 \x01(\tH\x00R\x17additionalOverlayVtepIp\x88\x01\x01\x12@\n" +
 	"\bbridging\x18\x02 \x01(\v2\x1f.forge.TrafficInterceptBridgingH\x01R\bbridging\x88\x01\x01\x12'\n" +
