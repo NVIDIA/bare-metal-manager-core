@@ -16,7 +16,13 @@ State-controller metrics are aggregate-only (`carbide_machines_per_state`,
 4. Per-machine **custom SLAs** (hardware gen, tenant) without per-fleet rules.
 5. Slicing by **traits** (rack, SKU) and **associations** (host↔DPU,
    machine↔instance).
-
+1. **Which** machines are stuck beyond SLA (not just how many).
+1. Which need **manual operator action**, and why.
+1. What state a machine is in, **as a join key** (for example, suppress
+   "DPU not calling home" during DPU reprovision).
+1. Per-machine **custom SLAs** (hardware gen, tenant) without per-fleet rules.
+1. Slicing by **traits** (rack, SKU) and **associations** (host↔DPU,
+   machine↔instance).
 Per-object series cost O(fleet) cardinality, so this design spends it on a
 small fixed set of gauges, served from a **dedicated, opt-in endpoint**.
 
