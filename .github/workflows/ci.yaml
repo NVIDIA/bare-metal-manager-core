@@ -1383,7 +1383,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
-      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/otelcol-contrib/Dockerfile
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/otelcol-contrib
@@ -1400,7 +1401,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
-      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/transceiver-exporter/Dockerfile
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/transceiver-exporter
@@ -1436,7 +1438,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' && needs.download-mft-aarch64.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
-      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dpu-agent
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1454,7 +1457,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
-      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/forge-dhcp-server/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dhcp-server
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1472,7 +1476,8 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
-      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/carbide-fmds/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/carbide-fmds
       image_tag: ${{ needs.prepare.outputs.version }}
