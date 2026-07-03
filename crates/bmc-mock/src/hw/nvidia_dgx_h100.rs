@@ -179,7 +179,7 @@ impl NvidiaDgxH100<'_> {
                     boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     callbacks,
                     chassis: vec!["BMC".into()],
-                    boot_options: Some(boot_options.into()),
+                    boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     oem: redfish::computer_system::Oem::Generic,
                     base_bios: Some(base_bios(system_id)),

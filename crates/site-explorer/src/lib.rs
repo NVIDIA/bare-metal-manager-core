@@ -54,7 +54,7 @@ use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
     PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
-    is_bf3_supernic_part_number, is_bluefield_part_number, is_bluefield_system_id,
+    is_bf3_supernic_part_number, is_bluefield_part_number, is_bluefield_system,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -3571,10 +3571,7 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
 }
 
 fn is_bf4_dpu_report(report: &EndpointExplorationReport) -> bool {
-    let has_bluefield_system = report
-        .systems
-        .first()
-        .is_some_and(|system| is_bluefield_system_id(&system.id));
+    let has_bluefield_system = report.systems.first().is_some_and(is_bluefield_system);
     if !has_bluefield_system {
         return false;
     }

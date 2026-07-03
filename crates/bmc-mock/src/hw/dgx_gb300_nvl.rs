@@ -177,7 +177,7 @@ impl DgxGB300Nvl<'_> {
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
-                    boot_options: Some(boot_options.into()),
+                    boot_options: Some(boot_options),
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: Some(eth_interfaces),
