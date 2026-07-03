@@ -6,6 +6,10 @@ name: Helm Charts
 on:
   workflow_call:
     inputs:
+      ngc_path:
+        required: false
+        type: string
+        default: '0837451325059433/carbide-dev'
       app_version:
         description: "Application version for Helm chart appVersion"
         required: true
@@ -65,5 +69,5 @@ jobs:
           app-version: ${{ inputs.app_version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_STG_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ inputs.ngc_path }}
           ngc-duplicate: fail

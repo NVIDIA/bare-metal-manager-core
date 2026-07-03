@@ -24,6 +24,8 @@ on:
       target_registry:
         description: "Target NVCR registry path"
         value: ${{ jobs.prepare.outputs.target_registry }}
+      target_registry_path:
+        value: ${{ jobs.prepare.outputs.target_registry_path }}
       branch_name:
         description: "Sanitized branch name for use in image tags"
         value: ${{ jobs.prepare.outputs.branch_name }}
@@ -53,6 +55,7 @@ jobs:
       short_sha: ${{ steps.generate-version.outputs.short_sha }}
       full_sha: ${{ steps.generate-version.outputs.full_sha }}
       target_registry: ${{ steps.generate-version.outputs.target_registry }}
+      target_registry_path: ${{ steps.generate-version.outputs.target_registry_path }}
       branch_name: ${{ steps.generate-version.outputs.branch_name }}
       branch_sha_tag: ${{ steps.generate-version.outputs.branch_sha_tag }}
       is_main_branch: ${{ steps.generate-version.outputs.is_main_branch }}
@@ -69,6 +72,8 @@ jobs:
 
       - name: Generate version and build information
         id: generate-version
+        env:
+          REGISTRY_OVERRIDE: ${{ vars.IMAGE_REGISTRY }}
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
@@ -77,7 +82,8 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
 
-          target_registry="nvcr.io/0837451325059433/carbide-dev"
+          target_registry="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
+          target_registry="${target_registry%/}"
 
           BRANCH_NAME="${{ github.ref_name }}"
           BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
@@ -106,6 +112,7 @@ jobs:
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
           echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
           echo "target_registry=$target_registry" >> $GITHUB_OUTPUT
+          echo "target_registry_path=${target_registry#*/}" >> $GITHUB_OUTPUT
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "branch_sha_tag=$BRANCH_SHA_TAG" >> $GITHUB_OUTPUT
           echo "is_main_branch=$IS_MAIN_BRANCH" >> $GITHUB_OUTPUT

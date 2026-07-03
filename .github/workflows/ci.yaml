@@ -95,6 +95,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       image_registry: ${{ steps.registry.outputs.registry }}
+      registry_path: ${{ steps.registry.outputs.registry_path }}
       registry_host: ${{ steps.registry.outputs.registry_host }}
       prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
       helm_version: ${{ steps.version.outputs.helm_version }}
@@ -196,6 +197,7 @@ jobs:
           {
             echo "registry=${REGISTRY}"
             echo "registry_host=${REGISTRY%%/*}"
+            echo "registry_path=${REGISTRY#*/}"
             echo "prod_registry=${PROD_REGISTRY}"
           } >> "$GITHUB_OUTPUT"
           echo "Container registry: ${REGISTRY} (prod: ${PROD_REGISTRY})"
@@ -1212,7 +1214,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
   build-validate-helm-prereqs-chart:
@@ -1249,7 +1251,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
   # ============================================================================
@@ -1462,7 +1464,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-dpu-agent chart
@@ -1473,7 +1475,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-dhcp-server chart
@@ -1484,7 +1486,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-fmds chart
@@ -1495,7 +1497,7 @@ jobs:
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
           ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-path: ${{ needs.prepare.outputs.registry_path }}
           ngc-duplicate: fail
 
   build-summary:

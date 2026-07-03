@@ -142,6 +142,7 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/rest-helm-workflows.yml
     with:
+      ngc_path: ${{ needs.prepare.outputs.target_registry_path }}
       app_version: ${{ needs.prepare.outputs.semantic_version }}
       chart_version: ${{ needs.prepare.outputs.helm_version }}
     secrets:
