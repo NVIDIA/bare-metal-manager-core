@@ -88,6 +88,12 @@ on:
       NICO_SOURCE_REGISTRY_TOKEN:
         description: "Token for the read-only source registry (falls back to NVCR_TOKEN)"
         required: false
+      NICO_TARGET_REGISTRY_USERNAME:
+        description: "Username for the push target registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_TARGET_REGISTRY_TOKEN:
+        description: "Token for the push target registry (falls back to NVCR_TOKEN)"
+        required: false
     outputs:
       image_digest:
         description: 'Image digest'
@@ -151,8 +157,8 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Prepare tag list
         id: tag_list

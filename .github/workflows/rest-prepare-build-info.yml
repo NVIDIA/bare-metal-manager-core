@@ -26,6 +26,8 @@ on:
         value: ${{ jobs.prepare.outputs.target_registry }}
       target_registry_path:
         value: ${{ jobs.prepare.outputs.target_registry_path }}
+      target_ngc_path:
+        value: ${{ jobs.prepare.outputs.target_ngc_path }}
       branch_name:
         description: "Sanitized branch name for use in image tags"
         value: ${{ jobs.prepare.outputs.branch_name }}
@@ -56,6 +58,7 @@ jobs:
       full_sha: ${{ steps.generate-version.outputs.full_sha }}
       target_registry: ${{ steps.generate-version.outputs.target_registry }}
       target_registry_path: ${{ steps.generate-version.outputs.target_registry_path }}
+      target_ngc_path: ${{ steps.generate-version.outputs.target_ngc_path }}
       branch_name: ${{ steps.generate-version.outputs.branch_name }}
       branch_sha_tag: ${{ steps.generate-version.outputs.branch_sha_tag }}
       is_main_branch: ${{ steps.generate-version.outputs.is_main_branch }}
@@ -74,6 +77,7 @@ jobs:
         id: generate-version
         env:
           REGISTRY_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
+          NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
@@ -126,6 +130,11 @@ jobs:
           echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
           echo "target_registry=$target_registry" >> $GITHUB_OUTPUT
           echo "target_registry_path=${target_registry#*/}" >> $GITHUB_OUTPUT
+          if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
+            echo "target_ngc_path=${NGC_PATH_OVERRIDE:-${target_registry#*/}}" >> $GITHUB_OUTPUT
+          else
+            echo "target_ngc_path=${NGC_PATH_OVERRIDE:-}" >> $GITHUB_OUTPUT
+          fi
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "branch_sha_tag=$BRANCH_SHA_TAG" >> $GITHUB_OUTPUT
           echo "is_main_branch=$IS_MAIN_BRANCH" >> $GITHUB_OUTPUT

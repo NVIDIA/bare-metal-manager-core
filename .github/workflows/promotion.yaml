@@ -29,6 +29,8 @@ jobs:
   # PREPARE - Validate source images exist
   # ============================================================================
   prepare:
+    # Production promotion never runs outside the canonical repo.
+    if: github.repository == 'NVIDIA/infra-controller'
     runs-on: linux-amd64-cpu4
     outputs:
       version: ${{ inputs.version }}
@@ -53,18 +55,6 @@ jobs:
 
           echo "helm_version=${HELM_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Promoting chart version ${HELM_VERSION} from release ${VERSION}"
-
-      # Promotion moves artifacts toward production; outside the canonical
-      # repo it must be explicitly configured, never inherited.
-      - name: Repository guard
-        env:
-          PROD_OVERRIDE: ${{ vars.NICO_PROD_IMAGE_REGISTRY }}
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_REPOSITORY}" != "NVIDIA/infra-controller" && -z "${PROD_OVERRIDE}" ]]; then
-            echo "::error::promotion is disabled outside NVIDIA/infra-controller unless NICO_PROD_IMAGE_REGISTRY is set"
-            exit 1
-          fi
 
       - name: Resolve container registries
         id: registry
