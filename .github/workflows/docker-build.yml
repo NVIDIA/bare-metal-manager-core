@@ -3,6 +3,11 @@ name: Build Container with Buildx
 on:
   workflow_call:
     inputs:
+      source_registry_host:
+        description: 'Registry host for read-only base-image pulls (empty = skip source login)'
+        required: false
+        default: ''
+        type: string
       dockerfile_path:
         description: 'Path to Dockerfile'
         required: true
@@ -77,6 +82,12 @@ on:
       NVCR_TOKEN:
         description: "NVIDIA Container Registry API token"
         required: false
+      NICO_SOURCE_REGISTRY_USERNAME:
+        description: "Username for the read-only source registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_SOURCE_REGISTRY_TOKEN:
+        description: "Token for the read-only source registry (falls back to NVCR_TOKEN)"
+        required: false
     outputs:
       image_digest:
         description: 'Image digest'
@@ -124,7 +135,19 @@ jobs:
           IMAGE_NAME: ${{ inputs.image_name }}
         run: echo "host=${IMAGE_NAME%%/*}" >> "$GITHUB_OUTPUT"
 
-      - name: Login to NVCR
+      # Pull credentials and push credentials can differ in mirrors: base
+      # images come from the source registry, the built image goes to the
+      # target. Target login is only needed when pushing.
+      - name: Login to source registry
+        if: ${{ inputs.source_registry_host != '' }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ inputs.source_registry_host }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      - name: Login to target registry
+        if: ${{ inputs.push }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}

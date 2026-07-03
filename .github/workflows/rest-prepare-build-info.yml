@@ -73,7 +73,7 @@ jobs:
       - name: Generate version and build information
         id: generate-version
         env:
-          REGISTRY_OVERRIDE: ${{ vars.IMAGE_REGISTRY }}
+          REGISTRY_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
@@ -82,7 +82,20 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
 
-          target_registry="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
+          if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
+            target_registry="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
+          else
+            if [ -z "${REGISTRY_OVERRIDE}" ]; then
+              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
+              exit 1
+            fi
+            case "${REGISTRY_OVERRIDE%/}" in
+              "nvcr.io/0837451325059433/carbide-dev"|"nvcr.io/0837451325059433/carbide")
+                echo "::error::this repository must not target the canonical registries"
+                exit 1;;
+            esac
+            target_registry="${REGISTRY_OVERRIDE}"
+          fi
           target_registry="${target_registry%/}"
 
           BRANCH_NAME="${{ github.ref_name }}"

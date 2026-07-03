@@ -96,6 +96,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       image_registry: ${{ steps.registry.outputs.registry }}
       registry_path: ${{ steps.registry.outputs.registry_path }}
+      source_registry_host: ${{ steps.registry.outputs.source_registry_host }}
+      publish_images: ${{ steps.release-gate.outputs.publish_built_container }}
       registry_host: ${{ steps.registry.outputs.registry_host }}
       prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
       helm_version: ${{ steps.version.outputs.helm_version }}
@@ -103,6 +105,12 @@ jobs:
       extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+      build_container_x86_64_ref: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+      runtime_container_x86_64_ref: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_ref }}
+      build_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_container_aarch64_ref }}
+      runtime_container_aarch64_ref: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
+      build_artifacts_container_x86_64_ref: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_ref }}
+      build_artifacts_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_ref }}
       runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
       runtime_container_x86_64_version: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
       build_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_container_aarch64_run }}
@@ -180,39 +188,66 @@ jobs:
           echo "| VERSION | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| HELM_VERSION | \`${HELM_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
 
-      # Single definition point so downstream mirrors/forks only set repo
-      # variables (IMAGE_REGISTRY / PROD_IMAGE_REGISTRY); defaults keep upstream
-      # behavior unchanged.
+      # Single definition point for registries. The canonical repo keeps
+      # upstream defaults; any other repo must set NICO_TARGET_IMAGE_REGISTRY
+      # and may not target the canonical registries (fail closed for mirrors).
+      # Source registry = read-only dependencies (extras, non-rebuilt base
+      # containers); target registry = everything this run publishes.
       - name: Resolve container registries
         id: registry
         env:
-          REGISTRY_OVERRIDE: ${{ vars.IMAGE_REGISTRY }}
-          PROD_REGISTRY_OVERRIDE: ${{ vars.PROD_IMAGE_REGISTRY }}
+          TARGET_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
+          SOURCE_OVERRIDE: ${{ vars.NICO_SOURCE_IMAGE_REGISTRY }}
+          PROD_OVERRIDE: ${{ vars.NICO_PROD_IMAGE_REGISTRY }}
+          EXTRAS_OVERRIDE: ${{ vars.NICO_EXTRAS_IMAGE }}
         run: |
           set -euo pipefail
-          REGISTRY="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
-          REGISTRY="${REGISTRY%%/}"
-          PROD_REGISTRY="${PROD_REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide}"
-          PROD_REGISTRY="${PROD_REGISTRY%%/}"
+          CANONICAL_DEV="nvcr.io/0837451325059433/carbide-dev"
+          CANONICAL_PROD="nvcr.io/0837451325059433/carbide"
+          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+            TARGET="${TARGET_OVERRIDE:-${CANONICAL_DEV}}"
+            PROD="${PROD_OVERRIDE:-${CANONICAL_PROD}}"
+          else
+            if [[ -z "${TARGET_OVERRIDE}" ]]; then
+              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
+              exit 1
+            fi
+            TARGET="${TARGET_OVERRIDE}"
+            PROD="${PROD_OVERRIDE:-${TARGET_OVERRIDE}}"
+            for R in "${TARGET%/}" "${PROD%/}"; do
+              if [[ "${R}" == "${CANONICAL_DEV}" || "${R}" == "${CANONICAL_PROD}" ]]; then
+                echo "::error::this repository must not target the canonical registry ${R}"
+                exit 1
+              fi
+            done
+          fi
+          TARGET="${TARGET%/}"
+          PROD="${PROD%/}"
+          SOURCE="${SOURCE_OVERRIDE:-${CANONICAL_DEV}}"
+          SOURCE="${SOURCE%/}"
+          EXTRAS="${EXTRAS_OVERRIDE:-${SOURCE}/nvmetal-carbide-extras:latest}"
           {
-            echo "registry=${REGISTRY}"
-            echo "registry_host=${REGISTRY%%/*}"
-            echo "registry_path=${REGISTRY#*/}"
-            echo "prod_registry=${PROD_REGISTRY}"
+            echo "registry=${TARGET}"
+            echo "registry_host=${TARGET%%/*}"
+            echo "registry_path=${TARGET#*/}"
+            echo "source_registry=${SOURCE}"
+            echo "source_registry_host=${SOURCE%%/*}"
+            echo "extras_image=${EXTRAS}"
+            echo "prod_registry=${PROD}"
           } >> "$GITHUB_OUTPUT"
-          echo "Container registry: ${REGISTRY} (prod: ${PROD_REGISTRY})"
+          echo "Registries: target=${TARGET} source=${SOURCE} prod=${PROD}"
 
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          registry: ${{ steps.registry.outputs.registry_host }}
+          registry: ${{ steps.registry.outputs.source_registry_host }}
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
       - name: Resolve pinned carbide-extras image digest
         id: resolve-extras
         env:
-          EXTRAS_IMAGE: ${{ steps.registry.outputs.registry }}/nvmetal-carbide-extras:latest
+          EXTRAS_IMAGE: ${{ steps.registry.outputs.extras_image }}
         run: |
           set -euo pipefail
           docker pull "${EXTRAS_IMAGE}"
@@ -234,6 +269,8 @@ jobs:
       - name: Decide if build-container-x86_64 must run
         id: base-container-gate
         env:
+          TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
+          SOURCE_REGISTRY: ${{ steps.registry.outputs.source_registry }}
           EVENT_NAME: ${{ github.event_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -312,38 +349,50 @@ jobs:
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_x86_64_run" == "true" ]]; then
             echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_ref=${TARGET_REGISTRY}/runtime-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_ref=${SOURCE_REGISTRY}/runtime-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_container_aarch64_run" == "true" ]]; then
             echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_aarch64_run" == "true" ]]; then
             echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_ref=${TARGET_REGISTRY}/runtime-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_ref=${SOURCE_REGISTRY}/runtime-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
             echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_ref=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_ref=${SOURCE_REGISTRY}/build-artifacts-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
             echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_ref=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_ref=${SOURCE_REGISTRY}/build-artifacts-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Decide release container publish strategy
@@ -366,7 +415,10 @@ jobs:
       - name: Prepare release container build args
         id: release-metadata
         env:
-          REGISTRY: ${{ steps.registry.outputs.registry }}
+          BUILD_REF: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+          RUNTIME_REF: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_ref }}
+          BUILD_REF_AARCH64: ${{ steps.base-container-gate.outputs.build_container_aarch64_ref }}
+          RUNTIME_REF_AARCH64: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
           VERSION: ${{ steps.version.outputs.version }}
           SHORT_SHA: ${{ steps.version.outputs.short_sha }}
           BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
@@ -377,8 +429,6 @@ jobs:
           set -euo pipefail
 
           # x86_64 build args
-          BUILD_REF="${REGISTRY}/build-container-x86_64:${BUILD_VERSION}"
-          RUNTIME_REF="${REGISTRY}/runtime-container-x86_64:${RUNTIME_VERSION}"
 
           BUILD_ARGS=$(jq -n -c \
             --arg VERSION "$VERSION" \
@@ -390,8 +440,6 @@ jobs:
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
 
           # aarch64 build args
-          BUILD_REF_AARCH64="${REGISTRY}/build-container-aarch64:${BUILD_VERSION_AARCH64}"
-          RUNTIME_REF_AARCH64="${REGISTRY}/runtime-container-aarch64:${RUNTIME_VERSION_AARCH64}"
 
           BUILD_ARGS_AARCH64=$(jq -n -c \
             --arg VERSION "$VERSION" \
@@ -412,12 +460,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -428,12 +477,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -444,12 +494,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64
       image_tag: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -460,12 +511,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-aarch64
       image_tag: ${{ needs.prepare.outputs.runtime_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -476,12 +528,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -492,12 +545,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -524,6 +578,7 @@ jobs:
       - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args }}
@@ -531,7 +586,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu16
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       tag_latest: false
@@ -555,6 +610,7 @@ jobs:
       - check-rest-core-proto-sync
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
@@ -562,7 +618,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu16
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: false
     secrets: inherit
@@ -577,7 +633,7 @@ jobs:
       - prepare
       - build-release-container-x86_64
       - build-release-container-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') && needs.build-release-container-x86_64.result == 'success' && needs.build-release-container-aarch64.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-release-container-x86_64.result == 'success' && needs.build-release-container-aarch64.result == 'success' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -628,13 +684,13 @@ jobs:
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          registry: ${{ needs.prepare.outputs.registry_host }}
+          registry: ${{ needs.prepare.outputs.source_registry_host }}
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
       - name: Run release-container service tests
         env:
-          BUILD_CONTAINER: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64:${{ needs.prepare.outputs.build_container_x86_64_version }}
+          BUILD_CONTAINER: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
           CI_COMMIT_SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -678,13 +734,14 @@ jobs:
     if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
     secrets: inherit
@@ -696,13 +753,14 @@ jobs:
     if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
     secrets: inherit
 
@@ -711,7 +769,7 @@ jobs:
       - prepare
       - build-forge-cli-x86_64
       - build-forge-cli-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') && needs.build-forge-cli-x86_64.result == 'success' && needs.build-forge-cli-aarch64.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-forge-cli-x86_64.result == 'success' && needs.build-forge-cli-aarch64.result == 'success' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -758,7 +816,7 @@ jobs:
       arch: x86_64
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
-      build_container: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
+      build_container: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}
       runner: linux-amd64-cpu4
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
@@ -776,7 +834,7 @@ jobs:
       arch: aarch64
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
-      build_container: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+      build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
       runner: linux-arm64-cpu16
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
@@ -840,6 +898,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' && needs.build-boot-artifacts-ephemeral-image-x86-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -848,9 +907,9 @@ jobs:
       # it ships is unchanged (x86_64 boot blobs). The Dockerfile has no RUN
       # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
       # so the image loads to the daemon for the Grype scan.
-      platforms: ${{ !contains(github.ref, 'pull-request/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+      platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -871,6 +930,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' && needs.build-boot-artifacts-ephemeral-image-arm-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -879,9 +939,9 @@ jobs:
       # run as an init container on both amd64 and arm64 control-plane nodes. The
       # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
       # needed. Single-arch on PR so the image loads to the daemon for Grype.
-      platforms: ${{ !contains(github.ref, 'pull-request/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+      platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -958,13 +1018,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-x86_64.result) }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine-validation-runner
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -976,13 +1037,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-release-machine-validation-runner.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -1000,13 +1062,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-aarch64.result) }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_AARCH64":"${{ needs.prepare.outputs.image_registry }}/runtime-container-aarch64:${{ needs.prepare.outputs.runtime_container_aarch64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_AARCH64":"${{ needs.prepare.outputs.runtime_container_aarch64_ref }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -1019,7 +1082,7 @@ jobs:
       - prepare
       - build-release-machine-validation-artifacts-x86-host
       - build-release-machine-validation-artifacts-arm-host
-    if: ${{ !cancelled() && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') && needs.build-release-machine-validation-artifacts-x86-host.result == 'success' && needs.build-release-machine-validation-artifacts-arm-host.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-release-machine-validation-artifacts-x86-host.result == 'success' && needs.build-release-machine-validation-artifacts-arm-host.result == 'success' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -1134,7 +1197,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
     runs-on: linux-amd64-cpu16
     container:
-      image: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64:${{ needs.prepare.outputs.build_container_x86_64_version }}
+      image: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
       credentials:
         username: ${{ secrets.NVCR_USERNAME }}
         password: ${{ secrets.NVCR_TOKEN }}
@@ -1200,7 +1263,7 @@ jobs:
     needs:
       - prepare
       - build-validate-helm-chart
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-chart.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -1237,7 +1300,7 @@ jobs:
     needs:
       - prepare
       - build-validate-helm-prereqs-chart
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -1271,12 +1334,12 @@ jobs:
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          registry: ${{ needs.prepare.outputs.registry_host }}
+          registry: ${{ needs.prepare.outputs.source_registry_host }}
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
       - name: Pull build container
-        run: docker pull ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+        run: docker pull ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
 
       - name: Compile bluefield Rust binaries
         run: |
@@ -1286,7 +1349,7 @@ jobs:
             -e CARGO_HOME=/workspace/cargo \
             -e CARGO_INCREMENTAL=0 \
             -e CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu \
-            ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }} \
+            ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }} \
             bash -c "git config --global --add safe.directory /workspace && \
               cargo make --cwd bluefield build-dpu-agent-and-dhcp-server-ci && \
               cargo make --cwd bluefield build-fmds-ci && \
@@ -1310,13 +1373,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: bluefield/containers/otelcol-contrib/Dockerfile
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/otelcol-contrib
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
     secrets: inherit
 
@@ -1326,13 +1390,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: bluefield/containers/transceiver-exporter/Dockerfile
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/transceiver-exporter
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
     secrets: inherit
 
@@ -1361,12 +1426,13 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' && needs.download-mft-aarch64.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dpu-agent
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1378,12 +1444,13 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: bluefield/containers/forge-dhcp-server/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dhcp-server
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1395,12 +1462,13 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: bluefield/containers/carbide-fmds/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/carbide-fmds
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1450,7 +1518,7 @@ jobs:
     needs:
       - prepare
       - build-validate-bluefield-helm-charts
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-bluefield-helm-charts.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-bluefield-helm-charts.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -1584,7 +1652,7 @@ jobs:
 
   promote-to-be-scanned-image:
     # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
-    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.repository == 'NVIDIA/infra-controller' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
     needs:
       - prepare
       - build-release-container-x86_64
