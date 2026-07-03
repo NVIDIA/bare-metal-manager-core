@@ -10,13 +10,6 @@ State-controller metrics are aggregate-only (`carbide_machines_per_state`,
 100k-machine scale, SREs cannot answer via Prometheus alone:
 
 1. **Which** machines are stuck beyond SLA (not just how many).
-2. Which need **manual operator action**, and why.
-3. What state a machine is in, **as a join key** (e.g. suppress "DPU not
-   calling home" during DPU reprovision).
-4. Per-machine **custom SLAs** (hardware gen, tenant) without per-fleet rules.
-5. Slicing by **traits** (rack, SKU) and **associations** (host↔DPU,
-   machine↔instance).
-1. **Which** machines are stuck beyond SLA (not just how many).
 1. Which need **manual operator action**, and why.
 1. What state a machine is in, **as a join key** (for example, suppress
    "DPU not calling home" during DPU reprovision).
@@ -36,7 +29,7 @@ small fixed set of gauges, served from a **dedicated, opt-in endpoint**.
   it aggregates them away.
 - `state_sla(state, object_state)` receives the full object state, so
   per-hardware-gen/tenant SLAs are a policy change in that function only.
-- PR #2168's `PerObjectMetricsRegistry` (`health-metrics/src/per_object.rs`)
+- PR [#2168](https://github.com/NVIDIA/infra-controller/pull/2168)'s `PerObjectMetricsRegistry` (`health-metrics/src/per_object.rs`)
   was built to generalize across object types and is **reused directly**:
   shared registry keyed by `(object_type, object_id)`, observable gauges,
   lazy stale eviction, config-gated.
@@ -140,17 +133,17 @@ carbide_machine_dpu_info{machine_id="fm100...",dpu_id="fmdpu01..."} 1
 carbide_machine_instance_info{machine_id="fm100...",instance_id="inst-42...",tenant_org="acme"} 1
 ```
 
-One series per *relationship* resolves the multi-DPU-host concern from the
-issue comments: a 4-DPU host is 4 association series while its state series
-stays one — no `blocking_dpu_id` label on it either; the host reports the
-least-progressed DPU's substate (existing `metric_state_names` behavior), and
-since DPUs are machines with their own state series, the association join
-identifies the blocking DPU.
+One series per *relationship* resolves a concern about multiple DPU hosts:
+a 4-DPU host is 4 association series, while its state series stays one. There
+is also no `blocking_dpu_id` label on it; the host reports the
+least-progressed DPU's substate (matching the `metric_state_names`
+behavior), and since DPUs are machines with their own state series, the
+association join identifies the blocking DPU.
 
 Instances get no state series of their own: they are machine substates
 (`Assigned { instance_state }`), not separate state-controller objects, so
 they surface as `state="assigned", substate=<instance state>` on the machine
-plus `carbide_machine_instance_info` for the id mapping — a synthetic
+plus `carbide_machine_instance_info` for the ID mapping — a synthetic
 per-instance series would double cardinality for no new information.
 
 ### Cardinality budget (100k machines + ~5k other objects)
@@ -171,7 +164,7 @@ Churn is bounded by transition rate, observable in advance via the existing
 
 **Stuck beyond per-object SLA** (warning; critical = `2 *`):
 
-```promql
+```
 (time() - carbide_object_state_entered_timestamp_seconds)
   > on(object_type, object_id, state, substate) group_left()
     carbide_object_state_sla_seconds
@@ -179,7 +172,7 @@ Churn is bounded by transition rate, observable in advance via the existing
 
 **Manual-intervention ratio and triage breakdown:**
 
-```promql
+```
 count(carbide_object_manual_intervention_required{object_type="machine"})
   / scalar(carbide_machines_total) > 0.05
 
@@ -191,7 +184,7 @@ count by (reason, rack_id) (
 **Suppress DPU-not-calling-home during reprovision** (join use case;
 `DPUReprovision` maps to `state="reprovisioning"` today):
 
-```promql
+```
 (time() - carbide_forge_dpu_agent_last_call > 900)
 and on(dpu_id) label_replace(carbide_machine_dpu_info, "dpu_id", "$1", "dpu_id", "(.*)")
 unless on(machine_id) label_replace(
@@ -199,9 +192,9 @@ unless on(machine_id) label_replace(
   "machine_id", "$1", "object_id", "(.*)")
 ```
 
-**Stuck-and-unhealthy — is it hardware?** (join with the #2168 metric):
+**Stuck-and-unhealthy — is it hardware?** (join with the [#2168](https://github.com/NVIDIA/infra-controller/pull/2168)metric):
 
-```promql
+```
 carbide_object_manual_intervention_required
 and on(object_type, object_id)
   carbide_object_unhealthy_by_classification_count{classification="Hardware"}
@@ -231,8 +224,9 @@ by `(object_type, object_id)` "so the metric name stays stable as
 observability generalizes across object types" (its module doc) — and already
 provides everything the new metrics need: shared entry map, gauge callbacks
 over live entries, `hold_period` eviction, replace/remove-on-record
-semantics. We extend it rather than adding a sibling:
+semantics. 
 
+We extend the `PerObjectMetricsRegistry`, rather than adding a sibling:
 - Generalize the entry payload from classification-only to per-metric series:
   a `gauge(name, description)` handle API where writers `set`/`set_all`/
   `clear` an object's series for that metric (the existing classification
@@ -244,11 +238,10 @@ semantics. We extend it rather than adding a sibling:
   separately announced step).
 
 **Feed point: the generic processor** (`processor.rs`), which already holds
-object id, (transitioned) state, `time_in_state`, `StateSla`, and handler
+object ID, (transitioned) state, `time_in_state`, `StateSla`, and handler
 error per iteration — one `registry.record_state(...)` call there gives
 **every** state controller per-object metrics with zero per-controller code.
-Wiring mirrors #2168: constructed in `setup.rs`, registered on the per-object
+Wiring mirrors [#2168](https://github.com/NVIDIA/infra-controller/pull/2168): constructed in `setup.rs`, registered on the per-object
 meter, threaded via the controller builder. `carbide_object_info` and
 associations are recorded from the machine-controller handler, which already
 loads rack/SKU/DPU/instance data next to the existing per-object health call.
-
