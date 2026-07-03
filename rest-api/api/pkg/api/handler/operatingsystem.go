@@ -76,9 +76,9 @@ func syncOperatingSystemToSitesViaProxy(
 		// The site ID is the shared key used to encrypt any redacted secret fields
 		// for transport; no top-level secret fields are redacted here (artifact
 		// authTokens are nested and carried as-is).
-		code, perr := common.ExecuteCoreGRPC(ctx, stc, fullMethod, req, nil, ossa.SiteID.String())
+		perr := common.ExecuteCoreGRPC(ctx, stc, fullMethod, req, nil, ossa.SiteID.String())
 		if perr != nil {
-			slogger.Error().Err(perr).Int("code", code).Msg("failed to sync Operating System to site via Core proxy")
+			slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to sync Operating System to site via Core proxy")
 			updateOSSAStatusViaProxy(ctx, slogger, ossaDAO, sdDAO, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to sync Operating System to site")
 			siteErrors++
 			continue
@@ -100,7 +100,7 @@ func updateOSSAStatusViaProxy(ctx context.Context, logger zerolog.Logger, ossaDA
 		logger.Error().Err(err).Str("Status", status).Msg("failed to update Operating System Site Association status")
 		return
 	}
-	if _, err := sdDAO.CreateFromParams(ctx, nil, ossaID.String(), status, &message); err != nil {
+	if _, err := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: ossaID.String(), Status: status, Message: &message}); err != nil {
 		logger.Error().Err(err).Msg("failed to create status detail for Operating System Site Association")
 	}
 }
@@ -122,7 +122,7 @@ func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Lo
 		logger.Error().Err(err).Msg("failed to update aggregate Operating System status")
 		return
 	}
-	if _, err := sdDAO.CreateFromParams(ctx, nil, osID.String(), status, &message); err != nil {
+	if _, err := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: osID.String(), Status: status, Message: &message}); err != nil {
 		logger.Error().Err(err).Msg("failed to create status detail for aggregate Operating System status")
 	}
 }
@@ -1797,7 +1797,11 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
 			}
 			sdDAO := cdbm.NewStatusDetailDAO(dsh.dbSession)
-			if _, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cutil.GetPtr("received request for deletion, pending processing")); derr != nil {
+			if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+				EntityID: os.ID.String(),
+				Status:   cdbm.OperatingSystemStatusDeleting,
+				Message:  cutil.GetPtr("received request for deletion, pending processing"),
+			}); derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
 			}
@@ -1844,12 +1848,12 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 				remaining++
 				continue
 			}
-			code, perr := common.ExecuteCoreGRPC(ctx, stc, deleteOperatingSystemMethod, req, nil, ossa.SiteID.String())
+			perr := common.ExecuteCoreGRPC(ctx, stc, deleteOperatingSystemMethod, req, nil, ossa.SiteID.String())
 			if perr != nil {
-				if code == http.StatusNotFound {
+				if perr.Code == http.StatusNotFound {
 					slogger.Warn().Msg("Operating System not found on site, treating delete as successful")
 				} else {
-					slogger.Error().Err(perr).Int("code", code).Msg("failed to delete Operating System on site via Core proxy")
+					slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to delete Operating System on site via Core proxy")
 					remaining++
 					continue
 				}
