@@ -118,9 +118,16 @@ jobs:
         with:
           buildkitd-config: /etc/buildkit/buildkitd.toml
 
+      - name: Derive registry host
+        id: registry-host
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: echo "host=${IMAGE_NAME%%/*}" >> "$GITHUB_OUTPUT"
+
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
+          registry: ${{ steps.registry-host.outputs.host }}
           username: ${{ secrets.NVCR_USERNAME }}
           token: ${{ secrets.NVCR_TOKEN }}
 
