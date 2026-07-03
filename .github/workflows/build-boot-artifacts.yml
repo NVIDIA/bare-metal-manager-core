@@ -163,6 +163,18 @@ jobs:
           echo "Pulling build container: ${{ inputs.build_container }}"
           docker pull ${{ inputs.build_container }}
 
+      - name: Log out of source registry
+        env:
+          EXTRAS: ${{ inputs.extras_container }}
+          BUILD: ${{ inputs.build_container }}
+        run: |
+          # Later build tasks pull public images from the same host (e.g.
+          # nvcr.io/nvidia/doca in the bfb flow); a scoped credential denies
+          # those pulls while anonymous access succeeds. All authenticated
+          # pulls are done at this point.
+          if [ -n "${BUILD}" ]; then docker logout "${BUILD%%/*}" 2>/dev/null || true; fi
+          if [ -n "${EXTRAS}" ]; then docker logout "${EXTRAS%%/*}" 2>/dev/null || true; fi
+
       - name: Set up environment variables
         run: |
           echo "CARGO_HOME=${{ github.workspace }}/cargo" >> $GITHUB_ENV
