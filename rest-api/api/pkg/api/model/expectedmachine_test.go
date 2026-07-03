@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -264,6 +265,51 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 			},
 			expectErr: false,
 		},
+		// HostLifecycleProfile validation tests
+		{
+			desc: "ok with hostLifecycleProfile disableLockdown true",
+			obj: APIExpectedMachineCreateRequest{
+				BmcMacAddress:        "00:11:22:33:44:55",
+				DefaultBmcUsername:   &validUsername,
+				DefaultBmcPassword:   &validPassword,
+				ChassisSerialNumber:  validChassisSerial,
+				HostLifecycleProfile: &APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok with hostLifecycleProfile disableLockdown false",
+			obj: APIExpectedMachineCreateRequest{
+				BmcMacAddress:        "00:11:22:33:44:55",
+				DefaultBmcUsername:   &validUsername,
+				DefaultBmcPassword:   &validPassword,
+				ChassisSerialNumber:  validChassisSerial,
+				HostLifecycleProfile: &APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok with hostLifecycleProfile present but disableLockdown unset",
+			obj: APIExpectedMachineCreateRequest{
+				BmcMacAddress:        "00:11:22:33:44:55",
+				DefaultBmcUsername:   &validUsername,
+				DefaultBmcPassword:   &validPassword,
+				ChassisSerialNumber:  validChassisSerial,
+				HostLifecycleProfile: &APIHostLifecycleProfile{},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok with nil hostLifecycleProfile",
+			obj: APIExpectedMachineCreateRequest{
+				BmcMacAddress:        "00:11:22:33:44:55",
+				DefaultBmcUsername:   &validUsername,
+				DefaultBmcPassword:   &validPassword,
+				ChassisSerialNumber:  validChassisSerial,
+				HostLifecycleProfile: nil,
+			},
+			expectErr: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -310,6 +356,129 @@ func TestNewAPIExpectedMachine(t *testing.T) {
 			assert.Equal(t, tc.dbObj.Updated, got.Updated)
 		})
 	}
+}
+
+func TestAPIHostLifecycleProfile_Conversions(t *testing.T) {
+	t.Run("ToDBModel maps disableLockdown", func(t *testing.T) {
+		dbTrue := (&APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}).ToDBModel()
+		if assert.NotNil(t, dbTrue.DisableLockdown) {
+			assert.Equal(t, true, *dbTrue.DisableLockdown)
+		}
+		dbFalse := (&APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)}).ToDBModel()
+		if assert.NotNil(t, dbFalse.DisableLockdown) {
+			assert.Equal(t, false, *dbFalse.DisableLockdown)
+		}
+	})
+
+	t.Run("ToDBModel on nil receiver yields zero value", func(t *testing.T) {
+		var p *APIHostLifecycleProfile
+		assert.Nil(t, p.ToDBModel().DisableLockdown)
+	})
+
+	t.Run("ToDBModelPtr preserves nil-vs-set distinction", func(t *testing.T) {
+		var p *APIHostLifecycleProfile
+		assert.Nil(t, p.ToDBModelPtr())
+		assert.Nil(t, (&APIHostLifecycleProfile{}).ToDBModelPtr())
+
+		ptr := (&APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}).ToDBModelPtr()
+		if assert.NotNil(t, ptr) {
+			assert.Equal(t, true, *ptr.DisableLockdown)
+		}
+	})
+
+	t.Run("NewAPIHostLifecycleProfile omits unset profile", func(t *testing.T) {
+		assert.Nil(t, NewAPIHostLifecycleProfile(cdbm.HostLifecycleProfile{}))
+
+		got := NewAPIHostLifecycleProfile(cdbm.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)})
+		if assert.NotNil(t, got) {
+			assert.Equal(t, false, *got.DisableLockdown)
+		}
+	})
+}
+
+func TestNewAPIExpectedMachine_HostLifecycleProfile(t *testing.T) {
+	tests := []struct {
+		desc     string
+		stored   cdbm.HostLifecycleProfile
+		wantNil  bool
+		wantBool *bool
+	}{
+		{desc: "disableLockdown true round-trips", stored: cdbm.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}, wantBool: cutil.GetPtr(true)},
+		{desc: "disableLockdown false round-trips", stored: cdbm.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)}, wantBool: cutil.GetPtr(false)},
+		{desc: "unset profile omitted from response", stored: cdbm.HostLifecycleProfile{}, wantNil: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			dbEM := &cdbm.ExpectedMachine{
+				BmcMacAddress:        "00:11:22:33:44:55",
+				ChassisSerialNumber:  "CHASSIS123",
+				HostLifecycleProfile: tc.stored,
+				Created:              time.Now(),
+				Updated:              time.Now(),
+			}
+
+			got := NewAPIExpectedMachine(dbEM)
+			if tc.wantNil {
+				assert.Nil(t, got.HostLifecycleProfile)
+				return
+			}
+			if assert.NotNil(t, got.HostLifecycleProfile) {
+				assert.Equal(t, *tc.wantBool, *got.HostLifecycleProfile.DisableLockdown)
+			}
+		})
+	}
+}
+
+func TestAPIExpectedMachine_HostLifecycleProfile_JSONRoundTrip(t *testing.T) {
+	t.Run("disableLockdown true survives marshal/unmarshal", func(t *testing.T) {
+		orig := &APIExpectedMachine{
+			BmcMacAddress:        "00:11:22:33:44:55",
+			ChassisSerialNumber:  "CHASSIS123",
+			HostLifecycleProfile: &APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		}
+
+		raw, err := json.Marshal(orig)
+		assert.NoError(t, err)
+		assert.Contains(t, string(raw), `"hostLifecycleProfile":{"disableLockdown":true}`)
+
+		var round APIExpectedMachine
+		assert.NoError(t, json.Unmarshal(raw, &round))
+		if assert.NotNil(t, round.HostLifecycleProfile) {
+			assert.Equal(t, true, *round.HostLifecycleProfile.DisableLockdown)
+		}
+	})
+
+	t.Run("unset profile omitted from response JSON", func(t *testing.T) {
+		raw, err := json.Marshal(&APIExpectedMachine{
+			BmcMacAddress:       "00:11:22:33:44:55",
+			ChassisSerialNumber: "CHASSIS123",
+		})
+		assert.NoError(t, err)
+		assert.NotContains(t, string(raw), "hostLifecycleProfile")
+	})
+}
+
+func TestNewAPIExpectedMachine_DpfEnabled(t *testing.T) {
+	t.Run("nil stored value defaults to true", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{})
+		assert.Nil(t, got.IsDpfEnabled)
+	})
+
+	t.Run("stored false is returned", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{
+			IsDpfEnabled: cutil.GetPtr(false),
+		})
+		assert.False(t, *got.IsDpfEnabled)
+	})
+
+	t.Run("stored true is returned", func(t *testing.T) {
+		got := NewAPIExpectedMachine(&cdbm.ExpectedMachine{
+			IsDpfEnabled: cutil.GetPtr(true),
+		})
+		assert.True(t, *got.IsDpfEnabled)
+
+	})
 }
 
 func TestNewAPIExpectedMachineWithNilFields(t *testing.T) {
@@ -589,6 +758,31 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
 				BmcIpAddress:        nil,
+			},
+			expectErr: false,
+		},
+		// HostLifecycleProfile validation tests
+		{
+			desc: "ok with hostLifecycleProfile disableLockdown true",
+			obj: APIExpectedMachineUpdateRequest{
+				ChassisSerialNumber:  &validChassisSerial,
+				HostLifecycleProfile: &APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok with hostLifecycleProfile disableLockdown false",
+			obj: APIExpectedMachineUpdateRequest{
+				ChassisSerialNumber:  &validChassisSerial,
+				HostLifecycleProfile: &APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "ok with nil hostLifecycleProfile",
+			obj: APIExpectedMachineUpdateRequest{
+				ChassisSerialNumber:  &validChassisSerial,
+				HostLifecycleProfile: nil,
 			},
 			expectErr: false,
 		},

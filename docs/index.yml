@@ -93,9 +93,13 @@ navigation:
               path: architecture/state_machines/managedhost.md
             - page: Switch
               path: architecture/state_machines/switch.md
+            - page: Switch Certificate Configuration
+              path: architecture/state_machines/switch_configure_certificate.md
             - page: Power Shelf
               path: architecture/state_machines/power_shelf.md
-            - page: Rack State Machine
+            - page: Rack (Machine / Switch / Power Shelf)
+              path: architecture/state_machines/rackstatemachine.md
+            - page: On-Demand Rack Maintenance
               path: architecture/state_machines/rack.md
         - page: SuperNIC Lockdown Key Management
           path: architecture/supernic_lockdown_key_management.md

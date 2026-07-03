@@ -209,8 +209,6 @@ description = "Build iPXE kernel for aarch64 (EFI) for SA builds"
 dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
-  "ipxe-patch-grace-grace",
-  "ipxe-patch-efi-rng",
   "ipxe-install-efi-aarch64",
 ]
 
@@ -619,36 +617,6 @@ script = '''
     fi
 '''
 
-[tasks.ipxe-patch-grace-grace]
-category = "iPXE Kernel"
-description = "Patch iPXE for the Supermicro Grace/Grace servers"
-cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
-script = '''
-    PATCH="${REPO_ROOT}/pxe/ipxe/local/0002-fix-for-grace-grace.patch"
-    echo "Testing if patch is reversible (i.e. already applied)"
-    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
-      echo "Reversing the patch failed, forward applying it."
-      patch -p1 --forward -i "${PATCH}"
-    else
-      echo "Reversing would be successful, assuming patch is already applied"
-    fi
-'''
-
-[tasks.ipxe-patch-efi-rng]
-category = "iPXE Kernel"
-description = "Patch iPXE for the ARM servers to retry EFI_RNG"
-cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
-script = '''
-    PATCH="${REPO_ROOT}/pxe/ipxe/local/0004-efi-retry-rng.patch"
-    echo "Testing if patch is reversible (i.e. already applied)"
-    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
-      echo "Reversing the patch failed, forward applying it."
-      patch -p1 --forward -i "${PATCH}"
-    else
-      echo "Reversing would be successful, assuming patch is already applied"
-    fi
-'''
-
 [tasks.ipxe-patch-measured-boot]
 category = 'iPXE Kernel'
 description = "Patch iPXE for measured boot and TPM support"
@@ -687,8 +655,6 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
-  "ipxe-patch-grace-grace",
-  "ipxe-patch-efi-rng",
   "ipxe-install-efi-aarch64",
 ]
 
@@ -698,8 +664,6 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 dependencies = [
   "ipxe-config",
   "ipxe-patch-mlnx",
-  "ipxe-patch-grace-grace",
-  "ipxe-patch-efi-rng",
   "ipxe-install-efi-aarch64-ci",
 ]
 
@@ -707,7 +671,7 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 script = '''
-  mv "ipxe/upstream/src/bin-arm64-efi/ipxe.efi" "static/blobs/internal/aarch64/ipxe.efi"
+  mv "ipxe/upstream/src/bin-arm64-efi/snponly.efi" "static/blobs/internal/aarch64/ipxe.efi"
   mv "ipxe/upstream/src/bin-arm64-efi/golan.efi" "static/blobs/internal/aarch64/golan.efi"
 '''
 dependencies = ["ipxe-build-efi-aarch64"]
@@ -717,7 +681,7 @@ category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
 args = [
-  "ipxe/upstream/src/bin-arm64-efi/ipxe.efi",
+  "ipxe/upstream/src/bin-arm64-efi/snponly.efi",
   "static/blobs/internal/aarch64/ipxe.efi",
 ]
 dependencies = ["ipxe-build-efi-aarch64-ci"]
@@ -756,7 +720,7 @@ script = '''
     build-artifacts-container-cross-aarch64 \
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/ipxe.efi \
+      bin-arm64-efi/snponly.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=/src/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls \
@@ -776,7 +740,7 @@ script = '''
   else
     make -j \
       CROSS_COMPILE=aarch64-linux-gnu- \
-      bin-arm64-efi/ipxe.efi \
+      bin-arm64-efi/snponly.efi \
       VERSION=${IPXE_BANNER_VERSION} \
       EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe \
       DEBUG=snp,tls
@@ -796,7 +760,7 @@ description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
 args = [
   "-j",
-  "bin-arm64-efi/ipxe.efi",
+  "bin-arm64-efi/snponly.efi",
   "VERSION=${IPXE_BANNER_VERSION}",
   "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe",
   "DEBUG=snp,tls",

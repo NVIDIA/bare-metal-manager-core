@@ -562,6 +562,42 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetMachineStatusDetailsHandler(dbSession),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/dpu",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllDpuMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/dpu/reprovision",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewDpuReprovisionHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/bmc-reset",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewBmcResetHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewListMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewInsertMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/health-report/:source",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewRemoveMachineHealthReportHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
+		},
+
 		// Machine GPU Stats endpoint
 		{
 			Path:    apiPathPrefix + "/machine/gpu/stats",
@@ -1075,6 +1111,18 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/site/:siteID/tenant-identity/token-delegation",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTenantIdentityTokenDelegationHandler(dbSession, scp),
+		},
+		// Host Firmware Config endpoint (Provider Admin). Proxied to Core via
+		// UpsertHostFirmwareConfig.
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateOrUpdateHostFirmwareConfigHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteHostFirmwareConfigHandler(dbSession, scp),
 		},
 	}
 

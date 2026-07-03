@@ -9,7 +9,7 @@ Command-line client for the NVIDIA Infrastructure Controller (NICo) REST API. Co
 
 ## Prerequisites
 
-- Go 1.25.11 or later
+- Go 1.26.4 or later
 - Access to a running NVIDIA Infrastructure Controller (NICo) REST API instance (local via `make kind-reset` or remote)
 
 ## Installation
@@ -208,6 +208,26 @@ Output formatting and pagination flags live on individual commands, not on the r
 | `--data-file` | create/update commands | Path to a JSON file (use `-` for stdin) |
 
 Run `nicocli <command> --help` for the full per-command flag list, including spec-derived query parameters and body fields.
+
+### Bootstrap site prerequisites from a manifest
+
+`nicocli site bootstrap` creates or verifies the REST resources needed to use a Site. It initializes the calling organization, requires the Site to already exist, then processes its auto-created Site IP Blocks, Instance Types, Allocations, VPCs, VPC Prefixes, and optional Instances in dependency order. It never creates a Site.
+
+Start from the [example manifest](examples/site-prerequisites.yaml), replace the organization and resource values, and run:
+
+```bash
+nicocli site bootstrap \
+  --file cli/examples/site-prerequisites.yaml \
+  --output-file site-prerequisites.resolved.yaml
+```
+
+The manifest uses `${...}` references so later requests can consume IDs returned by earlier requests. For example, `${site.id}` resolves to the existing Site ID, `${siteIpBlocks.id}` resolves to a Site IP Block selected from the fabric-prefix inventory, and `${allocations.network.allocationConstraints.0.derivedResourceId}` resolves to the Tenant IP Block created by the network Allocation.
+
+Site IP Blocks are not created by this command. NICo automatically creates them from fabric prefixes reported by the Site; the manifest's `siteIpBlocks` entries are read-only selectors for those existing resources. If the Site inventory has not arrived yet, bootstrap stops with a rerun message instead of posting a Provider-owned IP Block.
+
+For managed resources, the command looks up a recorded ID first, then uses exact name and scope. Matching resources are reused, while a matching resource whose returned configuration differs from the request stops the workflow with a drift error. The output file preserves the requests, selectors, and resolved resource IDs so it can be replayed after an interrupted run or against a replacement installation. All requests use operation paths and methods resolved from the same embedded OpenAPI model that builds the regular CLI commands.
+
+Bootstrap first calls the Service Account endpoint for `provider.org`. In Service Account mode that single call initializes and returns both identities, and the Provider and Tenant organization names must match; otherwise bootstrap falls back to the Provider and Tenant current endpoints. Separate Provider and Tenant organizations use the same token, so it must have the required role in both organizations. `provider.org` may be omitted when the Provider organization already comes from `--org`, `NICO_ORG`, or the selected CLI config. Site registration, fabric-prefix inventory, and machine readiness are external asynchronous steps; if a dependency is not ready yet, complete that step and rerun the same manifest.
 
 ## Authentication
 

@@ -1527,6 +1527,9 @@ pub async fn register_expected_machine(
 /// Seeds the vault with the BMC root credential for the host's BMC and every
 /// DPU BMC in the config -- required by anything that reaches a BMC through
 /// the real endpoint explorer.
+///
+/// Site-wide credentials (e.g. the host/DPU UEFI site-default) are seeded
+/// centrally in the `TestEnv` builder, not here, since they are not per-device.
 pub async fn seed_bmc_root_credentials(
     env: &TestEnv,
     config: &ManagedHostConfig,
@@ -1973,6 +1976,23 @@ pub async fn new_switch(
     let _switch = db_switch::create(&mut txn, &new_switch)
         .await
         .map_err(|e| eyre::eyre!("Failed to create switch: {:?}", e))?;
+
+    // Mirror site-explorer ingestion (switch_creator): link the switch's BMC
+    // machine_interface back to the switch and annotate it `Bmc`, so that
+    // `bmc_info` resolves via the interface link.
+    let bmc_interfaces =
+        db::machine_interface::find_by_mac_address(&mut *txn, expected_switch.bmc_mac_address)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to find BMC machine interface: {:?}", e))?;
+    if let Some(interface) = bmc_interfaces.first() {
+        db::machine_interface::associate_bmc_interface(
+            &interface.id,
+            model::machine_interface_address::MachineInterfaceAssociation::Switch(switch_id),
+            &mut txn,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("Failed to link BMC machine interface: {:?}", e))?;
+    }
 
     txn.commit().await.unwrap();
 

@@ -223,19 +223,11 @@ fn is_safe_path_segment(value: &str) -> bool {
 fn firmware_component_directory_name(
     component_type: FirmwareComponentType,
 ) -> Option<&'static str> {
-    Some(match component_type {
-        FirmwareComponentType::Bmc => "bmc",
-        FirmwareComponentType::Cec => "cec",
-        FirmwareComponentType::Uefi => "uefi",
-        FirmwareComponentType::Nic => "nic",
-        FirmwareComponentType::CpldMb => "cpldmb",
-        FirmwareComponentType::CpldPdb => "cpldpdb",
-        FirmwareComponentType::HGXBmc => "hgxbmc",
-        FirmwareComponentType::CombinedBmcUefi => "combinedbmcuefi",
-        FirmwareComponentType::Gpu => "gpu",
-        FirmwareComponentType::Cx7 => "cx7",
-        FirmwareComponentType::Unknown => return None,
-    })
+    if component_type == FirmwareComponentType::Unknown {
+        None
+    } else {
+        Some(component_type.slug())
+    }
 }
 
 /// Builds the PXE URL Scout will use to download the script.

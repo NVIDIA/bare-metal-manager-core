@@ -248,6 +248,23 @@ impl RedfishSim {
             .users
             .insert(username.to_string(), password.to_string());
     }
+
+    /// Seed a credential into the sim's credential store -- the same store
+    /// [`Self::credential_reader`] exposes. Controllers that resolve a credential
+    /// through `redfish_client_pool.credential_reader()` (e.g. UEFI setup, which
+    /// now reads the site-wide credential in the controller before calling
+    /// `uefi_setup`) read from here, so tests that drive those paths must seed it.
+    pub async fn seed_credential(
+        &self,
+        key: &carbide_secrets::credentials::CredentialKey,
+        credentials: &carbide_secrets::credentials::Credentials,
+    ) {
+        use carbide_secrets::credentials::CredentialWriter;
+        self.credential_manager
+            .set_credentials(key, credentials)
+            .await
+            .expect("seed redfish-sim credential");
+    }
 }
 
 /// Optional simulation flags used by API integration tests.
@@ -1938,6 +1955,7 @@ impl RedfishClientPool for RedfishSim {
         &self,
         _client: &dyn Redfish,
         _dpu: bool,
+        _sitewide_uefi_credentials: carbide_secrets::credentials::Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
         Ok(None)
     }

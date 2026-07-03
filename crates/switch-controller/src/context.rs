@@ -32,6 +32,8 @@ pub struct SwitchStateHandlerServices {
     pub db_pool: PgPool,
     pub component_manager: Option<Arc<ComponentManager>>,
     pub credential_manager: Arc<dyn CredentialManager>,
+    /// RMS `SwitchService` values passed to certificate configuration calls.
+    pub switch_mtls_services: Vec<i32>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }

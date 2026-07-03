@@ -71,7 +71,7 @@ const (
 
 var (
 	// OperatingSystemOrderByFields is a list of valid order by fields for the OperatingSystem model
-	OperatingSystemOrderByFields = []string{"name", "version", "status", "is_cloud_init", "created", "updated"}
+	OperatingSystemOrderByFields = []string{"name", "version", "status", "created", "updated"}
 	// OperatingSystemRelatedEntities is a list of valid relation by fields for the OperatingSystem model
 	OperatingSystemRelatedEntities = map[string]bool{
 		InfrastructureProviderRelationName: true,
@@ -501,7 +501,6 @@ func (ossd OperatingSystemSQLDAO) Create(ctx context.Context, tx *db.Tx, input O
 		RootFsLabel:                 input.RootFsLabel,
 		IpxeScript:                  input.IpxeScript,
 		UserData:                    input.UserData,
-		IsCloudInit:                 input.IsCloudInit,
 		AllowOverride:               input.AllowOverride,
 		EnableBlockStorage:          input.EnableBlockStorage,
 		PhoneHomeEnabled:            input.PhoneHomeEnabled,
@@ -769,11 +768,6 @@ func (ossd OperatingSystemSQLDAO) Update(ctx context.Context, tx *db.Tx, input O
 		it.UserData = input.UserData
 		updatedFields = append(updatedFields, "user_data")
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "user_data", *input.UserData)
-	}
-	if input.IsCloudInit != nil {
-		it.IsCloudInit = *input.IsCloudInit
-		updatedFields = append(updatedFields, "is_cloud_init")
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "is_cloud_init", *input.IsCloudInit)
 	}
 	if input.AllowOverride != nil {
 		it.AllowOverride = *input.AllowOverride

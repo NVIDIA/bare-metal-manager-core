@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use tonic::metadata::MetadataMap;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::{Extensions, Request};
 
 use super::proto::g_nmi_client::GNmiClient as TonicGnmiClient;
@@ -31,7 +31,7 @@ use crate::HealthError;
 use crate::config::NvueGnmiPaths;
 
 pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
-    let mut paths = Vec::with_capacity(2);
+    let mut paths = Vec::with_capacity(4);
     if paths_config.components_enabled {
         paths.push(Path {
             elem: vec![
@@ -62,6 +62,38 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
             ..Default::default()
         });
     }
+    if paths_config.platform_general_enabled {
+        // `/platform-general/state` carries the memory and disk
+        // utilization leaves
+        paths.push(Path {
+            elem: vec![
+                PathElem {
+                    name: "platform-general".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "state".into(),
+                    key: Default::default(),
+                },
+            ],
+            ..Default::default()
+        });
+        // `/platform-general/versions` carries the OS/BMC/EROT
+        // firmware version leaves
+        paths.push(Path {
+            elem: vec![
+                PathElem {
+                    name: "platform-general".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "versions".into(),
+                    key: Default::default(),
+                },
+            ],
+            ..Default::default()
+        });
+    }
     paths
 }
 
@@ -73,6 +105,28 @@ pub struct GnmiClient {
     username: Option<String>,
     password: Option<String>,
     request_timeout: Duration,
+    dangerously_skip_tls_verification: bool,
+}
+
+fn configure_tls_endpoint(
+    endpoint: Endpoint,
+    switch_id: &str,
+    dangerously_skip_tls_verification: bool,
+) -> Result<Endpoint, HealthError> {
+    if !dangerously_skip_tls_verification {
+        return Ok(endpoint);
+    }
+
+    // Use tonic's verifier hook (https endpoints get a strict verifier
+    // otherwise). No roots on ClientTlsConfig — roots + verifier is an error.
+    endpoint
+        .tls_config_with_verifier(
+            ClientTlsConfig::new(),
+            crate::collectors::nvue::tls::accept_any_cert_verifier(),
+        )
+        .map_err(|e| {
+            HealthError::GnmiError(format!("switch {switch_id}: invalid gNMI TLS config: {e}"))
+        })
 }
 
 impl GnmiClient {
@@ -83,6 +137,7 @@ impl GnmiClient {
         username: Option<String>,
         password: Option<String>,
         request_timeout: Duration,
+        dangerously_skip_tls_verification: bool,
     ) -> Self {
         Self {
             switch_id,
@@ -91,6 +146,7 @@ impl GnmiClient {
             username,
             password,
             request_timeout,
+            dangerously_skip_tls_verification,
         }
     }
 
@@ -109,32 +165,34 @@ impl GnmiClient {
                 ))
             })?;
 
-        let endpoint = Endpoint::from(uri)
-            .connect_timeout(self.request_timeout)
-            .timeout(self.request_timeout);
+        let endpoint = configure_tls_endpoint(
+            Endpoint::from(uri),
+            &self.switch_id,
+            self.dangerously_skip_tls_verification,
+        )?
+        .connect_timeout(self.request_timeout)
+        .timeout(self.request_timeout);
 
-        let tls_config = crate::collectors::nvue::tls::self_signed_tls_config();
-        let connector = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(tls_config)
-            .https_only()
-            .enable_http2()
-            .build();
+        let channel = endpoint.connect().await.map_err(|e| {
+            HealthError::GnmiError(format!(
+                "switch {}: connection failed to {target}: {e}",
+                self.switch_id
+            ))
+        })?;
 
-        let channel = endpoint
-            .connect_with_connector(connector)
-            .await
-            .map_err(|e| {
-                HealthError::GnmiError(format!(
-                    "switch {}: connection failed to {target}: {e}",
-                    self.switch_id
-                ))
-            })?;
-
-        tracing::debug!(
-            switch_id = %self.switch_id,
-            target = %target,
-            "gNMI TLS channel established (skip-verify)"
-        );
+        if self.dangerously_skip_tls_verification {
+            tracing::debug!(
+                switch_id = %self.switch_id,
+                target = %target,
+                "gNMI TLS channel established with certificate verification disabled"
+            );
+        } else {
+            tracing::debug!(
+                switch_id = %self.switch_id,
+                target = %target,
+                "gNMI TLS channel established"
+            );
+        }
 
         Ok(TonicGnmiClient::new(channel))
     }
@@ -439,9 +497,34 @@ mod tests {
     }
 
     #[test]
+    fn test_gnmi_client_stores_dangerous_tls_skip_flag() {
+        let strict = GnmiClient::new(
+            "switch-1".to_string(),
+            "10.0.0.9",
+            9339,
+            None,
+            None,
+            Duration::from_secs(30),
+            false,
+        );
+        assert!(!strict.dangerously_skip_tls_verification);
+
+        let dangerous = GnmiClient::new(
+            "switch-1".to_string(),
+            "10.0.0.9",
+            9339,
+            None,
+            None,
+            Duration::from_secs(30),
+            true,
+        );
+        assert!(dangerous.dangerously_skip_tls_verification);
+    }
+
+    #[test]
     fn test_nvue_subscribe_paths_all_enabled() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths::default());
-        assert_eq!(paths.len(), 2);
+        assert_eq!(paths.len(), 4);
 
         assert_eq!(paths[0].elem.len(), 2);
         assert_eq!(paths[0].elem[0].name, "components");
@@ -450,6 +533,14 @@ mod tests {
         assert_eq!(paths[1].elem.len(), 2);
         assert_eq!(paths[1].elem[0].name, "interfaces");
         assert_eq!(paths[1].elem[1].name, "interface");
+
+        assert_eq!(paths[2].elem.len(), 2);
+        assert_eq!(paths[2].elem[0].name, "platform-general");
+        assert_eq!(paths[2].elem[1].name, "state");
+
+        assert_eq!(paths[3].elem.len(), 2);
+        assert_eq!(paths[3].elem[0].name, "platform-general");
+        assert_eq!(paths[3].elem[1].name, "versions");
     }
 
     #[test]
@@ -457,6 +548,7 @@ mod tests {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: true,
+            platform_general_enabled: false,
         });
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].elem.len(), 2);
@@ -465,10 +557,27 @@ mod tests {
     }
 
     #[test]
+    fn test_nvue_subscribe_paths_platform_general_only() {
+        let paths = nvue_subscribe_paths(&NvueGnmiPaths {
+            components_enabled: false,
+            interfaces_enabled: false,
+            platform_general_enabled: true,
+        });
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0].elem.len(), 2);
+        assert_eq!(paths[0].elem[0].name, "platform-general");
+        assert_eq!(paths[0].elem[1].name, "state");
+        assert_eq!(paths[1].elem.len(), 2);
+        assert_eq!(paths[1].elem[0].name, "platform-general");
+        assert_eq!(paths[1].elem[1].name, "versions");
+    }
+
+    #[test]
     fn test_nvue_subscribe_paths_none_enabled() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: false,
+            platform_general_enabled: false,
         });
         assert!(paths.is_empty());
     }
@@ -499,7 +608,7 @@ mod tests {
         let prefix = sub_list.prefix.expect("prefix must be set");
         assert_eq!(prefix.target, "nvos", "target must be nvos");
 
-        assert_eq!(sub_list.subscription.len(), 2);
+        assert_eq!(sub_list.subscription.len(), 4);
         for sub in &sub_list.subscription {
             assert_eq!(
                 sub.mode,

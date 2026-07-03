@@ -150,7 +150,7 @@ impl Bluefield3<'_> {
                     .uefi_device_path(&format!("MAC({mocked_mac_no_colons},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"))
                     .build(),
             ]
-        })).collect();
+        })).collect::<Vec<_>>();
 
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
@@ -162,7 +162,7 @@ impl Bluefield3<'_> {
                 serial_number: Some(self.product_serial_number.to_string().into()),
                 boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                 callbacks: Some(callbacks),
-                boot_options: Some(boot_options),
+                boot_options: Some(boot_options.into()),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(

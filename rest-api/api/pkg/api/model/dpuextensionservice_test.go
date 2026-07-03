@@ -361,6 +361,26 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			desc: "error when observability prometheus scrapeIntervalSeconds is zero",
+			obj: APIDpuExtensionServiceCreateRequest{
+				Name:        "test-service",
+				ServiceType: DpuExtensionServiceTypeKubernetesPod,
+				SiteID:      validUUID,
+				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
+				Observability: &APIDpuExtensionServiceObservability{
+					Configs: []APIDpuExtensionServiceObservabilityConfig{
+						{
+							Prometheus: &APIDpuExtensionServiceObservabilityConfigPrometheus{
+								ScrapeIntervalSeconds: 0,
+								Endpoint:              "busybox:9090",
+							},
+						},
+					},
+				},
+			},
+			expectErr: true,
+		},
+		{
 			desc: "error when observability endpoint contains invalid characters",
 			obj: APIDpuExtensionServiceCreateRequest{
 				Name:        "test-service",

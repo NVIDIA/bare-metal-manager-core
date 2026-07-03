@@ -185,6 +185,37 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 	ts2 := testBuildTenantSiteAssociation(t, dbSession, tnOrg2, tn2.ID, st.ID, tnu2.ID)
 	assert.NotNil(t, ts2)
 
+	requestedNetworkSecurityGroupID := uuid.New()
+	existingNetworkSecurityGroupID := uuid.New()
+	deletedNetworkSecurityGroupID := uuid.New()
+	nsgDAO := cdbm.NewNetworkSecurityGroupDAO(dbSession)
+	_, err := nsgDAO.Create(ctx, nil, cdbm.NetworkSecurityGroupCreateInput{
+		NetworkSecurityGroupID: cutil.GetPtr(existingNetworkSecurityGroupID.String()),
+		Name:                   "existing-network-security-group-id",
+		SiteID:                 st.ID,
+		TenantID:               tn1.ID,
+		TenantOrg:              tn1.Org,
+		Status:                 cdbm.NetworkSecurityGroupStatusReady,
+		Rules:                  []*cdbm.NetworkSecurityGroupRule{},
+		CreatedByID:            tnu1.ID,
+	})
+	require.NoError(t, err)
+	deletedNSG, err := nsgDAO.Create(ctx, nil, cdbm.NetworkSecurityGroupCreateInput{
+		NetworkSecurityGroupID: cutil.GetPtr(deletedNetworkSecurityGroupID.String()),
+		Name:                   "deleted-network-security-group-id",
+		SiteID:                 st.ID,
+		TenantID:               tn1.ID,
+		TenantOrg:              tn1.Org,
+		Status:                 cdbm.NetworkSecurityGroupStatusReady,
+		Rules:                  []*cdbm.NetworkSecurityGroupRule{},
+		CreatedByID:            tnu1.ID,
+	})
+	require.NoError(t, err)
+	require.NoError(t, nsgDAO.Delete(ctx, nil, cdbm.NetworkSecurityGroupDeleteInput{
+		NetworkSecurityGroupID: deletedNSG.ID,
+		UpdatedByID:            tnu1.ID,
+	}))
+
 	e := echo.New()
 	cfg := common.GetTestConfig()
 	tc := &tmocks.Client{}
@@ -391,6 +422,77 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 				Labels: map[string]string{
 					"flavor": "coconut",
 				},
+			},
+		},
+		{
+			name:             "test good config with user-specified ID - success",
+			wantErr:          false,
+			wantResponseCode: http.StatusCreated,
+			handlerConfig: handlerConfig{
+				dbSession:      dbSession,
+				temporalClient: tc,
+				clientPool:     scp,
+				config:         cfg,
+			},
+			params: params{
+				org:  tnOrg,
+				user: tnu1,
+			},
+			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
+				ID:             &requestedNetworkSecurityGroupID,
+				Name:           "Spark VPC Firewall With User ID",
+				Description:    cutil.GetPtr("Security policies for machines in Spark VPC"),
+				SiteID:         st.ID.String(),
+				StatefulEgress: true,
+				Rules: []model.APINetworkSecurityGroupRule{
+					{
+						Direction:         model.APINetworkSecurityGroupRuleDirectionIngress,
+						Protocol:          model.APINetworkSecurityGroupRuleProtocolTcp,
+						Action:            model.APINetworkSecurityGroupRuleActionPermit,
+						SourcePrefix:      cutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix: cutil.GetPtr("1.1.1.1/0"),
+					},
+				},
+			},
+		},
+		{
+			name:             "test duplicate user-specified ID - fail",
+			wantErr:          false,
+			wantResponseCode: http.StatusConflict,
+			handlerConfig: handlerConfig{
+				dbSession:      dbSession,
+				temporalClient: tc,
+				clientPool:     scp,
+				config:         cfg,
+			},
+			params: params{
+				org:  tnOrg,
+				user: tnu1,
+			},
+			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
+				ID:     &existingNetworkSecurityGroupID,
+				Name:   "Spark VPC Firewall Existing ID",
+				SiteID: st.ID.String(),
+			},
+		},
+		{
+			name:             "test soft-deleted user-specified ID - fail",
+			wantErr:          false,
+			wantResponseCode: http.StatusConflict,
+			handlerConfig: handlerConfig{
+				dbSession:      dbSession,
+				temporalClient: tc,
+				clientPool:     scp,
+				config:         cfg,
+			},
+			params: params{
+				org:  tnOrg,
+				user: tnu1,
+			},
+			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
+				ID:     &deletedNetworkSecurityGroupID,
+				Name:   "Spark VPC Firewall Deleted ID",
+				SiteID: st.ID.String(),
 			},
 		},
 		{
@@ -652,6 +754,9 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			//t.Errorf(rec.Body.String())
 
 			assert.Equal(t, test.requestPayload.SiteID, rst.SiteID)
+			if test.requestPayload.ID != nil {
+				assert.Equal(t, test.requestPayload.ID.String(), rst.ID)
+			}
 
 			assert.Equal(t, test.requestPayload.Name, rst.Name)
 

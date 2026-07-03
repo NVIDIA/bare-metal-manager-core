@@ -25,6 +25,10 @@ authors.workspace = true
 [lib]
 name = "carbide_api_core"
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 bmc-vendor = { path = "../bmc-vendor" }
@@ -77,6 +81,7 @@ nras = { path = "../nras" }
 spancounter = { path = "../spancounter" }
 state-controller = { path = "../state-controller" }
 sqlx-query-tracing = { path = "../sqlx-query-tracing" }
+trace-propagation = { path = "../trace-propagation" }
 
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 arc-swap = { workspace = true }
@@ -133,6 +138,8 @@ reqwest = { workspace = true, default-features = false, features = [
   "rustls",
   "stream",
 ] }
+reqwest-middleware = { workspace = true }
+reqwest-tracing = { workspace = true }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
 rustls = { workspace = true }
@@ -232,6 +239,7 @@ carbide-site-explorer = { path = "../site-explorer", features = [
   "test-support",
 ] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }

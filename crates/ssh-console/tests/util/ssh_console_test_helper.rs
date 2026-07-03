@@ -34,6 +34,7 @@ pub struct ConfigOverrides {
     pub reconnect_interval_base: Option<Duration>,
     pub reconnect_interval_max: Option<Duration>,
     pub successful_connection_minimum_duration: Option<Duration>,
+    pub force_deactivate_conflicting_ipmi_sol_sessions: Option<bool>,
 }
 
 pub async fn spawn(
@@ -73,6 +74,10 @@ pub async fn spawn(
         override_bmc_ssh_port: Some(2222),
         override_ipmi_port: Some(1623),
         insecure_ipmi_ciphers: true,
+        force_deactivate_conflicting_ipmi_sol_sessions: config_overrides
+            .as_ref()
+            .and_then(|c| c.force_deactivate_conflicting_ipmi_sol_sessions)
+            .unwrap_or(false),
         forge_root_ca_path: API_CA_CERT.clone(),
         client_cert_path: API_CLIENT_CERT.clone(),
         client_key_path: API_CLIENT_KEY.clone(),

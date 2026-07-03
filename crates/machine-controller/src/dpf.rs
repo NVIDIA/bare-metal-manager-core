@@ -210,11 +210,65 @@ impl ResourceLabeler for CarbideDPFLabeler {
 }
 
 /// BMC password provider backed by the Carbide credential manager.
-pub struct CarbideBmcPasswordProvider(Arc<dyn carbide_secrets::credentials::CredentialReader>);
+///
+/// DPF needs a single site-wide BMC password (it has no per-device MAC at this
+/// layer), so this is one of the few legitimate site-wide credential consumers.
+/// It resolves the *current* site-wide version from
+/// `sitewide_credential_rotation.target_version` rather than reading a fixed
+/// unversioned path, so after a rotation it hands DPF the version the fleet has
+/// moved to.
+pub struct CarbideBmcPasswordProvider {
+    credential_reader: Arc<dyn carbide_secrets::credentials::CredentialReader>,
+    db_pool: sqlx::PgPool,
+}
 
 impl CarbideBmcPasswordProvider {
-    pub fn new(credential_reader: Arc<dyn carbide_secrets::credentials::CredentialReader>) -> Self {
-        Self(credential_reader)
+    pub fn new(
+        credential_reader: Arc<dyn carbide_secrets::credentials::CredentialReader>,
+        db_pool: sqlx::PgPool,
+    ) -> Self {
+        Self {
+            credential_reader,
+            db_pool,
+        }
+    }
+
+    /// Resolve the live site-wide BMC root version from the rotation table.
+    /// A `target_version` of 0 (no rotation yet) maps to the legacy unversioned
+    /// path via [`BmcCredentialType::site_wide_root`]. A *missing* row is a
+    /// broken/unmigrated database -- the backfill seeds a row at 0 for every
+    /// active type -- and is surfaced as an error rather than silently assuming
+    /// 0, matching the rest of the rotation code.
+    async fn current_sitewide_bmc_version(&self) -> Result<u32, DpfError> {
+        // Single read; needs no transaction.
+        let mut conn = self.db_pool.acquire().await.map_err(|e| {
+            DpfError::InvalidState(format!(
+                "Failed to acquire db connection for BMC rotation target: {e}"
+            ))
+        })?;
+        let target_version = db::credential_rotation::current_target_version(
+            &mut conn,
+            db::credential_rotation::CredentialRotationType::Bmc,
+        )
+        .await
+        .map_err(|e| DpfError::InvalidState(format!("Failed to read BMC rotation target: {e}")))?
+        .ok_or_else(|| {
+            DpfError::InvalidState(
+                "No site-wide BMC rotation target row exists; the backfill migration seeds one \
+                 for every active credential type, so a missing row indicates a broken or \
+                 unmigrated database"
+                    .to_string(),
+            )
+        })?;
+        // The column is constrained non-negative, so a failed conversion means a
+        // corrupt value, not "no rotation" -- surface it rather than masking it as
+        // the legacy v0 path.
+        u32::try_from(target_version).map_err(|_| {
+            DpfError::InvalidState(format!(
+                "site-wide BMC rotation target version {target_version} is negative; the column \
+                 is constrained non-negative, so this indicates a corrupt database"
+            ))
+        })
     }
 }
 
@@ -222,10 +276,11 @@ impl CarbideBmcPasswordProvider {
 impl BmcPasswordProvider for CarbideBmcPasswordProvider {
     async fn get_bmc_password(&self) -> Result<String, DpfError> {
         use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+        let version = self.current_sitewide_bmc_version().await?;
         let key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::SiteWideRoot,
+            credential_type: BmcCredentialType::site_wide_root(version),
         };
-        match self.0.get_credentials(&key).await {
+        match self.credential_reader.get_credentials(&key).await {
             Ok(Some(Credentials::UsernamePassword { password, .. })) => Ok(password),
             Ok(_) => Err(DpfError::InvalidState(
                 "Site wide BMC root credentials not set".into(),

@@ -81,9 +81,10 @@ impl BmcEndpointExplorer {
     }
 
     pub async fn get_sitewide_bmc_password(&self) -> Result<String, EndpointExplorationError> {
+        let version = self.current_sitewide_bmc_version().await?;
         let credentials = self
             .credential_client
-            .get_sitewide_bmc_root_credentials()
+            .get_sitewide_bmc_root_credentials(version)
             .await?;
 
         let (_, password) = match credentials {
@@ -91,6 +92,58 @@ impl BmcEndpointExplorer {
         };
 
         Ok(password)
+    }
+
+    /// Resolve which site-wide BMC root version is currently live from
+    /// `sitewide_credential_rotation.target_version`. This is the table-driven
+    /// "current site-wide credential" lookup: rather than reading a fixed
+    /// unversioned alias, ingestion consults the rotation table so a device
+    /// ingested after a rotation lands on the version the fleet moved to (and is
+    /// then recorded at that version by [`Self::set_bmc_root_credentials`]).
+    ///
+    /// A `target_version` of 0 means "no rotation yet" (the legacy unversioned
+    /// path). The backfill migration seeds a row at version 0 for every active
+    /// credential type, so a *missing* row is a broken/unmigrated database and is
+    /// surfaced as an error rather than silently assuming 0 (matching the write
+    /// path in [`Self::set_bmc_root_credentials`] and the rest of the rotation
+    /// code, which never guess a version). The only 0 fallback is the standalone
+    /// `bmc-explorer-cli` debug tool, which has no database at all.
+    async fn current_sitewide_bmc_version(&self) -> Result<u32, EndpointExplorationError> {
+        let Some(database_connection) = &self.database_connection else {
+            return Ok(0);
+        };
+        let read_err = |cause: String| EndpointExplorationError::Other {
+            details: format!("failed to read site-wide BMC rotation target: {cause}"),
+        };
+        // Single read; needs no transaction (the convergence write in
+        // set_bmc_root_credentials uses one because it commits a row).
+        let mut conn = database_connection
+            .acquire()
+            .await
+            .map_err(|e| read_err(e.to_string()))?;
+        let target_version = db::credential_rotation::current_target_version(
+            &mut conn,
+            db::credential_rotation::CredentialRotationType::Bmc,
+        )
+        .await
+        .map_err(|e| read_err(e.to_string()))?
+        .ok_or_else(|| {
+            read_err(
+                "no site-wide BMC rotation target row exists; the backfill migration seeds one \
+                 for every active credential type, so a missing row indicates a broken or \
+                 unmigrated database"
+                    .to_string(),
+            )
+        })?;
+        // The column is constrained non-negative, so a failed conversion means a
+        // corrupt value, not "no rotation" -- surface it rather than masking it as
+        // the legacy v0 path.
+        u32::try_from(target_version).map_err(|_| {
+            read_err(format!(
+                "site-wide BMC rotation target version {target_version} is negative; the column \
+                 is constrained non-negative, so this indicates a corrupt database"
+            ))
+        })
     }
 
     fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
@@ -313,9 +366,10 @@ impl BmcEndpointExplorer {
             "Attempting sitewide BMC root credentials fallback for possible reingested hardware"
         );
 
+        let version = self.current_sitewide_bmc_version().await?;
         let sitewide_credentials = self
             .credential_client
-            .get_sitewide_bmc_root_credentials()
+            .get_sitewide_bmc_root_credentials(version)
             .await?;
         let Credentials::UsernamePassword { password, .. } = sitewide_credentials;
         let credentials = Credentials::UsernamePassword {

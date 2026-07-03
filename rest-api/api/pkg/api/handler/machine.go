@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -1961,4 +1962,187 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 	logger.Info().Msg("finishing API handler")
 
 	return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
+}
+
+// ~~~~~ Get Machine DPU Handler ~~~~~ //
+
+// GetAllDpuMachineHandler is the API Handler for retrieving DPU machines attached to a host Machine.
+type GetAllDpuMachineHandler struct {
+	dbSession  *cdb.Session
+	scp        *sc.ClientPool
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewGetAllDpuMachineHandler initializes and returns a new handler to retrieve Machine DPU machines.
+func NewGetAllDpuMachineHandler(dbSession *cdb.Session, scp *sc.ClientPool) GetAllDpuMachineHandler {
+	return GetAllDpuMachineHandler{
+		dbSession:  dbSession,
+		scp:        scp,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Retrieve DPU machines attached to a host Machine
+// @Description Retrieve DPU machines attached to a host Machine via a synchronous Temporal workflow. See the OpenAPI spec for full authorization and response details.
+// @Tags Machine
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param machineId path string true "ID of host Machine"
+// @Success 200 {object} []model.APIDpuMachine
+// @Router /v2/org/{org}/nico/machine/{machineId}/dpu [get]
+func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Machine", "GetDpu", c, gadmh.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+	if dbUser == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	// Validate org
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+	}
+
+	mID := c.Param("id")
+	gadmh.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", mID), logger)
+
+	// Get Machine with Site relation
+	mDAO := cdbm.NewMachineDAO(gadmh.dbSession)
+	machine, err := mDAO.GetByID(ctx, nil, mID, []string{cdbm.SiteRelationName}, false)
+	if err != nil {
+		if err == cdb.ErrDoesNotExist {
+			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Machine with specified ID", nil)
+		}
+		logger.Error().Err(err).Msg("error retrieving Machine DB entity")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Could not retrieve Machine", nil)
+	}
+
+	site := machine.Site
+	if site == nil {
+		logger.Error().Msg("no Site relation found for Machine")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site detail for Machine, DB error", nil)
+	}
+
+	// Validate role: Provider Admins, or privileged Tenant Admins
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, true)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
+	// Validate org is associated with the Machine's Site: the org's Provider
+	// owns the Site, or the org's (privileged) Tenant has a Tenant Account on the
+	// Site's Infrastructure Provider.
+	isAssociated := false
+	if provider != nil {
+		isAssociated = site.InfrastructureProviderID == provider.ID
+	} else if tenant != nil {
+		taDAO := cdbm.NewTenantAccountDAO(gadmh.dbSession)
+		_, taCount, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+			InfrastructureProviderID: &site.InfrastructureProviderID,
+			TenantIDs:                []uuid.UUID{tenant.ID},
+		}, cdbp.PageInput{}, []string{})
+		if serr != nil {
+			logger.Error().Err(serr).Msg("error retrieving Tenant Account with Site's Infrastructure Provider")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to determine org's association with Site, DB error", nil)
+		}
+		isAssociated = taCount > 0
+	}
+
+	if !isAssociated {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Machine's Site", nil)
+	}
+
+	if site.Status != cdbm.SiteStatusRegistered {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine's Site is not in Registered state, unable to retrieve DPU information", nil)
+	}
+
+	// Get Machine interfaces to find attached DPU machine IDs
+	miDAO := cdbm.NewMachineInterfaceDAO(gadmh.dbSession)
+	machineInterfaces, _, err := miDAO.GetAll(ctx, nil, cdbm.MachineInterfaceFilterInput{
+		MachineIDs: []string{mID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		logger.Error().Err(err).Msg("error retrieving MachineInterfaces for Machine")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine Interfaces, DB error", nil)
+	}
+
+	apiDpuMachines := []model.APIDpuMachine{}
+
+	dpuMachineIDSet := goset.NewSet[string]()
+	for _, mi := range machineInterfaces {
+		if mi.AttachedDPUMachineID != nil && *mi.AttachedDPUMachineID != "" {
+			dpuMachineIDSet.Add(*mi.AttachedDPUMachineID)
+		}
+	}
+
+	// Return empty response if no DPUs are attached. This is checked before
+	// acquiring the Site's Temporal client so the endpoint answers from the DB
+	// instead of failing with a 500 when the Site client pool is unavailable.
+	if dpuMachineIDSet.Cardinality() == 0 {
+		logger.Info().Str("MachineID", mID).Msg("No DPUs found for requested Machine")
+		return c.JSON(http.StatusOK, apiDpuMachines)
+	}
+
+	dpuMachineIDs := dpuMachineIDSet.ToSlice()
+
+	// Get Temporal client for Site
+	stc, err := gadmh.scp.GetClientByID(machine.SiteID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Temporal client for Site", nil)
+	}
+
+	workflowOptions := temporalClient.StartWorkflowOptions{
+		ID:                       "dpu-machines-get-" + mID,
+		TaskQueue:                queue.SiteTaskQueue,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+	}
+
+	logger.Info().Int("DPU Count", len(dpuMachineIDs)).Msg("triggering GetDpuMachines workflow")
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetDpuMachines", dpuMachineIDs)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to start Temporal workflow to get DPU Machine info")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to schedule Machine DPU retrieval from Site: %s", err), nil)
+	}
+
+	wid := we.GetID()
+	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous GetDpuMachines workflow")
+
+	// Block until the workflow has completed and returned success/error.
+	var controllerDpuMachines []*cwssaws.DpuMachine
+	wferr := we.Get(wfCtx, &controllerDpuMachines)
+	if wferr != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, wferr, "Machine", "GetDpuMachines")
+		}
+
+		code, uwerr := common.UnwrapWorkflowError(wferr)
+		logger.Error().Err(uwerr).Msg("failed to execute Temporal workflow to get DPU Machine info")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to retrieve Machine DPU information from Site: %s", uwerr), nil)
+	}
+
+	apiDpuMachines = model.NewAPIDpuMachines(controllerDpuMachines, model.APIDpuMachineProtoContext{
+		HostMachineID:            mID,
+		SiteID:                   site.ID,
+		InfrastructureProviderID: site.InfrastructureProviderID,
+	})
+
+	logger.Info().Msg("finishing API handler")
+
+	return c.JSON(http.StatusOK, apiDpuMachines)
 }

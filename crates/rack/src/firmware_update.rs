@@ -110,6 +110,7 @@ pub async fn load_rack_firmware_inventory(
             os_ip: None,
             os_username: None,
             os_password: None,
+            os_hostname: None,
         });
     }
 
@@ -151,20 +152,7 @@ pub async fn load_rack_switch_firmware_inventory(
 
     let mut switches = Vec::with_capacity(switch_endpoints.len());
     for switch in &switch_endpoints {
-        let (bmc_username, bmc_password) =
-            fetch_bmc_credentials(credential_manager, switch.bmc_mac).await?;
-        let nvos_creds = fetch_nvos_credentials(credential_manager, switch.bmc_mac).await;
-        switches.push(FirmwareUpgradeDeviceInfo {
-            node_id: switch.switch_id.to_string(),
-            mac: switch.bmc_mac.to_string(),
-            bmc_ip: switch.bmc_ip.to_string(),
-            bmc_username,
-            bmc_password,
-            os_mac: switch.nvos_mac.map(|mac| mac.to_string()),
-            os_ip: switch.nvos_ip.map(|ip| ip.to_string()),
-            os_username: nvos_creds.as_ref().map(|(username, _)| username.clone()),
-            os_password: nvos_creds.map(|(_, password)| password),
-        });
+        switches.push(switch_endpoint_to_firmware_device_info(credential_manager, switch).await?);
     }
 
     Ok(RackSwitchFirmwareInventory {
@@ -173,6 +161,56 @@ pub async fn load_rack_switch_firmware_inventory(
     })
 }
 
+pub async fn load_switch_firmware_device_info(
+    db_pool: &PgPool,
+    credential_manager: &dyn CredentialManager,
+    switch_id: &SwitchId,
+) -> Result<FirmwareUpgradeDeviceInfo> {
+    let switch_endpoint = {
+        let mut txn = db_pool.begin().await?;
+        let mut switch_endpoints =
+            db_switch::find_switch_endpoints_by_ids(txn.as_mut(), std::slice::from_ref(switch_id))
+                .await?;
+        txn.commit().await?;
+        switch_endpoints
+            .pop()
+            .ok_or_else(|| eyre!("switch {} missing endpoint info", switch_id))?
+    };
+
+    switch_endpoint_to_firmware_device_info(credential_manager, &switch_endpoint).await
+}
+
+async fn switch_endpoint_to_firmware_device_info(
+    credential_manager: &dyn CredentialManager,
+    switch: &db_switch::SwitchEndpointRow,
+) -> Result<FirmwareUpgradeDeviceInfo> {
+    let (bmc_username, bmc_password) =
+        fetch_bmc_credentials(credential_manager, switch.bmc_mac).await?;
+    let nvos_creds = fetch_nvos_credentials(credential_manager, switch.bmc_mac).await;
+
+    Ok(FirmwareUpgradeDeviceInfo {
+        node_id: switch.switch_id.to_string(),
+        mac: switch.bmc_mac.to_string(),
+        bmc_ip: switch.bmc_ip.to_string(),
+        bmc_username,
+        bmc_password,
+        os_mac: switch.nvos_mac.map(|mac| mac.to_string()),
+        os_ip: switch.nvos_ip.map(|ip| ip.to_string()),
+        os_username: nvos_creds.as_ref().map(|(username, _)| username.clone()),
+        os_password: nvos_creds.map(|(_, password)| password),
+        os_hostname: switch
+            .nvos_hostname
+            .clone()
+            .filter(|hostname| !hostname.is_empty()),
+    })
+}
+
+/// Resolve the per-device BMC root credentials for the given MAC.
+///
+/// Per-device secrets are authoritative; there is deliberately no site-wide
+/// fallback. A missing per-MAC secret means the device has not been
+/// (re)ingested, and falling back to the rotating site-wide credential would
+/// mask that and break the moment the site rotates.
 async fn fetch_bmc_credentials(
     credential_manager: &dyn CredentialManager,
     bmc_mac: mac_address::MacAddress,
@@ -183,18 +221,14 @@ async fn fetch_bmc_credentials(
         },
     };
 
-    let creds = match credential_manager.get_credentials(&key).await? {
-        Some(creds) => creds,
-        None => {
-            let sitewide_key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::SiteWideRoot,
-            };
-            credential_manager
-                .get_credentials(&sitewide_key)
-                .await?
-                .ok_or_else(|| eyre!("no BMC credentials found for {} or sitewide", bmc_mac))?
-        }
-    };
+    let creds = credential_manager
+        .get_credentials(&key)
+        .await?
+        .ok_or_else(|| {
+            eyre!(
+                "no per-device BMC credentials found for {bmc_mac}; the device must be (re)ingested"
+            )
+        })?;
 
     match creds {
         Credentials::UsernamePassword { username, password } => Ok((username, password)),
@@ -228,6 +262,7 @@ pub fn build_new_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: device.bmc_ip.clone(),
                 mac_address: device.mac.clone(),
+                host_name: None,
             }),
             port: 443,
             credentials: user_pass_credentials(&device.bmc_username, &device.bmc_password),
@@ -270,6 +305,10 @@ fn build_host_interface(device: &FirmwareUpgradeDeviceInfo) -> Option<rms::Netwo
     Some(rms::NetworkInterface {
         ip_address: ip_address.clone(),
         mac_address: mac_address.clone(),
+        host_name: device
+            .os_hostname
+            .clone()
+            .filter(|hostname| !hostname.is_empty()),
     })
 }
 

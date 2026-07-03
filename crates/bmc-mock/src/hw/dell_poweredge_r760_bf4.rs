@@ -115,7 +115,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                 boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
                 callbacks,
                 chassis: vec!["System.Embedded.1".into()],
-                boot_options: Some(boot_options),
+                boot_options: Some(boot_options.into()),
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,

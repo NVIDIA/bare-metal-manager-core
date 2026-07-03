@@ -165,16 +165,16 @@ The script:
 
 ```bash
 # List all machines
-./dev/mac-local-dev/run-nico-admin-cli.sh machine list
+./dev/mac-local-dev/run-nico-admin-cli.sh machine show
 
 # Show details for a specific machine
 ./dev/mac-local-dev/run-nico-admin-cli.sh machine show <machine-id>
 
 # List OS images
-./dev/mac-local-dev/run-nico-admin-cli.sh os-image list
+./dev/mac-local-dev/run-nico-admin-cli.sh os-image show
 
 # List network segments
-./dev/mac-local-dev/run-nico-admin-cli.sh network-segment list
+./dev/mac-local-dev/run-nico-admin-cli.sh network-segment show
 
 # List tenants (JSON output)
 ./dev/mac-local-dev/run-nico-admin-cli.sh --format json tenant show

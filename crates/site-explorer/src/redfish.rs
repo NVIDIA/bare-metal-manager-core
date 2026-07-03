@@ -34,6 +34,7 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
 use mac_address::MacAddress;
+use model::errors::{ErrorCode, ErrorSubsystem, OperatorError, OperatorErrorSchema};
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
@@ -138,8 +139,19 @@ impl RedfishClient {
         match service_root.vendor() {
             Some(vendor) if vendor != RedfishVendor::Unknown => Ok(vendor),
             _ => {
-                tracing::info!("No recognized vendor for BMC at {bmc_ip_address}");
-                Err(EndpointExplorationError::MissingVendor)
+                // Capture the raw vendor string the ServiceRoot actually reported
+                // (the `Vendor` field, falling back to the first `Oem` key) so the
+                // recorded exploration error says *what* we read and *where* from.
+                // `None` here means the BMC reported neither — usually transient
+                // while it is still initializing; `Some(_)` means a vendor we don't
+                // recognize yet. See NVBug 6036327.
+                let observed = service_root.vendor_string();
+                tracing::info!(
+                    %bmc_ip_address,
+                    observed_vendor = ?observed,
+                    "BMC ServiceRoot did not report a recognized vendor"
+                );
+                Err(EndpointExplorationError::MissingVendor { observed })
             }
         }
     }
@@ -219,7 +231,8 @@ impl RedfishClient {
             | RedfishVendor::P3809
             | RedfishVendor::LiteOnPowerShelf
             | RedfishVendor::DeltaPowerShelf
-            | RedfishVendor::NvidiaGBx00 => {
+            | RedfishVendor::NvidiaGBx00
+            | RedfishVendor::VeraRubin => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
                 //
@@ -272,6 +285,14 @@ impl RedfishClient {
                     .map_err(map_redfish_error)?;
             }
             RedfishVendor::Unknown => {
+                // Defensive guard: callers in the explorer resolve the vendor via
+                // `get_redfish_vendor`, which rejects `Unknown` (as `MissingVendor`)
+                // before we ever get here, so this arm is not reachable from the
+                // live exploration path. Note that an unrecognized *raw* vendor
+                // string is already collapsed to `Unknown` by libredfish, so the
+                // original name is unavailable at this point — the meaningful
+                // capture happens in `get_redfish_vendor`. If this ever fires it
+                // signals an internal logic error rather than a parsed vendor.
                 return Err(EndpointExplorationError::UnsupportedVendor {
                     vendor: vendor.to_string(),
                 });
@@ -337,18 +358,34 @@ impl RedfishClient {
                 let details = format!(
                     "DPU BMC BIOS attributes not ready ({error}); scheduling a force-restart to mitigate the known UEFI POST/BMC race"
                 );
-                tracing::warn!("{details}");
-                (
-                    None,
-                    Some(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                        details,
-                        response_body: None,
-                        response_code: None,
-                    }),
-                )
+                let exploration_error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                    details,
+                    response_body: None,
+                    response_code: None,
+                };
+                let schema = exploration_error.operator_error_schema();
+                tracing::warn!(
+                    error = %error,
+                    error_code = %schema.error_code,
+                    mitigation = %schema.mitigation_for_log(),
+                    text = %schema.text,
+                    "Failed to fetch machine setup status"
+                );
+                (None, Some(exploration_error))
             }
             Err(error) => {
-                tracing::warn!(%error, "Failed to fetch machine setup status.");
+                let schema = OperatorErrorSchema::new(
+                    ErrorCode::nico(ErrorSubsystem::SiteExplorer, 130),
+                    format!("Failed to fetch machine setup status: {error}"),
+                    None,
+                );
+                tracing::warn!(
+                    error = %error,
+                    error_code = %schema.error_code,
+                    mitigation = %schema.mitigation_for_log(),
+                    text = %schema.text,
+                    "Failed to fetch machine setup status"
+                );
                 (None, None)
             }
         };
@@ -1322,7 +1359,7 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
         } if *status_code == http::StatusCode::FORBIDDEN && url.contains("FirmwareInventory") => {
             EndpointExplorationError::VikingFWInventoryForbiddenError {
                 details: format!(
-                    "HTTP {status_code} at {url} - this is a known, intermittent issue for Vikings."
+                    "HTTP {status_code} at {url} - this is a known, intermittent issue for DGX H100 BMCs."
                 ),
                 response_body: Some(response_body.clone()),
                 response_code: Some(status_code.as_u16()),
@@ -1426,7 +1463,7 @@ fn map_nv_redfish_explore_error(
                         {
                             EndpointExplorationError::VikingFWInventoryForbiddenError {
                                 details: format!(
-                                    "HTTP {status} at {url} - this is a known, intermittent issue for Vikings."
+                                    "HTTP {status} at {url} - this is a known, intermittent issue for DGX H100 BMCs."
                                 ),
                                 response_body: Some(text),
                                 response_code: Some(status.as_u16()),

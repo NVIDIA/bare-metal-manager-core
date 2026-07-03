@@ -261,20 +261,46 @@ pub async fn associate_interface_with_dpu_machine(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn associate_bmc_interface_with_machine(
+/// Link an interface as the BMC of its owning entity in one statement:
+/// associate it with the machine / switch / power shelf (per `association`),
+/// annotate it as `Bmc`, and demote it from primary (a BMC is a management
+/// interface, never the primary data interface).
+///
+/// Mirrors [`associate_interface_with_machine`] but additionally forces
+/// `interface_type='Bmc'` and `primary_interface=false`.
+pub async fn associate_bmc_interface(
     interface_id: &MachineInterfaceId,
-    machine_id: &MachineId,
+    association: MachineInterfaceAssociation,
     txn: &mut PgConnection,
 ) -> DatabaseResult<MachineInterfaceId> {
-    let query = "UPDATE machine_interfaces
-        SET machine_id=$1,
-            association_type='Machine'::association_type,
-            interface_type='Bmc'::interface_type,
-            primary_interface=false
-        WHERE id=$2::uuid
-        RETURNING id";
+    let (query, association_type, id_value) = match association {
+        MachineInterfaceAssociation::Machine(id) => (
+            "UPDATE machine_interfaces SET machine_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "Machine",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::Switch(id) => (
+            "UPDATE machine_interfaces SET switch_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "Switch",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::PowerShelf(id) => (
+            "UPDATE machine_interfaces SET power_shelf_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "PowerShelf",
+            id.to_string(),
+        ),
+    };
+    // `primary_interface` is always forced to false here, so the one-primary
+    // constraint cannot fire -- only the single-association one is relevant.
     sqlx::query_as(query)
-        .bind(machine_id)
+        .bind(id_value)
+        .bind(association_type)
         .bind(*interface_id)
         .fetch_one(txn)
         .await
@@ -366,6 +392,41 @@ pub async fn lookup_bmc_ip_by_mac_address(
         .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Returns the fully qualified hostname (`hostname.domain`) for each requested
+/// MAC address, using `machine_interfaces.hostname` and the associated
+/// `domains.name` when present.
+pub async fn find_hostnames_by_mac_addresses(
+    db: impl DbReader<'_>,
+    mac_addresses: &[MacAddress],
+) -> DatabaseResult<HashMap<MacAddress, String>> {
+    if mac_addresses.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let query = r#"
+        SELECT
+            mi.mac_address,
+            CASE
+                WHEN d.name IS NOT NULL AND d.name <> '' THEN mi.hostname || '.' || d.name
+                ELSE mi.hostname
+            END AS hostname
+        FROM machine_interfaces mi
+        LEFT JOIN domains d ON d.id = mi.domain_id
+        WHERE mi.mac_address = ANY($1)
+          AND mi.hostname <> ''
+    "#;
+    let rows: Vec<(MacAddress, String)> = sqlx::query_as(query)
+        .bind(mac_addresses)
+        .fetch_all(db)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(rows
+        .into_iter()
+        .filter(|(_, hostname)| !hostname.is_empty())
+        .collect())
 }
 
 pub async fn lookup_bmc_access_info(

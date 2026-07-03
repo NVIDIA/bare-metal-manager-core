@@ -152,6 +152,7 @@ const (
 	Forge_GetSwitchNvosCredentials_FullMethodName                           = "/forge.Forge/GetSwitchNvosCredentials"
 	Forge_GetAllManagedHostNetworkStatus_FullMethodName                     = "/forge.Forge/GetAllManagedHostNetworkStatus"
 	Forge_GetSiteExplorationReport_FullMethodName                           = "/forge.Forge/GetSiteExplorationReport"
+	Forge_GetSiteExplorerLastRun_FullMethodName                             = "/forge.Forge/GetSiteExplorerLastRun"
 	Forge_ClearSiteExplorationError_FullMethodName                          = "/forge.Forge/ClearSiteExplorationError"
 	Forge_IsBmcInManagedHost_FullMethodName                                 = "/forge.Forge/IsBmcInManagedHost"
 	Forge_BmcCredentialStatus_FullMethodName                                = "/forge.Forge/BmcCredentialStatus"
@@ -191,6 +192,8 @@ const (
 	Forge_FindNetworkDevicesByDeviceIds_FullMethodName                      = "/forge.Forge/FindNetworkDevicesByDeviceIds"
 	Forge_CreateCredential_FullMethodName                                   = "/forge.Forge/CreateCredential"
 	Forge_DeleteCredential_FullMethodName                                   = "/forge.Forge/DeleteCredential"
+	Forge_RotateCredential_FullMethodName                                   = "/forge.Forge/RotateCredential"
+	Forge_GetCredentialRotationStatus_FullMethodName                        = "/forge.Forge/GetCredentialRotationStatus"
 	Forge_GetRouteServers_FullMethodName                                    = "/forge.Forge/GetRouteServers"
 	Forge_AddRouteServers_FullMethodName                                    = "/forge.Forge/AddRouteServers"
 	Forge_RemoveRouteServers_FullMethodName                                 = "/forge.Forge/RemoveRouteServers"
@@ -344,6 +347,8 @@ const (
 	Forge_RedfishCancelAction_FullMethodName                                = "/forge.Forge/RedfishCancelAction"
 	Forge_UfmBrowse_FullMethodName                                          = "/forge.Forge/UfmBrowse"
 	Forge_GetDesiredFirmwareVersions_FullMethodName                         = "/forge.Forge/GetDesiredFirmwareVersions"
+	Forge_UpsertHostFirmwareConfig_FullMethodName                           = "/forge.Forge/UpsertHostFirmwareConfig"
+	Forge_DeleteHostFirmwareConfig_FullMethodName                           = "/forge.Forge/DeleteHostFirmwareConfig"
 	Forge_CreateSku_FullMethodName                                          = "/forge.Forge/CreateSku"
 	Forge_GenerateSkuFromMachine_FullMethodName                             = "/forge.Forge/GenerateSkuFromMachine"
 	Forge_VerifySkuForMachine_FullMethodName                                = "/forge.Forge/VerifySkuForMachine"
@@ -457,6 +462,7 @@ const (
 	Forge_GetDPFHostSnapshot_FullMethodName                                 = "/forge.Forge/GetDPFHostSnapshot"
 	Forge_GetDPFServiceVersions_FullMethodName                              = "/forge.Forge/GetDPFServiceVersions"
 	Forge_ComponentPowerControl_FullMethodName                              = "/forge.Forge/ComponentPowerControl"
+	Forge_ComponentConfigureSwitchCertificate_FullMethodName                = "/forge.Forge/ComponentConfigureSwitchCertificate"
 	Forge_GetComponentInventory_FullMethodName                              = "/forge.Forge/GetComponentInventory"
 	Forge_UpdateComponentFirmware_FullMethodName                            = "/forge.Forge/UpdateComponentFirmware"
 	Forge_GetComponentFirmwareStatus_FullMethodName                         = "/forge.Forge/GetComponentFirmwareStatus"
@@ -682,6 +688,8 @@ type ForgeClient interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(ctx context.Context, in *GetSiteExplorationRequest, opts ...grpc.CallOption) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(ctx context.Context, in *ClearSiteExplorationErrorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -775,6 +783,13 @@ type ForgeClient interface {
 	CreateCredential(ctx context.Context, in *CredentialCreationRequest, opts ...grpc.CallOption) (*CredentialCreationResult, error)
 	// Delete Credential in Vault
 	DeleteCredential(ctx context.Context, in *CredentialDeletionRequest, opts ...grpc.CallOption) (*CredentialDeletionResult, error)
+	// Credential rotation
+	// Stage a site-wide credential rotation: write the rotate-TO secret and bump
+	// the site-wide target version. Devices converge to the new version
+	// asynchronously.
+	RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResult, error)
+	// Report convergence of an in-flight (or completed) site-wide rotation.
+	GetCredentialRotationStatus(ctx context.Context, in *CredentialRotationStatusRequest, opts ...grpc.CallOption) (*CredentialRotationStatusResult, error)
 	// Route Server Management
 	GetRouteServers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*RouteServerEntries, error)
 	AddRouteServers(ctx context.Context, in *RouteServers, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -1014,6 +1029,8 @@ type ForgeClient interface {
 	RedfishCancelAction(ctx context.Context, in *RedfishActionID, opts ...grpc.CallOption) (*RedfishCancelActionResponse, error)
 	UfmBrowse(ctx context.Context, in *UfmBrowseRequest, opts ...grpc.CallOption) (*UfmBrowseResponse, error)
 	GetDesiredFirmwareVersions(ctx context.Context, in *GetDesiredFirmwareVersionsRequest, opts ...grpc.CallOption) (*GetDesiredFirmwareVersionsResponse, error)
+	UpsertHostFirmwareConfig(ctx context.Context, in *UpsertHostFirmwareConfigRequest, opts ...grpc.CallOption) (*HostFirmwareConfigResponse, error)
+	DeleteHostFirmwareConfig(ctx context.Context, in *DeleteHostFirmwareConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Create A SKU to be assigned to a machine so the machine hardware can be validated.
 	CreateSku(ctx context.Context, in *SkuList, opts ...grpc.CallOption) (*SkuIdList, error)
 	// Generate a SKU from the hardware inventory of a machine.
@@ -1229,6 +1246,7 @@ type ForgeClient interface {
 	GetDPFServiceVersions(ctx context.Context, in *GetDPFServiceVersionsRequest, opts ...grpc.CallOption) (*DPFServiceVersionsResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error)
+	ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error)
 	GetComponentInventory(ctx context.Context, in *GetComponentInventoryRequest, opts ...grpc.CallOption) (*GetComponentInventoryResponse, error)
 	UpdateComponentFirmware(ctx context.Context, in *UpdateComponentFirmwareRequest, opts ...grpc.CallOption) (*UpdateComponentFirmwareResponse, error)
 	GetComponentFirmwareStatus(ctx context.Context, in *GetComponentFirmwareStatusRequest, opts ...grpc.CallOption) (*GetComponentFirmwareStatusResponse, error)
@@ -2554,6 +2572,16 @@ func (c *forgeClient) GetSiteExplorationReport(ctx context.Context, in *GetSiteE
 	return out, nil
 }
 
+func (c *forgeClient) GetSiteExplorerLastRun(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SiteExplorerLastRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiteExplorerLastRunResponse)
+	err := c.cc.Invoke(ctx, Forge_GetSiteExplorerLastRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) ClearSiteExplorationError(ctx context.Context, in *ClearSiteExplorationErrorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -2938,6 +2966,26 @@ func (c *forgeClient) DeleteCredential(ctx context.Context, in *CredentialDeleti
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CredentialDeletionResult)
 	err := c.cc.Invoke(ctx, Forge_DeleteCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateCredentialResult)
+	err := c.cc.Invoke(ctx, Forge_RotateCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetCredentialRotationStatus(ctx context.Context, in *CredentialRotationStatusRequest, opts ...grpc.CallOption) (*CredentialRotationStatusResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CredentialRotationStatusResult)
+	err := c.cc.Invoke(ctx, Forge_GetCredentialRotationStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4474,6 +4522,26 @@ func (c *forgeClient) GetDesiredFirmwareVersions(ctx context.Context, in *GetDes
 	return out, nil
 }
 
+func (c *forgeClient) UpsertHostFirmwareConfig(ctx context.Context, in *UpsertHostFirmwareConfigRequest, opts ...grpc.CallOption) (*HostFirmwareConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HostFirmwareConfigResponse)
+	err := c.cc.Invoke(ctx, Forge_UpsertHostFirmwareConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) DeleteHostFirmwareConfig(ctx context.Context, in *DeleteHostFirmwareConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_DeleteHostFirmwareConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateSku(ctx context.Context, in *SkuList, opts ...grpc.CallOption) (*SkuIdList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SkuIdList)
@@ -5607,6 +5675,16 @@ func (c *forgeClient) ComponentPowerControl(ctx context.Context, in *ComponentPo
 	return out, nil
 }
 
+func (c *forgeClient) ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComponentConfigureSwitchCertificateResponse)
+	err := c.cc.Invoke(ctx, Forge_ComponentConfigureSwitchCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) GetComponentInventory(ctx context.Context, in *GetComponentInventoryRequest, opts ...grpc.CallOption) (*GetComponentInventoryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetComponentInventoryResponse)
@@ -5947,6 +6025,8 @@ type ForgeServer interface {
 	// Gets the latest Site Exploration report
 	// DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
 	GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error)
+	// Gets metadata about the latest Site Explorer run without fetching endpoint rows.
+	GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error)
 	// Clear the last known error for the BMC
 	ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error)
 	// IsBmcInManagedHost returns true if a Host+DPU pair that includes the endpoint has been identified
@@ -6040,6 +6120,13 @@ type ForgeServer interface {
 	CreateCredential(context.Context, *CredentialCreationRequest) (*CredentialCreationResult, error)
 	// Delete Credential in Vault
 	DeleteCredential(context.Context, *CredentialDeletionRequest) (*CredentialDeletionResult, error)
+	// Credential rotation
+	// Stage a site-wide credential rotation: write the rotate-TO secret and bump
+	// the site-wide target version. Devices converge to the new version
+	// asynchronously.
+	RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResult, error)
+	// Report convergence of an in-flight (or completed) site-wide rotation.
+	GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error)
 	// Route Server Management
 	GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error)
 	AddRouteServers(context.Context, *RouteServers) (*emptypb.Empty, error)
@@ -6279,6 +6366,8 @@ type ForgeServer interface {
 	RedfishCancelAction(context.Context, *RedfishActionID) (*RedfishCancelActionResponse, error)
 	UfmBrowse(context.Context, *UfmBrowseRequest) (*UfmBrowseResponse, error)
 	GetDesiredFirmwareVersions(context.Context, *GetDesiredFirmwareVersionsRequest) (*GetDesiredFirmwareVersionsResponse, error)
+	UpsertHostFirmwareConfig(context.Context, *UpsertHostFirmwareConfigRequest) (*HostFirmwareConfigResponse, error)
+	DeleteHostFirmwareConfig(context.Context, *DeleteHostFirmwareConfigRequest) (*emptypb.Empty, error)
 	// Create A SKU to be assigned to a machine so the machine hardware can be validated.
 	CreateSku(context.Context, *SkuList) (*SkuIdList, error)
 	// Generate a SKU from the hardware inventory of a machine.
@@ -6494,6 +6583,7 @@ type ForgeServer interface {
 	GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error)
+	ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error)
 	GetComponentInventory(context.Context, *GetComponentInventoryRequest) (*GetComponentInventoryResponse, error)
 	UpdateComponentFirmware(context.Context, *UpdateComponentFirmwareRequest) (*UpdateComponentFirmwareResponse, error)
 	GetComponentFirmwareStatus(context.Context, *GetComponentFirmwareStatusRequest) (*GetComponentFirmwareStatusResponse, error)
@@ -6908,6 +6998,9 @@ func (UnimplementedForgeServer) GetAllManagedHostNetworkStatus(context.Context, 
 func (UnimplementedForgeServer) GetSiteExplorationReport(context.Context, *GetSiteExplorationRequest) (*SiteExplorationReport, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorationReport not implemented")
 }
+func (UnimplementedForgeServer) GetSiteExplorerLastRun(context.Context, *emptypb.Empty) (*SiteExplorerLastRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSiteExplorerLastRun not implemented")
+}
 func (UnimplementedForgeServer) ClearSiteExplorationError(context.Context, *ClearSiteExplorationErrorRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearSiteExplorationError not implemented")
 }
@@ -7024,6 +7117,12 @@ func (UnimplementedForgeServer) CreateCredential(context.Context, *CredentialCre
 }
 func (UnimplementedForgeServer) DeleteCredential(context.Context, *CredentialDeletionRequest) (*CredentialDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteCredential not implemented")
+}
+func (UnimplementedForgeServer) RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateCredential not implemented")
+}
+func (UnimplementedForgeServer) GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCredentialRotationStatus not implemented")
 }
 func (UnimplementedForgeServer) GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRouteServers not implemented")
@@ -7484,6 +7583,12 @@ func (UnimplementedForgeServer) UfmBrowse(context.Context, *UfmBrowseRequest) (*
 func (UnimplementedForgeServer) GetDesiredFirmwareVersions(context.Context, *GetDesiredFirmwareVersionsRequest) (*GetDesiredFirmwareVersionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDesiredFirmwareVersions not implemented")
 }
+func (UnimplementedForgeServer) UpsertHostFirmwareConfig(context.Context, *UpsertHostFirmwareConfigRequest) (*HostFirmwareConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpsertHostFirmwareConfig not implemented")
+}
+func (UnimplementedForgeServer) DeleteHostFirmwareConfig(context.Context, *DeleteHostFirmwareConfigRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteHostFirmwareConfig not implemented")
+}
 func (UnimplementedForgeServer) CreateSku(context.Context, *SkuList) (*SkuIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateSku not implemented")
 }
@@ -7822,6 +7927,9 @@ func (UnimplementedForgeServer) GetDPFServiceVersions(context.Context, *GetDPFSe
 }
 func (UnimplementedForgeServer) ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComponentPowerControl not implemented")
+}
+func (UnimplementedForgeServer) ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ComponentConfigureSwitchCertificate not implemented")
 }
 func (UnimplementedForgeServer) GetComponentInventory(context.Context, *GetComponentInventoryRequest) (*GetComponentInventoryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetComponentInventory not implemented")
@@ -10204,6 +10312,24 @@ func _Forge_GetSiteExplorationReport_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_GetSiteExplorerLastRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetSiteExplorerLastRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetSiteExplorerLastRun(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_ClearSiteExplorationError_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ClearSiteExplorationErrorRequest)
 	if err := dec(in); err != nil {
@@ -10902,6 +11028,42 @@ func _Forge_DeleteCredential_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteCredential(ctx, req.(*CredentialDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_RotateCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).RotateCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_RotateCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).RotateCredential(ctx, req.(*RotateCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetCredentialRotationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CredentialRotationStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetCredentialRotationStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetCredentialRotationStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetCredentialRotationStatus(ctx, req.(*CredentialRotationStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -13660,6 +13822,42 @@ func _Forge_GetDesiredFirmwareVersions_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_UpsertHostFirmwareConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpsertHostFirmwareConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).UpsertHostFirmwareConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_UpsertHostFirmwareConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).UpsertHostFirmwareConfig(ctx, req.(*UpsertHostFirmwareConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_DeleteHostFirmwareConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteHostFirmwareConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DeleteHostFirmwareConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DeleteHostFirmwareConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DeleteHostFirmwareConfig(ctx, req.(*DeleteHostFirmwareConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateSku_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SkuList)
 	if err := dec(in); err != nil {
@@ -15683,6 +15881,24 @@ func _Forge_ComponentPowerControl_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ComponentConfigureSwitchCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComponentConfigureSwitchCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ComponentConfigureSwitchCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ComponentConfigureSwitchCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ComponentConfigureSwitchCertificate(ctx, req.(*ComponentConfigureSwitchCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_GetComponentInventory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetComponentInventoryRequest)
 	if err := dec(in); err != nil {
@@ -16441,6 +16657,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_GetSiteExplorationReport_Handler,
 		},
 		{
+			MethodName: "GetSiteExplorerLastRun",
+			Handler:    _Forge_GetSiteExplorerLastRun_Handler,
+		},
+		{
 			MethodName: "ClearSiteExplorationError",
 			Handler:    _Forge_ClearSiteExplorationError_Handler,
 		},
@@ -16595,6 +16815,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteCredential",
 			Handler:    _Forge_DeleteCredential_Handler,
+		},
+		{
+			MethodName: "RotateCredential",
+			Handler:    _Forge_RotateCredential_Handler,
+		},
+		{
+			MethodName: "GetCredentialRotationStatus",
+			Handler:    _Forge_GetCredentialRotationStatus_Handler,
 		},
 		{
 			MethodName: "GetRouteServers",
@@ -17209,6 +17437,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_GetDesiredFirmwareVersions_Handler,
 		},
 		{
+			MethodName: "UpsertHostFirmwareConfig",
+			Handler:    _Forge_UpsertHostFirmwareConfig_Handler,
+		},
+		{
+			MethodName: "DeleteHostFirmwareConfig",
+			Handler:    _Forge_DeleteHostFirmwareConfig_Handler,
+		},
+		{
 			MethodName: "CreateSku",
 			Handler:    _Forge_CreateSku_Handler,
 		},
@@ -17655,6 +17891,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ComponentPowerControl",
 			Handler:    _Forge_ComponentPowerControl_Handler,
+		},
+		{
+			MethodName: "ComponentConfigureSwitchCertificate",
+			Handler:    _Forge_ComponentConfigureSwitchCertificate_Handler,
 		},
 		{
 			MethodName: "GetComponentInventory",

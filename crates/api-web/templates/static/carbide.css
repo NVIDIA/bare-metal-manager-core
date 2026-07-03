@@ -1281,6 +1281,7 @@ details > *:not(summary) {
   grid-template-columns: repeat(auto-fill, 260px);
   gap: 1rem;
   width: 100%;
+  overflow: visible;
 }
 
 /* Individual configuration card */
@@ -1302,6 +1303,7 @@ details > *:not(summary) {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  min-height: 2.8rem;
 }
 
 .config-card .bubble {
@@ -1329,6 +1331,51 @@ details > *:not(summary) {
   color: var(--text-muted);
   font-size: 0.9rem;
   white-space: nowrap;
+}
+
+/* Circular question-mark help marker next to a config card title */
+.config-card-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 400;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.config-card-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: 240px;
+  padding: 0.6rem 0.75rem;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: normal;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.config-card-help:hover .config-card-tooltip,
+.config-card-help:focus-within .config-card-tooltip {
+  visibility: visible;
+  opacity: 1;
 }
 
 /* Full width button in card */

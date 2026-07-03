@@ -64,6 +64,46 @@ pub struct Firmware {
     pub ordering: Vec<FirmwareComponentType>,
 }
 
+/// Runtime host firmware config stored by the API and overlaid onto the static
+/// firmware catalog.
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct HostFirmwareConfig {
+    pub vendor: bmc_vendor::BMCVendor,
+    pub model: String,
+
+    pub components: HashMap<FirmwareComponentType, FirmwareComponent>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_start_needed: Option<bool>,
+
+    #[serde(default)]
+    pub ordering: Vec<FirmwareComponentType>,
+}
+
+impl From<HostFirmwareConfig> for Firmware {
+    fn from(config: HostFirmwareConfig) -> Self {
+        Firmware {
+            vendor: config.vendor,
+            model: config.model,
+            components: config.components,
+            explicit_start_needed: config.explicit_start_needed.unwrap_or(false),
+            ordering: config.ordering,
+        }
+    }
+}
+
+impl From<Firmware> for HostFirmwareConfig {
+    fn from(firmware: Firmware) -> Self {
+        HostFirmwareConfig {
+            vendor: firmware.vendor,
+            model: firmware.model,
+            components: firmware.components,
+            explicit_start_needed: Some(firmware.explicit_start_needed),
+            ordering: firmware.ordering,
+        }
+    }
+}
+
 impl Firmware {
     pub fn matching_version_id(
         &self,
@@ -152,6 +192,22 @@ impl fmt::Display for FirmwareComponentType {
 }
 
 impl FirmwareComponentType {
+    pub fn slug(self) -> &'static str {
+        match self {
+            FirmwareComponentType::Bmc => "bmc",
+            FirmwareComponentType::Cec => "cec",
+            FirmwareComponentType::Uefi => "uefi",
+            FirmwareComponentType::Nic => "nic",
+            FirmwareComponentType::CpldMb => "cpldmb",
+            FirmwareComponentType::CpldPdb => "cpldpdb",
+            FirmwareComponentType::HGXBmc => "hgxbmc",
+            FirmwareComponentType::CombinedBmcUefi => "combinedbmcuefi",
+            FirmwareComponentType::Gpu => "gpu",
+            FirmwareComponentType::Cx7 => "cx7",
+            FirmwareComponentType::Unknown => "unknown",
+        }
+    }
+
     pub fn is_bmc(&self) -> bool {
         matches!(
             self,

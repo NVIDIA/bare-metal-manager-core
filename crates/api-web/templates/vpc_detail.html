@@ -18,4 +18,20 @@
 <h2>Metadata</h2>
 {{ metadata_detail|safe }}
 
+<h2>VPC Peerings</h2>
+{% if peerings.is_empty() %}
+<p>No VPC peerings found.</p>
+{% else %}
+<table class="sortable overview">
+	<thead>
+		<tr><th>Peering ID</th><th>Peer VPC</th></tr>
+	</thead>
+	<tbody>
+		{% for peering in peerings %}
+		<tr><td>{{ peering.id }}</td><td><a href="/admin/vpc/{{ peering.peer_vpc_id }}">{{ peering.peer_vpc_id }}</a></td></tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
 {% endblock %}

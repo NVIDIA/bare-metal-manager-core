@@ -42,7 +42,10 @@ pub fn show_power_shelves(
             "Voltage(V)",
             "Power State",
             "Health",
-            "State"
+            "State",
+            "BMC IP",
+            "BMC MAC",
+            "BMC Interface ID"
         ]);
 
         for shelf in shelves {
@@ -51,6 +54,22 @@ pub fn show_power_shelves(
                 .as_ref()
                 .map(|m| m.name.as_str())
                 .unwrap_or("N/A");
+
+            let bmc_ip = shelf
+                .bmc_info
+                .as_ref()
+                .and_then(|b| b.ip.clone())
+                .unwrap_or_else(|| "N/A".to_string());
+            let bmc_mac = shelf
+                .bmc_info
+                .as_ref()
+                .and_then(|b| b.mac.clone())
+                .unwrap_or_else(|| "N/A".to_string());
+            let bmc_interface_id = shelf
+                .bmc_info
+                .as_ref()
+                .and_then(|b| b.machine_interface_id.map(|id| id.to_string()))
+                .unwrap_or_else(|| "N/A".to_string());
 
             table.add_row(row![
                 shelf
@@ -87,6 +106,9 @@ pub fn show_power_shelves(
                     .and_then(|s| s.health_status.as_deref())
                     .unwrap_or("N/A"),
                 shelf.controller_state,
+                bmc_ip,
+                bmc_mac,
+                bmc_interface_id,
             ]);
         }
 

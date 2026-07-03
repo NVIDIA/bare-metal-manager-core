@@ -134,7 +134,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             controller_state,
             metadata: Some(src.metadata.into()),
             version: src.version.version_string(),
-            bmc_info: None,
+            bmc_info: src.bmc_info.map(Into::into),
             state_version,
             rack_id: src.rack_id,
         })

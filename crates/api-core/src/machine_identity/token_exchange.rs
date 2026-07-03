@@ -45,7 +45,7 @@ struct TokenExchangeHttpResponseBody {
 /// When `token_endpoint_http_proxy` is set and non-empty, all those requests go through that proxy.
 pub(crate) fn token_exchange_http_client(
     token_endpoint_http_proxy: Option<&str>,
-) -> Result<reqwest::Client, Status> {
+) -> Result<reqwest_middleware::ClientWithMiddleware, Status> {
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none());
@@ -57,9 +57,14 @@ pub(crate) fn token_exchange_http_client(
         })?;
         builder = builder.proxy(proxy);
     }
-    builder
+    let client = builder
         .build()
-        .map_err(|e| CarbideError::internal(format!("token exchange HTTP client: {e}")).into())
+        .map_err(|e| CarbideError::internal(format!("token exchange HTTP client: {e}")))?;
+    // The `reqwest-tracing` middleware injects the current span's W3C trace context into every
+    // outgoing request (#2438).
+    Ok(reqwest_middleware::ClientBuilder::new(client)
+        .with(reqwest_tracing::TracingMiddleware::default())
+        .build())
 }
 
 pub(crate) fn rfc8693_token_exchange_form(
@@ -80,7 +85,7 @@ pub(crate) fn rfc8693_token_exchange_form(
 /// the tenant `token_endpoint` (HTTP POST, `application/x-www-form-urlencoded` body from
 /// [`rfc8693_token_exchange_form`]) and maps the JSON response to [`MachineIdentityResponse`].
 pub(crate) async fn token_exchange_request(
-    http: &reqwest::Client,
+    http: &reqwest_middleware::ClientWithMiddleware,
     token_endpoint: &str,
     subject_jwt: &str,
     workload_audiences: &[String],
@@ -258,7 +263,9 @@ mod tests {
                     .create_async()
                     .await;
 
-                let client = reqwest::Client::new();
+                let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+                    .with(reqwest_tracing::TracingMiddleware::default())
+                    .build();
                 let url = format!("{}/token", server.url());
                 token_exchange_request(
                     &client,
@@ -291,7 +298,9 @@ mod tests {
             .create_async()
             .await;
 
-        let client = reqwest::Client::new();
+        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+            .with(reqwest_tracing::TracingMiddleware::default())
+            .build();
         let url = format!("{}/token", server.url());
         let creds = ("foo".to_string(), "bar".to_string());
         let out = token_exchange_request(&client, &url, "j", &[], Some(&creds))

@@ -1834,10 +1834,7 @@ impl MachineStateHandler {
                 );
             }
             ManagedHostState::Failed { .. }
-                if is_unassigned_dpu_reprovision_host_boot_failure(
-                    managed_state,
-                    host_machine_id,
-                ) =>
+                if is_reprovision_restartable_failure(managed_state, host_machine_id) =>
             {
                 set_managed_host_topology_update_needed(
                     ctx.pending_db_writes,
@@ -1845,7 +1842,7 @@ impl MachineStateHandler {
                     &dpus_for_reprov,
                 );
 
-                // Host boot repair failures leave the host in top-level Failed; restart must
+                // These failures leave the host in top-level Failed; restart must
                 // reconstruct the reprovision map instead of trying to advance from Failed.
                 next_state = Some(
                     ReprovisionState::next_substate_based_on_bfb_support(
@@ -1882,10 +1879,11 @@ impl MachineStateHandler {
     }
 }
 
-fn is_unassigned_dpu_reprovision_host_boot_failure(
+fn is_reprovision_restartable_failure(
     managed_state: &ManagedHostState,
     host_machine_id: &MachineId,
 ) -> bool {
+    // BiosSetupFailed is always attributed to the host itself.
     matches!(
         managed_state,
         ManagedHostState::Failed {
@@ -1898,6 +1896,18 @@ fn is_unassigned_dpu_reprovision_host_boot_failure(
                 },
             ..
         } if machine_id == host_machine_id
+    ) ||
+    // DpfProvisioning may be attributed to a specific DPU (e.g. DPU entered
+    // error phase), so we do not guard on machine_id or source here.
+    matches!(
+        managed_state,
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning { .. },
+                ..
+            },
+            ..
+        }
     )
 }
 
@@ -4361,10 +4371,16 @@ impl DpuMachineStateHandler {
                     )));
                 }
 
+                let dpu_uefi_credentials = resolve_site_uefi_credentials(
+                    &ctx.services.db_pool,
+                    ctx.services.redfish_client_pool.credential_reader(),
+                    db::credential_rotation::CredentialRotationType::DpuUefi,
+                )
+                .await?;
                 if let Err(e) = ctx
                     .services
                     .redfish_client_pool
-                    .uefi_setup(dpu_redfish_client.as_ref(), true)
+                    .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
                     .await
                 {
                     let msg = format!(
@@ -5330,6 +5346,82 @@ async fn handle_host_boot_order_setup(
 }
 
 /// TODO: we need to handle the case where the job is deleted for some reason
+/// Resolve the current site-wide UEFI target version (host_uefi or dpu_uefi)
+/// from `sitewide_credential_rotation.target_version` so ingestion drives a
+/// device to the version the fleet has moved to. Version 0 is the legacy
+/// unversioned site-default path. Table-driven, mirroring BMC ingestion.
+async fn current_site_uefi_target(
+    db_pool: &sqlx::PgPool,
+    credential_type: db::credential_rotation::CredentialRotationType,
+) -> Result<u32, StateHandlerError> {
+    let mut conn = db_pool.acquire().await.map_err(|e| {
+        StateHandlerError::GenericError(eyre!(
+            "acquire db connection for uefi rotation target: {e}"
+        ))
+    })?;
+    let version = db::credential_rotation::current_target_version(&mut conn, credential_type)
+        .await
+        .map_err(|e| StateHandlerError::GenericError(eyre!("read uefi rotation target: {e}")))?
+        .ok_or_else(|| {
+            StateHandlerError::GenericError(eyre!(
+                "no site-wide {credential_type:?} rotation target row exists; the backfill \
+                 migration seeds one for every active credential type, so a missing row \
+                 indicates a broken or unmigrated database"
+            ))
+        })?;
+    // The column is constrained non-negative, so a failed conversion means a
+    // corrupt value, not "no rotation" -- surface it rather than masking it.
+    u32::try_from(version).map_err(|e| {
+        StateHandlerError::GenericError(eyre!(
+            "uefi rotation target_version {version} is out of range for u32: {e}"
+        ))
+    })
+}
+
+/// Resolve the site-wide UEFI credential to set on a device during ingestion:
+/// the secret at the current `host_uefi`/`dpu_uefi` target version. The
+/// low-level `redfish` `uefi_setup` no longer reads the credential store itself,
+/// so we resolve the version (table-driven) and read the credential here.
+///
+/// Takes `db_pool` and `reader` rather than the whole `StateHandlerContext`
+/// because the context is not `Send`/`Sync` and must not be held across an await
+/// in a handler future (`&PgPool` and `&dyn CredentialReader` both are).
+async fn resolve_site_uefi_credentials(
+    db_pool: &sqlx::PgPool,
+    reader: &dyn CredentialReader,
+    credential_type: db::credential_rotation::CredentialRotationType,
+) -> Result<Credentials, StateHandlerError> {
+    let version = current_site_uefi_target(db_pool, credential_type).await?;
+    let key = match credential_type {
+        db::credential_rotation::CredentialRotationType::HostUefi => {
+            CredentialKey::host_uefi_site_default(version)
+        }
+        db::credential_rotation::CredentialRotationType::DpuUefi => {
+            CredentialKey::dpu_uefi_site_default(version)
+        }
+        other => {
+            return Err(StateHandlerError::GenericError(eyre!(
+                "resolve_site_uefi_credentials called with non-UEFI credential type {other:?}"
+            )));
+        }
+    };
+    reader
+        .get_credentials(&key)
+        .await
+        .map_err(|e| {
+            StateHandlerError::GenericError(eyre!(
+                "read site UEFI credential {}: {e}",
+                key.to_key_str()
+            ))
+        })?
+        .ok_or_else(|| {
+            StateHandlerError::GenericError(eyre!(
+                "site UEFI credential {} is not set",
+                key.to_key_str()
+            ))
+        })
+}
+
 async fn handle_host_uefi_setup(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
@@ -5374,10 +5466,16 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::SetUefiPassword => {
+            let host_uefi_credentials = resolve_site_uefi_credentials(
+                &ctx.services.db_pool,
+                ctx.services.redfish_client_pool.credential_reader(),
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            )
+            .await?;
             match ctx
                 .services
                 .redfish_client_pool
-                .uefi_setup(redfish_client.as_ref(), false)
+                .uefi_setup(redfish_client.as_ref(), false, host_uefi_credentials)
                 .await
             {
                 Ok(job_id) => Ok(StateHandlerOutcome::transition(
@@ -7775,6 +7873,18 @@ async fn rack_failed_abort_host_reprovision_outcome(
 }
 
 impl HostUpgradeState {
+    async fn host_firmware_config_snapshot(
+        &self,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<FirmwareConfigSnapshot, StateHandlerError> {
+        let host_firmware_configs =
+            db::host_firmware_config::list_configs(&ctx.services.db_pool).await?;
+
+        Ok(self
+            .parsed_hosts
+            .create_snapshot_with_overrides(host_firmware_configs))
+    }
+
     // Handles when in HostReprovisioning or when entering it
     async fn handle_host_reprovision(
         &self,
@@ -8236,11 +8346,8 @@ impl HostUpgradeState {
             )));
         };
 
-        let Some(fw_info) = self
-            .parsed_hosts
-            .create_snapshot()
-            .find_fw_info_for_host(&explored_endpoint)
-        else {
+        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+        let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&explored_endpoint) else {
             return Ok(StateHandlerOutcome::transition(scenario.complete_state()));
         };
 
@@ -9017,41 +9124,59 @@ impl HostUpgradeState {
                         // If we have multiple firmware files to be uploaded, do the next one.
                         if let Some(endpoint) =
                             find_explored_refreshed_endpoint(state, machine_id, ctx).await?
-                            && let Some(fw_info) = self
-                                .parsed_hosts
-                                .create_snapshot()
-                                .find_fw_info_for_host(&endpoint)
-                            && let Some(component_info) = fw_info.components.get(firmware_type)
-                            && let Some(selected_firmware) =
-                                component_info.known_firmware.iter().find(|&x| x.default)
                         {
-                            let firmware_number = firmware_number.unwrap_or(0) + 1;
-                            let has_more_artifacts = usize::try_from(firmware_number)
-                                .map(|firmware_number| {
-                                    firmware_number < selected_firmware.artifact_count()
-                                })
-                                .unwrap_or(false);
-                            if has_more_artifacts {
-                                tracing::debug!(
-                                    "Moving {:?} chain step {} on {} to CheckingFirmware",
-                                    selected_firmware,
-                                    firmware_number,
-                                    endpoint.address
-                                );
+                            let fw_config_snapshot =
+                                self.host_firmware_config_snapshot(ctx).await?;
+                            let selected_firmware = fw_config_snapshot
+                                .find_fw_info_for_host(&endpoint)
+                                .and_then(|fw_info| {
+                                    fw_info.components.get(firmware_type).and_then(
+                                        |component_info| {
+                                            component_info
+                                                .known_firmware
+                                                .iter()
+                                                .find(|&x| x.version == final_version.as_str())
+                                                .or_else(|| {
+                                                    component_info
+                                                        .known_firmware
+                                                        .iter()
+                                                        .find(|&x| x.default)
+                                                })
+                                                .cloned()
+                                        },
+                                    )
+                                });
 
-                                // There are more files to install.
-                                // Move to CheckingFirmware and start installing
-                                let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
-                                    firmware_type: Some(*firmware_type),
-                                    firmware_number: Some(firmware_number),
-                                };
+                            if let Some(selected_firmware) = selected_firmware {
+                                let firmware_number = firmware_number.unwrap_or(0) + 1;
+                                let has_more_artifacts = usize::try_from(firmware_number)
+                                    .map(|firmware_number| {
+                                        firmware_number < selected_firmware.artifact_count()
+                                    })
+                                    .unwrap_or(false);
+                                if has_more_artifacts {
+                                    tracing::debug!(
+                                        "Moving {:?} chain step {} on {} to CheckingFirmware",
+                                        selected_firmware,
+                                        firmware_number,
+                                        endpoint.address
+                                    );
 
-                                return Ok(StateHandlerOutcome::transition(
-                                    scenario.actual_new_state(
-                                        reprovision_state,
-                                        state.managed_state.get_host_repro_retry_count(),
-                                    ),
-                                ));
+                                    // There are more files to install.
+                                    // Move to CheckingFirmware and start installing
+                                    let reprovision_state =
+                                        HostReprovisionState::CheckingFirmwareV2 {
+                                            firmware_type: Some(*firmware_type),
+                                            firmware_number: Some(firmware_number),
+                                        };
+
+                                    return Ok(StateHandlerOutcome::transition(
+                                        scenario.actual_new_state(
+                                            reprovision_state,
+                                            state.managed_state.get_host_repro_retry_count(),
+                                        ),
+                                    ));
+                                }
                             }
                         }
 
@@ -9135,10 +9260,8 @@ impl HostUpgradeState {
                             return Ok(StateHandlerOutcome::do_nothing());
                         };
 
-                        if let Some(fw_info) = self
-                            .parsed_hosts
-                            .create_snapshot()
-                            .find_fw_info_for_host(&endpoint)
+                        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+                        if let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&endpoint)
                             && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *firmware_type)
                             && current_version == final_version
@@ -9416,11 +9539,8 @@ impl HostUpgradeState {
             return Ok(StateHandlerOutcome::do_nothing());
         };
 
-        let Some(fw_info) = self
-            .parsed_hosts
-            .create_snapshot()
-            .find_fw_info_for_host(&endpoint)
-        else {
+        let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
+        let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&endpoint) else {
             tracing::error!("Could no longer find firmware info for {machine_id}");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {
@@ -10022,7 +10142,13 @@ async fn wait_for_boss_controller_job_to_complete(
                         // we are waiting for the BOSS volume creation job to complete
                         false,
                     ),
-                    _ => todo!(),
+                    _ => {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(
+                            "unexpected CreateBossVolume state for {}: {:#?}",
+                            mh_snapshot.host_snapshot.id,
+                            mh_snapshot.host_snapshot.state,
+                        )));
+                    }
                 },
                 _ => {
                     return Err(StateHandlerError::GenericError(eyre::eyre!(
@@ -11655,5 +11781,60 @@ mod tests {
 
         let cycle = get_reboot_cycle(expected_time, state_change_time, wait_period).unwrap();
         assert_eq!(cycle, 30);
+    }
+
+    #[test]
+    fn is_reprovision_restartable_failure_matches_expected_causes() {
+        let host_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        let make_failed = |cause: FailureCause, machine_id: MachineId| ManagedHostState::Failed {
+            details: FailureDetails {
+                cause,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            },
+            machine_id,
+            retry_count: 0,
+        };
+
+        // BiosSetupFailed on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(
+                FailureCause::BiosSetupFailed { err: "bios".into() },
+                host_id
+            ),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host → restartable
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, host_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning attributed to a DPU → still restartable (no machine_id guard)
+        assert!(is_reprovision_restartable_failure(
+            &make_failed(FailureCause::DpfProvisioning { err: "dpf".into() }, dpu_id),
+            &host_id,
+        ));
+
+        // DpfProvisioning on host with any FailureSource → restartable
+        assert!(is_reprovision_restartable_failure(
+            &ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::DpfProvisioning { err: "dpf".into() },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: host_id,
+                retry_count: 0,
+            },
+            &host_id,
+        ));
     }
 }

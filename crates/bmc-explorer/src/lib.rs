@@ -136,6 +136,9 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         need_oem_nvidia_bluefield: is_bluefield_system,
         ignore_500_on_bios_fetch: is_bluefield_system,
         retry_404_on_eth_interfaces: is_bluefield_system,
+        // BlueField-4 returns null in the Members field in
+        // BootOptions. This is a workaround for this bug.
+        need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
@@ -191,10 +194,12 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
-            Some(hw::HwType::LenovoGb300 | hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300) => {
-                let chassis_id = chassis.chassis.id().into_inner();
-                chassis_id.starts_with("HGX_GPU_")
-            }
+            Some(
+                hw::HwType::LenovoGb300
+                | hw::HwType::DgxGb300
+                | hw::HwType::SupermicroGb300
+                | hw::HwType::VeraRubin,
+            ) => chassis.chassis.id().into_inner().starts_with("HGX_GPU_"),
             // No meaningful PCIeDevices.
             Some(
                 hw::HwType::Bluefield
@@ -310,6 +315,9 @@ pub(crate) fn hw_type<B: Bmc>(
             "Supermicro" => Some(hw::HwType::Supermicro),
             "HPE" => Some(hw::HwType::Hpe),
             "Nvidia" if system.id().into_inner() == "Bluefield" => Some(hw::HwType::Bluefield),
+            "NVIDIA" if root.product() == Some(Product::new("VR NVL72")) => {
+                Some(hw::HwType::VeraRubin)
+            }
             "WIWYNN" | "NVIDIA"
                 if root.product() == Some(Product::new("GB200 NVL"))
                     || root.product() == Some(Product::new("GB BMC")) =>
@@ -888,6 +896,40 @@ fn machine_setup_status<B: Bmc>(
             if let Some(mac) = boot_interface_mac {
                 // Looking for UEFI Device path:
                 // VenHw(REDACTED)/MemoryMapped(REDACTED)/PciRoot(0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC(020304050607,0x1)/IPv4(0.0.0.0)/Uri()
+                let actual = explored_system.boot_order_first_option();
+                let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
+                let expected = explored_system.boot_options.iter().find(|option| {
+                    option.uefi_device_path().is_some_and(|path| {
+                        path.inner().contains(&mac_str)
+                            && path.inner().contains("/IPv4(")
+                            && path.inner().ends_with("/Uri()")
+                    })
+                });
+                if let Some(diff) = compare_boot_options(expected, actual) {
+                    diffs.push(diff)
+                }
+            }
+        }
+
+        hw::HwType::VeraRubin => {
+            if explored_system
+                .secure_boot_status()
+                .is_ok_and(|s| s.is_enabled)
+            {
+                diffs.push(MachineSetupDiff {
+                    key: "SecureBoot".to_string(),
+                    expected: "false".to_string(),
+                    actual: "true".to_string(),
+                })
+            }
+            diffs.extend(
+                hw::vera_rubin::EXPECTED_BIOS_ATTRS
+                    .iter()
+                    .flat_map(|expected| explored_system.verify_bios_attr(expected)),
+            );
+            if let Some(mac) = boot_interface_mac {
+                // Looking for UEFI Device path:
+                // VenHw(...)/.../MAC(020304050607,0x1)/IPv4(0.0.0.0)/Uri()
                 let actual = explored_system.boot_order_first_option();
                 let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
                 let expected = explored_system.boot_options.iter().find(|option| {

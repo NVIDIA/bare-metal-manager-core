@@ -82,6 +82,28 @@ var (
 	RequestAsTenant = "Tenant"
 )
 
+// InfiniBandMachineSelectionError is returned when no machine satisfies the requested InfiniBand
+// device instances but enough active ports exist on a candidate machine.
+type InfiniBandMachineSelectionError struct {
+	SuggestedByDevice map[string][]int
+}
+
+func (e *InfiniBandMachineSelectionError) Error() string {
+	return "Requested InfiniBand device instances are not available on any Machine for this Instance Type"
+}
+
+// ValidationError returns a validation error that includes suggested device instances.
+func (e *InfiniBandMachineSelectionError) ValidationError() validation.Errors {
+	errMsg := "requested device instances are not available on any Machine for this Instance Type"
+
+	for device, deviceInstances := range e.SuggestedByDevice {
+		errMsg += fmt.Sprintf(". Use deviceInstances: %v for device: %s", deviceInstances, device)
+	}
+	return validation.Errors{
+		"infiniBandInterfaces": errors.New(errMsg),
+	}
+}
+
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
 func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.InfrastructureProvider, error) {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
@@ -100,7 +122,7 @@ func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession 
 func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.Tenant, error) {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	ts, err := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+	ts, _, err := tnDAO.GetAll(ctx, tx, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +297,7 @@ func AcquireInstanceTypeQuotaLock(ctx context.Context, tx *cdb.Tx, tenantID uuid
 }
 
 // GetUnallocatedMachineForInstanceType provides unallocatd machine based on instancetype
-func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType) (*cdbm.Machine, error) {
+func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Logger, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType, apiRequest *cam.APIInstanceCreateRequest) (*cdbm.Machine, error) {
 	if instanceType == nil {
 		return nil, ErrInvalidFunctionParams
 	}
@@ -286,6 +308,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 	}
 
 	mcDAO := cdbm.NewMachineDAO(dbSession)
+	mcCapDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
 	// Get all available Machines for the Instance Type
 	// Since this query is occurring outside of a lock, we will have to double check availability of Machines
@@ -313,6 +336,34 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 		},
 	)
 
+	var infiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
+	if apiRequest != nil {
+		infiniBandInterfaces = apiRequest.InfiniBandInterfaces
+	}
+	requireInfiniBandMatch := len(infiniBandInterfaces) > 0
+	var suggestedByDevice map[string][]int
+	foundInfiniBandSuggestion := false
+
+	// Get all Machine InfiniBand Capabilities for the Machines
+	machineIbCapsByMachineID := map[string][]cdbm.MachineCapability{}
+	if requireInfiniBandMatch && len(machines) > 0 {
+		machineIDs := make([]string, len(machines))
+		for i, mc := range machines {
+			machineIDs[i] = mc.ID
+		}
+		allIbCaps, _, capErr := mcCapDAO.GetAll(ctx, tx, machineIDs, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		if capErr != nil {
+			logger.Error().Err(capErr).Msg("failed to retrieve Machine InfiniBand Capabilities from DB")
+			return nil, capErr
+		}
+		for _, cap := range allIbCaps {
+			if cap.MachineID == nil {
+				continue
+			}
+			machineIbCapsByMachineID[*cap.MachineID] = append(machineIbCapsByMachineID[*cap.MachineID], cap)
+		}
+	}
+
 	if len(machines) > 0 {
 		for _, mc := range machines {
 			// Acquire an advisory lock on the MachineID, other provider will be look for other is this is being locked
@@ -336,12 +387,37 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 				continue
 			}
 
+			// If InfiniBand Interfaces are specified in the request, verify that the Machine has matching InfiniBand Interfaces
+			if requireInfiniBandMatch {
+				// Get the Machine InfiniBand Capabilities for the Machine
+				machineIbCaps := machineIbCapsByMachineID[mc.ID]
+				if len(machineIbCaps) == 0 {
+					continue
+				}
+
+				// Validate the InfiniBand Interfaces against the Machine InfiniBand Capabilities
+				match := apiRequest.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+				if !match.Satisfied {
+					// If the request is not satisfied, but the count is satisfiable, keep track of the suggestion and continue to the next machine
+					// if foundInfiniBandSuggestion is true, we have already found a suggestion and we don't need to find another one
+					if match.CountSatisfiable && !foundInfiniBandSuggestion {
+						foundInfiniBandSuggestion = true
+						suggestedByDevice = make(map[string][]int, len(match.SuggestedByDevice))
+						for device, instances := range match.SuggestedByDevice {
+							suggestedByDevice[device] = append([]int(nil), instances...)
+						}
+					}
+					continue
+				}
+			}
+
 			// We should now be able to proceed with the allocation
 			// Update the machine status to assigned
 			updateInput := cdbm.MachineUpdateInput{
 				MachineID:  mc.ID,
 				IsAssigned: cutil.GetPtr(true),
 			}
+
 			// return the updated machine
 			mcu, err := mcDAO.Update(ctx, tx, updateInput)
 			if err != nil {
@@ -349,6 +425,10 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 			}
 			return mcu, nil
 		}
+	}
+	// If we found a suggestion, return the error with the suggestion
+	if foundInfiniBandSuggestion {
+		return nil, &InfiniBandMachineSelectionError{SuggestedByDevice: suggestedByDevice}
 	}
 	return nil, ErrInstanceTypeMachineNotFound
 }
@@ -888,6 +968,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	// All Machines valid if Instance Type does not have Capabilities
 	if total == 0 {
 		return true, nil, nil
+
 	}
 
 	// Build a map of capability type to capability object for instancetype
@@ -1188,6 +1269,18 @@ func UnwrapWorkflowError(err error) (code int, unwrappedError error) {
 	return
 }
 
+// GRPCStatusMessage returns the gRPC status message when err is a gRPC status,
+// otherwise err.Error(). Intended for errors already unwrapped by ExecuteCoreGRPC.
+func GRPCStatusMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	if s, ok := status.FromError(err); ok {
+		return s.Message()
+	}
+	return err.Error()
+}
+
 // GetUserAndEnrichLogger retrieves the user from the echo context and enriches the logger
 // and tracer span with user ID information (StarfleetID or AuxiliaryID).
 // This eliminates the repetitive if-else block for user ID logging across handlers.
@@ -1256,6 +1349,87 @@ func IsProvider(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Sessi
 	}
 
 	return infrastructureProvider, nil
+}
+
+// SiteTemporalClientPool resolves the per-site Temporal client used to proxy
+// requests to Core.
+type SiteTemporalClientPool interface {
+	GetClientByID(siteID uuid.UUID) (tclient.Client, error)
+}
+
+// AuthorizeProviderSiteForCoreInput carries the inputs for AuthorizeProviderSiteForCore.
+type AuthorizeProviderSiteForCoreInput struct {
+	Ctx       context.Context
+	Logger    zerolog.Logger
+	DBSession *cdb.Session
+	SCP       SiteTemporalClientPool
+	Org       string
+	User      *cdbm.User
+	SiteID    string
+}
+
+// AuthorizeProviderSiteForCore validates that user is a Provider Admin for org,
+// resolves siteStrID to a Site owned by the org's Infrastructure Provider, and
+// returns the per-site Temporal client plus the site ID string. The site ID is
+// the shared key used to encrypt redacted secret fields for transport to the
+// site agent.
+func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient.Client, string, *cutil.APIError) {
+	if in.User == nil {
+		in.Logger.Error().Msg("invalid User object found in request context")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(in.User, in.Org)
+	if !ok {
+		if err != nil {
+			in.Logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			in.Logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", in.Org), nil)
+	}
+
+	if ok := auth.ValidateUserRoles(in.User, in.Org, nil, auth.ProviderAdminRole); !ok {
+		in.Logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	provider, err := GetInfrastructureProviderForOrg(in.Ctx, nil, in.DBSession, in.Org)
+	if err != nil {
+		if errors.Is(err, ErrOrgInstrastructureProviderNotFound) {
+			return nil, "", cutil.NewAPIError(http.StatusNotFound,
+				fmt.Sprintf("Org '%v' does not have an Infrastructure Provider", in.Org), nil)
+		}
+		in.Logger.Error().Err(err).Msg("error retrieving Infrastructure Provider for this org")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)
+	}
+
+	site, err := GetSiteFromIDString(in.Ctx, nil, in.SiteID, in.DBSession)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) || errors.Is(err, ErrInvalidID) {
+			in.Logger.Warn().Err(err).Str("Site ID", in.SiteID).Msg("site not found in request")
+			return nil, "", cutil.NewAPIError(http.StatusBadRequest,
+				fmt.Sprintf("Could not find Site with ID specified in request data: %s", in.SiteID), nil)
+		}
+		in.Logger.Error().Err(err).Str("Site ID", in.SiteID).Msg("error retrieving Site from DB")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Site due to DB error", nil)
+	}
+
+	if site.InfrastructureProviderID != provider.ID {
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	if site.Status != cdbm.SiteStatusRegistered {
+		return nil, "", cutil.NewAPIError(http.StatusBadRequest, "Site is not in Registered state, unable to execute operation on Site", nil)
+	}
+
+	stc, err := in.SCP.GetClientByID(site.ID)
+	if err != nil {
+		in.Logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+	}
+
+	return stc, site.ID.String(), nil
 }
 
 // IsTenant ensures that user is authorized to act as a Tenant Admin for the org.

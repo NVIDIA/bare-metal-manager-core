@@ -33,6 +33,9 @@ const NVUE_SYSTEM_HEALTH: &str = "/nvue_v1/system/health";
 const NVUE_CLUSTER_APPS: &str = "/nvue_v1/cluster/apps";
 const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
+const NVUE_PLATFORM_ENVIRONMENT_FAN: &str = "/nvue_v1/platform/environment/fan";
+const NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE: &str = "/nvue_v1/platform/environment/temperature";
+const NVUE_PLATFORM_ENVIRONMENT: &str = "/nvue_v1/platform/environment";
 
 #[derive(Clone)]
 pub struct UsernamePassword {
@@ -122,6 +125,36 @@ impl RestClient {
             return Ok(None);
         }
         let url = self.join_path(NVUE_SDN_PARTITIONS)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment_fan(
+        &self,
+    ) -> Result<Option<FanEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_fan_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_FAN)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment_temperature(
+        &self,
+    ) -> Result<Option<TemperatureEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_temperature_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE)?;
+        self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment(
+        &self,
+    ) -> Result<Option<PlatformEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_status_enabled {
+            return Ok(None);
+        }
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT)?;
         self.do_get(url, &[]).await.map(Some)
     }
 
@@ -285,6 +318,40 @@ pub struct SdnPartition {
         deserialize_with = "deserialize_optional_u32_from_number_or_string"
     )]
     pub num_gpus: Option<u32>,
+}
+
+pub type FanEnvironmentResponse = HashMap<String, FanData>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FanData {
+    /// Fan maximum speed in RPM, scraped as string (e.g. "33000")
+    #[serde(rename = "max-speed")]
+    pub max_speed: Option<String>,
+}
+
+pub type TemperatureEnvironmentResponse = HashMap<String, TempData>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TempData {
+    /// Current temperature Celsius, scraped as string (e.g. "43.00").
+    /// Field is optional per sensor
+    pub current: Option<String>,
+    /// Maximum (warning) threshold in Celsius as string (e.g. "105.00").
+    pub max: Option<String>,
+    /// Critical threshold in Celsius as a string (e.g. "120.00").
+    pub crit: Option<String>,
+    /// Sensor state as string (e.g. "ok").
+    pub state: Option<String>,
+}
+
+/// `/nvue_v1/platform/environment` summary. Keys are aggregate status
+/// entries (e.g. `FAN_STATUS`) as well as the `fan`/`temperature` subtrees
+pub type PlatformEnvironmentResponse = HashMap<String, EnvItem>;
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct EnvItem {
+    /// Aggregate status string (e.g. "green"/"amber" for `FAN_STATUS`).
+    pub state: Option<String>,
 }
 
 pub type InterfacesResponse = HashMap<String, InterfaceData>;
@@ -521,6 +588,102 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_platform_environment_fan() {
+        let json = r#"{
+            "FAN1/1": {
+                "current-speed": "10096",
+                "direction": "F2B",
+                "max-speed": "33000",
+                "min-speed": "6000",
+                "state": "ok"
+            },
+            "FAN1/2": {
+                "current-speed": "9800",
+                "direction": "F2B",
+                "max-speed": "33000",
+                "min-speed": "6000",
+                "state": "ok"
+            }
+        }"#;
+
+        let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 2);
+        assert_eq!(resp["FAN1/1"].max_speed.as_deref(), Some("33000"));
+        assert_eq!(resp["FAN1/2"].max_speed.as_deref(), Some("33000"));
+    }
+
+    #[test]
+    fn test_parse_platform_environment_fan_missing_max_speed() {
+        let json = r#"{
+            "FAN1/1": {
+                "current-speed": "10096",
+                "direction": "F2B",
+                "min-speed": "6000",
+                "state": "ok"
+            }
+        }"#;
+
+        let resp: FanEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 1);
+        assert!(resp["FAN1/1"].max_speed.is_none());
+    }
+
+    #[test]
+    fn test_parse_platform_environment_temperature() {
+        let json = r#"{
+            "ASIC1": {"crit": "120.00", "current": "43.00", "max": "105.00", "state": "ok"},
+            "Ambient-MNG-Temp": {"current": "27.00", "state": "ok"},
+            "PDB-Conv-1-Temp": {"crit": "115.00", "current": "38.00", "state": "ok"}
+        }"#;
+
+        let resp: TemperatureEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 3);
+
+        let asic1 = &resp["ASIC1"];
+        assert_eq!(asic1.current.as_deref(), Some("43.00"));
+        assert_eq!(asic1.max.as_deref(), Some("105.00"));
+        assert_eq!(asic1.crit.as_deref(), Some("120.00"));
+        assert_eq!(asic1.state.as_deref(), Some("ok"));
+
+        // Ambient sensor reports only current + state.
+        let ambient = &resp["Ambient-MNG-Temp"];
+        assert_eq!(ambient.current.as_deref(), Some("27.00"));
+        assert!(ambient.max.is_none());
+        assert!(ambient.crit.is_none());
+        assert_eq!(ambient.state.as_deref(), Some("ok"));
+
+        // PDB sensor has crit + current + state but no max.
+        let pdb = &resp["PDB-Conv-1-Temp"];
+        assert_eq!(pdb.crit.as_deref(), Some("115.00"));
+        assert!(pdb.max.is_none());
+    }
+
+    #[test]
+    fn test_parse_platform_environment_fan_status() {
+        // Parent summary carries the aggregate `FAN_STATUS` LED entry alongside
+        // nested `fan`/`temperature` subtree objects of a different shape. The
+        // LED entry parses into `state`; the nested objects parse with `state`
+        // absent (serde ignores unknown keys) and are skipped by callers.
+        let json = r#"{
+            "FAN_STATUS": {"state": "green", "type": "led"},
+            "PSU_STATUS": {"state": "amber", "type": "led"},
+            "fan": {
+                "FAN1/1": {"current-speed": "10096", "max-speed": "33000", "state": "ok"}
+            },
+            "temperature": {
+                "ASIC1": {"current": "43.00", "state": "ok"}
+            }
+        }"#;
+
+        let resp: PlatformEnvironmentResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp["FAN_STATUS"].state.as_deref(), Some("green"));
+        assert_eq!(resp["PSU_STATUS"].state.as_deref(), Some("amber"));
+        // nested subtree objects have no top-level state -> None.
+        assert!(resp["fan"].state.is_none());
+        assert!(resp["temperature"].state.is_none());
+    }
+
+    #[test]
     fn test_parse_empty_responses() {
         let empty_map: ClusterAppsResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_map.is_empty());
@@ -530,5 +693,14 @@ mod tests {
 
         let empty_interfaces: InterfacesResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_interfaces.is_empty());
+
+        let empty_fans: FanEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_fans.is_empty());
+
+        let empty_temps: TemperatureEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_temps.is_empty());
+
+        let empty_env: PlatformEnvironmentResponse = serde_json::from_str("{}").unwrap();
+        assert!(empty_env.is_empty());
     }
 }

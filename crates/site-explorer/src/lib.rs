@@ -40,6 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
@@ -62,11 +63,13 @@ use tracing::Instrument;
 use version_compare::Cmp;
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
+mod endpoint_lock;
+pub use endpoint_lock::{EndpointExplorationGuard, EndpointExplorationLocks};
 mod credentials;
 mod metrics;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-pub use metrics::SiteExplorationMetrics;
+pub use metrics::{SiteExplorationMetrics, site_explorer_latency_histogram_view};
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
@@ -82,7 +85,6 @@ pub use managed_host::is_endpoint_in_managed_host;
 use model::DpuModel;
 use model::expected_machine::DpuMode;
 use model::firmware::FirmwareComponentType;
-use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
 use carbide_uuid::rack::RackId;
@@ -286,6 +288,8 @@ pub struct SiteExplorer {
     endpoint_explorer: Arc<dyn EndpointExplorer>,
     firmware_config: Arc<FirmwareConfig>,
     work_lock_manager_handle: WorkLockManagerHandle,
+    /// Per-endpoint, in-process exploration locks shared with the API's ad-hoc refresh handler.
+    endpoint_exploration_locks: EndpointExplorationLocks,
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
@@ -305,6 +309,7 @@ impl SiteExplorer {
         firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        endpoint_exploration_locks: EndpointExplorationLocks,
         rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
@@ -342,6 +347,7 @@ impl SiteExplorer {
             endpoint_explorer,
             firmware_config,
             work_lock_manager_handle,
+            endpoint_exploration_locks,
             boot_order_tracker: BootOrderTracker::default(),
         }
     }
@@ -359,6 +365,15 @@ impl SiteExplorer {
             .spawn(async move { self.run(cancel_token).await })?;
 
         Ok(())
+    }
+
+    async fn firmware_config_snapshot(&self) -> SiteExplorerResult<FirmwareConfigSnapshot> {
+        let host_firmware_configs =
+            db::host_firmware_config::list_configs(&self.database_connection).await?;
+
+        Ok(self
+            .firmware_config
+            .create_snapshot_with_overrides(host_firmware_configs))
     }
 
     async fn run(&mut self, cancel_token: CancellationToken) {
@@ -1095,9 +1110,16 @@ impl SiteExplorer {
             db::machine_interface::find_by_mac_address(&mut *txn, expected_shelf.bmc_mac_address)
                 .await?;
         if let Some(interface) = mi.first() {
-            db::machine_interface::associate_interface_with_machine(
+            // A power shelf's BMC/PMC interface is its management endpoint, so
+            // associate it with the shelf and annotate it as `Bmc` (like
+            // host/switch BMC interfaces), demoting it from primary in one
+            // statement. This `Bmc` link is what lets the power-shelf load query
+            // resolve the shelf's MAC/IP into the `PowerShelf.bmc_info` field.
+            db::machine_interface::associate_bmc_interface(
                 &interface.id,
-                MachineInterfaceAssociation::PowerShelf(power_shelf_id),
+                model::machine_interface_address::MachineInterfaceAssociation::PowerShelf(
+                    power_shelf_id,
+                ),
                 &mut txn,
             )
             .await?;
@@ -1808,6 +1830,12 @@ impl SiteExplorer {
         let underlay_segments =
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
                 .await?;
+        // A BMC that shares the host network is preallocated on a HostInband segment so scan
+        // those too, but only for BMC interfaces. The host in-band NIC also DHCPs onto a
+        // HostInband segment with no machine_id and must never be treated as a Redfish endpoint.
+        let host_inband_segments =
+            db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::HostInband))
+                .await?;
         let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
         let expected_switches = db::expected_switch::find_all(&mut txn).await?;
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
@@ -1977,21 +2005,28 @@ impl SiteExplorer {
         );
 
         let build_index_start = Instant::now();
-        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
+        let scannable_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id)
-                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
+                let is_bmc = iface.interface_type == InterfaceType::Bmc;
+                // On Underlay an unadopted interface is a BMC to explore, and adopted BMCs
+                // stay visible too.
+                let underlay = underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || is_bmc);
+                // On HostInband only scan BMCs. The host in-band NIC also DHCPs here with no
+                // machine_id and is not a Redfish endpoint.
+                let host_inband = host_inband_segments.contains(&iface.segment_id) && is_bmc;
+                underlay || host_inband
             })
             .collect();
-        let underlay_interface_count = underlay_interfaces.len();
+        let scannable_interface_count = scannable_interfaces.len();
         metrics.record_update_explored_endpoints_count(
-            "underlay_interfaces",
-            underlay_interface_count,
+            "scannable_interfaces",
+            scannable_interface_count,
         );
 
-        // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
-        let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
+        // Start an index of all scannable interfaces, expected machines, expected power shelves, and expected switches.
+        let index = ExploredEndpointIndex::builder(explored_endpoints, scannable_interfaces)
             .with_expected_machines(expected_machines)
             .with_expected_switches(expected_switches)
             .with_expected_power_shelves(expected_power_shelves)
@@ -2147,11 +2182,12 @@ impl SiteExplorer {
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
             expected_count - index.all_matched_expected_machines().len();
-        let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
+        let fw_config_snapshot = Arc::new(self.firmware_config_snapshot().await?);
 
         let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
+            let endpoint_exploration_locks = self.endpoint_exploration_locks.clone();
             let concurrency_limiter = concurrency_limiter.clone();
 
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
@@ -2174,13 +2210,29 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
+                    // If an ad-hoc refresh or another periodic task is already exploring this
+                    // endpoint, skip it for this iteration.
+                    let _endpoint_guard =
+                        match endpoint_exploration_locks.try_claim(endpoint.address) {
+                            Some(guard) => guard,
+                            None => {
+                                tracing::info!(
+                                    address = %endpoint.address,
+                                    "Skipping periodic endpoint exploration; endpoint already in progress"
+                                );
+                                return Ok(None);
+                            }
+                        };
+
                     let redfish_explore_start = Instant::now();
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.last_explored.and_then(|e| e.report.last_exploration_error.as_ref()),
+                            endpoint
+                                .last_explored
+                                .and_then(|e| e.report.last_exploration_error.as_ref()),
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
@@ -2193,13 +2245,33 @@ impl SiteExplorer {
                             &database_connection,
                             &endpoint.address.to_string(),
                         )
-                            .await
+                        .await
                         {
-                            Ok(state) if !state.is_empty() => format!(" (state: {state})"),
-                            _ => String::new(),
+                            Ok(state) if !state.is_empty() => Some(state),
+                            _ => None,
                         };
                         steps.failure_context_load = Some(failure_context_load_start.elapsed());
-                        tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
+                        let schema = error.operator_error_schema();
+                        if let Some(machine_state) = machine_state.as_deref() {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                machine_state,
+                                "Failed to explore endpoint"
+                            );
+                        } else {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                "Failed to explore endpoint"
+                            );
+                        }
                     }
 
                     if let Ok(report) = &mut result {
@@ -2215,7 +2287,7 @@ impl SiteExplorer {
                         steps,
                     }))
                 }
-                    .in_current_span(),
+                .in_current_span(),
             );
         }
 

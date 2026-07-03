@@ -48,6 +48,9 @@ pub mod dgx_gb300_nvl;
 /// Support of Supermicro (SMC) GB300 NVL servers (Supermicro OpenBMC host).
 pub mod supermicro_gb300_nvl;
 
+/// Support of DGX VR NVL servers.
+pub mod dgx_vr_nvl;
+
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 

@@ -87,3 +87,23 @@ async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_s
     );
     assert_eq!(report.machine_id, Some(machine_id));
 }
+
+#[test]
+async fn explore_b4240v_and_generate_machine_id() {
+    let h = test_support::nvidia_dgx_vr_bluefield4_dpu_bmc(DpuSettings::default()).await;
+    let mut report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .expect("B4240V exploration should succeed");
+
+    assert_eq!(report.endpoint_type, EndpointType::Bmc);
+    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
+    assert!(report.chassis.iter().any(|chassis| {
+        chassis.id == "Bluefield_BMC" && chassis.model.as_deref() == Some("B4240V")
+    }));
+
+    let machine_id = report
+        .generate_machine_id(false)
+        .expect("B4240V report should have enough collected data for machine ID")
+        .expect("B4240V report should generate a DPU machine ID");
+    assert!(machine_id.machine_type().is_dpu());
+}

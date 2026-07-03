@@ -112,21 +112,25 @@ pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) 
 pub async fn run_baseline_test_environment(
     machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    let mock_bmc_handles: Vec<(MockBmcHandle, MachineId)> =
+    let mock_bmc_handles: Vec<(MockBmcHandle, MachineId, MockBmcType)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
             let machine_id = carbide_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {
-                    MockBmcType::Ssh | MockBmcType::Ipmi => MachineType::Host,
+                    MockBmcType::Ssh | MockBmcType::LenovoSr650Ssh | MockBmcType::Ipmi => {
+                        MachineType::Host
+                    }
                     MockBmcType::DpuSsh => MachineType::Dpu,
                 },
             );
 
             async move {
                 let bmc_handle = match bmc_type {
-                    ssh_type @ MockBmcType::Ssh | ssh_type @ MockBmcType::DpuSsh => {
+                    ssh_type @ MockBmcType::Ssh
+                    | ssh_type @ MockBmcType::LenovoSr650Ssh
+                    | ssh_type @ MockBmcType::DpuSsh => {
                         Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
                             machine_a_tron::spawn_mock_ssh_server(
                                 IpAddr::from_str("127.0.0.1").unwrap(),
@@ -138,6 +142,7 @@ pub async fn run_baseline_test_environment(
                                 }),
                                 match ssh_type {
                                     MockBmcType::Ssh => PromptBehavior::Dell,
+                                    MockBmcType::LenovoSr650Ssh => PromptBehavior::LenovoSr650,
                                     MockBmcType::DpuSsh => PromptBehavior::Dpu,
                                     MockBmcType::Ipmi => unreachable!(),
                                 },
@@ -150,7 +155,7 @@ pub async fn run_baseline_test_environment(
                     )),
                 }?;
 
-                Ok::<_, eyre::Error>((bmc_handle, machine_id))
+                Ok::<_, eyre::Error>((bmc_handle, machine_id, *bmc_type))
             }
         }))
         .await
@@ -161,12 +166,15 @@ pub async fn run_baseline_test_environment(
     let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
         mock_bmc_handles
             .iter()
-            .map(|(bmc_handle, machine_id)| MockHost {
+            .map(|(bmc_handle, machine_id, bmc_type)| MockHost {
                 machine_id: *machine_id,
                 instance_id: Uuid::new_v4(),
                 tenant_public_key: TENANT_SSH_PUBKEY.to_string(),
                 sys_vendor: match &bmc_handle {
-                    MockBmcHandle::Ssh(_) => "Dell",
+                    MockBmcHandle::Ssh(_) => match bmc_type {
+                        MockBmcType::LenovoSr650Ssh => "Lenovo",
+                        _ => "Dell",
+                    },
                     MockBmcHandle::Ipmi(_) => "Supermicro",
                 },
                 bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -197,7 +205,7 @@ pub async fn run_baseline_test_environment(
         mock_api_server: api_server_handle,
         _mock_bmc_handles: mock_bmc_handles
             .into_iter()
-            .map(|(handle, _machine_id)| handle)
+            .map(|(handle, _machine_id, _bmc_type)| handle)
             .collect(),
         mock_hosts,
     }))
@@ -206,6 +214,7 @@ pub async fn run_baseline_test_environment(
 #[derive(Debug, Clone, Copy)]
 pub enum MockBmcType {
     Ssh,
+    LenovoSr650Ssh,
     DpuSsh,
     Ipmi,
 }

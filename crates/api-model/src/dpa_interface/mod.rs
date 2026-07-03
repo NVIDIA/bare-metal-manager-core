@@ -76,6 +76,12 @@ pub enum DpaInterfaceControllerState {
     Assigned,
 }
 
+#[derive(Default)]
+pub struct DpaSearchConfig {
+    pub only_svpc: bool,
+    pub only_astra: bool,
+}
+
 impl Display for DpaInterfaceControllerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)

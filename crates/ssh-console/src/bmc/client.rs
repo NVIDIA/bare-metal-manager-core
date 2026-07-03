@@ -142,6 +142,7 @@ impl BmcClient {
 
         // Connect and reconnect, in a loop, until the client is shut down.
         let mut retries = 0;
+        let mut previous_connection_close_was_sol_recovery = false;
         'retry: loop {
             // Every retry after the first time, emit a disconnected message
             if was_disconnected {
@@ -209,6 +210,7 @@ impl BmcClient {
             {
                 Ok(handle) => handle,
                 Err(error) => {
+                    previous_connection_close_was_sol_recovery = false;
                     tracing::error!(
                         %error,
                         %machine_id,
@@ -259,10 +261,24 @@ impl BmcClient {
                 // The connection should go forever, so if it doesn't, retry.
                 res = connection_result.clone() => {
                     let connection_time = try_start_time.elapsed();
-                    if connection_time > self.config.successful_connection_minimum_duration {
-                        tracing::debug!(%machine_id, "last connection lasted {}s, resetting backoff to 0s", connection_time.as_secs());
+                    let recovered_conflicting_sol_session = res
+                        .as_ref()
+                        .is_err_and(|error| error.retry_immediately());
+                    if should_reset_retry_backoff(
+                        connection_time,
+                        self.config.successful_connection_minimum_duration,
+                        &res,
+                        previous_connection_close_was_sol_recovery,
+                    ) {
+                        if recovered_conflicting_sol_session {
+                            tracing::debug!(%machine_id, "retrying immediately after IPMI SOL session recovery");
+                        } else {
+                            tracing::debug!(%machine_id, "last connection lasted {}s, resetting backoff to 0s", connection_time.as_secs());
+                        }
                         next_retry = Instant::now();
                     }
+                    previous_connection_close_was_sol_recovery =
+                        recovered_conflicting_sol_session;
                     let error_string = res.err().map(|e| format!("{:?}", e.as_ref())).unwrap_or("<none>".to_string());
                     tracing::warn!(
                         %machine_id,
@@ -445,6 +461,25 @@ fn dev_null<T: Clone + Send + 'static>(mut rx: broadcast::Receiver<T>) {
     });
 }
 
+fn should_reset_retry_backoff(
+    connection_time: Duration,
+    successful_connection_minimum_duration: Duration,
+    connection_result: &Result<(), Arc<connection::SpawnError>>,
+    previous_connection_close_was_sol_recovery: bool,
+) -> bool {
+    let recovered_conflicting_sol_session = connection_result
+        .as_ref()
+        .is_err_and(|error| error.retry_immediately());
+
+    if recovered_conflicting_sol_session {
+        // Retry one activation immediately after recovery, then use normal backoff if the conflict
+        // persists so competing SOL clients cannot cause a tight deactivate/activate loop.
+        !previous_connection_close_was_sol_recovery
+    } else {
+        connection_time > successful_connection_minimum_duration
+    }
+}
+
 /// Calculate the next exponential backoff duration for retrying connections to a console
 fn next_retry_backoff(config: &Config, prev: Duration) -> Duration {
     let duration = if prev == Duration::ZERO {
@@ -521,5 +556,110 @@ impl Drop for BmcConnectionSubscription {
             -1,
             &[KeyValue::new("machine_id", self.machine_id.to_string())],
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::process::ExitStatusExt;
+
+    use super::*;
+    use crate::bmc::connection_impl::ipmi;
+
+    #[test]
+    fn retry_backoff_resets_only_after_healthy_connection_or_successful_sol_recovery() {
+        let minimum_healthy_duration = Duration::from_secs(60);
+        let cases = [
+            (
+                "short successful connection",
+                Duration::from_secs(1),
+                Ok(()),
+                false,
+                false,
+            ),
+            (
+                "exact minimum connection duration",
+                minimum_healthy_duration,
+                Ok(()),
+                false,
+                false,
+            ),
+            (
+                "long-lived connection",
+                minimum_healthy_duration + Duration::from_secs(1),
+                Ok(()),
+                false,
+                true,
+            ),
+            (
+                "ordinary IPMI failure",
+                Duration::from_secs(1),
+                Err(Arc::new(connection::SpawnError::Ipmi(
+                    ipmi::SpawnError::IpmitoolUnexpectedExit {
+                        exit_status: failed_exit_status(),
+                        output: "authentication failed".to_string(),
+                    },
+                ))),
+                false,
+                false,
+            ),
+            (
+                "successful conflicting SOL session recovery",
+                Duration::from_secs(1),
+                Err(Arc::new(connection::SpawnError::Ipmi(
+                    ipmi::SpawnError::ConflictingSolSessionDeactivated {
+                        exit_status: failed_exit_status(),
+                        output: "SOL payload already active on another session".to_string(),
+                    },
+                ))),
+                false,
+                true,
+            ),
+            (
+                "repeated successful conflicting SOL session recovery",
+                Duration::from_secs(1),
+                Err(Arc::new(connection::SpawnError::Ipmi(
+                    ipmi::SpawnError::ConflictingSolSessionDeactivated {
+                        exit_status: failed_exit_status(),
+                        output: "SOL payload already active on another session".to_string(),
+                    },
+                ))),
+                true,
+                false,
+            ),
+            (
+                "failed conflicting SOL session recovery",
+                Duration::from_secs(1),
+                Err(Arc::new(connection::SpawnError::Ipmi(
+                    ipmi::SpawnError::ConflictingSolSessionDeactivationFailed {
+                        exit_status: failed_exit_status(),
+                        output: "SOL payload already active on another session".to_string(),
+                        error: ipmi::SolDeactivateError::Failure {
+                            exit_status: failed_exit_status(),
+                            output: "deactivation failed".to_string(),
+                        },
+                    },
+                ))),
+                false,
+                false,
+            ),
+        ];
+
+        for (scenario, connection_time, result, previous_was_recovery, expected) in cases {
+            assert_eq!(
+                should_reset_retry_backoff(
+                    connection_time,
+                    minimum_healthy_duration,
+                    &result,
+                    previous_was_recovery,
+                ),
+                expected,
+                "{scenario}",
+            );
+        }
+    }
+
+    fn failed_exit_status() -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(256)
     }
 }
