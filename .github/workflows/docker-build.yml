@@ -114,7 +114,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.push.outputs.digest || steps.build.outputs.digest }}
       image_tag: ${{ inputs.image_tag }}
       image_ref: ${{ steps.tag_list.outputs.primary }}
       tags: ${{ steps.tag_list.outputs.tags }}
@@ -130,7 +130,6 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        if: inputs.push
         uses: docker/setup-buildx-action@v3
         with:
           buildkitd-config: /etc/buildkit/buildkitd.toml
@@ -143,7 +142,8 @@ jobs:
 
       # Pull credentials and push credentials can differ in mirrors: base
       # images come from the source registry, the built image goes to the
-      # target. Target login is only needed when pushing.
+      # target (whose login happens after the build, so no credential is
+      # ever presented during base-image pulls).
       - name: Login to source registry
         if: ${{ inputs.source_registry_host != '' && (inputs.source_registry_host != steps.registry-host.outputs.host || !inputs.push) }}
         uses: ./.github/actions/docker-auth
@@ -151,14 +151,6 @@ jobs:
           registry: ${{ inputs.source_registry_host }}
           username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
           token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
-
-      - name: Login to target registry
-        if: ${{ inputs.push }}
-        uses: ./.github/actions/docker-auth
-        with:
-          registry: ${{ steps.registry-host.outputs.host }}
-          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Prepare tag list
         id: tag_list
@@ -208,12 +200,35 @@ jobs:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path }}
           platforms: ${{ inputs.platforms }}
-          push: ${{ inputs.push }}
-          load: ${{ inputs.load && !inputs.push }}
+          push: false
+          load: ${{ inputs.load || inputs.push }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+
+      - name: Login to target registry
+        if: ${{ inputs.push }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      - name: Push image tags
+        id: push
+        if: ${{ inputs.push }}
+        env:
+          TAGS: ${{ steps.tag_list.outputs.tags }}
+          PRIMARY: ${{ steps.tag_list.outputs.primary }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r TAG; do
+            [ -z "${TAG}" ] && continue
+            docker push "${TAG}"
+          done <<< "${TAGS}"
+          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -F "${PRIMARY%%:*}@" | head -1)
+          echo "digest=${DIGEST##*@}" >> "$GITHUB_OUTPUT"
 
       # Scan the image the build step just loaded into the daemon — no rebuild.
       # Only runs when the image is actually loaded (load=true and not pushing,
