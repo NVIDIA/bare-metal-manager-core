@@ -250,7 +250,7 @@ jobs:
             [ -z "${TAG}" ] && continue
             docker push "${TAG}"
           done <<< "${TAGS}"
-          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -F "${PRIMARY%:*}@" | head -1)
+          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -m1 -F "${PRIMARY%:*}@")
           echo "digest=${DIGEST##*@}" >> "$GITHUB_OUTPUT"
 
       # Scan the image the build step just loaded into the daemon — no rebuild.

@@ -98,7 +98,8 @@ jobs:
             fi
             _norm="${REGISTRY_OVERRIDE%/}"
             _host=$(printf '%s' "${_norm%%/*}" | tr '[:upper:]' '[:lower:]'); _host="${_host%:443}"
-            case "${_host}/${_norm#*/}" in
+            _path=$(printf '%s' "${_norm#*/}" | tr '[:upper:]' '[:lower:]')
+            case "${_host}/${_path}" in
               "nvcr.io/0837451325059433/carbide-dev"|"nvcr.io/0837451325059433/carbide")
                 echo "::error::this repository must not target the canonical registries"
                 exit 1;;

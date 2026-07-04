@@ -86,7 +86,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-rest-db:
     name: Build nico-rest-db
@@ -105,7 +110,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-rest-site-manager:
     name: Build nico-rest-site-manager
@@ -124,7 +134,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-rest-workflow:
     name: Build nico-rest-workflow
@@ -143,7 +158,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-rest-site-agent:
     name: Build nico-rest-site-agent
@@ -162,7 +182,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-rest-cert-manager:
     name: Build nico-rest-cert-manager
@@ -181,7 +206,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-flow:
     name: Build nico-flow
@@ -200,7 +230,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-psm:
     name: Build nico-psm
@@ -219,7 +254,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-nico-nsm:
     name: Build nico-nsm
@@ -238,7 +278,12 @@ jobs:
       push_enabled: ${{ inputs.push_enabled }}
       is_main_branch: ${{ inputs.is_main_branch }}
       release_tag: ${{ inputs.release_tag }}
-    secrets: inherit
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   build-summary:
     name: Build Summary

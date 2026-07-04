@@ -231,7 +231,7 @@ jobs:
               local x="${1%/}" h p
               h="${x%%/*}"; p="${x#*/}"
               h="${h,,}"; h="${h%:443}"
-              printf '%s/%s' "${h}" "${p}"
+              printf '%s/%s' "${h}" "${p,,}"
             }
             for R in "${TARGET}" "${PROD}"; do
               N="$(normalize "${R}")"
