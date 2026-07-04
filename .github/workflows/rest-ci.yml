@@ -134,6 +134,8 @@ jobs:
     secrets:
       NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
       NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
 
   helm:
     name: Helm Charts

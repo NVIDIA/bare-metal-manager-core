@@ -249,8 +249,8 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry.outputs.source_registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Resolve pinned carbide-extras image digest
         id: resolve-extras
@@ -654,8 +654,8 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Create and push multi-arch manifest
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
@@ -693,8 +693,18 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.source_registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # base refs may point at the target registry after a rebuild; log in
+      # there too when it is a different host (same-host uses one credential).
+      - name: Login to target registry
+        if: ${{ needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Run release-container service tests
         env:
@@ -790,8 +800,8 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Create and push multi-arch manifest
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
@@ -1103,8 +1113,8 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Create and push multi-arch manifest
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
@@ -1345,8 +1355,18 @@ jobs:
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.source_registry_host }}
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # base refs may point at the target registry after a rebuild; log in
+      # there too when it is a different host (same-host uses one credential).
+      - name: Login to target registry
+        if: ${{ needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Pull build container
         run: docker pull ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}

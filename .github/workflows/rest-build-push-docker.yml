@@ -52,6 +52,12 @@ on:
         required: false
       NVCR_TOKEN:
         description: "NVIDIA Container Registry API token"
+      NICO_TARGET_REGISTRY_USERNAME:
+        description: "Username for the push target registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_TARGET_REGISTRY_TOKEN:
+        description: "Token for the push target registry (falls back to NVCR_TOKEN)"
+        required: false
         required: false
 
 jobs:

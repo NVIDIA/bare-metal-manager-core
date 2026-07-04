@@ -145,7 +145,7 @@ jobs:
       # images come from the source registry, the built image goes to the
       # target. Target login is only needed when pushing.
       - name: Login to source registry
-        if: ${{ inputs.source_registry_host != '' }}
+        if: ${{ inputs.source_registry_host != '' && (inputs.source_registry_host != steps.registry-host.outputs.host || !inputs.push) }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ inputs.source_registry_host }}
