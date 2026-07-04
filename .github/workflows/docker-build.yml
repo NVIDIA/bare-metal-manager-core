@@ -33,7 +33,7 @@ on:
         type: boolean
         default: true
       image_name:
-        description: 'Image name without registry prefix'
+        description: 'Full image repository (registry/path/name), no tag'
         required: true
         type: string
       image_tag:

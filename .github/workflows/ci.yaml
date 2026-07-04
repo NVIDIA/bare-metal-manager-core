@@ -95,7 +95,6 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       image_registry: ${{ steps.registry.outputs.registry }}
-      registry_path: ${{ steps.registry.outputs.registry_path }}
       source_registry_host: ${{ steps.registry.outputs.source_registry_host }}
       publish_images: ${{ steps.release-gate.outputs.publish_built_container }}
       target_ngc_path: ${{ steps.registry.outputs.target_ngc_path }}
@@ -202,6 +201,7 @@ jobs:
           PROD_OVERRIDE: ${{ vars.NICO_PROD_IMAGE_REGISTRY }}
           EXTRAS_OVERRIDE: ${{ vars.NICO_EXTRAS_IMAGE }}
           NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
+          HAS_SOURCE_TOKEN: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN != '' }}
         run: |
           set -euo pipefail
           CANONICAL_DEV="nvcr.io/0837451325059433/carbide-dev"
@@ -216,8 +216,16 @@ jobs:
             fi
             TARGET="${TARGET_OVERRIDE}"
             PROD="${PROD_OVERRIDE:-${TARGET_OVERRIDE}}"
-            for R in "${TARGET%/}" "${PROD%/}"; do
-              if [[ "${R}" == "${CANONICAL_DEV}" || "${R}" == "${CANONICAL_PROD}" ]]; then
+            # normalize host (case, default port) before the canonical denylist
+            normalize() {
+              local x="${1%/}" h p
+              h="${x%%/*}"; p="${x#*/}"
+              h="${h,,}"; h="${h%:443}"
+              printf '%s/%s' "${h}" "${p}"
+            }
+            for R in "${TARGET}" "${PROD}"; do
+              N="$(normalize "${R}")"
+              if [[ "${N}" == "${CANONICAL_DEV}" || "${N}" == "${CANONICAL_PROD}" ]]; then
                 echo "::error::this repository must not target the canonical registry ${R}"
                 exit 1
               fi
@@ -232,11 +240,19 @@ jobs:
             NGC_PATH="${NGC_PATH_OVERRIDE:-${TARGET#*/}}"
           else
             NGC_PATH="${NGC_PATH_OVERRIDE:-}"
+            case "${NGC_PATH%/}" in
+              "${CANONICAL_DEV#*/}"|"${CANONICAL_PROD#*/}")
+                echo "::error::this repository must not publish helm/resources to the canonical NGC path ${NGC_PATH}"
+                exit 1;;
+            esac
+          fi
+          if [[ "${SOURCE%%/*}" != "nvcr.io" && "${HAS_SOURCE_TOKEN}" != "true" ]]; then
+            echo "::error::non-NVCR source registry requires NICO_SOURCE_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
+            exit 1
           fi
           {
             echo "registry=${TARGET}"
             echo "registry_host=${TARGET%%/*}"
-            echo "registry_path=${TARGET#*/}"
             echo "source_registry=${SOURCE}"
             echo "source_registry_host=${SOURCE%%/*}"
             echo "extras_image=${EXTRAS}"
@@ -406,6 +422,8 @@ jobs:
       - name: Decide release container publish strategy
         id: release-gate
         env:
+          TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
+          HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
@@ -418,6 +436,11 @@ jobs:
             PUBLISH=true
           fi
 
+          TARGET_HOST="${TARGET_REGISTRY%%/*}"
+          if [[ "${PUBLISH}" == "true" && "${TARGET_HOST}" != "nvcr.io" && "${HAS_TARGET_TOKEN}" != "true" ]]; then
+            echo "::error::publishing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
+            exit 1
+          fi
           echo "publish_built_container=${PUBLISH}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release container build args

@@ -127,6 +127,7 @@ jobs:
       short_sha: ${{ needs.prepare.outputs.short_sha }}
       branch_sha_tag: ${{ needs.prepare.outputs.branch_sha_tag }}
       target_registry: ${{ needs.prepare.outputs.target_registry }}
+      ngc_path: ${{ needs.prepare.outputs.target_ngc_path }}
       branch_name: ${{ needs.prepare.outputs.branch_name }}
       is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
       push_enabled: ${{ github.event_name != 'workflow_dispatch' && !contains(github.ref, 'pull-request/') }}
