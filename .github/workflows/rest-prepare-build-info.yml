@@ -91,7 +91,13 @@ jobs:
               echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
               exit 1
             fi
-            case "${REGISTRY_OVERRIDE%/}" in
+            if [ "$(printf '%s' "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" | wc -l)" != "0" ]; then
+              echo "::error::registry variables must be single-line values"
+              exit 1
+            fi
+            _norm="${REGISTRY_OVERRIDE%/}"
+            _host=$(printf '%s' "${_norm%%/*}" | tr '[:upper:]' '[:lower:]'); _host="${_host%:443}"
+            case "${_host}/${_norm#*/}" in
               "nvcr.io/0837451325059433/carbide-dev"|"nvcr.io/0837451325059433/carbide")
                 echo "::error::this repository must not target the canonical registries"
                 exit 1;;

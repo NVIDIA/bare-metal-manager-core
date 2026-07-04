@@ -58,15 +58,12 @@ jobs:
 
       - name: Resolve container registries
         id: registry
-        env:
-          REGISTRY_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
-          PROD_REGISTRY_OVERRIDE: ${{ vars.NICO_PROD_IMAGE_REGISTRY }}
+        # promotion only runs in the canonical repo; endpoints are constants so
+        # repository variables can never redirect staging/production credentials
         run: |
           set -euo pipefail
-          REGISTRY="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
-          REGISTRY="${REGISTRY%/}"
-          PROD_REGISTRY="${PROD_REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide}"
-          PROD_REGISTRY="${PROD_REGISTRY%/}"
+          REGISTRY="nvcr.io/0837451325059433/carbide-dev"
+          PROD_REGISTRY="nvcr.io/0837451325059433/carbide"
           {
             echo "registry=${REGISTRY}"
             echo "registry_host=${REGISTRY%%/*}"

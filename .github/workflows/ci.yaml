@@ -202,13 +202,22 @@ jobs:
           EXTRAS_OVERRIDE: ${{ vars.NICO_EXTRAS_IMAGE }}
           NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
           HAS_SOURCE_TOKEN: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN != '' }}
+          HAS_SOURCE_USERNAME: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME != '' }}
         run: |
           set -euo pipefail
           CANONICAL_DEV="nvcr.io/0837451325059433/carbide-dev"
           CANONICAL_PROD="nvcr.io/0837451325059433/carbide"
+          for V in "${TARGET_OVERRIDE}" "${SOURCE_OVERRIDE}" "${PROD_OVERRIDE}" "${EXTRAS_OVERRIDE}" "${NGC_PATH_OVERRIDE}"; do
+            if [[ "${V}" == *$'\n'* || "${V}" == *$'\r'* ]]; then
+              echo "::error::registry variables must be single-line values"
+              exit 1
+            fi
+          done
           if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
-            TARGET="${TARGET_OVERRIDE:-${CANONICAL_DEV}}"
-            PROD="${PROD_OVERRIDE:-${CANONICAL_PROD}}"
+            # canonical endpoints are constants: repository variables must not
+            # be able to redirect canonical credentials without a workflow diff
+            TARGET="${CANONICAL_DEV}"
+            PROD="${CANONICAL_PROD}"
           else
             if [[ -z "${TARGET_OVERRIDE}" ]]; then
               echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
@@ -236,6 +245,10 @@ jobs:
           SOURCE="${SOURCE_OVERRIDE:-${CANONICAL_DEV}}"
           SOURCE="${SOURCE%/}"
           EXTRAS="${EXTRAS_OVERRIDE:-${SOURCE}/nvmetal-carbide-extras:latest}"
+          if [[ "${EXTRAS%%/*}" != "${SOURCE%%/*}" ]]; then
+            echo "::error::NICO_EXTRAS_IMAGE must live on the source registry host (${SOURCE%%/*}); refusing to send source credentials to ${EXTRAS%%/*}"
+            exit 1
+          fi
           if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
             NGC_PATH="${NGC_PATH_OVERRIDE:-${TARGET#*/}}"
           else
@@ -246,7 +259,7 @@ jobs:
                 exit 1;;
             esac
           fi
-          if [[ "${SOURCE%%/*}" != "nvcr.io" && "${HAS_SOURCE_TOKEN}" != "true" ]]; then
+          if [[ "${SOURCE%%/*}" != "nvcr.io" && ( "${HAS_SOURCE_TOKEN}" != "true" || "${HAS_SOURCE_USERNAME}" != "true" ) ]]; then
             echo "::error::non-NVCR source registry requires NICO_SOURCE_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
             exit 1
           fi
@@ -424,6 +437,7 @@ jobs:
         env:
           TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
           HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
@@ -437,7 +451,7 @@ jobs:
           fi
 
           TARGET_HOST="${TARGET_REGISTRY%%/*}"
-          if [[ "${PUBLISH}" == "true" && "${TARGET_HOST}" != "nvcr.io" && "${HAS_TARGET_TOKEN}" != "true" ]]; then
+          if [[ "${PUBLISH}" == "true" && "${TARGET_HOST}" != "nvcr.io" && ( "${HAS_TARGET_TOKEN}" != "true" || "${HAS_TARGET_USERNAME}" != "true" ) ]]; then
             echo "::error::publishing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
             exit 1
           fi
@@ -722,7 +736,7 @@ jobs:
       # base refs may point at the target registry after a rebuild; log in
       # there too when it is a different host (same-host uses one credential).
       - name: Login to target registry
-        if: ${{ needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        if: ${{ needs.prepare.outputs.publish_images == 'true' && needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.registry_host }}
@@ -1240,8 +1254,8 @@ jobs:
     container:
       image: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
       credentials:
-        username: ${{ secrets.NVCR_USERNAME }}
-        password: ${{ secrets.NVCR_TOKEN }}
+        username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+        password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1384,7 +1398,7 @@ jobs:
       # base refs may point at the target registry after a rebuild; log in
       # there too when it is a different host (same-host uses one credential).
       - name: Login to target registry
-        if: ${{ needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        if: ${{ needs.prepare.outputs.publish_images == 'true' && needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ needs.prepare.outputs.registry_host }}
