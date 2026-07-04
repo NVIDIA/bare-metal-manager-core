@@ -160,7 +160,7 @@ jobs:
       # needed when this run rebuilt base containers (their refs point at the
       # target) and for multi-platform builds that push from the build step
       - name: Login to target registry (pre-build)
-        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && contains(inputs.platforms, ',')) }}
+        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller')) }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
@@ -215,21 +215,23 @@ jobs:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path }}
           platforms: ${{ inputs.platforms }}
-          # multi-platform images cannot be loaded into the classic image
-          # store, so they keep pushing straight from the build step
-          push: ${{ inputs.push && contains(inputs.platforms, ',') }}
-          load: ${{ (inputs.load || inputs.push) && !contains(inputs.platforms, ',') }}
-          # deliberate tradeoff: attestations are disabled so single- and
-          # multi-platform paths produce consistent artifacts (nothing in the
-          # pipeline consumes provenance today)
-          provenance: false
+          # canonical pushes straight from the build step (original behavior,
+          # BuildKit provenance intact); mirrors defer the push until after the
+          # build so no credential is present during base pulls. Multi-platform
+          # images cannot be loaded into the classic store, so they always push
+          # directly.
+          push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller') }}
+          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+          # mirrors: the docker exporter cannot attach attestations, and
+          # provenance would embed private downstream repo refs into artifacts
+          provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
 
       - name: Login to target registry
-        if: ${{ inputs.push && !contains(inputs.platforms, ',') }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
@@ -238,7 +240,7 @@ jobs:
 
       - name: Push image tags
         id: push
-        if: ${{ inputs.push && !contains(inputs.platforms, ',') }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
         env:
           TAGS: ${{ steps.tag_list.outputs.tags }}
           PRIMARY: ${{ steps.tag_list.outputs.primary }}
