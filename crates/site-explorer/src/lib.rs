@@ -1272,7 +1272,7 @@ impl SiteExplorer {
                                 .await,
                             );
 
-                            let host_pf_mac_address = self.get_host_pf_mac_address(&dpu_ep).await;
+                            let host_pf_mac_address = get_host_pf_mac_address(&dpu_ep);
                             match classify_matched_dpu(
                                 &dpu_ep,
                                 &ep,
@@ -1622,7 +1622,7 @@ impl SiteExplorer {
             None => None,
         };
 
-        let host_pf_mac_address = self.get_host_pf_mac_address(dpu_ep).await;
+        let host_pf_mac_address = get_host_pf_mac_address(dpu_ep);
         match classify_matched_dpu(dpu_ep, host_ep, mode_check, host_pf_mac_address) {
             DiscoveredDpu::RunningAsDpu(dpu) => exploration.running_as_dpu.push(dpu),
             DiscoveredDpu::RunningAsNic => exploration.running_as_nic_total += 1,
@@ -2594,8 +2594,11 @@ impl SiteExplorer {
         }
 
         // This is a bluefield in DPU mode
-        if self.get_host_pf_mac_address(dpu_endpoint).await.is_some() {
-            return Ok(true);
+        match find_host_pf_mac_address(dpu_endpoint) {
+            Ok(_) => return Ok(true),
+            Err(error) => {
+                tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+            }
         }
         metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
         Ok(false)
@@ -2689,86 +2692,6 @@ impl SiteExplorer {
                 kind: "machine_interface",
                 id: format!("remote_ip={ip_address:?}"),
             }),
-        }
-    }
-
-    /// Resolve the host-facing PF0 MAC for a discovered DPU.
-    ///
-    /// Tries report-derived paths first.
-    ///
-    /// BF3 keeps its historical offset fallback inside
-    /// `find_host_pf_mac_address`. BF4 skips offset there, so only BF4 falls
-    /// through to direct NDF0 Redfish here.
-    async fn get_host_pf_mac_address(&self, dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
-        match find_host_pf_mac_address(dpu_ep) {
-            Ok(mac) => Some(mac),
-            Err(report_error) => {
-                if !is_bf4_dpu_report(&dpu_ep.report) {
-                    tracing::error!(
-                        dpu_ip = %dpu_ep.address,
-                        %report_error,
-                        "failed to find PF0 MAC from report-derived paths",
-                    );
-                    return None;
-                }
-                tracing::warn!(
-                    dpu_ip = %dpu_ep.address,
-                    %report_error,
-                    "failed to resolve BF4 PF0 MAC from report; trying NDF0 Redfish fallback",
-                );
-                match self.get_host_pf_mac_address_from_ndf0(dpu_ep).await {
-                    Some(mac) => Some(mac),
-                    None => {
-                        tracing::error!(
-                            dpu_ip = %dpu_ep.address,
-                            %report_error,
-                            "failed to find BF4 PF0 MAC from report and NDF0 fallback",
-                        );
-                        None
-                    }
-                }
-            }
-        }
-    }
-
-    async fn get_host_pf_mac_address_from_ndf0(
-        &self,
-        dpu_ep: &ExploredEndpoint,
-    ) -> Option<MacAddress> {
-        let bmc_target_port = self.config.override_target_port.unwrap_or(443);
-        let bmc_target_addr = SocketAddr::new(dpu_ep.address, bmc_target_port);
-        let interface = match self.find_machine_interface_for_ip(dpu_ep.address).await {
-            Ok(interface) => interface,
-            Err(error) => {
-                tracing::warn!(
-                    dpu_ip = %dpu_ep.address,
-                    %error,
-                    "cannot fetch BF4 NDF0 MAC without machine interface",
-                );
-                return None;
-            }
-        };
-        match self
-            .endpoint_explorer
-            .get_dpu_pf0_mac_from_ndf0(bmc_target_addr, &interface)
-            .await
-        {
-            Ok(Some(mac)) => Some(mac),
-            Ok(None) => {
-                tracing::warn!(
-                    dpu_ip = %dpu_ep.address,
-                    "BF4 NDF0 path did not return PermanentMACAddress",
-                );
-                None
-            }
-            Err(error) => {
-                tracing::warn!(
-                    dpu_ip = %dpu_ep.address,
-                    %error,
-                    "failed fetching BF4 NDF0 PF0 MAC",
-                );
-                None
-            }
         }
     }
 
@@ -3254,11 +3177,12 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     //   2. Legacy   : derived from UpdateService/FirmwareInventory/DPU_SYS_IMAGE.Version.
     //   3. BMC offset: derived from manager eth0 MAC minus per-platform offset.
     //
-    // BF4 explicitly skips path 3 so the caller can use NDF0 Redfish fallback.
+    // BF4 explicitly skips path 3. Its PF0 base MAC should be populated in
+    // `systems[].base_mac` at exploration time from the NDF0 Redfish path.
     // BF3 keeps path 3 unchanged.
 
-    // Path 1: any explored computer-system base_mac.
-    if let Some(system_mac) = dpu_ep.report.systems.iter().find_map(|s| s.base_mac) {
+    // Path 1: explored computer-system base_mac.
+    if let Some(system_mac) = dpu_ep.report.systems.first().and_then(|s| s.base_mac) {
         return Ok(system_mac.to_mac());
     }
 
@@ -3275,7 +3199,7 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
         Err(e) => e,
     };
 
-    // BF4 should not use eth0 offset fallback. Let caller use NDF0 instead.
+    // BF4 should not use eth0 offset fallback.
     if is_bf4_dpu_report(&dpu_ep.report) {
         tracing::warn!("legacy BF4 derivation failed, skipping BMC eth0 offset fallback");
         return Err(legacy_err);
@@ -3291,7 +3215,7 @@ fn is_bf4_dpu_report(report: &EndpointExplorationReport) -> bool {
         .first()
         .is_some_and(|system| system.id == "Bluefield")
         && report.chassis.iter().any(|chassis| {
-            chassis.id == "Card1"
+            (chassis.id == "Card1" || chassis.id == "BlueField_0")
                 && chassis
                     .model
                     .as_deref()
@@ -3392,6 +3316,17 @@ fn is_dpu_in_nic_mode(dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint) -> 
         );
     }
     nic_mode
+}
+
+/// The host-facing PF MAC of a discovered DPU, or `None` if it can't be determined.
+fn get_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
+    match find_host_pf_mac_address(dpu_ep) {
+        Ok(m) => Some(m),
+        Err(error) => {
+            tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
+            None
+        }
+    }
 }
 
 /// State from exploring a host's DPUs and pairing them with DPU BMCs.

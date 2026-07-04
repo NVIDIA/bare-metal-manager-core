@@ -154,14 +154,6 @@ impl EndpointExplorer for MockEndpointExplorer {
             .unwrap_or(PowerState::On))
     }
 
-    async fn get_dpu_pf0_mac_from_ndf0(
-        &self,
-        _address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-    ) -> Result<Option<MacAddress>, EndpointExplorationError> {
-        Ok(None)
-    }
-
     async fn redfish_power_control(
         &self,
         address: SocketAddr,

@@ -818,29 +818,6 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
     }
 
-    async fn get_dpu_pf0_mac_from_ndf0(
-        &self,
-        bmc_ip_address: SocketAddr,
-        interface: &MachineInterfaceSnapshot,
-    ) -> Result<Option<MacAddress>, EndpointExplorationError> {
-        let bmc_mac_address = interface.mac_address;
-        match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => {
-                self.redfish_client
-                    .get_dpu_pf0_mac_from_ndf0(bmc_ip_address, credentials)
-                    .await
-            }
-            Err(e) => {
-                tracing::info!(
-                    %bmc_ip_address,
-                    "Site explorer cannot fetch BF4 NDF0 PF0 MAC without credentials: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
-                );
-                Err(e)
-            }
-        }
-    }
-
     async fn redfish_power_control(
         &self,
         bmc_ip_address: SocketAddr,

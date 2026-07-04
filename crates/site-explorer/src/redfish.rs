@@ -445,18 +445,6 @@ impl RedfishClient {
         client.get_power_state().await.map_err(map_redfish_error)
     }
 
-    pub async fn get_dpu_pf0_mac_from_ndf0(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<Option<MacAddress>, EndpointExplorationError> {
-        let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, credentials)
-            .await
-            .map_err(map_redfish_client_creation_error)?;
-        Ok(get_base_mac_from_bf4_ndf0(client.as_ref()).await)
-    }
-
     pub async fn power(
         &self,
         bmc_ip_address: SocketAddr,
@@ -838,6 +826,9 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
                 None
             }
         };
+        if base_mac.is_none() {
+            base_mac = get_base_mac_from_bf4_ndf0(client).await;
+        }
         nic_mode = match client.get_nic_mode().await {
             Ok(nic_mode) => nic_mode,
             Err(e) => return Err(map_redfish_error(e)),
