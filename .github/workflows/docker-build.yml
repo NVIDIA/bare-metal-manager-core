@@ -3,6 +3,11 @@ name: Build Container with Buildx
 on:
   workflow_call:
     inputs:
+      target_prebuild_login:
+        description: 'Log into the target registry before the build (base refs point there after a rebuild)'
+        required: false
+        default: false
+        type: boolean
       source_registry_host:
         description: 'Registry host for read-only base-image pulls (empty = skip source login)'
         required: false
@@ -145,12 +150,22 @@ jobs:
       # target (whose login happens after the build, so no credential is
       # ever presented during base-image pulls).
       - name: Login to source registry
-        if: ${{ inputs.source_registry_host != '' && (inputs.source_registry_host != steps.registry-host.outputs.host || !inputs.push) }}
+        if: ${{ inputs.source_registry_host != '' }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ inputs.source_registry_host }}
           username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
           token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # needed when this run rebuilt base containers (their refs point at the
+      # target) and for multi-platform builds that push from the build step
+      - name: Login to target registry (pre-build)
+        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && contains(inputs.platforms, ',')) }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Prepare tag list
         id: tag_list
@@ -193,22 +208,24 @@ jobs:
             echo "build_args=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build and optionally push Docker image
+      - name: Build image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path }}
           platforms: ${{ inputs.platforms }}
-          push: false
-          load: ${{ inputs.load || inputs.push }}
+          # multi-platform images cannot be loaded into the classic image
+          # store, so they keep pushing straight from the build step
+          push: ${{ inputs.push && contains(inputs.platforms, ',') }}
+          load: ${{ (inputs.load || inputs.push) && !contains(inputs.platforms, ',') }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
 
       - name: Login to target registry
-        if: ${{ inputs.push }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
@@ -217,7 +234,7 @@ jobs:
 
       - name: Push image tags
         id: push
-        if: ${{ inputs.push }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') }}
         env:
           TAGS: ${{ steps.tag_list.outputs.tags }}
           PRIMARY: ${{ steps.tag_list.outputs.primary }}
@@ -227,7 +244,7 @@ jobs:
             [ -z "${TAG}" ] && continue
             docker push "${TAG}"
           done <<< "${TAGS}"
-          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -F "${PRIMARY%%:*}@" | head -1)
+          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -F "${PRIMARY%:*}@" | head -1)
           echo "digest=${DIGEST##*@}" >> "$GITHUB_OUTPUT"
 
       # Scan the image the build step just loaded into the daemon — no rebuild.

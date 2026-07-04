@@ -3,6 +3,11 @@ name: Build Artifacts (Boot & Ephemeral Images)
 on:
   workflow_call:
     inputs:
+      target_login:
+        description: 'Allow authenticating to the build-container host when it differs from the extras host (publish runs only)'
+        required: false
+        default: false
+        type: boolean
       arch:
         description: 'Target architecture: x86_64 or aarch64'
         required: true
@@ -164,7 +169,7 @@ jobs:
       # the build container ref points at the target registry after a rebuild;
       # log in there too when it is a different host.
       - name: Setup Docker authentication (target)
-        if: inputs.use_container == true && inputs.build_container != '' && steps.registry-hosts.outputs.build_host != steps.registry-hosts.outputs.extras_host
+        if: inputs.target_login == true && inputs.use_container == true && inputs.build_container != '' && steps.registry-hosts.outputs.build_host != steps.registry-hosts.outputs.extras_host
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-hosts.outputs.build_host }}

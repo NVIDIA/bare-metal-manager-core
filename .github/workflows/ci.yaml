@@ -96,6 +96,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       image_registry: ${{ steps.registry.outputs.registry }}
       source_registry_host: ${{ steps.registry.outputs.source_registry_host }}
+      bases_rebuilt: ${{ steps.base-container-gate.outputs.build_container_x86_64_run == 'true' || steps.base-container-gate.outputs.runtime_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_container_aarch64_run == 'true' || steps.base-container-gate.outputs.runtime_container_aarch64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_aarch64_run == 'true' }}
       publish_images: ${{ steps.release-gate.outputs.publish_built_container }}
       target_ngc_path: ${{ steps.registry.outputs.target_ngc_path }}
       registry_host: ${{ steps.registry.outputs.registry_host }}
@@ -506,6 +507,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_container_x86_64_version }}
@@ -523,6 +525,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.build-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_container_aarch64_version }}
@@ -540,6 +543,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64
       image_tag: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
@@ -557,6 +561,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-aarch64
       image_tag: ${{ needs.prepare.outputs.runtime_container_aarch64_version }}
@@ -574,6 +579,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
@@ -591,6 +597,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
@@ -624,6 +631,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args }}
@@ -656,6 +664,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
@@ -790,6 +799,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -809,6 +819,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -868,6 +879,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-x86_64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: x86_64
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
@@ -886,6 +898,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-aarch64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: aarch64
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
@@ -910,6 +923,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: x86_64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
@@ -929,6 +943,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: aarch64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
@@ -954,6 +969,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -986,6 +1002,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1074,6 +1091,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine-validation-runner
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1093,6 +1111,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1118,6 +1137,7 @@ jobs:
     uses: ./.github/workflows/docker-build.yml
     with:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
