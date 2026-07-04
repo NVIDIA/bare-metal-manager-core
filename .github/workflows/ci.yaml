@@ -98,6 +98,7 @@ jobs:
       source_registry_host: ${{ steps.registry.outputs.source_registry_host }}
       bases_rebuilt: ${{ steps.base-container-gate.outputs.build_container_x86_64_run == 'true' || steps.base-container-gate.outputs.runtime_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_container_aarch64_run == 'true' || steps.base-container-gate.outputs.runtime_container_aarch64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_aarch64_run == 'true' }}
       publish_images: ${{ steps.release-gate.outputs.publish_built_container }}
+      lint_container_ref: ${{ steps.release-gate.outputs.lint_container_ref }}
       target_ngc_path: ${{ steps.registry.outputs.target_ngc_path }}
       registry_host: ${{ steps.registry.outputs.registry_host }}
       prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
@@ -442,6 +443,9 @@ jobs:
         env:
           TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
           HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          BUILD_X86_RUN: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
+          BUILD_X86_REF: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+          SOURCE_REGISTRY: ${{ steps.registry.outputs.source_registry }}
           HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
@@ -461,6 +465,13 @@ jobs:
             exit 1
           fi
           echo "publish_built_container=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          # job containers log in before any step runs, so the lint job must
+          # never point at a target ref that was not published (mirror PRs)
+          if [[ "${BUILD_X86_RUN}" == "true" && "${GITHUB_REPOSITORY}" != "NVIDIA/infra-controller" && "${PUBLISH}" != "true" ]]; then
+            echo "lint_container_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "lint_container_ref=${BUILD_X86_REF}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare release container build args
         id: release-metadata
@@ -1270,7 +1281,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
     runs-on: linux-amd64-cpu16
     container:
-      image: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
+      image: ${{ needs.prepare.outputs.lint_container_ref }}
       credentials:
         username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
         password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
