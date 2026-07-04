@@ -219,6 +219,10 @@ jobs:
           # store, so they keep pushing straight from the build step
           push: ${{ inputs.push && contains(inputs.platforms, ',') }}
           load: ${{ (inputs.load || inputs.push) && !contains(inputs.platforms, ',') }}
+          # deliberate tradeoff: attestations are disabled so single- and
+          # multi-platform paths produce consistent artifacts (nothing in the
+          # pipeline consumes provenance today)
+          provenance: false
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
