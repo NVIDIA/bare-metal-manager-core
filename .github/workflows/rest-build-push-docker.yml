@@ -64,6 +64,9 @@ on:
       NICO_TARGET_REGISTRY_TOKEN:
         description: "Token for the push target registry (falls back to NVCR_TOKEN)"
         required: false
+      NICO_NGC_TOKEN:
+        description: "Key for NGC helm/resource uploads (falls back to NVCR_TOKEN)"
+        required: false
 
 jobs:
   build-nico-rest-api:

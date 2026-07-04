@@ -21,6 +21,8 @@ on:
     secrets:
       NVCR_STG_TOKEN:
         required: true
+      NICO_NGC_TOKEN:
+        required: false
 
 jobs:
   validate-charts:
@@ -69,6 +71,6 @@ jobs:
           chart-version: ${{ inputs.chart_version }}
           app-version: ${{ inputs.app_version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_STG_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_STG_TOKEN }}
           ngc-path: ${{ inputs.ngc_path }}
           ngc-duplicate: fail

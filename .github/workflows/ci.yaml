@@ -1361,7 +1361,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
@@ -1399,7 +1399,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
@@ -1633,7 +1633,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
@@ -1645,7 +1645,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
@@ -1657,7 +1657,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
@@ -1669,7 +1669,7 @@ jobs:
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
           ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
