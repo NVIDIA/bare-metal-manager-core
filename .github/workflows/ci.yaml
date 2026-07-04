@@ -199,7 +199,6 @@ jobs:
         env:
           TARGET_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
           SOURCE_OVERRIDE: ${{ vars.NICO_SOURCE_IMAGE_REGISTRY }}
-          PROD_OVERRIDE: ${{ vars.NICO_PROD_IMAGE_REGISTRY }}
           EXTRAS_OVERRIDE: ${{ vars.NICO_EXTRAS_IMAGE }}
           NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
           HAS_SOURCE_TOKEN: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN != '' }}
@@ -208,7 +207,7 @@ jobs:
           set -euo pipefail
           CANONICAL_DEV="nvcr.io/0837451325059433/carbide-dev"
           CANONICAL_PROD="nvcr.io/0837451325059433/carbide"
-          for V in "${TARGET_OVERRIDE}" "${SOURCE_OVERRIDE}" "${PROD_OVERRIDE}" "${EXTRAS_OVERRIDE}" "${NGC_PATH_OVERRIDE}"; do
+          for V in "${TARGET_OVERRIDE}" "${SOURCE_OVERRIDE}" "${EXTRAS_OVERRIDE}" "${NGC_PATH_OVERRIDE}"; do
             if [[ "${V}" == *$'\n'* || "${V}" == *$'\r'* ]]; then
               echo "::error::registry variables must be single-line values"
               exit 1
@@ -225,7 +224,7 @@ jobs:
               exit 1
             fi
             TARGET="${TARGET_OVERRIDE}"
-            PROD="${PROD_OVERRIDE:-${TARGET_OVERRIDE}}"
+            PROD="${TARGET}"
             # normalize host (case, default port) before the canonical denylist
             normalize() {
               local x="${1%/}" h p

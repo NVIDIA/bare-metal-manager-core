@@ -84,15 +84,16 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
 
+          if [[ "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" == *$'\n'* || "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" == *$'\r'* ]]; then
+            echo "::error::registry variables must be single-line values"
+            exit 1
+          fi
+          # canonical endpoints are constants: variables must not redirect them
           if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
-            target_registry="${REGISTRY_OVERRIDE:-nvcr.io/0837451325059433/carbide-dev}"
+            target_registry="nvcr.io/0837451325059433/carbide-dev"
           else
             if [ -z "${REGISTRY_OVERRIDE}" ]; then
               echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
-              exit 1
-            fi
-            if [ "$(printf '%s' "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" | wc -l)" != "0" ]; then
-              echo "::error::registry variables must be single-line values"
               exit 1
             fi
             _norm="${REGISTRY_OVERRIDE%/}"
@@ -134,7 +135,7 @@ jobs:
           echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
           echo "target_registry=$target_registry" >> $GITHUB_OUTPUT
           if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
-            echo "target_ngc_path=${NGC_PATH_OVERRIDE:-${target_registry#*/}}" >> $GITHUB_OUTPUT
+            echo "target_ngc_path=${target_registry#*/}" >> $GITHUB_OUTPUT
           else
             case "${NGC_PATH_OVERRIDE%/}" in
               "0837451325059433/carbide-dev"|"0837451325059433/carbide")

@@ -117,10 +117,11 @@ jobs:
           TARGET_REGISTRY: ${{ inputs.target_registry }}
           PUSH_ENABLED: ${{ inputs.push_enabled }}
           HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
         run: |
           HOST="${TARGET_REGISTRY%%/*}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
-          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && [ "${HAS_TARGET_TOKEN}" != "true" ]; then
+          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && { [ "${HAS_TARGET_TOKEN}" != "true" ] || [ "${HAS_TARGET_USERNAME}" != "true" ]; }; then
             echo "::error::pushing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets"
             exit 1
           fi
@@ -262,10 +263,11 @@ jobs:
           TARGET_REGISTRY: ${{ inputs.target_registry }}
           PUSH_ENABLED: ${{ inputs.push_enabled }}
           HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
         run: |
           HOST="${TARGET_REGISTRY%%/*}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
-          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && [ "${HAS_TARGET_TOKEN}" != "true" ]; then
+          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && { [ "${HAS_TARGET_TOKEN}" != "true" ] || [ "${HAS_TARGET_USERNAME}" != "true" ]; }; then
             echo "::error::pushing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets"
             exit 1
           fi
