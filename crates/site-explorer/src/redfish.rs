@@ -827,7 +827,23 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
             }
         };
         if base_mac.is_none() {
+            // BF4 temporary patch:
+            // BF4 BMC reports do not expose PF0 base MAC via the usual
+            // ComputerSystem BaseMAC path, so we patch `systems[].base_mac` by
+            // reading NDF0 PermanentMACAddress from the BF4 NIC subtree.
+            //
+            // Remove this fallback once BF4 BMC exposes PF0 base MAC directly in
+            // the standard system/base_mac report path.
+            //
+            // This path depends on NIC inventory being up and queryable; it may
+            // be absent when NIC firmware is in recovery/uninitialized states or
+            // when NIC-side inventory endpoints are not populated/responding.
             base_mac = get_base_mac_from_bf4_ndf0(client).await;
+            if base_mac.is_none() {
+                tracing::warn!(
+                    "BF4 NDF0 fallback did not provide PF0 base MAC (NIC inventory unavailable/uninitialized?)"
+                );
+            }
         }
         nic_mode = match client.get_nic_mode().await {
             Ok(nic_mode) => nic_mode,

@@ -1272,13 +1272,7 @@ impl SiteExplorer {
                                 .await,
                             );
 
-                            let host_pf_mac_address = get_host_pf_mac_address(&dpu_ep);
-                            match classify_matched_dpu(
-                                &dpu_ep,
-                                &ep,
-                                mode_check,
-                                host_pf_mac_address,
-                            ) {
+                            match classify_matched_dpu(&dpu_ep, &ep, mode_check) {
                                 DiscoveredDpu::RunningAsDpu(dpu) => {
                                     // The expected-machine fallback list is the source of
                                     // truth here, so discard whatever the PCIe scan found
@@ -1622,8 +1616,7 @@ impl SiteExplorer {
             None => None,
         };
 
-        let host_pf_mac_address = get_host_pf_mac_address(dpu_ep);
-        match classify_matched_dpu(dpu_ep, host_ep, mode_check, host_pf_mac_address) {
+        match classify_matched_dpu(dpu_ep, host_ep, mode_check) {
             DiscoveredDpu::RunningAsDpu(dpu) => exploration.running_as_dpu.push(dpu),
             DiscoveredDpu::RunningAsNic => exploration.running_as_nic_total += 1,
             DiscoveredDpu::NeedsReconfig => exploration.all_configured = false,
@@ -2595,13 +2588,13 @@ impl SiteExplorer {
 
         // This is a bluefield in DPU mode
         match find_host_pf_mac_address(dpu_endpoint) {
-            Ok(_) => return Ok(true),
+            Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
+                Ok(false)
             }
         }
-        metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
-        Ok(false)
     }
 
     async fn set_nic_mode(
@@ -3186,8 +3179,9 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
         return Ok(system_mac.to_mac());
     }
 
-    // Path 2: legacy DPU_SYS_IMAGE derivation. Soft-fail so we can try path 3.
-    tracing::warn!("ComputerSystem doesn't have base_mac, falling back to DPU_SYS_IMAGE method");
+    // Path 2: legacy DPU_SYS_IMAGE derivation. Soft-fail so BF3 can still try
+    // path 3 (BMC offset). BF4 should never use path 3.
+    tracing::warn!("ComputerSystem doesn't have base_mac, trying DPU_SYS_IMAGE method");
     let legacy_err = match get_sys_image_version(dpu_ep.report.service.as_ref())
         .and_then(get_base_mac_from_sys_image_version)
         .and_then(|legacy_mac| {
@@ -3201,7 +3195,9 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
 
     // BF4 should not use eth0 offset fallback.
     if is_bf4_dpu_report(&dpu_ep.report) {
-        tracing::warn!("legacy BF4 derivation failed, skipping BMC eth0 offset fallback");
+        tracing::warn!(
+            "DPU_SYS_IMAGE derivation failed for BF4; expected PF0 base MAC from NDF0-patched systems[].base_mac, skipping BMC eth0 offset fallback"
+        );
         return Err(legacy_err);
     }
 
@@ -3210,18 +3206,30 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
 }
 
 fn is_bf4_dpu_report(report: &EndpointExplorationReport) -> bool {
-    report
+    let has_bluefield_system = report
         .systems
         .first()
-        .is_some_and(|system| system.id == "Bluefield")
-        && report.chassis.iter().any(|chassis| {
-            (chassis.id == "Card1" || chassis.id == "BlueField_0")
-                && chassis
-                    .model
-                    .as_deref()
-                    .map(str::to_lowercase)
-                    .is_some_and(|model| model.contains("bluefield 4"))
-        })
+        .is_some_and(|system| system.id == "Bluefield");
+    if !has_bluefield_system {
+        return false;
+    }
+
+    // Use BF4-specific topology IDs instead of free-form model strings.
+    // This is intentionally strict to avoid matching BF2/BF3 reports that may
+    // also carry some *_0 naming in newer firmware.
+    let has_bf4_chassis_and_nic = report.chassis.iter().any(|chassis| {
+        chassis.id == "BlueField_0"
+            && chassis
+                .network_adapters
+                .iter()
+                .any(|adapter| adapter.id == "BlueField_NIC_0")
+    });
+    let has_bf4_bmc_manager_id = report
+        .managers
+        .iter()
+        .any(|manager| manager.id == "BlueField_BMC_0");
+
+    has_bf4_chassis_and_nic && has_bf4_bmc_manager_id
 }
 
 // The PF0 base MAC sits a fixed offset below the DPU BMC's eth0 MAC, within the
@@ -3389,7 +3397,6 @@ fn classify_matched_dpu(
     dpu_ep: &ExploredEndpoint,
     host_ep: &ExploredEndpoint,
     mode_check: Option<SiteExplorerResult<bool>>,
-    host_pf_mac_address: Option<MacAddress>,
 ) -> DiscoveredDpu {
     match mode_check {
         Some(Ok(false)) => return DiscoveredDpu::NeedsReconfig,
@@ -3405,7 +3412,7 @@ fn classify_matched_dpu(
 
     DiscoveredDpu::RunningAsDpu(ExploredDpu {
         bmc_ip: dpu_ep.address,
-        host_pf_mac_address,
+        host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
         report: dpu_ep.report.clone().into(),
     })
 }
@@ -3549,6 +3556,64 @@ mod tests {
         }
     }
 
+    fn bf4_report_with_zero_suffix_ids() -> EndpointExplorationReport {
+        use model::site_explorer::{Chassis, ComputerSystem, Manager, NetworkAdapter};
+        EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "BlueField_0".to_string(),
+                network_adapters: vec![NetworkAdapter {
+                    id: "BlueField_NIC_0".to_string(),
+                    ..Default::default()
+                }],
+                model: None,
+                ..Default::default()
+            }],
+            managers: vec![Manager {
+                id: "BlueField_BMC_0".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_detects_zero_suffix_ids_without_model_string() {
+        let report = bf4_report_with_zero_suffix_ids();
+        assert!(is_bf4_dpu_report(&report));
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_rejects_zero_suffix_ids_without_bf4_nic_topology() {
+        use model::site_explorer::{Chassis, ComputerSystem, Manager};
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "BlueField_0".to_string(),
+                // Missing BlueField_NIC_0 adapter.
+                ..Default::default()
+            }],
+            managers: vec![Manager {
+                id: "BlueField_BMC_0".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!is_bf4_dpu_report(&report));
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_does_not_match_bf3_shape() {
+        let report = bf3_report_with_eth0("5c:25:73:9e:ac:eb");
+        assert!(!is_bf4_dpu_report(&report));
+    }
+
     #[test]
     fn bmc_eth0_offset_skips_locally_administered_mac() {
         // Transient pre-sync MAC (locally-administered bit set) must not derive
@@ -3644,12 +3709,12 @@ mod tests {
         let host = explored_endpoint(load_dell_ep_report());
         // Mode already correct (`Ok(true)`) -> attach as a managed DPU.
         assert!(matches!(
-            classify_matched_dpu(&dpu, &host, Some(Ok(true)), None),
+            classify_matched_dpu(&dpu, &host, Some(Ok(true))),
             DiscoveredDpu::RunningAsDpu(_)
         ));
         // No model to check (`None`) behaves the same.
         assert!(matches!(
-            classify_matched_dpu(&dpu, &host, None, None),
+            classify_matched_dpu(&dpu, &host, None),
             DiscoveredDpu::RunningAsDpu(_)
         ));
     }
@@ -3659,7 +3724,7 @@ mod tests {
         let dpu = bf2_dpu(Some(NicMode::Nic));
         let host = explored_endpoint(load_dell_ep_report());
         assert!(matches!(
-            classify_matched_dpu(&dpu, &host, Some(Ok(true)), None),
+            classify_matched_dpu(&dpu, &host, Some(Ok(true))),
             DiscoveredDpu::RunningAsNic
         ));
     }
@@ -3670,7 +3735,7 @@ mod tests {
         let dpu = bf2_dpu(Some(NicMode::Nic));
         let host = explored_endpoint(load_dell_ep_report());
         assert!(matches!(
-            classify_matched_dpu(&dpu, &host, Some(Ok(false)), None),
+            classify_matched_dpu(&dpu, &host, Some(Ok(false))),
             DiscoveredDpu::NeedsReconfig
         ));
     }
@@ -3681,7 +3746,7 @@ mod tests {
         let host = explored_endpoint(load_dell_ep_report());
         let err = SiteExplorerError::InvalidArgument("boom".to_string());
         assert!(matches!(
-            classify_matched_dpu(&dpu, &host, Some(Err(err)), None),
+            classify_matched_dpu(&dpu, &host, Some(Err(err))),
             DiscoveredDpu::ModeCheckFailed(_)
         ));
     }
