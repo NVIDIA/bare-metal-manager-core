@@ -754,13 +754,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 
 		clearInput := cdbm.VpcClearInput{VpcID: vpc.ID}
 		shouldClear := false
-		// If this request is attempting to clear the OS for the instance, set it.
-		if apiRequest.NetworkSecurityGroupID != nil && *apiRequest.NetworkSecurityGroupID == "" {
-			clearInput.NetworkSecurityGroupID = true
-			shouldClear = true
-		}
 
-		// If this request is attempting to clear NSG for the VPC, set it.
+		// NSG updates clear propagation details so users do not see stale status.
+		// An empty ID also clears the VPC association itself.
 		if apiRequest.NetworkSecurityGroupID != nil {
 			if *apiRequest.NetworkSecurityGroupID == "" {
 				clearInput.NetworkSecurityGroupID = true

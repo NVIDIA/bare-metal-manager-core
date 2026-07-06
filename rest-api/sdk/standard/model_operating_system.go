@@ -53,7 +53,7 @@ type OperatingSystem struct {
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// User data for the Operating System
 	UserData NullableString `json:"userData,omitempty"`
-	// Specified when the Operating System is cloud-init based
+	// Whether the Operating System is cloud-init based; true if there is non-empty `userData`, false otherwise.
 	IsCloudInit *bool `json:"isCloudInit,omitempty"`
 	// Indicates whether the Phone Home service should be enabled or disabled for Operating System
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`

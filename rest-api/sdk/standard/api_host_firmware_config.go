@@ -44,9 +44,6 @@ func (r ApiCreateOrUpdateHostFirmwareConfigRequest) Execute() (*HostFirmwareConf
 /*
 CreateOrUpdateHostFirmwareConfig Create or Update Host Firmware Config
 
-**WARNING:** As of the 2.0 release, NICo core will store the config data sent by
-this request, but will not yet rely on it to determine firmware installed on host.
-
 Create or update host firmware config for the org/site. The target Site
 is specified by `siteId` in the request body.
 

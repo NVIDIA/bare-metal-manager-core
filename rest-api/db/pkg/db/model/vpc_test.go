@@ -1443,6 +1443,7 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 				Description:                            tt.args.description,
 				ControllerVpcID:                        tt.args.controllerVpcID,
 				Labels:                                 tt.args.labels,
+				NetworkSecurityGroupID:                 tt.args.networkSecuritygroupID,
 				NetworkSecurityGroupPropagationDetails: tt.args.networkSecurityGroupPropagationDetails,
 			}
 
@@ -1470,6 +1471,7 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 			}
 
 			if tt.args.networkSecuritygroupID {
+				assert.Nil(t, got.NetworkSecurityGroupID)
 				assert.Nil(t, got.NetworkSecurityGroup)
 			}
 		})
