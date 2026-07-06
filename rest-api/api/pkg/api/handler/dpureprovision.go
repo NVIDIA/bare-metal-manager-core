@@ -21,14 +21,16 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-type DpuReprovisionHandler struct {
+// ReprovisionMachineDpuHandler triggers DPU reprovisioning for a Machine.
+type ReprovisionMachineDpuHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-func NewDpuReprovisionHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) DpuReprovisionHandler {
-	return DpuReprovisionHandler{
+// NewReprovisionMachineDpuHandler returns a new ReprovisionMachineDpuHandler.
+func NewReprovisionMachineDpuHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) ReprovisionMachineDpuHandler {
+	return ReprovisionMachineDpuHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -37,18 +39,18 @@ func NewDpuReprovisionHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *c
 
 // Handle godoc
 // @Summary Trigger DPU Reprovisioning
-// @Description Trigger DPU reprovisioning for a Machine through NICo Core. Provider Admin only.
+// @Description Trigger DPU reprovisioning for a Machine. Provider Admin only.
 // @Tags dpu-reprovision
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of Machine"
-// @Param request body model.APIDpuReprovisionRequest true "DPU reprovision request"
+// @Param request body model.APIMachineDpuReprovisionRequest true "DPU reprovision request"
 // @Success 202 {object} model.APIMessageResponse
 // @Router /v2/org/{org}/nico/machine/{machineId}/dpu/reprovision [patch]
-func (h DpuReprovisionHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("DpuReprovision", "Trigger", c, h.tracerSpan)
+func (h ReprovisionMachineDpuHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Machine", "ReprovisionDpu", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -73,7 +75,7 @@ func (h DpuReprovisionHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
 	}
 
-	var apiReq model.APIDpuReprovisionRequest
+	var apiReq model.APIMachineDpuReprovisionRequest
 	err = c.Bind(&apiReq)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
@@ -84,7 +86,7 @@ func (h DpuReprovisionHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
+	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -131,7 +133,7 @@ func (h DpuReprovisionHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
 	}
 
-	logger.Info().Str("machine_id", machineID).Str("mode", apiReq.Mode).Str("site_id", site.ID.String()).Msg("Triggering DPU reprovisioning via Core gRPC proxy")
+	logger.Info().Str("machine_id", machineID).Str("mode", string(apiReq.Mode)).Str("site_id", site.ID.String()).Msg("Triggering DPU reprovisioning via Core gRPC proxy")
 
 	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, apiReq.ToProto(machineID), nil, site.ID.String())
 	if apiErr != nil {

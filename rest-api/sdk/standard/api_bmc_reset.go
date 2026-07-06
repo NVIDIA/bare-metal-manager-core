@@ -30,11 +30,11 @@ type ApiResetMachineBmcRequest struct {
 	ApiService      *BMCResetAPIService
 	org             string
 	machineId       string
-	bmcResetRequest *BmcResetRequest
+	bMCResetRequest *BMCResetRequest
 }
 
-func (r ApiResetMachineBmcRequest) BmcResetRequest(bmcResetRequest BmcResetRequest) ApiResetMachineBmcRequest {
-	r.bmcResetRequest = &bmcResetRequest
+func (r ApiResetMachineBmcRequest) BMCResetRequest(bMCResetRequest BMCResetRequest) ApiResetMachineBmcRequest {
+	r.bMCResetRequest = &bMCResetRequest
 	return r
 }
 
@@ -86,8 +86,8 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.bmcResetRequest == nil {
-		return localVarReturnValue, nil, reportError("bmcResetRequest is required and must be specified")
+	if r.bMCResetRequest == nil {
+		return localVarReturnValue, nil, reportError("bMCResetRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -108,7 +108,7 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.bmcResetRequest
+	localVarPostBody = r.bMCResetRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

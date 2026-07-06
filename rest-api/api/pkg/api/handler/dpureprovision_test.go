@@ -17,11 +17,11 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-func TestDpuReprovisionHandlerProxiesRequest(t *testing.T) {
+func TestReprovisionMachineDpuHandlerProxiesRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, nil)
-	handler := NewDpuReprovisionHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
+	handler := NewReprovisionMachineDpuHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
-	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIDpuReprovisionRequest{Mode: model.DpuReprovisionModeRestart, UpdateFirmware: true}, "")
+	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIMachineDpuReprovisionRequest{Mode: model.MachineDpuReprovisionModeRestart, UpdateFirmware: true}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Equal(t, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)

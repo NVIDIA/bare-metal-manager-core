@@ -21,14 +21,16 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-type BmcResetHandler struct {
+// ResetMachineBMCHandler resets a Machine BMC.
+type ResetMachineBMCHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-func NewBmcResetHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) BmcResetHandler {
-	return BmcResetHandler{
+// NewResetMachineBMCHandler returns a new ResetMachineBMCHandler.
+func NewResetMachineBMCHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) ResetMachineBMCHandler {
+	return ResetMachineBMCHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -37,18 +39,18 @@ func NewBmcResetHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.
 
 // Handle godoc
 // @Summary Reset Machine BMC
-// @Description Reset a Machine BMC through NICo Core. Provider Admin only.
+// @Description Reset a Machine BMC. Provider Admin only.
 // @Tags bmc-reset
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of Machine"
-// @Param request body model.APIBmcResetRequest true "BMC reset request"
+// @Param request body model.APIMachineBMCResetRequest true "Machine BMC reset request"
 // @Success 202 {object} model.APIMessageResponse
 // @Router /v2/org/{org}/nico/machine/{machineId}/bmc-reset [post]
-func (h BmcResetHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("BmcReset", "Reset", c, h.tracerSpan)
+func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Machine", "ResetBmc", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -73,19 +75,14 @@ func (h BmcResetHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
 	}
 
-	var apiReq model.APIBmcResetRequest
+	var apiReq model.APIMachineBMCResetRequest
 
 	err = c.Bind(&apiReq)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	err = apiReq.Validate()
-	if err != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate request data", err)
-	}
-
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
+	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -132,7 +129,7 @@ func (h BmcResetHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
 	}
 
-	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", *apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
+	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
 
 	coreResp := &cwssaws.AdminBmcResetResponse{}
 	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminBmcReset_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())

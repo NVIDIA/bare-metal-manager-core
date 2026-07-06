@@ -9184,7 +9184,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BmcResetRequest'
+              $ref: '#/components/schemas/BMCResetRequest'
       responses:
         '202':
           description: Machine BMC reset request was accepted
@@ -13525,9 +13525,9 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
-    BmcResetRequest:
+    BMCResetRequest:
       type: object
-      title: BmcResetRequest
+      title: BMCResetRequest
       description: Request to reset a Machine BMC
       properties:
         useIpmiTool:
