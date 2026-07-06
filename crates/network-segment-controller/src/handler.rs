@@ -137,7 +137,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 .unwrap_or_else(chrono::Utc::now);
                             tracing::info!(
                                 ?delete_at,
-                                segment = %state.id,
+                                %segment_id,
                                 "Segment still has allocated IPs; waiting until the drain deadline to delete",
                             );
                             let new_state = NetworkSegmentControllerState::Deleting {
