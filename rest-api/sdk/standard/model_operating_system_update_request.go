@@ -46,7 +46,8 @@ type OperatingSystemUpdateRequest struct {
 	PhoneHomeEnabled NullableBool `json:"phoneHomeEnabled,omitempty"`
 	// User data for the Operating System
 	UserData NullableString `json:"userData,omitempty"`
-	// Specified when the Operating System is cloud-init based
+	// Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.
+	// Deprecated
 	IsCloudInit NullableBool `json:"isCloudInit,omitempty"`
 	// Indicates if the user data can be overridden at Instance creation time
 	AllowOverride NullableBool `json:"allowOverride,omitempty"`
@@ -590,6 +591,7 @@ func (o *OperatingSystemUpdateRequest) UnsetUserData() {
 }
 
 // GetIsCloudInit returns the IsCloudInit field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *OperatingSystemUpdateRequest) GetIsCloudInit() bool {
 	if o == nil || IsNil(o.IsCloudInit.Get()) {
 		var ret bool
@@ -601,6 +603,7 @@ func (o *OperatingSystemUpdateRequest) GetIsCloudInit() bool {
 // GetIsCloudInitOk returns a tuple with the IsCloudInit field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *OperatingSystemUpdateRequest) GetIsCloudInitOk() (*bool, bool) {
 	if o == nil {
 		return nil, false
@@ -618,6 +621,7 @@ func (o *OperatingSystemUpdateRequest) HasIsCloudInit() bool {
 }
 
 // SetIsCloudInit gets a reference to the given NullableBool and assigns it to the IsCloudInit field.
+// Deprecated
 func (o *OperatingSystemUpdateRequest) SetIsCloudInit(v bool) {
 	o.IsCloudInit.Set(&v)
 }

@@ -649,28 +649,26 @@ func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, "nsg-1", *got.NetworkSecurityGroupId)
 	})
 
-	t.Run("preserves explicit NSG detach (request nil-vs-empty distinction)", func(t *testing.T) {
+	t.Run("serializes cleared NSG as omitted field", func(t *testing.T) {
 		// Simulates the handler path: handler cleared the DB row, so
-		// vpc.NetworkSecurityGroupID is now nil, but the API request
-		// carried &"" — the wire must reflect the detach intent.
+		// vpc.NetworkSecurityGroupID is now nil. Core interprets an
+		// omitted field as clear; a present empty string is invalid.
 		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a", NetworkSecurityGroupID: nil}
 		got := APIVpcUpdateRequest{NetworkSecurityGroupID: &empty}.ToProto(vpc)
-		require.NotNil(t, got.NetworkSecurityGroupId)
-		assert.Equal(t, "", *got.NetworkSecurityGroupId)
+		assert.Nil(t, got.NetworkSecurityGroupId)
 	})
 
-	t.Run("API-request NSG overrides the entity-derived value", func(t *testing.T) {
+	t.Run("uses entity NSG rather than raw API request value", func(t *testing.T) {
 		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a", NetworkSecurityGroupID: &nsg}
 		got := APIVpcUpdateRequest{NetworkSecurityGroupID: &other}.ToProto(vpc)
 		require.NotNil(t, got.NetworkSecurityGroupId)
-		assert.Equal(t, "nsg-other", *got.NetworkSecurityGroupId)
+		assert.Equal(t, "nsg-1", *got.NetworkSecurityGroupId)
 	})
 
-	t.Run("explicit NVLink detach sends empty value on the wire", func(t *testing.T) {
+	t.Run("serializes cleared NVLink default partition as omitted field", func(t *testing.T) {
 		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a", NVLinkLogicalPartitionID: nil}
 		got := APIVpcUpdateRequest{NVLinkLogicalPartitionID: &empty}.ToProto(vpc)
-		require.NotNil(t, got.DefaultNvlinkLogicalPartitionId)
-		assert.Equal(t, "", got.DefaultNvlinkLogicalPartitionId.Value)
+		assert.Nil(t, got.DefaultNvlinkLogicalPartitionId)
 	})
 
 	t.Run("NVLink override sends the entity-resolved partition ID", func(t *testing.T) {

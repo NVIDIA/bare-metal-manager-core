@@ -1255,6 +1255,14 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 	nsgTenant2Site1 := testBuildNetworkSecurityGroup(t, dbSession, "test-nsg-3", tn2, st, cdbm.NetworkSecurityGroupStatusReady)
 	assert.NotNil(t, nsgTenant2Site1)
 
+	vpcWithNSG := testVPCBuildVPC(t, dbSession, "test-vpc-with-nsg", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west7"}, cdbm.VpcStatusReady, tnu)
+	assert.NotNil(t, vpcWithNSG)
+	vpcWithNSG.NetworkSecurityGroupID = cutil.GetPtr(nsgTenant1Site1.ID)
+	testUpdateVPC(t, dbSession, vpcWithNSG)
+
+	vpcForNSGSet := testVPCBuildVPC(t, dbSession, "test-vpc-set-nsg", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west8"}, cdbm.VpcStatusReady, tnu)
+	assert.NotNil(t, vpcForNSGSet)
+
 	e := echo.New()
 	cfg := common.GetTestConfig()
 	tc := &tmocks.Client{}
@@ -1298,12 +1306,15 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 	tst.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	tests := []struct {
-		name                         string
-		fields                       fields
-		args                         args
-		wantErr                      bool
-		verifyChildSpanner           bool
-		expectedNVLinkPartitionValue *string
+		name                              string
+		fields                            fields
+		args                              args
+		wantErr                           bool
+		verifyChildSpanner                bool
+		expectedNVLinkPartitionValue      *string
+		expectNVLinkPartitionNil          bool
+		expectedNetworkSecurityGroupValue *string
+		expectNetworkSecurityGroupNil     bool
 	}{
 		{
 			name: "test VPC update success",
@@ -1329,6 +1340,27 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "test VPC update to set NSG - success",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcUpdateRequest{
+					NetworkSecurityGroupID: &nsgTenant1Site1.ID,
+				},
+				reqVPCID: vpcForNSGSet.ID.String(),
+				reqVPC:   vpcForNSGSet,
+				reqOrg:   tnOrg,
+				reqUser:  tnu,
+				respCode: http.StatusOK,
+			},
+			wantErr:                           false,
+			verifyChildSpanner:                true,
+			expectedNetworkSecurityGroupValue: &nsgTenant1Site1.ID,
 		},
 		{
 			name: "test VPC update NSG with bad tenant - fail",
@@ -1414,21 +1446,17 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                   cutil.GetPtr(uuid.NewString()),
-					Description:            cutil.GetPtr("Test VPC Description"),
 					NetworkSecurityGroupID: cutil.GetPtr(""),
-					Labels: map[string]string{
-						"zone": "westnew",
-					},
 				},
-				reqVPCID: vpc.ID.String(),
-				reqVPC:   vpc,
+				reqVPCID: vpcWithNSG.ID.String(),
+				reqVPC:   vpcWithNSG,
 				reqOrg:   tnOrg,
 				reqUser:  tnu,
 				respCode: http.StatusOK,
 			},
-			wantErr:            false,
-			verifyChildSpanner: true,
+			wantErr:                       false,
+			verifyChildSpanner:            true,
+			expectNetworkSecurityGroupNil: true,
 		},
 
 		{
@@ -1601,8 +1629,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				reqUser:  tnu,
 				respCode: http.StatusOK,
 			},
-			wantErr:                      false,
-			expectedNVLinkPartitionValue: cutil.GetPtr(""),
+			wantErr:                  false,
+			expectNVLinkPartitionNil: true,
 		},
 		{
 			name: "test VPC update to set NVLink Logical Partition ID after clearing - success",
@@ -1676,8 +1704,13 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				t.Fatal(serr)
 			}
 
-			assert.Equal(t, rst.Name, *tt.args.reqData.Name)
-			assert.Equal(t, *rst.Description, *tt.args.reqData.Description)
+			if tt.args.reqData.Name != nil {
+				assert.Equal(t, *tt.args.reqData.Name, rst.Name)
+			}
+			if tt.args.reqData.Description != nil {
+				require.NotNil(t, rst.Description)
+				assert.Equal(t, *tt.args.reqData.Description, *rst.Description)
+			}
 			assert.NotEqual(t, rst.Updated.String(), tt.args.reqVPC.Updated.String())
 
 			if tt.args.reqData.NVLinkLogicalPartitionID != nil {
@@ -1692,8 +1725,22 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				assert.Equal(t, len(rst.Labels), len(tt.args.reqData.Labels))
 			}
 
-			if tt.expectedNVLinkPartitionValue != nil {
-				var lastUpdateVPCReq *cwssaws.VpcUpdateRequest
+			if tt.args.reqData.NetworkSecurityGroupID != nil {
+				persistedVpc, err := cdbm.NewVpcDAO(tt.fields.dbSession).GetByID(ctx, nil, uuid.MustParse(tt.args.reqVPCID), nil)
+				require.NoError(t, err)
+				if *tt.args.reqData.NetworkSecurityGroupID == "" {
+					assert.Nil(t, rst.NetworkSecurityGroupID, "Failed to clear VPC NSG ID in response")
+					assert.Nil(t, persistedVpc.NetworkSecurityGroupID, "Failed to clear persisted VPC NSG ID")
+				} else {
+					require.NotNil(t, rst.NetworkSecurityGroupID)
+					require.NotNil(t, persistedVpc.NetworkSecurityGroupID)
+					assert.Equal(t, *tt.args.reqData.NetworkSecurityGroupID, *rst.NetworkSecurityGroupID)
+					assert.Equal(t, *tt.args.reqData.NetworkSecurityGroupID, *persistedVpc.NetworkSecurityGroupID)
+				}
+			}
+
+			var lastUpdateVPCReq *cwssaws.VpcUpdateRequest
+			if tt.expectedNVLinkPartitionValue != nil || tt.expectNVLinkPartitionNil || tt.expectedNetworkSecurityGroupValue != nil || tt.expectNetworkSecurityGroupNil {
 				for i := len(tsc.Mock.Calls) - 1; i >= 0; i-- {
 					call := tsc.Mock.Calls[i]
 					if call.Method == "ExecuteWorkflow" && len(call.Arguments) >= 4 {
@@ -1704,8 +1751,19 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 					}
 				}
 				require.NotNil(t, lastUpdateVPCReq, "UpdateVPC workflow should have been called")
+			}
+
+			if tt.expectNVLinkPartitionNil {
+				assert.Nil(t, lastUpdateVPCReq.DefaultNvlinkLogicalPartitionId, "DefaultNvlinkLogicalPartitionId should be nil in workflow request")
+			} else if tt.expectedNVLinkPartitionValue != nil {
 				require.NotNil(t, lastUpdateVPCReq.DefaultNvlinkLogicalPartitionId, "DefaultNvlinkLogicalPartitionId should be set in workflow request")
 				assert.Equal(t, *tt.expectedNVLinkPartitionValue, lastUpdateVPCReq.DefaultNvlinkLogicalPartitionId.Value)
+			}
+			if tt.expectNetworkSecurityGroupNil {
+				assert.Nil(t, lastUpdateVPCReq.NetworkSecurityGroupId, "NetworkSecurityGroupId should be nil in workflow request")
+			} else if tt.expectedNetworkSecurityGroupValue != nil {
+				require.NotNil(t, lastUpdateVPCReq.NetworkSecurityGroupId, "NetworkSecurityGroupId should be set in workflow request")
+				assert.Equal(t, *tt.expectedNetworkSecurityGroupValue, *lastUpdateVPCReq.NetworkSecurityGroupId)
 			}
 
 			if tt.verifyChildSpanner {
