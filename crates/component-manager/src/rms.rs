@@ -484,6 +484,7 @@ fn build_power_shelf_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.pmc_ip.to_string(),
                 mac_address: ep.pmc_mac.to_string(),
+                host_name: None,
             }),
             port: POWER_SHELF_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.pmc_credentials)),
@@ -909,6 +910,7 @@ fn build_switch_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.bmc_ip.to_string(),
                 mac_address: ep.bmc_mac.to_string(),
+                host_name: None,
             }),
             port: SWITCH_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
@@ -918,6 +920,7 @@ fn build_switch_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.nvos_ip.to_string(),
                 mac_address: ep.nvos_mac.to_string(),
+                host_name: None,
             }),
             port: 0,
             credentials: Some(credentials_to_rms(&ep.nvos_credentials)),
@@ -1155,6 +1158,7 @@ fn build_compute_tray_node_info(
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.bmc_ip.to_string(),
                 mac_address: bmc_mac.to_string(),
+                host_name: None,
             }),
             port: COMPUTE_TRAY_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.bmc_credentials)),

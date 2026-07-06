@@ -261,20 +261,46 @@ pub async fn associate_interface_with_dpu_machine(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn associate_bmc_interface_with_machine(
+/// Link an interface as the BMC of its owning entity in one statement:
+/// associate it with the machine / switch / power shelf (per `association`),
+/// annotate it as `Bmc`, and demote it from primary (a BMC is a management
+/// interface, never the primary data interface).
+///
+/// Mirrors [`associate_interface_with_machine`] but additionally forces
+/// `interface_type='Bmc'` and `primary_interface=false`.
+pub async fn associate_bmc_interface(
     interface_id: &MachineInterfaceId,
-    machine_id: &MachineId,
+    association: MachineInterfaceAssociation,
     txn: &mut PgConnection,
 ) -> DatabaseResult<MachineInterfaceId> {
-    let query = "UPDATE machine_interfaces
-        SET machine_id=$1,
-            association_type='Machine'::association_type,
-            interface_type='Bmc'::interface_type,
-            primary_interface=false
-        WHERE id=$2::uuid
-        RETURNING id";
+    let (query, association_type, id_value) = match association {
+        MachineInterfaceAssociation::Machine(id) => (
+            "UPDATE machine_interfaces SET machine_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "Machine",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::Switch(id) => (
+            "UPDATE machine_interfaces SET switch_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "Switch",
+            id.to_string(),
+        ),
+        MachineInterfaceAssociation::PowerShelf(id) => (
+            "UPDATE machine_interfaces SET power_shelf_id=$1, association_type=$2::association_type, \
+             interface_type='Bmc'::interface_type, primary_interface=false \
+             WHERE id=$3::uuid RETURNING id",
+            "PowerShelf",
+            id.to_string(),
+        ),
+    };
+    // `primary_interface` is always forced to false here, so the one-primary
+    // constraint cannot fire -- only the single-association one is relevant.
     sqlx::query_as(query)
-        .bind(machine_id)
+        .bind(id_value)
+        .bind(association_type)
         .bind(*interface_id)
         .fetch_one(txn)
         .await

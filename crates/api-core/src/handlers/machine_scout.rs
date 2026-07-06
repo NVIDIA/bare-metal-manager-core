@@ -318,7 +318,7 @@ pub(crate) async fn forge_agent_control(
             } => {
                 // Commit the transaction now, to avoid holding across an unrelated await point
                 txn.commit().await?;
-                match crate::handlers::dpa::process_scout_req(api, machine_id).await {
+                match crate::handlers::svpc::process_scout_req(api, machine_id).await {
                     Ok(action) => (action, None),
                     Err(e) => {
                         tracing::error!("Error returned from process_scout_req: {e}");

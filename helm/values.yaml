@@ -53,6 +53,27 @@ global:
     app.kubernetes.io/part-of: site-controller
 
 ## ---------------------------------------------------------------------------
+## Grafana dashboards (optional)
+## ---------------------------------------------------------------------------
+## Packages the NICo dashboards in a ConfigMap for discovery by a Grafana
+## dashboard sidecar, such as the one included with kube-prometheus-stack.
+## Grafana itself is not installed by this chart.
+grafanaDashboards:
+  enabled: false
+  ## Namespace where the dashboard ConfigMap is installed. An empty value uses
+  ## the Helm release namespace. A non-default namespace must already exist.
+  namespace: ""
+  ## Folder metadata understood by common Grafana dashboard sidecars. Set
+  ## folderAnnotation or folder to an empty string to omit the annotation.
+  folder: NICo
+  folderAnnotation: grafana_folder
+  ## The defaults match kube-prometheus-stack's dashboard sidecar selector.
+  ## Add or replace labels here if the local sidecar uses another selector.
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+
+## ---------------------------------------------------------------------------
 ## nico-api — Core API server (gRPC + REST)
 ## Manages machines, provisioning, networking, firmware updates, and web UI.
 ## Requires PostgreSQL and Vault.

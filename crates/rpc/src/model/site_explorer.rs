@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use model::errors::{OperatorError, OperatorErrorSchema};
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationReport, EthernetInterface, ExploredDpu, ExploredEndpoint,
@@ -377,6 +378,12 @@ impl From<BootOption> for rpc::site_explorer::BootOption {
 
 impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
     fn from(report: EndpointExplorationReport) -> Self {
+        let last_exploration_error_schema = report
+            .last_exploration_error
+            .as_ref()
+            .map(|error| error.operator_error_schema())
+            .map(Into::into);
+
         rpc::site_explorer::EndpointExplorationReport {
             endpoint_type: format!("{:?}", report.endpoint_type),
             last_exploration_error: report.last_exploration_error.map(|error| {
@@ -395,6 +402,48 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             firmware_versions: serde_json::to_value(&report.versions)
                 .and_then(serde_json::from_value)
                 .unwrap_or_default(),
+            last_exploration_error_schema,
         }
+    }
+}
+
+impl From<OperatorErrorSchema> for rpc::site_explorer::OperatorErrorSchema {
+    fn from(schema: OperatorErrorSchema) -> Self {
+        Self {
+            // The wire/proto contract is the rendered `SYSTEM-SUBSYSTEM-CODE` string.
+            error_code: schema.error_code.to_string(),
+            mitigation: schema.mitigation,
+            text: schema.text,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use model::site_explorer::EndpointExplorationError;
+
+    use super::*;
+
+    #[test]
+    fn endpoint_report_propagates_operator_error_schema_to_rpc() {
+        let error = EndpointExplorationError::MissingVendor;
+        let expected_schema = error.operator_error_schema();
+
+        let report =
+            rpc::site_explorer::EndpointExplorationReport::from(EndpointExplorationReport {
+                last_exploration_error: Some(error),
+                ..Default::default()
+            });
+
+        let actual_schema = report
+            .last_exploration_error_schema
+            .expect("report contains operator error schema");
+        assert_eq!(
+            actual_schema.error_code,
+            expected_schema.error_code.to_string()
+        );
+        assert_eq!(actual_schema.text, expected_schema.text);
+        assert_eq!(actual_schema.mitigation, expected_schema.mitigation);
+        assert!(report.last_exploration_error.is_some());
     }
 }

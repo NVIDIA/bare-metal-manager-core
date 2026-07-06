@@ -921,6 +921,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         stateful_acls_enabled: true,
         instance: Some(instance),
         dpu_extension_services: vec![],
+        astra_config: None,
     };
     common::respond(netconf)
 }

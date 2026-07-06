@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 use tonic::transport::Channel;
+use trace_propagation::TraceInjectService;
 use tracing::instrument;
 
 use crate::config::BackendTlsConfig;
@@ -19,7 +20,7 @@ use crate::types::parse_mac;
 
 #[derive(Debug)]
 pub struct NsmSwitchBackend {
-    client: nsm::nv_switch_manager_client::NvSwitchManagerClient<Channel>,
+    client: nsm::nv_switch_manager_client::NvSwitchManagerClient<TraceInjectService<Channel>>,
 }
 
 impl NsmSwitchBackend {
@@ -101,7 +102,7 @@ fn build_registration(ep: &SwitchEndpoint) -> nsm::RegisterNvSwitchRequest {
 /// registration once NSM includes a correlation key (e.g. BMC MAC) in
 /// RegisterNVSwitchResponse.
 async fn register_and_map(
-    client: &mut nsm::nv_switch_manager_client::NvSwitchManagerClient<Channel>,
+    client: &mut nsm::nv_switch_manager_client::NvSwitchManagerClient<TraceInjectService<Channel>>,
     endpoints: &[SwitchEndpoint],
 ) -> Result<(HashMap<MacAddress, String>, HashMap<String, MacAddress>), ComponentManagerError> {
     let mut mac_to_uuid: HashMap<MacAddress, String> = HashMap::new();

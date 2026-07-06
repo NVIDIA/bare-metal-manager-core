@@ -15,15 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::OutputFormat;
 use clap::Parser;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::dispatch::Dispatch;
-use crate::cfg::runtime::RuntimeContext;
-use crate::errors::CarbideCliResult;
-use crate::rpc::ApiClient;
 
 mod config;
 mod connections;
@@ -32,48 +28,31 @@ mod lockdown;
 mod profile;
 mod registry;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum MlxAction {
+    #[dispatch]
     #[clap(subcommand, about = "Configuration profile management")]
     Profile(profile::args::ProfileCommand),
 
+    #[dispatch]
     #[clap(subcommand, about = "Device lockdown operations")]
     Lockdown(lockdown::args::LockdownCommand),
 
+    #[dispatch]
     #[clap(subcommand, about = "Device information retrieval")]
     Info(info::args::InfoCommand),
 
+    #[dispatch]
     #[clap(subcommand, about = "scout stream agent connection management")]
     Connections(connections::args::ConnectionsCommand),
 
+    #[dispatch]
     #[clap(subcommand, about = "Variable registry operations")]
     Registry(registry::args::RegistryCommand),
 
+    #[dispatch]
     #[clap(subcommand, about = "Config management operations")]
     Config(config::args::ConfigCommand),
-}
-
-pub struct CliContext<'g, 'a> {
-    pub grpc_conn: &'g ApiClient,
-    pub format: &'a OutputFormat,
-}
-
-impl Dispatch for MlxAction {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        let mut ctxt = CliContext {
-            grpc_conn: &ctx.api_client,
-            format: &ctx.config.format,
-        };
-        match self {
-            MlxAction::Profile(cmd) => profile::cmds::dispatch(cmd, &mut ctxt).await?,
-            MlxAction::Lockdown(cmd) => lockdown::cmds::dispatch(cmd, &mut ctxt).await?,
-            MlxAction::Info(cmd) => info::cmds::dispatch(cmd, &mut ctxt).await?,
-            MlxAction::Connections(cmd) => connections::cmds::dispatch(cmd, &mut ctxt).await?,
-            MlxAction::Registry(cmd) => registry::cmds::dispatch(cmd, &mut ctxt).await?,
-            MlxAction::Config(cmd) => config::cmds::dispatch(cmd, &mut ctxt).await?,
-        }
-        Ok(())
-    }
 }
 
 // wrap_text wraps text to a specified width for table display.

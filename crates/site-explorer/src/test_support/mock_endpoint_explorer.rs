@@ -31,7 +31,16 @@ use model::site_explorer::{
 use crate::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data.
-#[derive(Clone, Debug)]
+///
+/// `explore_endpoint` is always served from injected [`reports`]: in tests a
+/// real explorer explores via the nv-redfish pool, which has no `RedfishSim`
+/// behind it. A real explorer's `machine_setup`/`set_boot_order_dpu_first`, by
+/// contrast, run on its libredfish pool (the `RedfishSim`), so a test backing
+/// the API with this mock can attach one via [`Self::with_redfish_backend`] to
+/// forward those two calls and keep `RedfishSim` assertions working.
+///
+/// [`reports`]: Self::reports
+#[derive(Clone)]
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
@@ -48,6 +57,10 @@ pub struct MockEndpointExplorer {
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+    /// Real explorer that `machine_setup`/`set_boot_order_dpu_first` forward to
+    /// (see [`Self::with_redfish_backend`]); `None` for the pure in-memory mock
+    /// used by site-explorer's own tests.
+    redfish_backend: Option<Arc<dyn EndpointExplorer>>,
 }
 
 impl Default for MockEndpointExplorer {
@@ -60,6 +73,7 @@ impl Default for MockEndpointExplorer {
             power_control_failures: Arc::default(),
             set_nic_mode_calls: Arc::default(),
             explore_endpoint_calls: Arc::default(),
+            redfish_backend: None,
         }
     }
 }
@@ -107,6 +121,13 @@ impl MockEndpointExplorer {
 
     pub fn set_precondition_result(&self, result: Result<(), EndpointExplorationError>) {
         *self.precondition_result.lock().unwrap() = result;
+    }
+
+    /// Forward `machine_setup`/`set_boot_order_dpu_first` to `backend` (a real,
+    /// `RedfishSim`-backed explorer) instead of no-op'ing them; see the type docs.
+    pub fn with_redfish_backend(mut self, backend: Arc<dyn EndpointExplorer>) -> Self {
+        self.redfish_backend = Some(backend);
+        self
     }
 }
 
@@ -230,20 +251,34 @@ impl EndpointExplorer for MockEndpointExplorer {
 
     async fn machine_setup(
         &self,
-        _address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-        _boot_interface: Option<&carbide_redfish::boot_interface::BootInterfaceTarget>,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface: Option<&carbide_redfish::boot_interface::BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
-        Ok(())
+        match &self.redfish_backend {
+            Some(backend) => {
+                backend
+                    .machine_setup(address, interface, boot_interface)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 
     async fn set_boot_order_dpu_first(
         &self,
-        _address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-        _boot_interface: &carbide_redfish::boot_interface::BootInterfaceTarget,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface: &carbide_redfish::boot_interface::BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
-        Ok(())
+        match &self.redfish_backend {
+            Some(backend) => {
+                backend
+                    .set_boot_order_dpu_first(address, interface, boot_interface)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 
     async fn set_nic_mode(

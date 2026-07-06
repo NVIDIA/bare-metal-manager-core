@@ -3226,3 +3226,337 @@ func TestMachineHandler_Delete(t *testing.T) {
 		})
 	}
 }
+
+func TestMachineHandler_GetDpuMachines(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testMachineInitDB(t)
+	defer dbSession.Close()
+	common.TestSetupSchema(t, dbSession)
+
+	// Org / user fixtures.
+	ipOrg1 := "test-ip-org-1"
+	ipOrg2 := "test-ip-org-2"
+	ipRoles := []string{authz.ProviderAdminRole}
+	ipViewerRoles := []string{authz.ProviderViewerRole}
+
+	ipu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg1, ipOrg2}, ipRoles)
+	ipuv := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg1}, ipViewerRoles)
+
+	tnOrgPriv := "test-tn-org-priv"
+	tnOrgRegular := "test-tn-org-regular"
+	tnRoles := []string{authz.TenantAdminRole}
+	tnuPriv := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrgPriv}, tnRoles)
+	tnuRegular := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrgRegular}, tnRoles)
+
+	// Provider/site setup. `siteUnreg` is on `ip` but in Pending state so we
+	// can drive the Site-not-Registered branch separately from auth checks.
+	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg1, "infra-provider-1")
+	ip2 := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg2, "infra-provider-2")
+	site := testMachineBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered)
+	site2 := testMachineBuildSite(t, dbSession, ip2, "test-site-2", cdbm.SiteStatusRegistered)
+	siteUnreg := testMachineBuildSite(t, dbSession, ip, "test-site-unreg", cdbm.SiteStatusPending)
+
+	// Privileged tenant has TargetedInstanceCreation + a TenantAccount on
+	// `ip`; regular tenant has neither, so it must hit a 403 even though it
+	// has TENANT_ADMIN.
+	tenantPriv := testMachineBuildTenant(t, dbSession, tnOrgPriv, "test-tenant-priv")
+	_ = testMachineUpdateTenantCapability(t, dbSession, tenantPriv)
+	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenantPriv.ID, tnOrgPriv, cdbm.TenantAccountStatusReady, tnuPriv)
+	_ = testMachineBuildTenant(t, dbSession, tnOrgRegular, "test-tenant-regular")
+
+	ist := testMachineBuildInstanceType(t, dbSession, ip, site, "instance-type-1")
+
+	// Host machine with two DPU-attached interfaces.
+	mWithDpu := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+	// Host machine with no DPU-attached interfaces.
+	mNoDpu := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+	// Machine on a different provider/site -> auth check should reject ipu.
+	mOtherProvider := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+	// Machine on a Pending site -> Site-status precondition should reject.
+	mUnregSite := testMachineBuildMachine(t, dbSession, ip.ID, siteUnreg.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+
+	// DPU machine fixtures referenced from `mWithDpu`'s interfaces.
+	dpu1 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("DPU"), false, false, cdbm.MachineStatusReady)
+	dpu2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("DPU"), false, false, cdbm.MachineStatusReady)
+
+	miDAO := cdbm.NewMachineInterfaceDAO(dbSession)
+	_, err := miDAO.Create(ctx, nil, cdbm.MachineInterfaceCreateInput{
+		MachineID:             mWithDpu.ID,
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		Hostname:              cutil.GetPtr("dpu-host-1.com"),
+		IsPrimary:             true,
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:01"),
+		IpAddresses:           []string{"192.168.1.1"},
+		AttachedDpuMachineID:  &dpu1.ID,
+	})
+	require.NoError(t, err)
+	_, err = miDAO.Create(ctx, nil, cdbm.MachineInterfaceCreateInput{
+		MachineID:             mWithDpu.ID,
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		Hostname:              cutil.GetPtr("dpu-host-2.com"),
+		IsPrimary:             false,
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:02"),
+		IpAddresses:           []string{"192.168.1.2"},
+		AttachedDpuMachineID:  &dpu2.ID,
+	})
+	require.NoError(t, err)
+	// Non-DPU interface for the non-DPU machine — exercises the no-DPU path.
+	_, err = miDAO.Create(ctx, nil, cdbm.MachineInterfaceCreateInput{
+		MachineID:             mNoDpu.ID,
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		Hostname:              cutil.GetPtr("plain-host.com"),
+		IsPrimary:             true,
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:03"),
+		IpAddresses:           []string{"192.168.1.3"},
+	})
+	require.NoError(t, err)
+
+	cfg := common.GetTestConfig()
+
+	// Mock Temporal: success path returns two DPU machines for the workflow.
+	dpuMachineList := []*cwssaws.DpuMachine{
+		{
+			Machine: &cwssaws.Machine{
+				Id:    &cwssaws.MachineId{Id: dpu1.ID},
+				State: "READY",
+			},
+			DpuNetworkConfig: &cwssaws.ManagedHostNetworkConfigResponse{
+				Asn:                          65001,
+				VniDevice:                    "pf0hpf",
+				ManagedHostConfigVersion:     "v1.0.0",
+				UseAdminNetwork:              true,
+				InstanceNetworkConfigVersion: "v1.0.0",
+				RemoteId:                     "host-123",
+				VpcIsolationBehavior:         cwssaws.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
+				StatefulAclsEnabled:          true,
+				EnableDhcp:                   false,
+				IsPrimaryDpu:                 true,
+				DatacenterAsn:                65000,
+			},
+		},
+		{
+			Machine: &cwssaws.Machine{
+				Id:    &cwssaws.MachineId{Id: dpu2.ID},
+				State: "READY",
+			},
+			DpuNetworkConfig: &cwssaws.ManagedHostNetworkConfigResponse{
+				Asn:                          65002,
+				VniDevice:                    "pf0hpf",
+				ManagedHostConfigVersion:     "v1.0.0",
+				UseAdminNetwork:              false,
+				InstanceNetworkConfigVersion: "v1.0.0",
+				RemoteId:                     "host-456",
+				VpcIsolationBehavior:         cwssaws.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
+				StatefulAclsEnabled:          true,
+				EnableDhcp:                   false,
+				IsPrimaryDpu:                 false,
+				DatacenterAsn:                65000,
+			},
+		},
+	}
+
+	wrun := &tmocks.WorkflowRun{}
+	wrun.On("GetID").Return("test-workflow-id-dpu")
+	wrun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		result := args.Get(1).(*[]*cwssaws.DpuMachine)
+		*result = dpuMachineList
+	}).Return(nil)
+
+	tsc := &tmocks.Client{}
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrun, nil)
+
+	wrunErr := &tmocks.WorkflowRun{}
+	wrunErr.On("GetID").Return("test-workflow-error-id")
+	wrunErr.Mock.On("Get", mock.Anything, mock.Anything).Return(fmt.Errorf("workflow failed"))
+	tscErr := &tmocks.Client{}
+	tscErr.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrunErr, nil)
+
+	wrunTimeout := &tmocks.WorkflowRun{}
+	wrunTimeout.On("GetID").Return("test-workflow-timeout-id")
+	wrunTimeout.Mock.On("Get", mock.Anything, mock.Anything).Return(tp.NewTimeoutError(enums.TIMEOUT_TYPE_UNSPECIFIED, nil, nil))
+	tscTimeout := &tmocks.Client{}
+	tscTimeout.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrunTimeout, nil)
+	tscTimeout.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	tcfg, _ := cfg.GetTemporalConfig()
+	scpOK := sc.NewClientPool(tcfg)
+	scpOK.IDClientMap[site.ID.String()] = tsc
+	scpOK.IDClientMap[site2.ID.String()] = tsc
+	scpOK.IDClientMap[siteUnreg.ID.String()] = tsc
+
+	scpErr := sc.NewClientPool(tcfg)
+	scpErr.IDClientMap[site.ID.String()] = tscErr
+
+	scpTimeout := sc.NewClientPool(tcfg)
+	scpTimeout.IDClientMap[site.ID.String()] = tscTimeout
+
+	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		name               string
+		reqOrgName         string
+		user               *cdbm.User
+		mID                string
+		scp                *sc.ClientPool
+		expectedStatus     int
+		expectedDpuCount   int
+		verifyChildSpanner bool
+	}{
+		{
+			name:           "missing user in request context",
+			reqOrgName:     ipOrg1,
+			user:           nil,
+			mID:            mWithDpu.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:           "user not member of org",
+			reqOrgName:     "unknown-org",
+			user:           ipu,
+			mID:            mWithDpu.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "machine id not found",
+			reqOrgName:     ipOrg1,
+			user:           ipu,
+			mID:            uuid.New().String(),
+			scp:            scpOK,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "site is not in registered state",
+			reqOrgName:     ipOrg1,
+			user:           ipu,
+			mID:            mUnregSite.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "provider viewer is rejected (allowViewerRole=false)",
+			reqOrgName:     ipOrg1,
+			user:           ipuv,
+			mID:            mWithDpu.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "non-privileged tenant is rejected (requirePrivilegedTenant=true)",
+			reqOrgName:     tnOrgRegular,
+			user:           tnuRegular,
+			mID:            mWithDpu.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "provider admin from different org is not associated with machine's site",
+			reqOrgName:     ipOrg1,
+			user:           ipu,
+			mID:            mOtherProvider.ID,
+			scp:            scpOK,
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:               "provider admin: machine has no attached DPU interfaces",
+			reqOrgName:         ipOrg1,
+			user:               ipu,
+			mID:                mNoDpu.ID,
+			scp:                scpOK,
+			expectedStatus:     http.StatusOK,
+			expectedDpuCount:   0,
+			verifyChildSpanner: true,
+		},
+		{
+			name:               "provider admin: full success with attached DPU machines",
+			reqOrgName:         ipOrg1,
+			user:               ipu,
+			mID:                mWithDpu.ID,
+			scp:                scpOK,
+			expectedStatus:     http.StatusOK,
+			expectedDpuCount:   2,
+			verifyChildSpanner: true,
+		},
+		{
+			name:               "privileged tenant with account on provider can access",
+			reqOrgName:         tnOrgPriv,
+			user:               tnuPriv,
+			mID:                mWithDpu.ID,
+			scp:                scpOK,
+			expectedStatus:     http.StatusOK,
+			expectedDpuCount:   2,
+			verifyChildSpanner: true,
+		},
+		{
+			name:           "workflow returns error",
+			reqOrgName:     ipOrg1,
+			user:           ipu,
+			mID:            mWithDpu.ID,
+			scp:            scpErr,
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:           "workflow times out",
+			reqOrgName:     ipOrg1,
+			user:           ipu,
+			mID:            mWithDpu.ID,
+			scp:            scpTimeout,
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			ec := e.NewContext(req, rec)
+			ec.SetPath(fmt.Sprintf("/v2/org/%v/nico/machine/%v/dpu", tc.reqOrgName, tc.mID))
+			ec.SetParamNames("orgName", "id")
+			ec.SetParamValues(tc.reqOrgName, tc.mID)
+			if tc.user != nil {
+				ec.Set("user", tc.user)
+			}
+
+			ctx = context.WithValue(ctx, otelecho.TracerKey, tracer)
+			ec.SetRequest(ec.Request().WithContext(ctx))
+
+			gadmh := GetAllDpuMachineHandler{
+				dbSession:  dbSession,
+				scp:        tc.scp,
+				tracerSpan: cutil.NewTracerSpan(),
+			}
+			err := gadmh.Handle(ec)
+			assert.Nil(t, err)
+			assert.Equal(t, tc.expectedStatus, rec.Code, "%s: %s", tc.name, rec.Body.String())
+
+			if rec.Code == http.StatusOK {
+				var dpuMachines []interface{}
+				err := json.Unmarshal(rec.Body.Bytes(), &dpuMachines)
+				assert.Nil(t, err)
+				assert.Equal(t, tc.expectedDpuCount, len(dpuMachines))
+			}
+
+			if tc.verifyChildSpanner {
+				span := oteltrace.SpanFromContext(ec.Request().Context())
+				assert.True(t, span.SpanContext().IsValid())
+			}
+		})
+	}
+
+	// Verify the Temporal mock expectations were actually exercised. In
+	// particular this asserts the timeout path invoked TerminateWorkflow, so
+	// regressions in timeout cleanup are caught instead of passing silently.
+	tsc.AssertExpectations(t)
+	wrun.AssertExpectations(t)
+	tscErr.AssertExpectations(t)
+	wrunErr.AssertExpectations(t)
+	tscTimeout.AssertExpectations(t)
+	wrunTimeout.AssertExpectations(t)
+}

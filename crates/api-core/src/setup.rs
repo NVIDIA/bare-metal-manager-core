@@ -39,7 +39,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvLinkManager;
+use carbide_nvlink_manager::{NvLinkManager, NvLinkManagerArgs};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -53,7 +53,7 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
-use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::{EndpointExplorationLocks, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -477,6 +477,9 @@ pub async fn start_api(
         carbide_config.site_explorer.explore_mode,
         db_pool.clone(),
     );
+    // Shared between the API's `RefreshEndpointReport` handler and the site-explorer loop so they
+    // never probe the same endpoint at once. In-process only; see `EndpointExplorationLocks`.
+    let endpoint_exploration_locks = EndpointExplorationLocks::default();
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
@@ -497,7 +500,7 @@ pub async fn start_api(
             .await
             .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
 
-        let provider = CarbideBmcPasswordProvider::new(credential_manager.clone());
+        let provider = CarbideBmcPasswordProvider::new(credential_manager.clone(), db_pool.clone());
 
         let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
         let dpf_mandatory_services = vec![
@@ -607,6 +610,7 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
+        endpoint_exploration_locks: endpoint_exploration_locks.clone(),
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
@@ -868,6 +872,7 @@ async fn initialize_and_start_controllers<'a>(
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
+        endpoint_exploration_locks,
         rms_client,
         component_manager,
         dpf_sdk,
@@ -1383,14 +1388,17 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvLinkManager::new(
-        db_pool.clone(),
-        api_service.nmxc_client_pool.clone(),
-        meter.clone(),
-        carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health,
-        work_lock_manager_handle.clone(),
-    )
+    NvLinkManager::new(NvLinkManagerArgs {
+        db_pool: db_pool.clone(),
+        nmxc_client_pool: api_service.nmxc_client_pool.clone(),
+        meter: meter.clone(),
+        config: carbide_config.nvlink_config.clone().unwrap_or_default(),
+        host_health: carbide_config.host_health,
+        rms_client: api_service.rms_client.clone(),
+        credential_manager: api_service.credential_manager.clone(),
+        rack_profiles: carbide_config.rack_profiles.clone(),
+        work_lock_manager_handle: work_lock_manager_handle.clone(),
+    })
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
@@ -1447,6 +1455,7 @@ async fn initialize_and_start_controllers<'a>(
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
+        endpoint_exploration_locks.clone(),
         carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),

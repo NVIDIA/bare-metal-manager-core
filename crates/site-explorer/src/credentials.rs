@@ -27,10 +27,6 @@ use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
 
-const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
-    credential_type: carbide_secrets::credentials::BmcCredentialType::SiteWideRoot,
-};
-
 pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
@@ -133,11 +129,20 @@ impl CredentialClient {
         Ok(())
     }
 
+    /// Read the site-wide BMC root credential at `version`. The caller resolves
+    /// the current version from `sitewide_credential_rotation.target_version`
+    /// (see [`super::bmc_endpoint_explorer::BmcEndpointExplorer`]); version 0 is
+    /// the legacy unversioned path. There is no unversioned "current" alias --
+    /// the rotation table is the single source of truth for which version is
+    /// live.
     pub async fn get_sitewide_bmc_root_credentials(
         &self,
+        version: u32,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.get_credentials(&SITEWIDE_BMC_ROOT_CREDENTIAL_KEY)
-            .await
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::site_wide_root(version),
+        };
+        self.get_credentials(&key).await
     }
 
     pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {

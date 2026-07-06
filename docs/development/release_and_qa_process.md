@@ -22,9 +22,9 @@ operators who want to understand which version of NICo they should be running.
 
 ## Where Releases Live
 
-- **GitHub releases:** <https://github.com/NVIDIA/infra-controller/releases>
-- **Issue tracker:** <https://github.com/NVIDIA/infra-controller/issues>
-- **Source:** <https://github.com/NVIDIA/infra-controller>
+- **GitHub releases:** [https://github.com/NVIDIA/infra-controller/releases](https://github.com/NVIDIA/infra-controller/releases)
+- **Issue tracker:** [https://github.com/NVIDIA/infra-controller/issues](https://github.com/NVIDIA/infra-controller/issues)
+- **Source:** [https://github.com/NVIDIA/infra-controller](https://github.com/NVIDIA/infra-controller)
 
 Every published minor and patch release is available on the GitHub releases page
 above, tagged with its semver version (see [Tag Naming](#tag-naming) below).

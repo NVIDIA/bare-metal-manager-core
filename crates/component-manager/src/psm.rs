@@ -4,6 +4,7 @@
 use carbide_secrets::credentials::Credentials;
 use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 use tonic::transport::Channel;
+use trace_propagation::TraceInjectService;
 use tracing::instrument;
 
 use crate::config::BackendTlsConfig;
@@ -17,7 +18,7 @@ use crate::types::parse_mac;
 
 #[derive(Debug)]
 pub struct PsmPowerShelfBackend {
-    client: psm::powershelf_manager_client::PowershelfManagerClient<Channel>,
+    client: psm::powershelf_manager_client::PowershelfManagerClient<TraceInjectService<Channel>>,
 }
 
 impl PsmPowerShelfBackend {
@@ -73,7 +74,9 @@ fn mac_strings(endpoints: &[PowerShelfEndpoint]) -> Vec<String> {
 /// registration is primarily about ensuring PSM knows about the device and
 /// has credentials.
 async fn register_with_psm(
-    client: &mut psm::powershelf_manager_client::PowershelfManagerClient<Channel>,
+    client: &mut psm::powershelf_manager_client::PowershelfManagerClient<
+        TraceInjectService<Channel>,
+    >,
     endpoints: &[PowerShelfEndpoint],
 ) -> Result<(), ComponentManagerError> {
     let reqs: Vec<psm::RegisterPowershelfRequest> = endpoints

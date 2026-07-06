@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.25.11 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.4 AS builder
 
 # Docker automatically provides these args during multi-platform builds
 ARG TARGETOS=linux
@@ -44,7 +44,7 @@ RUN VERSION=$(grep -v '^#' /workspace/VERSION | tr -d '[:space:]' 2>/dev/null ||
     -o /app/flow \
     .
 
-FROM nvcr.io/nvidia/distroless/go:v3.2.1 AS final
+FROM nvcr.io/nvidia/distroless/go:v4.0.8 AS final
 
 COPY --from=builder --chown=nvs:nvs /app/flow /app/flow
 

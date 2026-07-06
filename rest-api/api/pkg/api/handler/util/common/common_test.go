@@ -17,7 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
+	tclient "go.temporal.io/sdk/client"
+	tmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -353,6 +356,39 @@ func TestGetInfrastructureProviderForOrg(t *testing.T) {
 	}
 }
 
+func TestGRPCStatusMessage(t *testing.T) {
+	grpcInvalid := status.Error(codes.InvalidArgument, "model is required")
+	plainErr := errors.New("plain error")
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: "",
+		},
+		{
+			name: "gRPC status message",
+			err:  grpcInvalid,
+			want: "model is required",
+		},
+		{
+			name: "plain error",
+			err:  plainErr,
+			want: "plain error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, GRPCStatusMessage(tt.err))
+		})
+	}
+}
+
 func TestUnwrapWorkflowError(t *testing.T) {
 	plainErr := errors.New("plain")
 	causeErr := errors.New("other error")
@@ -572,6 +608,94 @@ func TestGetSiteFromIDString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthorizeProviderSiteForCore(t *testing.T) {
+	ctx := context.Background()
+	dbSession := TestInitDB(t)
+	defer dbSession.Close()
+
+	TestSetupSchema(t, dbSession)
+
+	logger := zerolog.New(os.Stdout)
+
+	org := "test-provider-org"
+	user := TestBuildUser(t, dbSession, uuid.NewString(), org, []string{authz.ProviderAdminRole})
+	assert.NotNil(t, user)
+	ip := TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, user)
+	assert.NotNil(t, ip)
+	site := TestBuildSite(t, dbSession, ip, "Test Site", user)
+	assert.NotNil(t, site)
+
+	otherOrg := "other-provider-org"
+	otherUser := TestBuildUser(t, dbSession, uuid.NewString(), otherOrg, []string{authz.ProviderAdminRole})
+	assert.NotNil(t, otherUser)
+	otherIP := TestBuildInfrastructureProvider(t, dbSession, "Other Infrastructure Provider", otherOrg, otherUser)
+	assert.NotNil(t, otherIP)
+	otherSite := TestBuildSite(t, dbSession, otherIP, "Other Site", otherUser)
+	assert.NotNil(t, otherSite)
+
+	tenantOrg := "tenant-org"
+	tenantUser := TestBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{authz.TenantAdminRole})
+	assert.NotNil(t, tenantUser)
+	tenant := TestBuildTenant(t, dbSession, tenantOrg, "Tenant", tenantUser)
+	assert.NotNil(t, tenant)
+	tenantSite := TestBuildTenantSite(t, dbSession, tenant, site, user)
+	assert.NotNil(t, tenantSite)
+
+	scp := &stubSiteTemporalClientPool{client: &tmocks.Client{}}
+	authInput := func(org string, user *cdbm.User, siteID string) AuthorizeProviderSiteForCoreInput {
+		return AuthorizeProviderSiteForCoreInput{
+			Ctx:       ctx,
+			Logger:    logger,
+			DBSession: dbSession,
+			SCP:       scp,
+			Org:       org,
+			User:      user,
+			SiteID:    siteID,
+		}
+	}
+
+	t.Run("success", func(t *testing.T) {
+		client, siteID, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, site.ID.String()))
+		require.Nil(t, apiErr)
+		require.NotNil(t, client)
+		assert.Equal(t, site.ID.String(), siteID)
+	})
+
+	t.Run("nil user", func(t *testing.T) {
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, nil, site.ID.String()))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusInternalServerError, apiErr.Code)
+	})
+
+	t.Run("user is not a provider admin", func(t *testing.T) {
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(tenantOrg, tenantUser, site.ID.String()))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusForbidden, apiErr.Code)
+	})
+
+	t.Run("site not found", func(t *testing.T) {
+		missingSiteID := uuid.NewString()
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, missingSiteID))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+		assert.Contains(t, apiErr.Message, missingSiteID)
+	})
+
+	t.Run("site belongs to another provider", func(t *testing.T) {
+		_, _, apiErr := AuthorizeProviderSiteForCore(authInput(org, user, otherSite.ID.String()))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusForbidden, apiErr.Code)
+	})
+}
+
+type stubSiteTemporalClientPool struct {
+	client tclient.Client
+}
+
+func (s *stubSiteTemporalClientPool) GetClientByID(siteID uuid.UUID) (tclient.Client, error) {
+	return s.client, nil
 }
 
 func TestGetIPBlockFromIDString(t *testing.T) {

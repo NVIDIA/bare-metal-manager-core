@@ -81,10 +81,21 @@ impl DataSink for LogFileSink {
     }
 }
 
+/// JSONL representation of a log event written by the file sink.
 #[derive(Serialize)]
 struct JsonLogRecord<'a> {
     endpoint: &'a str,
     collector: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    machine_serial: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    driver_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    component_type: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nvlink_domain_uuid: Option<String>,
     severity: &'a str,
     body: &'a str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -97,6 +108,11 @@ impl<'a> JsonLogRecord<'a> {
         Self {
             endpoint: context.endpoint_key(),
             collector: context.collector_type,
+            machine_id: context.machine_id().map(|id| id.to_string()),
+            machine_serial: context.machine_serial(),
+            driver_version: context.driver_version(),
+            component_type: context.component_type(),
+            nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
             severity: &record.severity,
             body: &record.body,
             attributes: record
@@ -225,12 +241,14 @@ mod tests {
     use std::borrow::Cow;
     use std::str::FromStr;
 
+    use carbide_uuid::nvlink::NvLinkDomainId;
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::BmcAddr;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
     use crate::sink::DiagnosticLogRecord;
 
+    /// Builds a base log context without endpoint metadata.
     fn test_context() -> EventContext {
         EventContext {
             endpoint_key: "aa:bb:cc:dd:ee:ff".to_string(),
@@ -242,6 +260,23 @@ mod tests {
             collector_type: "test",
             metadata: None,
             rack_id: None,
+        }
+    }
+
+    /// Builds a log context with representative machine metadata.
+    fn machine_context() -> EventContext {
+        EventContext {
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: Some("MN-001".to_string()),
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
+                driver_version: Some("570.82".to_string()),
+            })),
+            ..test_context()
         }
     }
 
@@ -383,6 +418,48 @@ mod tests {
 
         let parent: serde_json::Value = serde_json::from_str(lines[0]).expect("valid parent json");
         assert_eq!(parent["body"], "parent log");
+    }
+
+    /// Verifies that machine metadata is emitted as top-level JSONL fields.
+    #[test]
+    fn test_writes_machine_metadata_as_jsonl_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = LogFileSinkConfig {
+            include_diagnostics: false,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+        let sink = LogFileSink::new(&config).expect("sink");
+        let ctx = machine_context();
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "xid event".to_string(),
+                severity: "WARN".to_string(),
+                attributes: Vec::new(),
+                diagnostic_record: None,
+            }
+            .into(),
+        );
+        sink.handle_event(&ctx, &event);
+
+        let log_path = dir.path().join("health_logs.jsonl");
+        let contents = fs::read_to_string(log_path).expect("read log");
+        let line = contents.lines().next().expect("one JSONL record");
+
+        let parsed: serde_json::Value = serde_json::from_str(line).expect("valid json");
+        assert_eq!(
+            parsed["machine_id"],
+            "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+        );
+        assert_eq!(parsed["machine_serial"], "MN-001");
+        assert_eq!(parsed["driver_version"], "570.82");
+        assert_eq!(parsed["component_type"], "compute_node");
+        assert_eq!(
+            parsed["nvlink_domain_uuid"],
+            "00000000-0000-0000-0000-000000000000"
+        );
     }
 
     #[test]

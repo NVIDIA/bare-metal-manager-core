@@ -19,6 +19,7 @@ var (
 	TrailingWhitespaceRegexp = regexp.MustCompile(".*\\s+$")
 	NotAllWhitespaceRegexp   = regexp.MustCompile("[^\\s]+")
 	ShaHashRegex             = regexp.MustCompile("^[A-Fa-f0-9]+$")
+	Sha256LowercaseHexRegex  = regexp.MustCompile("^[a-f0-9]{64}$")
 	DiskImagePathRegex       = regexp.MustCompile("^/dev/(:?nvme\\d+n\\d+|sd*)")
 
 	ValidationErrorNameHasLeadingWhitespace  = errors.New("name field has leading whitespace")

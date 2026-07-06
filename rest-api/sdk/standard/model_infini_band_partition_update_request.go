@@ -27,9 +27,8 @@ type InfiniBandPartitionUpdateRequest struct {
 	// Name of the InfiniBand Partition
 	Name string `json:"name"`
 	// Description of the InfiniBand Partition
-	Description NullableString `json:"description,omitempty"`
-	// String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
-	Labels map[string]string `json:"labels,omitempty"`
+	Description NullableString    `json:"description,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 type _InfiniBandPartitionUpdateRequest InfiniBandPartitionUpdateRequest
@@ -188,7 +187,7 @@ func (o *InfiniBandPartitionUpdateRequest) UnmarshalJSON(data []byte) (err error
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

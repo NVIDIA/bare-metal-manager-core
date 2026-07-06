@@ -34,10 +34,11 @@ use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
 use crate::builder::TestHarnessBuilder;
 use crate::dns::TestDomain;
 use crate::network::controller::TestNetworkController;
-use crate::network::segment::TestNetworkSegment;
+pub use crate::network::segment::TestNetworkSegment;
 
 pub mod asset;
 pub mod builder;
+pub mod db_machine;
 pub mod dns;
 pub mod machine;
 pub mod machine_dpu;
@@ -47,6 +48,7 @@ pub mod network;
 pub mod prelude;
 pub mod resource_pool;
 
+pub use db_machine::DbMachineExt;
 pub use machine::TestMachine;
 pub use machine_dpu::TestDpuMachine;
 pub use machine_host::TestHostMachine;
@@ -62,7 +64,7 @@ impl TestHarness {
     pub fn builder(db_pool: PgPool) -> TestHarnessBuilder {
         builder::TestHarnessBuilder {
             db_pool,
-            api: None,
+            api_builder_fn: None,
             test_meter: None,
             pools: None,
         }
@@ -128,6 +130,7 @@ impl TestHarness {
             Arc::new(api.runtime_config.get_firmware_config()),
             api.common_pools().clone(),
             api.work_lock_manager_handle(),
+            carbide_site_explorer::EndpointExplorationLocks::default(),
             api.runtime_config.rack_profiles.clone(),
             None,
             api.credential_manager().clone(),

@@ -124,6 +124,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         status: None,
         deleted: None,
         bmc_mac_address: new_switch.bmc_mac_address,
+        bmc_info: None,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -285,11 +286,41 @@ where
         })
 }
 
+/// Base relation for loading switches. Wraps the `switches` table in a derived
+/// table (aliased `switches`) that adds a `bmc_info` JSON column resolved from
+/// the `Bmc` machine_interface linked back to the switch -- mirroring how the
+/// machine snapshot query materializes `bmc_info` (see
+/// `sql/machine_snapshots.sql.template`). Keeping the alias `switches` lets the
+/// generic `FilterableQueryBuilder` filters reference unqualified columns.
+const SWITCHES_WITH_BMC_INFO: &str = r#"SELECT * FROM (
+    SELECT s.*, bmc.json AS bmc_info
+    FROM switches s
+    LEFT JOIN LATERAL (
+        SELECT jsonb_strip_nulls(jsonb_build_object(
+            'machine_interface_id', bmc_i.id,
+            'ip', host(bmc_addr.address),
+            'mac', bmc_i.mac_address::text
+        )) AS json
+        FROM machine_interfaces bmc_i
+        LEFT JOIN LATERAL (
+            SELECT a.address
+            FROM machine_interface_addresses a
+            WHERE a.interface_id = bmc_i.id
+            ORDER BY family(a.address), a.address
+            LIMIT 1
+        ) AS bmc_addr ON true
+        WHERE bmc_i.switch_id = s.id
+          AND bmc_i.interface_type = 'Bmc'
+        ORDER BY bmc_i.created ASC
+        LIMIT 1
+    ) AS bmc ON true
+) AS switches"#;
+
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Switch>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
 ) -> DatabaseResult<Vec<Switch>> {
-    let mut query = FilterableQueryBuilder::new("SELECT * FROM switches").filter(&filter);
+    let mut query = FilterableQueryBuilder::new(SWITCHES_WITH_BMC_INFO).filter(&filter);
 
     query
         .build_query_as()
@@ -582,6 +613,7 @@ pub struct SwitchEndpointRow {
 pub struct ReadyControlPlaneSwitchEndpointRow {
     pub switch_id: SwitchId,
     pub rack_id: RackId,
+    pub rack_profile_id: Option<RackProfileId>,
     pub nvos_ip: IpAddr,
 }
 
@@ -644,10 +676,13 @@ where
 {
     let sql = r#"
         SELECT DISTINCT ON (s.rack_id)
-            s.id              AS switch_id,
-            s.rack_id         AS rack_id,
-            nvos_mia.address  AS nvos_ip
+            s.id               AS switch_id,
+            s.rack_id          AS rack_id,
+            r.rack_profile_id  AS rack_profile_id,
+            nvos_mia.address   AS nvos_ip
         FROM switches s
+        LEFT JOIN racks r
+            ON r.id = s.rack_id
         JOIN expected_switches es
             ON es.bmc_mac_address = s.bmc_mac_address
         JOIN machine_interfaces nvos_mi
@@ -791,4 +826,121 @@ pub async fn remove_health_report(
     source: &str,
 ) -> Result<(), DatabaseError> {
     crate::health_report::remove_health_report(txn, "switches", switch_id, mode, source).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_uuid::machine::MachineInterfaceId;
+    use carbide_uuid::network::NetworkSegmentId;
+    use model::allocation_type::AllocationType;
+    use model::switch::{NewSwitch, SwitchConfig};
+
+    use super::*;
+
+    /// The switch load query must surface `bmc_info` (MAC + IP +
+    /// machine-interface id) resolved from the BMC machine_interface linked
+    /// back to the switch (`switch_id` + `interface_type = 'Bmc'`), regardless
+    /// of network segment. A non-BMC interface on the same switch must be
+    /// ignored.
+    #[crate::sqlx_test]
+    async fn test_find_by_populates_bmc_info(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let switch_id =
+            SwitchId::from_str("sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60")?;
+        // `switches.bmc_mac_address` is an FK into `expected_switches`, so seed
+        // the expected switch before creating the switch.
+        sqlx::query(
+            "INSERT INTO expected_switches (serial_number, bmc_mac_address, bmc_username, bmc_password)
+             VALUES ('SW-SN-BMC', '02:00:00:00:0b:01'::macaddr, 'admin', 'pw')",
+        )
+        .execute(txn.as_mut())
+        .await?;
+        create(
+            &mut txn,
+            &NewSwitch {
+                id: switch_id,
+                config: SwitchConfig {
+                    name: "BMC info switch".to_string(),
+                    enable_nmxc: false,
+                    fabric_manager_config: None,
+                },
+                bmc_mac_address: Some("02:00:00:00:0b:01".parse()?),
+                metadata: None,
+                rack_id: None,
+                slot_number: None,
+                tray_index: None,
+            },
+        )
+        .await?;
+
+        // A non-underlay segment on purpose: resolution must not depend on the
+        // segment type, only on the BMC link back to the switch.
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version, network_segment_type)
+             VALUES ($1, 'V1-T0', 'tenant') RETURNING id",
+        )
+        .bind("switch-bmc-info")
+        .fetch_one(txn.as_mut())
+        .await?;
+
+        let bmc_mac = "02:00:00:00:0b:01";
+        let bmc_ip: IpAddr = "10.30.40.50".parse()?;
+        let bmc_interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (switch_id, association_type, segment_id, mac_address,
+                  primary_interface, hostname, interface_type)
+             VALUES ($1, 'Switch', $2, $3::macaddr, false, 'bmc', 'Bmc')
+             RETURNING id",
+        )
+        .bind(switch_id)
+        .bind(segment_id)
+        .bind(bmc_mac)
+        .fetch_one(txn.as_mut())
+        .await?;
+        crate::machine_interface_address::insert(
+            txn.as_mut(),
+            bmc_interface_id,
+            bmc_ip,
+            AllocationType::Dhcp,
+        )
+        .await?;
+
+        // An NVOS 'Data' interface on the same switch must be ignored.
+        let data_interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (switch_id, association_type, segment_id, mac_address,
+                  primary_interface, hostname, interface_type)
+             VALUES ($1, 'Switch', $2, $3::macaddr, false, 'nvos', 'Data')
+             RETURNING id",
+        )
+        .bind(switch_id)
+        .bind(segment_id)
+        .bind("02:00:00:00:0b:02")
+        .fetch_one(txn.as_mut())
+        .await?;
+        crate::machine_interface_address::insert(
+            txn.as_mut(),
+            data_interface_id,
+            "10.30.40.51".parse::<IpAddr>()?,
+            AllocationType::Dhcp,
+        )
+        .await?;
+
+        let switch = find_by_id(&mut txn, &switch_id)
+            .await?
+            .expect("switch should exist");
+        let bmc_info = switch
+            .bmc_info
+            .expect("switch load should populate bmc_info from the BMC interface");
+        assert_eq!(bmc_info.machine_interface_id, Some(bmc_interface_id));
+        assert_eq!(bmc_info.mac, Some(bmc_mac.parse()?));
+        assert_eq!(bmc_info.ip, Some(bmc_ip));
+
+        Ok(())
+    }
 }

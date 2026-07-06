@@ -54,8 +54,12 @@ type ExpectedMachineUpdateRequest struct {
 	TrayIdx NullableInt32 `json:"trayIdx,omitempty"`
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
+	// When true, this host is eligible for DPF-based provisioning.
+	IsDpfEnabled NullableBool `json:"isDpfEnabled,omitempty"`
 	// User-defined key-value pairs for organizing and categorizing Expected Machines
 	Labels map[string]string `json:"labels,omitempty"`
+	// Optional per-host lifecycle profile
+	HostLifecycleProfile *HostLifecycleProfile `json:"hostLifecycleProfile,omitempty"`
 }
 
 // NewExpectedMachineUpdateRequest instantiates a new ExpectedMachineUpdateRequest object
@@ -753,6 +757,49 @@ func (o *ExpectedMachineUpdateRequest) UnsetHostId() {
 	o.HostId.Unset()
 }
 
+// GetIsDpfEnabled returns the IsDpfEnabled field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *ExpectedMachineUpdateRequest) GetIsDpfEnabled() bool {
+	if o == nil || IsNil(o.IsDpfEnabled.Get()) {
+		var ret bool
+		return ret
+	}
+	return *o.IsDpfEnabled.Get()
+}
+
+// GetIsDpfEnabledOk returns a tuple with the IsDpfEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *ExpectedMachineUpdateRequest) GetIsDpfEnabledOk() (*bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.IsDpfEnabled.Get(), o.IsDpfEnabled.IsSet()
+}
+
+// HasIsDpfEnabled returns a boolean if a field has been set.
+func (o *ExpectedMachineUpdateRequest) HasIsDpfEnabled() bool {
+	if o != nil && o.IsDpfEnabled.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetIsDpfEnabled gets a reference to the given NullableBool and assigns it to the IsDpfEnabled field.
+func (o *ExpectedMachineUpdateRequest) SetIsDpfEnabled(v bool) {
+	o.IsDpfEnabled.Set(&v)
+}
+
+// SetIsDpfEnabledNil sets the value for IsDpfEnabled to be an explicit nil
+func (o *ExpectedMachineUpdateRequest) SetIsDpfEnabledNil() {
+	o.IsDpfEnabled.Set(nil)
+}
+
+// UnsetIsDpfEnabled ensures that no value is present for IsDpfEnabled, not even an explicit nil
+func (o *ExpectedMachineUpdateRequest) UnsetIsDpfEnabled() {
+	o.IsDpfEnabled.Unset()
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *ExpectedMachineUpdateRequest) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -783,6 +830,38 @@ func (o *ExpectedMachineUpdateRequest) HasLabels() bool {
 // SetLabels gets a reference to the given map[string]string and assigns it to the Labels field.
 func (o *ExpectedMachineUpdateRequest) SetLabels(v map[string]string) {
 	o.Labels = v
+}
+
+// GetHostLifecycleProfile returns the HostLifecycleProfile field value if set, zero value otherwise.
+func (o *ExpectedMachineUpdateRequest) GetHostLifecycleProfile() HostLifecycleProfile {
+	if o == nil || IsNil(o.HostLifecycleProfile) {
+		var ret HostLifecycleProfile
+		return ret
+	}
+	return *o.HostLifecycleProfile
+}
+
+// GetHostLifecycleProfileOk returns a tuple with the HostLifecycleProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ExpectedMachineUpdateRequest) GetHostLifecycleProfileOk() (*HostLifecycleProfile, bool) {
+	if o == nil || IsNil(o.HostLifecycleProfile) {
+		return nil, false
+	}
+	return o.HostLifecycleProfile, true
+}
+
+// HasHostLifecycleProfile returns a boolean if a field has been set.
+func (o *ExpectedMachineUpdateRequest) HasHostLifecycleProfile() bool {
+	if o != nil && !IsNil(o.HostLifecycleProfile) {
+		return true
+	}
+
+	return false
+}
+
+// SetHostLifecycleProfile gets a reference to the given HostLifecycleProfile and assigns it to the HostLifecycleProfile field.
+func (o *ExpectedMachineUpdateRequest) SetHostLifecycleProfile(v HostLifecycleProfile) {
+	o.HostLifecycleProfile = &v
 }
 
 func (o ExpectedMachineUpdateRequest) MarshalJSON() ([]byte, error) {
@@ -843,8 +922,14 @@ func (o ExpectedMachineUpdateRequest) ToMap() (map[string]interface{}, error) {
 	if o.HostId.IsSet() {
 		toSerialize["hostId"] = o.HostId.Get()
 	}
+	if o.IsDpfEnabled.IsSet() {
+		toSerialize["isDpfEnabled"] = o.IsDpfEnabled.Get()
+	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels
+	}
+	if !IsNil(o.HostLifecycleProfile) {
+		toSerialize["hostLifecycleProfile"] = o.HostLifecycleProfile
 	}
 	return toSerialize, nil
 }

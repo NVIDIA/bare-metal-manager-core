@@ -24,10 +24,13 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_firmware::FirmwareDownloader;
+use carbide_firmware::{
+    FirmwareDownloader, ResolvedFirmwareArtifactSource, resolve_files_firmware_artifact,
+};
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_secrets::credentials::{
@@ -60,6 +63,7 @@ use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::PreingestionMetrics;
 
 const NOT_FOUND: u16 = 404;
+const LEGACY_NO_URL_SENTINEL: &str = "file://dev/null";
 
 /// Fallback timeout for BFB copy. SSH layer has 30-min timeout that should fire first;
 /// this catches edge cases where the task dies without reporting.
@@ -695,16 +699,8 @@ impl PreingestionManagerStatic {
 
                     tracing::info!("Installing {:?} on {}", to_install, endpoint.address);
 
-                    initiate_update(
-                        endpoint,
-                        &self.redfish_client_pool,
-                        &to_install,
-                        &fw_type,
-                        &self.downloader,
-                        0,
-                        db,
-                    )
-                    .await?;
+                    self.initiate_update(endpoint, &to_install, &fw_type, 0, db)
+                        .await?;
 
                     // initiate_update only returned an error for database issues.  If it truly succeeded, it updated
                     // the database with a new state.  If the firmware download was not yet complete or we had a Redfish
@@ -769,9 +765,9 @@ impl PreingestionManagerStatic {
                                 component_info.known_firmware.iter().find(|&x| x.default)
                         {
                             let firmware_number = firmware_number + 1;
-                            if firmware_number
-                                < selected_firmware.filenames.len().try_into().unwrap_or(0)
-                            {
+                            if usize::try_from(firmware_number).is_ok_and(|firmware_number| {
+                                firmware_number < selected_firmware.artifact_count()
+                            }) {
                                 tracing::info!(
                                     "Installing {:?} chain step {} on {}",
                                     selected_firmware,
@@ -779,12 +775,10 @@ impl PreingestionManagerStatic {
                                     endpoint.address
                                 );
 
-                                initiate_update(
+                                self.initiate_update(
                                     endpoint,
-                                    &self.redfish_client_pool,
                                     selected_firmware,
                                     upgrade_type,
-                                    &self.downloader,
                                     firmware_number,
                                     db,
                                 )
@@ -1324,6 +1318,21 @@ impl PreingestionManagerStatic {
                     .await
             }
             Ok(false) => {
+                // Time is not in sync. The reset sequence powers off the host
+                // and resets the BMC, which must never happen on an
+                // ingested/paired (potentially tenant-assigned) machine. This
+                // mirrors the managed-host guard site-explorer already applies
+                // before its own remediation.
+                if self.is_ingested_host(db, endpoint).await {
+                    tracing::info!(
+                        "{} BMC time is out of sync but the host is already ingested; \
+                         skipping time-sync remediation",
+                        endpoint.address
+                    );
+                    return self
+                        .check_firmware_versions_below_preingestion(db, endpoint)
+                        .await;
+                }
                 // Time is not in sync, initiate reset sequence
                 tracing::warn!(
                     "{} BMC time is out of sync, initiating reset to fix time synchronization",
@@ -2185,6 +2194,35 @@ impl PreingestionManagerStatic {
         }
     }
 
+    /// Returns true if this endpoint's BMC IP already maps to an ingested/paired
+    /// fleet machine.
+    ///
+    /// This reuses the same managed-host predicate site-explorer uses to refuse
+    /// remediation on ingested hosts (see
+    /// `site_explorer::managed_host::is_endpoint_in_managed_host`); both resolve
+    /// to `db::machine_topology::find_machine_id_by_bmc_ip`. We intentionally do
+    /// NOT use `endpoint.report.machine_id`, which is derived from DMI during
+    /// exploration and is present even for fresh, un-ingested hosts.
+    ///
+    /// Fails closed: on a lookup error we report the host as ingested so the
+    /// caller skips the destructive time-sync remediation rather than risk power
+    /// cycling a tenant-assigned node.
+    async fn is_ingested_host(&self, db: &PgPool, endpoint: &ExploredEndpoint) -> bool {
+        match db::machine_topology::find_machine_id_by_bmc_ip(db, &endpoint.address.to_string())
+            .await
+        {
+            Ok(machine_id) => machine_id.is_some(),
+            Err(e) => {
+                tracing::warn!(
+                    "Could not determine if {} is an ingested host: {e}; \
+                     treating as ingested to skip time-sync remediation",
+                    endpoint.address
+                );
+                true
+            }
+        }
+    }
+
     /// Handler for BfbRecoveryNeeded state.
     /// Host preingestion state was already validated by the gRPC handler at trigger time.
     async fn in_bfb_recovery_needed(
@@ -2710,155 +2748,242 @@ fn need_upgrade(
         .cloned()
 }
 
-/// initiate_update will start a Redfish connection to the given address and start an update
-/// by doing an upload.  It may be unable to start it if the firmware has not been previously
-/// downloaded; if that happens it also returns success, but has not modified the state.  On Redfish
-///  errors, we return Ok but leave the state as it was, with the intention that we will retry
-///  on the next go.
-async fn initiate_update(
-    endpoint_clone: &ExploredEndpoint,
-    redfish_client_pool: &Arc<dyn RedfishClientPool>,
-    to_install: &FirmwareEntry,
-    firmware_type: &FirmwareComponentType,
-    downloader: &FirmwareDownloader,
-    firmware_number: u32,
-    db_pool: &PgPool,
-) -> Result<(), DatabaseError> {
-    if !to_install.get_filename(firmware_number).ends_with("bfb")
-        && !downloader.available(
-            &to_install.get_filename(firmware_number),
-            &to_install.get_url(),
-            &to_install.get_checksum(),
-        )
-    {
-        tracing::debug!(
-            "{} is being downloaded from {}, update deferred",
-            to_install.get_filename(firmware_number).display(),
-            to_install.get_url()
-        );
-
-        return Ok(());
-    }
-
-    // Setup the Redfish connection
-    let redfish_client = match redfish_client_pool
-        .create_client_for_ingested_host(endpoint_clone.address, db_pool)
-        .await
-    {
-        Ok(redfish_client) => redfish_client,
-        Err(e) => {
-            tracing::debug!(
-                "Failed to open redfish to {}: {e}",
-                endpoint_clone.address.to_string()
-            );
-            return Ok(());
-        }
-    };
-
-    tracing::debug!(
-        "initiate_update: Started upload of firmware to {}",
-        endpoint_clone.address
-    );
-    let redfish_component_type: libredfish::model::update_service::ComponentType =
-        match to_install.install_only_specified {
-            false => libredfish::model::update_service::ComponentType::Unknown,
-            true => firmware_type.into_libredfish(),
+impl PreingestionManagerStatic {
+    /// initiate_update will start a Redfish connection to the given address and start an update
+    /// by doing an upload.  It may be unable to start it if the firmware has not been previously
+    /// downloaded; if that happens it also returns success, but has not modified the state.  On Redfish
+    ///  errors, we return Ok but leave the state as it was, with the intention that we will retry
+    ///  on the next go.
+    async fn initiate_update(
+        &self,
+        endpoint_clone: &ExploredEndpoint,
+        to_install: &FirmwareEntry,
+        firmware_type: &FirmwareComponentType,
+        firmware_number: u32,
+        db_pool: &PgPool,
+    ) -> Result<(), DatabaseError> {
+        let artifact = match resolve_preingestion_firmware_artifact(
+            &self.config.firmware_download_cache_directory,
+            to_install,
+            firmware_number,
+        ) {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                tracing::error!("Failed to resolve firmware artifact: {error}");
+                return Ok(());
+            }
         };
-    let task = if to_install.get_filename(firmware_number).ends_with("bfb") {
-        let _ = redfish_client
-            .enable_rshim_bmc()
-            .await
-            .map_err(|e| tracing::error!("initiate_update: Failed to call enable_rshim_bmc: {e}"));
-        let image_uri = format!(
-            "{}/{}",
-            to_install.get_url(),
-            to_install.get_filename(firmware_number).display()
-        );
-        tracing::debug!(
-            "initiate_update: Using simple_update with image URI: {}",
-            image_uri
-        );
-        match redfish_client
-            .update_firmware_simple_update(
-                image_uri.as_str(),
-                vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
-                TransferProtocolType::HTTP,
-            )
+
+        if !is_bfb_artifact(&artifact.local_path) {
+            match &artifact.source {
+                ResolvedFirmwareArtifactSource::Remote { url, sha256 } => {
+                    if !self.downloader.available(&artifact.local_path, url, sha256) {
+                        tracing::debug!(
+                            "{} is being downloaded from {}, update deferred",
+                            artifact.local_path.display(),
+                            url
+                        );
+
+                        return Ok(());
+                    }
+                }
+                ResolvedFirmwareArtifactSource::Local => {
+                    if !artifact.local_path.exists() {
+                        tracing::error!(
+                            "Firmware artifact {} is not present",
+                            artifact.local_path.display()
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Setup the Redfish connection
+        let redfish_client = match self
+            .redfish_client_pool
+            .create_client_for_ingested_host(endpoint_clone.address, db_pool)
             .await
         {
-            Ok(task) => task.id,
+            Ok(redfish_client) => redfish_client,
             Err(e) => {
-                tracing::error!(
-                    "initiate_update: Failed to call update_firmware_simple_update {}: {e}",
-                    endpoint_clone.address
+                tracing::debug!(
+                    "Failed to open redfish to {}: {e}",
+                    endpoint_clone.address.to_string()
                 );
                 return Ok(());
             }
-        }
-    } else {
-        match redfish_client
-            .update_firmware_multipart(
-                to_install.get_filename(firmware_number).as_path(),
-                true,
-                Duration::from_secs(120),
-                redfish_component_type,
-            )
-            .await
-        {
-            Ok(task) => task,
-            Err(RedfishError::NotSupported(err)) => {
-                tracing::warn!(
-                    "Multipart update is not supported: {err}. Trying to use HttpPushUri"
-                );
-                let file =
-                    match File::open(to_install.get_filename(firmware_number).as_path()).await {
+        };
+
+        tracing::debug!(
+            "initiate_update: Started upload of firmware to {}",
+            endpoint_clone.address
+        );
+
+        let redfish_component_type: libredfish::model::update_service::ComponentType =
+            match to_install.install_only_specified {
+                false => libredfish::model::update_service::ComponentType::Unknown,
+                true => firmware_type.into_libredfish(),
+            };
+
+        let task = if is_bfb_artifact(&artifact.local_path) {
+            let _ = redfish_client.enable_rshim_bmc().await.map_err(|e| {
+                tracing::error!("initiate_update: Failed to call enable_rshim_bmc: {e}")
+            });
+            tracing::debug!(
+                "initiate_update: Using simple_update with image URI: {}",
+                artifact.bfb_image_uri
+            );
+            match redfish_client
+                .update_firmware_simple_update(
+                    artifact.bfb_image_uri.as_str(),
+                    vec!["redfish/v1/UpdateService/FirmwareInventory/DPU_OS".to_string()],
+                    TransferProtocolType::HTTP,
+                )
+                .await
+            {
+                Ok(task) => task.id,
+                Err(e) => {
+                    tracing::error!(
+                        "initiate_update: Failed to call update_firmware_simple_update {}: {e}",
+                        endpoint_clone.address
+                    );
+                    return Ok(());
+                }
+            }
+        } else {
+            match redfish_client
+                .update_firmware_multipart(
+                    artifact.local_path.as_path(),
+                    true,
+                    Duration::from_secs(120),
+                    redfish_component_type,
+                )
+                .await
+            {
+                Ok(task) => task,
+                Err(RedfishError::NotSupported(err)) => {
+                    tracing::warn!(
+                        "Multipart update is not supported: {err}. Trying to use HttpPushUri"
+                    );
+                    let file = match File::open(artifact.local_path.as_path()).await {
                         Ok(f) => f,
                         Err(e) => {
                             tracing::error!("Failed to open a file: {e}");
                             return Ok(());
                         }
                     };
-                match redfish_client.update_firmware(file).await {
-                    Ok(task) => task.id,
-                    Err(e) => {
-                        tracing::error!(
-                            "initiate_update: Failed uploading firmware to {}: {e}",
-                            endpoint_clone.address
-                        );
-                        return Ok(());
+                    match redfish_client.update_firmware(file).await {
+                        Ok(task) => task.id,
+                        Err(e) => {
+                            tracing::error!(
+                                "initiate_update: Failed uploading firmware to {}: {e}",
+                                endpoint_clone.address
+                            );
+                            return Ok(());
+                        }
                     }
                 }
+                Err(e) => {
+                    tracing::warn!(
+                        "initiate_update: Failed uploading firmware to {}: {e}",
+                        endpoint_clone.address
+                    );
+                    return Ok(());
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    "initiate_update: Failed uploading firmware to {}: {e}",
-                    endpoint_clone.address
-                );
-                return Ok(());
+        };
+
+        tracing::debug!(
+            "initiate_update: Completed upload of firmware to {}",
+            endpoint_clone.address
+        );
+
+        db_pool
+            .with_txn(|txn| {
+                Box::pin(db::explored_endpoints::set_preingestion_waittask(
+                    endpoint_clone.address,
+                    task,
+                    &to_install.version,
+                    firmware_type,
+                    to_install.power_drains_needed,
+                    firmware_number,
+                    txn,
+                ))
+            })
+            .await??;
+
+        Ok(())
+    }
+}
+
+struct PreingestionFirmwareArtifact {
+    local_path: PathBuf,
+    source: ResolvedFirmwareArtifactSource,
+    bfb_image_uri: String,
+}
+
+fn resolve_preingestion_firmware_artifact(
+    firmware_download_cache_directory: &Path,
+    to_install: &FirmwareEntry,
+    firmware_number: u32,
+) -> Result<PreingestionFirmwareArtifact, String> {
+    if let Some(artifact) = resolve_files_firmware_artifact(
+        firmware_download_cache_directory,
+        to_install,
+        firmware_number,
+    )
+    .map_err(|error| error.to_string())?
+    {
+        let bfb_image_uri = match &artifact.source {
+            ResolvedFirmwareArtifactSource::Remote { url, .. } => url.clone(),
+            ResolvedFirmwareArtifactSource::Local => {
+                legacy_bfb_image_uri(to_install, &artifact.local_path)
             }
-        }
+        };
+
+        return Ok(PreingestionFirmwareArtifact {
+            local_path: artifact.local_path,
+            source: artifact.source,
+            bfb_image_uri,
+        });
+    }
+
+    let local_path = to_install.get_filename(firmware_number);
+    let bfb_image_uri = legacy_bfb_image_uri(to_install, &local_path);
+    let source = match legacy_artifact_remote_url(to_install) {
+        Some(url) => ResolvedFirmwareArtifactSource::Remote {
+            url: url.to_string(),
+            sha256: to_install.get_checksum(),
+        },
+        None => ResolvedFirmwareArtifactSource::Local,
     };
 
-    tracing::debug!(
-        "initiate_update: Completed upload of firmware to {}",
-        endpoint_clone.address
-    );
+    Ok(PreingestionFirmwareArtifact {
+        local_path,
+        source,
+        bfb_image_uri,
+    })
+}
 
-    db_pool
-        .with_txn(|txn| {
-            Box::pin(db::explored_endpoints::set_preingestion_waittask(
-                endpoint_clone.address,
-                task,
-                &to_install.version,
-                firmware_type,
-                to_install.power_drains_needed,
-                firmware_number,
-                txn,
-            ))
-        })
-        .await??;
+fn legacy_artifact_remote_url(to_install: &FirmwareEntry) -> Option<&str> {
+    to_install
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty() && *url != LEGACY_NO_URL_SENTINEL)
+}
 
-    Ok(())
+fn legacy_bfb_image_uri(to_install: &FirmwareEntry, local_path: &Path) -> String {
+    format!("{}/{}", to_install.get_url(), local_path.display())
+}
+
+fn is_bfb_artifact(path: &Path) -> bool {
+    path.ends_with("bfb")
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("bfb"))
 }
 
 trait CreateClientForIngestedHost {
@@ -2886,5 +3011,60 @@ impl CreateClientForIngestedHost for Arc<dyn RedfishClientPool> {
                 }
                 _ => PreingestionManagerError::internal(format!("{e}")),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_preingestion_firmware_artifact_preserves_legacy_local_entries() {
+        for url in [None, Some(LEGACY_NO_URL_SENTINEL.to_string())] {
+            let mut firmware =
+                FirmwareEntry::standard_filename("1.0.0", "/firmware/local-artifact.bin");
+            firmware.url = url;
+
+            let artifact =
+                resolve_preingestion_firmware_artifact(Path::new("/cache"), &firmware, 0).unwrap();
+
+            assert_eq!(
+                artifact.local_path,
+                Path::new("/firmware/local-artifact.bin")
+            );
+            assert_eq!(artifact.source, ResolvedFirmwareArtifactSource::Local);
+        }
+    }
+
+    #[test]
+    fn resolve_preingestion_firmware_artifact_preserves_legacy_remote_entries() {
+        let mut firmware = FirmwareEntry::standard_filename("1.0.0", "/firmware/artifact.bin");
+        firmware.url = Some("https://firmware.example.invalid/artifact.bin".to_string());
+        firmware.checksum = Some("abc123".to_string());
+
+        let artifact =
+            resolve_preingestion_firmware_artifact(Path::new("/cache"), &firmware, 0).unwrap();
+
+        assert_eq!(artifact.local_path, Path::new("/firmware/artifact.bin"));
+        assert_eq!(
+            artifact.source,
+            ResolvedFirmwareArtifactSource::Remote {
+                url: "https://firmware.example.invalid/artifact.bin".to_string(),
+                sha256: "abc123".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn is_bfb_artifact_matches_legacy_component_and_bfb_extension() {
+        for (path, expected) in [
+            ("/firmware/bfb", true),
+            ("/firmware/foo.bfb", true),
+            ("/firmware/foo.BFB", true),
+            ("/firmware/foo.bin", false),
+            ("/firmware/bfb.bin", false),
+        ] {
+            assert_eq!(is_bfb_artifact(Path::new(path)), expected, "{path}");
+        }
     }
 }

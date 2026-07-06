@@ -234,6 +234,26 @@ tags:
   - name: Metadata
     description: |-
       Metadata describes various system-level attributes of the API service.
+  - name: Host Firmware Config
+    description: |-
+      Host firmware configuration defines known firmware versions, artifact
+      locations, update ordering, and per-component defaults for a given
+      hardware vendor and model on a Site.
+
+      Provider Admins use PUT to create or merge host firmware config entries
+      in Core via `UpsertHostFirmwareConfig`. Configurations are keyed by
+      `(vendor, model)`; repeated PUTs merge firmware versions for
+      components already present and add new component types when supplied
+      together with an updated `ordering`. Returns `201 Created` on first
+      create and `200 OK` on subsequent updates.
+
+      Provider Admins use DELETE to remove a host firmware config entry from
+      Core via `DeleteHostFirmwareConfig`, keyed by `(vendor, model)`.
+      Returns `204 No Content` on success.
+
+      User must have authorization role with `PROVIDER_ADMIN` suffix in the
+      URL `{org}`, and the Site must belong to the org's Infrastructure
+      Provider.
   - name: Tenant Identity
     description: |-
       Tenant identity (JWT-SVID issuance) and RFC 8693 token delegation.
@@ -2638,9 +2658,37 @@ paths:
         - schema:
             type: string
             enum:
+              - Pending
+              - Configuring
+              - Requested
+              - Ready
+              - Deleting
+              - Error
+          in: query
+          name: status
+          required: false
+          description: Optional filter by peering status. Repeat the parameter to match multiple statuses.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: vpcId
+          required: false
+          description: Optional filter by VPC ID involved in the peering as either vpc1 or vpc2. Repeat the parameter to match multiple VPCs.
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: peerTenantId
+          required: false
+          description: Optional filter by tenant ID of a VPC involved in the peering. Repeat the parameter to match multiple tenants.
+        - schema:
+            type: string
+            enum:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -2729,6 +2777,7 @@ paths:
               - Vpc1
               - Vpc2
               - Site
+              - Tenant
           in: query
           name: includeRelation
           required: false
@@ -3930,7 +3979,7 @@ paths:
       description: |-
         Create an Expected Rack to pre-register a rack expected to be discovered at a Site. The `rackId` is an operator-supplied string identifier (not a UUID) that uniquely identifies the rack within the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Racks if they have an account with the Site's Infrastructure Provider.
 
@@ -3979,7 +4028,7 @@ paths:
       description: |-
         Retrieve all Expected Racks.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
       parameters:
@@ -4055,7 +4104,7 @@ paths:
 
         Every entry in `expectedRacks` must reference the same `siteId` as the top-level `siteId`. `rackId` values must be unique within the request. The `expectedRacks` array may be empty to clear all Expected Racks for the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also replace Expected Racks if they have an account with the Site's Infrastructure Provider.
       requestBody:
@@ -4121,7 +4170,7 @@ paths:
       description: |-
         Delete all Expected Racks for a Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Racks.
 
@@ -4164,7 +4213,7 @@ paths:
       description: |-
         Retrieve a specific Expected Rack by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider.
       parameters:
@@ -4196,7 +4245,7 @@ paths:
       description: |-
         Update an existing Expected Rack identified by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Rack.
 
@@ -4241,7 +4290,7 @@ paths:
       description: |-
         Delete an existing Expected Rack identified by its `id`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Rack.
 
@@ -9158,6 +9207,93 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
+  '/v2/org/{org}/nico/machine/{machineId}/dpu':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the host Machine
+    get:
+      summary: Retrieve DPU Machines attached to a host Machine
+      description: |
+        Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+
+        The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
+
+        **Authorization:**
+
+        Access is restricted to users associated with the Machine's Site. Either of the following grants access:
+
+        * The caller's org has an Infrastructure Provider entity that owns the Machine's Site, and the user has authorization role with `PROVIDER_ADMIN` suffix on that org.
+        * The caller's org has a Tenant entity with `TargetedInstanceCreation` enabled and an active Tenant Account on the Machine's Site's Infrastructure Provider, and the user has authorization role with `TENANT_ADMIN` suffix on that org.
+      tags:
+        - Machine
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DpuMachine'
+              examples:
+                Example 1:
+                  value:
+                    - id: fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20
+                      infrastructureProviderId: e94bcfda-f6cb-42e4-80ec-516811e5abbf
+                      siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                      hostMachineId: fm200hkq8xncf7tgm9plurt4smono52pqvv2gxt97pyk2398qjk2a73qjf64
+                      dpuAgentVersion: 1.0.0
+                      state: Ready
+                      labels:
+                        env: prod
+                      dpuNetworkConfig:
+                        asn: 65001
+                        vniDevice: pf0hpf
+                        managedHostConfigVersion: v1.2.3
+                        useAdminNetwork: true
+                        instanceNetworkConfigVersion: v2.0.1
+                        remoteId: host-machine-123
+                        vpcIsolationBehavior: VPC_ISOLATION_MUTUAL
+                        statefulAclsEnabled: true
+                        enableDhcp: false
+                        isPrimaryDpu: true
+                        datacenterAsn: 65000
+                        dhcpServers:
+                          - 192.168.1.1
+                        routeServers:
+                          - 192.168.2.1
+                        managedHostConfig:
+                          loopbackIp: 10.0.0.1
+                        tenantInterfaces:
+                          - functionType: VIRTUAL_FUNCTION
+                            vlanId: 100
+                            vni: 5000
+                            gateway: 192.168.10.1
+                            ip: 192.168.10.10
+                            interfacePrefix: eth0
+                            prefix: 192.168.10.0/24
+                            fqdn: tenant-vm.example.com
+                            vpcVni: 6000
+                            isL2Segment: false
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-dpu-machines
   '/v2/org/{org}/nico/machine/gpu/stats':
     parameters:
       - schema:
@@ -12597,6 +12733,88 @@ paths:
         Retrieve a specific Audit Log Entry by ID
 
         User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix
+  '/v2/org/{org}/nico/firmware-config/host':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    put:
+      summary: Create or Update Host Firmware Config
+      tags:
+        - Host Firmware Config
+      operationId: create-or-update-host-firmware-config
+      description: |-
+        **WARNING:** As of the 2.0 release, NICo core will store the config data sent by
+        this request, but will not yet rely on it to determine firmware installed on host.
+
+        Create or update host firmware config for the org/site. The target Site
+        is specified by `siteId` in the request body.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostFirmwareConfigCreateOrUpdateRequest'
+      responses:
+        '200':
+          description: Host firmware config replaced/updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostFirmwareConfig'
+        '201':
+          description: Host firmware config created on first call
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostFirmwareConfig'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          description: Internal server error while loading the Provider or Site, contacting the Core gRPC API, starting the Host Firmware Config create or update workflow, or after the workflow timed out and was terminated.
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/HostFirmwareConfigCoreUnavailable'
+    delete:
+      summary: Delete Host Firmware Config
+      tags:
+        - Host Firmware Config
+      operationId: delete-host-firmware-config
+      description: |-
+        Delete host firmware config for the org/site. The target Site is
+        specified by `siteId` in the request body; the configuration is
+        keyed by `(vendor, model)`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostFirmwareConfigDeleteRequest'
+      responses:
+        '204':
+          description: Host firmware config deleted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          description: Internal server error while loading the Provider or Site, contacting the Core gRPC API, starting the Host Firmware Config delete workflow, or after the workflow timed out and was terminated.
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/HostFirmwareConfigCoreUnavailable'
   '/v2/org/{org}/nico/site/{siteID}/tenant-identity/config':
     parameters:
       - schema:
@@ -13034,6 +13252,298 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    HostFirmwareArtifact:
+      type: object
+      title: HostFirmwareArtifact
+      description: Location of a firmware artifact used during host firmware updates.
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          minLength: 1
+          description: URL from which the firmware artifact can be downloaded.
+        sha256:
+          type: string
+          description: Optional SHA-256 digest of the artifact, in lowercase hex.
+      example:
+        url: https://firmware.example.invalid/28.47.2682/fw.bin
+        sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    HostFirmwareVersionConfig:
+      type: object
+      title: HostFirmwareVersionConfig
+      description: One known firmware version for a host firmware component.
+      required:
+        - version
+        - artifacts
+      properties:
+        version:
+          type: string
+          minLength: 1
+          description: Firmware version string reported by inventory and stored in Core.
+        default:
+          type: boolean
+          default: false
+          description: When `true`, marks this version as the default target for the component.
+        artifacts:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareArtifact'
+          description: Artifact locations used to install this firmware version.
+        installOnlySpecified:
+          type: boolean
+          default: false
+          description: When `true`, install only the artifacts explicitly listed for this version.
+        powerDrainsNeeded:
+          type: integer
+          minimum: 0
+          description: Optional number of power drains required after installing this version.
+        preUpdateResets:
+          type: boolean
+          default: false
+          description: When `true`, perform pre-update resets before installing this version.
+        preingestionExclusiveConfig:
+          type: boolean
+          description: |-
+            Optional. When `true`, this firmware version applies only during BMC
+            pre-ingestion. Omitted on update preserves the stored value; set to
+            `false` to clear a previously stored value.
+      example:
+        version: '28.47.2682'
+        default: true
+        artifacts:
+          - url: https://firmware.example.invalid/28.47.2682/fw.bin
+            sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+        installOnlySpecified: false
+        preUpdateResets: false
+        preingestionExclusiveConfig: false
+    HostFirmwareComponentConfig:
+      type: object
+      title: HostFirmwareComponentConfig
+      description: One component entry in a host firmware config upsert request.
+      required:
+        - type
+        - firmware
+      properties:
+        type:
+          $ref: '#/components/schemas/HostFirmwareComponentType'
+        firmware:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareVersionConfig'
+          description: Known firmware versions for this component. Versions are merged by version string on update.
+        preingestUpgradeWhenBelow:
+          type: string
+          minLength: 1
+          description: |-
+            Optional minimum firmware version required before BMC pre-ingestion can
+            complete. Omitted on update preserves the stored value.
+    HostFirmwareComponent:
+      type: object
+      title: HostFirmwareComponent
+      description: One component entry in a stored host firmware config response.
+      required:
+        - type
+        - firmware
+      properties:
+        type:
+          $ref: '#/components/schemas/HostFirmwareComponentType'
+        currentVersionDetectionRegEx:
+          type: string
+          readOnly: true
+          description: Inventory regex Core uses to match reported versions for this component.
+        preingestUpgradeWhenBelow:
+          type: string
+          readOnly: true
+          description: Minimum firmware version required before BMC pre-ingestion can complete.
+        firmware:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareVersionConfig'
+          description: Known firmware versions currently stored for this component.
+    HostFirmwareConfigCreateOrUpdateRequest:
+      type: object
+      title: HostFirmwareConfigCreateOrUpdateRequest
+      description: |-
+        Host firmware configuration upsert payload. Configurations are keyed by
+        `(vendor, model)` on the Site's Core instance. On first create,
+        `ordering` must list every component being configured. On update,
+        newly added components must also appear in `ordering`.
+      required:
+        - siteId
+        - vendor
+        - model
+        - components
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the host firmware config is stored.
+        vendor:
+          type: string
+          minLength: 1
+          description: Hardware vendor for the configuration (for example `Nvidia`, `Dell`).
+        model:
+          type: string
+          minLength: 1
+          description: Hardware model for the configuration (for example `DGXH100`).
+        components:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentConfig'
+          description: Component firmware entries to create or merge.
+        explicitStartNeeded:
+          type: boolean
+          description: |-
+            Optional. When `true`, host firmware updates for this vendor/model
+            require an explicit start. Omitted on update leaves the stored
+            value unchanged.
+        ordering:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentType'
+          description: |-
+            Update order for configured components. Required on first create.
+            Must include every configured component and must be updated when
+            adding a new component on subsequent PUTs.
+      examples:
+        - siteId: 00000000-0000-0000-0000-000000000001
+          vendor: Nvidia
+          model: DGXH100
+          explicitStartNeeded: true
+          ordering:
+            - Cx7
+            - BMC
+          components:
+            - type: Cx7
+              firmware:
+                - version: '28.47.2682'
+                  default: true
+                  installOnlySpecified: true
+                  powerDrainsNeeded: 1
+                  preUpdateResets: true
+                  artifacts:
+                    - url: https://firmware.example.invalid/28.47.2682/fw.bin
+                      sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    HostFirmwareConfigDeleteRequest:
+      type: object
+      title: HostFirmwareConfigDeleteRequest
+      description: Host firmware configuration delete payload.
+      required:
+        - siteId
+        - vendor
+        - model
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the host firmware config is stored.
+        vendor:
+          type: string
+          minLength: 1
+          description: Hardware vendor for the configuration (for example `Nvidia`, `Dell`).
+        model:
+          type: string
+          minLength: 1
+          description: Hardware model for the configuration (for example `DGXH100`).
+      examples:
+        - siteId: 00000000-0000-0000-0000-000000000001
+          vendor: Nvidia
+          model: DGXH100
+    HostFirmwareConfig:
+      type: object
+      title: HostFirmwareConfig
+      description: Stored host firmware configuration returned after create or update.
+      required:
+        - vendor
+        - model
+        - components
+        - explicitStartNeeded
+        - ordering
+        - created
+        - updated
+      properties:
+        vendor:
+          type: string
+          readOnly: true
+          description: Hardware vendor for the configuration.
+        model:
+          type: string
+          readOnly: true
+          description: Hardware model for the configuration.
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponent'
+          description: Stored component firmware entries.
+        explicitStartNeeded:
+          type: boolean
+          readOnly: true
+          description: Whether host firmware updates require an explicit start.
+        ordering:
+          type: array
+          items:
+            $ref: '#/components/schemas/HostFirmwareComponentType'
+          readOnly: true
+          description: Stored update order for configured components.
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When this vendor/model configuration was first created.
+        updated:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When this vendor/model configuration was last updated.
+      examples:
+        - vendor: Nvidia
+          model: DGXH100
+          explicitStartNeeded: true
+          ordering:
+            - Cx7
+            - BMC
+          components:
+            - type: BMC
+              firmware:
+              - version: '2.3.7'
+                default: true
+                installOnlySpecified: false
+                powerDrainsNeeded: 0
+                preUpdateResets: false
+                artifacts:
+                  - url: https://firmware.example.invalid/2.3.7/fw.bin
+                    sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+            - type: Cx7
+              firmware:
+                - version: '28.47.2682'
+                  default: true
+                  installOnlySpecified: true
+                  powerDrainsNeeded: 1
+                  preUpdateResets: true
+                  artifacts:
+                    - url: https://firmware.example.invalid/28.47.2682/fw.bin
+                      sha256: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+          created: '2025-08-24T14:15:22Z'
+          updated: '2025-08-24T14:15:22Z'
+    HostFirmwareComponentType:
+      type: string
+      title: HostFirmwareComponentType
+      description: Host firmware component type exposed by the REST API.
+      enum:
+        - BMC
+        - CEC
+        - UEFI
+        - NIC
+        - CpldMb
+        - CpldPdb
+        - HgxBmc
+        - CombinedBmcUefi
+        - GPU
+        - Cx7
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -14642,6 +15152,82 @@ components:
           type: string
           format: uuid
           description: ID of the Site where the peering exists
+    VpcPeeringTenantSummary:
+      title: VpcPeeringTenantSummary
+      type: object
+      description: Summarizes a Tenant in context of a VPC Peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the Tenant
+        org:
+          type: string
+          readOnly: true
+          description: Name of the org this tenant belongs to
+        orgDisplayName:
+          type:
+            - string
+            - 'null'
+          readOnly: true
+          description: Display name of the org the Tenant belongs to
+    VpcPeeringVpcSummary:
+      title: VpcPeeringVpcSummary
+      type: object
+      description: Summarizes a VPC in context of a VPC Peering
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the VPC
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the VPC
+        tenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant
+        tenant:
+          $ref: '#/components/schemas/VpcPeeringTenantSummary'
+          readOnly: true
+          description: Summary of the tenant
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ETHERNET_VIRTUALIZER
+            - FNN
+            - FLAT
+          description: Network virtualization type of the VPC
+        status:
+          $ref: '#/components/schemas/VpcStatus'
+          readOnly: true
+          description: Status of the VPC
+    TenantSummary:
+      title: TenantSummary
+      type: object
+      description: Summarizes a Tenant
+      properties:
+        org:
+          type: string
+          readOnly: true
+          description: Name of the org this tenant belongs to
+        orgDisplayName:
+          type:
+            - string
+            - 'null'
+          readOnly: true
+          description: Display name of the org the Tenant belongs to
+        capabilities:
+          $ref: '#/components/schemas/TenantCapabilities'
+          readOnly: true
+          description: Features that are enabled/disabled for Tenant
     VpcPeering:
       title: VpcPeering
       type: object
@@ -14657,16 +15243,37 @@ components:
           format: uuid
           readOnly: true
           description: ID of the first VPC in the peering
+        vpc1:
+          $ref: '#/components/schemas/VpcPeeringVpcSummary'
+          readOnly: true
+          description: Summary of the first VPC in the peering.
         vpc2Id:
           type: string
           format: uuid
           readOnly: true
           description: ID of the second VPC in the peering
+        vpc2:
+          $ref: '#/components/schemas/VpcPeeringVpcSummary'
+          readOnly: true
+          description: Summary of the second VPC in the peering.
         siteId:
           type: string
           format: uuid
           readOnly: true
           description: ID of the Site where the peering exists
+        site:
+          $ref: '#/components/schemas/SiteSummary'
+          readOnly: true
+          description: Summary of the Site where the peering exists.
+        tenantId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: ID of the tenant that created the VPC peering.
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+          readOnly: true
+          description: Summary of the tenant that created the VPC peering.
         isMultiTenant:
           type: boolean
           readOnly: true
@@ -19181,6 +19788,15 @@ components:
           items:
             $ref: '#/components/schemas/MachineInterface'
           description: 'List of admin interfaces of the machine'
+        associatedDpuMachineIds:
+          type: array
+          items:
+            type: string
+          description: 'IDs of the DPU Machines attached to this host Machine'
+          readOnly: true
+        placementInRack:
+          $ref: '#/components/schemas/PlacementInRack'
+          description: 'Physical placement of the Machine within its Rack, when known'
         maintenanceMessage:
           type:
             - string
@@ -19824,6 +20440,26 @@ components:
           items:
             type: string
           description: 'Classifications for this alert, category or impact'
+    PlacementInRack:
+      title: PlacementInRack
+      type: object
+      description: Physical placement of a Machine within its Rack
+      examples:
+        - slotNumber: 1
+          trayIndex: 0
+      properties:
+        slotNumber:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: Rack slot the Machine occupies
+        trayIndex:
+          type:
+            - integer
+            - 'null'
+          format: int32
+          description: Index of the Machine's tray within its slot
     MachineNetworkInterface:
       title: MachineNetworkInterface
       type: object
@@ -19975,6 +20611,16 @@ components:
             type: string
       required:
         - machineIds
+    HostLifecycleProfile:
+      title: HostLifecycleProfile
+      type: object
+      description: Per-host lifecycle settings that affect how NICo progresses a host through its state machine.
+      properties:
+        disableLockdown:
+          type:
+            - boolean
+            - 'null'
+          description: When true, the server is not locked down during host lifecycle management. When omitted, the existing value is preserved.
     ExpectedMachine:
       title: ExpectedMachine
       type: object
@@ -19994,6 +20640,7 @@ components:
           skuId: lenovo.sr650v2.cpu.1
           machineId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
           rackId: rack-01
+          isDpfEnabled: true
           manufacturer: Lenovo
           labels:
             environment: production
@@ -20087,9 +20734,16 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        isDpfEnabled:
+          type: boolean
+          description: |-
+            When true, this host is eligible for DPF-based provisioning.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines
+        hostLifecycleProfile:
+          $ref: '#/components/schemas/HostLifecycleProfile'
+          description: Optional per-host lifecycle profile
         created:
           type: string
           format: date-time
@@ -20119,6 +20773,7 @@ components:
             - DPU-002
           skuId: lenovo.sr650v2.cpu.1
           rackId: rack-01
+          isDpfEnabled: true
           manufacturer: Lenovo
           labels:
             environment: production
@@ -20209,9 +20864,18 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        isDpfEnabled:
+          type:
+            - boolean
+            - 'null'
+          description: |-
+            When true, this host is eligible for DPF-based provisioning.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines
+        hostLifecycleProfile:
+          $ref: '#/components/schemas/HostLifecycleProfile'
+          description: Optional per-host lifecycle profile
       required:
         - siteId
         - bmcMacAddress
@@ -20233,6 +20897,7 @@ components:
           chassisSerialNumber: CHASSIS-54321
           skuId: sku-xyz789
           rackId: rack-02
+          isDpfEnabled: false
           manufacturer: Lenovo
           labels:
             environment: staging
@@ -20334,9 +20999,18 @@ components:
             - 'null'
           format: int32
           description: Host ID within the tray
+        isDpfEnabled:
+          type:
+            - boolean
+            - 'null'
+          description: |-
+            When true, this host is eligible for DPF-based provisioning.
         labels:
           $ref: '#/components/schemas/Labels'
           description: User-defined key-value pairs for organizing and categorizing Expected Machines
+        hostLifecycleProfile:
+          $ref: '#/components/schemas/HostLifecycleProfile'
+          description: Optional per-host lifecycle profile
     ExpectedPowerShelf:
       title: ExpectedPowerShelf
       type: object
@@ -21785,7 +22459,8 @@ components:
     NetworkSecurityGroupCreateRequest:
       type: object
       examples:
-        - name: Spark VPC Firewall
+        - id: 2a21cf79-ea5e-4d28-b585-2e78948fcefb
+          name: Spark VPC Firewall
           description: Security policies for machines in Spark VPC
           siteId: 188a8f32-0001-45cf-b243-f62720a22cc4
           rules:
@@ -21802,6 +22477,10 @@ components:
             flavor: coconut
       description: Request data to create a Network Security Group
       properties:
+        id:
+          type: string
+          format: uuid
+          description: Optional user-specified UUID for the Network Security Group
         name:
           type: string
           description: 'Name of the Network Security Group'
@@ -23582,6 +24261,443 @@ components:
           type: string
           description: 'URL of the SPIFFE JSON Web Key Set used to verify SPIFFE JWT-SVIDs'
           format: uri
+    DpuMachine:
+      title: DpuMachine
+      type: object
+      description: A DPU Machine with its complete network configuration sent to the DPU agent.
+      properties:
+        id:
+          type: string
+          description: ID of the DPU Machine (matches the host Machine ID for the DPU as reported by NICo Core)
+        infrastructureProviderId:
+          type: string
+          format: uuid
+          description: ID of the Infrastructure Provider that owns the host Machine
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that the host Machine belongs to
+        hostMachineId:
+          type: string
+          description: ID of the host Machine that this DPU is attached to
+        dpuAgentVersion:
+          type: string
+          description: Version of the DPU agent running on the DPU
+        bmcInfo:
+          $ref: '#/components/schemas/MachineBMCInfo'
+          description: BMC (Baseboard Management Controller) information for the DPU
+        dmiData:
+          $ref: '#/components/schemas/MachineDMIData'
+          description: DMI (Desktop Management Interface) data reported for the DPU
+        interfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuMachineInterface'
+          description: Interfaces reported on the DPU
+        softwareComponents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuMachineSoftwareComponent'
+          description: Software components reported on the DPU
+        health:
+          $ref: '#/components/schemas/MachineHealth'
+          description: Health information for the DPU
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Labels associated with the DPU
+        state:
+          type: string
+          description: Lifecycle state of the DPU as reported by NICo Core
+        dpuNetworkConfig:
+          $ref: '#/components/schemas/DpuNetworkConfig'
+          description: Complete network configuration sent to the DPU agent
+        lastRebooted:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Last reboot timestamp reported by NICo Core
+        placementInRack:
+          $ref: '#/components/schemas/PlacementInRack'
+          description: 'Physical placement of the DPU Machine within its Rack, when known'
+      required:
+        - id
+        - infrastructureProviderId
+        - siteId
+        - hostMachineId
+        - state
+        - dpuNetworkConfig
+    DpuMachineInterface:
+      title: DpuMachineInterface
+      type: object
+      description: An interface reported on a DPU Machine
+      properties:
+        id:
+          type: string
+          description: Interface ID
+        machineId:
+          type: string
+          description: ID of the Machine the interface belongs to
+        segmentId:
+          type: string
+          description: Network segment ID
+        hostname:
+          type: string
+          description: Hostname of the interface
+        primaryInterface:
+          type: boolean
+          description: Whether this is the primary interface
+        macAddress:
+          type: string
+          description: MAC address of the interface
+        address:
+          type: array
+          items:
+            type: string
+          description: IP addresses assigned to the interface
+        vendor:
+          type:
+            - string
+            - 'null'
+          description: Vendor of the interface
+        created:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the interface was first observed
+        lastDhcp:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp of the last DHCP lease for the interface
+        isBmc:
+          type: boolean
+          description: Whether this interface is a BMC interface
+    DpuMachineSoftwareComponent:
+      title: DpuMachineSoftwareComponent
+      type: object
+      description: A software component reported on a DPU Machine
+      properties:
+        name:
+          type: string
+          description: Name of the software component
+        version:
+          type: string
+          description: Version of the software component
+        url:
+          type: string
+          description: URL where the software component can be obtained
+    DpuNetworkConfig:
+      title: DpuNetworkConfig
+      type: object
+      description: Complete network configuration for a DPU Machine sent to the DPU agent
+      properties:
+        asn:
+          type: integer
+          format: uint32
+          description: Autonomous System Number for BGP routing
+        dhcpServers:
+          type: array
+          items:
+            type: string
+          description: List of DHCP server IP addresses
+        vniDevice:
+          type: string
+          description: VNI device name
+        managedHostConfig:
+          $ref: '#/components/schemas/ManagedHostNetworkConfig'
+          description: Network configuration applied to the managed host
+        managedHostConfigVersion:
+          type: string
+          description: Version of the managed host configuration
+        useAdminNetwork:
+          type: boolean
+          description: Whether to use the admin network
+        adminInterface:
+          $ref: '#/components/schemas/DpuInterfaceConfig'
+          description: Admin network interface configuration for the DPU
+        tenantInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/DpuInterfaceConfig'
+          description: List of tenant interface configurations
+        instanceNetworkConfigVersion:
+          type:
+            - string
+            - 'null'
+          description: Version of the instance network configuration
+        instanceId:
+          type:
+            - string
+            - 'null'
+          description: ID of the associated instance
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          description: Type of network virtualization
+        vpcVni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: VPC VNI identifier
+        routeServers:
+          type: array
+          items:
+            type: string
+          description: List of route server IP addresses
+        remoteId:
+          type: string
+          description: Remote identifier for the managed host
+        deprecatedDenyPrefixes:
+          type: array
+          items:
+            type: string
+          description: Deprecated list of denied IP prefixes
+        dpuNetworkPingerType:
+          type:
+            - string
+            - 'null'
+          description: Type of network pinger to use
+        denyPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of denied IP prefixes
+        siteFabricPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of site fabric IP prefixes
+        vpcIsolationBehavior:
+          type: string
+          description: VPC isolation behavior setting
+        statefulAclsEnabled:
+          type: boolean
+          description: Whether stateful ACLs are enabled
+        enableDhcp:
+          type: boolean
+          description: Whether DHCP is enabled
+        hostInterfaceId:
+          type:
+            - string
+            - 'null'
+          description: ID of the host interface
+        minDpuFunctioningLinks:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Minimum number of functioning DPU links required
+        isPrimaryDpu:
+          type: boolean
+          description: Whether this is the primary DPU
+        internetL3Vni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Layer 3 VNI used for internet access
+        datacenterAsn:
+          type: integer
+          format: uint32
+          description: Datacenter Autonomous System Number
+        anycastSitePrefixes:
+          type: array
+          items:
+            type: string
+          description: List of anycast site IP prefixes
+        tenantHostAsn:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Autonomous System Number for the tenant host
+        siteGlobalVpcVni:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Site-global VPC VNI identifier
+      required:
+        - asn
+        - vniDevice
+        - managedHostConfigVersion
+        - useAdminNetwork
+        - remoteId
+        - vpcIsolationBehavior
+        - statefulAclsEnabled
+        - enableDhcp
+        - isPrimaryDpu
+        - datacenterAsn
+    ManagedHostNetworkConfig:
+      title: ManagedHostNetworkConfig
+      type: object
+      description: Network configuration for the managed host
+      properties:
+        loopbackIp:
+          type: string
+          description: Loopback IP address
+        quarantineState:
+          $ref: '#/components/schemas/ManagedHostQuarantineState'
+      required:
+        - loopbackIp
+    ManagedHostQuarantineState:
+      title: ManagedHostQuarantineState
+      type: object
+      description: Quarantine state for the managed host
+      properties:
+        mode:
+          type: string
+          description: Quarantine mode
+        reason:
+          type:
+            - string
+            - 'null'
+          description: Reason for quarantine
+      required:
+        - mode
+    DpuInterfaceConfig:
+      title: DpuInterfaceConfig
+      type: object
+      description: Interface configuration for DPU networking
+      properties:
+        functionType:
+          type: string
+          description: Function type (e.g. PHYSICAL_FUNCTION, VIRTUAL_FUNCTION)
+        vlanId:
+          type: integer
+          format: uint32
+          description: VLAN ID
+        vni:
+          type: integer
+          format: uint32
+          description: VXLAN Network Identifier
+        gateway:
+          type: string
+          description: Gateway IP address
+        ip:
+          type: string
+          description: Interface IP address
+        interfacePrefix:
+          type: string
+          description: Interface name prefix
+        virtualFunctionId:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Virtual function ID if applicable
+        vpcPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of VPC IP prefixes
+        prefix:
+          type: string
+          description: IP prefix for the interface
+        fqdn:
+          type: string
+          description: Fully qualified domain name
+        bootUrl:
+          type:
+            - string
+            - 'null'
+          description: Boot URL for PXE/iPXE boot
+        vpcVni:
+          type: integer
+          format: uint32
+          description: VPC VXLAN Network Identifier
+        sviIp:
+          type:
+            - string
+            - 'null'
+          description: Switch virtual interface (SVI) IP address
+        tenantVrfLoopbackIp:
+          type:
+            - string
+            - 'null'
+          description: Tenant VRF loopback IP address
+        isL2Segment:
+          type: boolean
+          description: Whether the interface is an L2 segment
+        vpcPeerPrefixes:
+          type: array
+          items:
+            type: string
+          description: List of peered VPC IP prefixes
+        vpcPeerVnis:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of peered VPC VNIs
+        mtu:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Maximum transmission unit (MTU) for the interface
+        networkSecurityGroup:
+          $ref: '#/components/schemas/InterfaceNetworkSecurityGroupConfig'
+          description: Network security group configuration resolved on the interface
+      required:
+        - functionType
+        - vlanId
+        - vni
+        - gateway
+        - ip
+        - interfacePrefix
+        - prefix
+        - fqdn
+        - vpcVni
+        - isL2Segment
+    InterfaceNetworkSecurityGroupConfig:
+      title: InterfaceNetworkSecurityGroupConfig
+      type: object
+      description: Network security group configuration resolved on a DPU interface
+      properties:
+        id:
+          type: string
+          description: ID of the Network Security Group
+        version:
+          type: string
+          description: Version of the Network Security Group
+        source:
+          type: string
+          description: Source of the Network Security Group configuration
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolvedNetworkSecurityGroupRule'
+          description: Resolved rules for the Network Security Group
+      required:
+        - id
+        - version
+        - source
+    ResolvedNetworkSecurityGroupRule:
+      title: ResolvedNetworkSecurityGroupRule
+      type: object
+      description: A network security group rule with its source and destination prefixes resolved
+      properties:
+        rule:
+          $ref: '#/components/schemas/NetworkSecurityGroupRule'
+          description: The underlying Network Security Group rule
+        srcPrefixes:
+          type: array
+          items:
+            type: string
+          description: Resolved source IP prefixes for the rule
+        dstPrefixes:
+          type: array
+          items:
+            type: string
+          description: Resolved destination IP prefixes for the rule
   securitySchemes:
     JWTBearerToken:
       type: http
@@ -23658,6 +24774,12 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    HostFirmwareConfigCoreUnavailable:
+      description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
     TenantIdentityCoreUnavailable:
       description: |-
         Core gRPC API is unavailable, or site-level machine identity is

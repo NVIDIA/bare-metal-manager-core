@@ -196,6 +196,22 @@ impl SwitchCreator {
 
         _ = db::switch::create(txn, &new_switch).await?;
 
+        // Link the switch's BMC machine_interface back to the switch and mark it
+        // as a `Bmc` interface (mirroring host BMC linking from #1610 and the
+        // power shelf PMC linking). This is what lets the API resolve the
+        // switch's `bmc_info` (MAC/IP + interface id) via the interface link.
+        let bmc_interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, expected_switch.bmc_mac_address)
+                .await?;
+        if let Some(interface) = bmc_interfaces.first() {
+            db::machine_interface::associate_bmc_interface(
+                &interface.id,
+                model::machine_interface_address::MachineInterfaceAssociation::Switch(switch_id),
+                &mut *txn,
+            )
+            .await?;
+        }
+
         if let Some(ref rack_id) = expected_switch.rack_id {
             let _ = crate::ensure_rack_exists(&mut *txn, rack_id).await?;
         }

@@ -65,6 +65,14 @@ impl TryFrom<i32> for SpxAttachmentType {
 }
 
 /// The configuration that a customer desires for an instances SpectrumX NICs
+/// This is the structure that gets stored in the database as a part of the instance
+/// config. The difference between this and the rpc InstanceSpxAttachment that is
+/// sent to us by the customer when configuring the instance is that this structure
+/// contains the mac address of the NIC. When configuring an instance, the customer
+/// does not necessarily know which MH they will be allocated. So they have no way
+/// of knowing the MAC address of each device instance. When allocating or updating
+/// an instance, we figure out the MAC address of each device instance in the
+/// allocate_spx_port_mac routine.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceSpxAttachment {
     pub device: String,

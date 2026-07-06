@@ -36,7 +36,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::DpuData;
-use crate::errors::{ModelError, ModelResult};
+use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, OperatorError};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
@@ -610,10 +610,8 @@ impl ExploredDpu {
     pub fn hardware_info(&self) -> ModelResult<HardwareInfo> {
         let serial_number = self
             .report
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_ref())
-            .unwrap();
+            .dpu_pairing_serial_number()
+            .ok_or(ModelError::MissingArgument("Missing DPU serial number"))?;
         let vendor = self
             .report
             .systems
@@ -626,7 +624,7 @@ impl ExploredDpu {
             .and_then(|system| system.model.as_ref());
         let dmi_data = self
             .report
-            .create_temporary_dmi_data(serial_number.as_str(), vendor, model);
+            .create_temporary_dmi_data(serial_number, vendor, model);
 
         let chassis_map = self
             .report
@@ -1209,7 +1207,11 @@ pub enum EndpointExplorationError {
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
-    #[error("VikingFWInventoryForbiddenError: {details}")]
+    /// A known, intermittent HTTP 403 from the firmware-inventory endpoint on
+    /// DGX H100 BMCs ("Viking" is the internal code name). The variant name is
+    /// kept for backward-compatible serialization of stored reports; new
+    /// operator-facing text uses the real product name.
+    #[error("DGX H100 firmware inventory request was forbidden: {details}")]
     #[serde(rename_all = "PascalCase")]
     VikingFWInventoryForbiddenError {
         details: String,
@@ -1241,6 +1243,12 @@ pub enum EndpointExplorationError {
 }
 
 impl EndpointExplorationError {
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: ErrorCode =
+        ErrorCode::nico(ErrorSubsystem::Dpu, 134);
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str = "No action needed: site explorer automatically force-restarts the DPU to clear this \
+         known UEFI/BMC race and re-explores on its next run (~2 min). It escalates to a BMC \
+         reset if the empty BIOS attributes persist.";
+
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
             || matches!(self, EndpointExplorationError::AvoidLockout)
@@ -1276,6 +1284,91 @@ impl EndpointExplorationError {
             EndpointExplorationError::IntermittentUnauthorized {
                 consecutive_count, ..
             } => Some(*consecutive_count),
+            _ => None,
+        }
+    }
+}
+
+impl OperatorError for EndpointExplorationError {
+    fn operator_error_code(&self) -> ErrorCode {
+        // Every code in this module is a site-explorer code, so the subsystem is
+        // assumed rather than repeated per arm.
+        use ErrorSubsystem::SiteExplorer;
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. } => {
+                ErrorCode::nico(SiteExplorer, 100)
+            }
+            EndpointExplorationError::ConnectionRefused { .. } => {
+                ErrorCode::nico(SiteExplorer, 101)
+            }
+            EndpointExplorationError::Unreachable { .. } => ErrorCode::nico(SiteExplorer, 102),
+            EndpointExplorationError::UnsupportedVendor { .. } => {
+                ErrorCode::nico(SiteExplorer, 120)
+            }
+            EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
+            EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
+            EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {
+                ErrorCode::nico(SiteExplorer, 131)
+            }
+            EndpointExplorationError::Unauthorized { .. } => ErrorCode::nico(SiteExplorer, 140),
+            EndpointExplorationError::MissingCredentials { .. } => {
+                ErrorCode::nico(SiteExplorer, 141)
+            }
+            EndpointExplorationError::SecretsEngineError { .. } => {
+                ErrorCode::nico(SiteExplorer, 142)
+            }
+            EndpointExplorationError::SetCredentials { .. } => ErrorCode::nico(SiteExplorer, 143),
+            EndpointExplorationError::AvoidLockout => ErrorCode::nico(SiteExplorer, 144),
+            EndpointExplorationError::IntermittentUnauthorized { .. } => {
+                ErrorCode::nico(SiteExplorer, 145)
+            }
+            EndpointExplorationError::Other { .. } => ErrorCode::nico(SiteExplorer, 199),
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+            }
+        }
+    }
+
+    fn operator_mitigation(&self) -> Option<&'static str> {
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. }
+            | EndpointExplorationError::ConnectionRefused { .. }
+            | EndpointExplorationError::Unreachable { .. } => Some(
+                "Verify endpoint network reachability and that the BMC Redfish service is listening.",
+            ),
+            EndpointExplorationError::UnsupportedVendor { .. }
+            | EndpointExplorationError::MissingVendor => Some(
+                "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
+                 Compatibility List \
+                 (https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list); \
+                 an unsupported or unidentified BMC cannot be explored.",
+            ),
+            EndpointExplorationError::Unauthorized { .. }
+            | EndpointExplorationError::MissingCredentials { .. }
+            | EndpointExplorationError::SecretsEngineError { .. }
+            | EndpointExplorationError::SetCredentials { .. }
+            | EndpointExplorationError::AvoidLockout => Some(
+                "Set or correct this endpoint's BMC credentials with the Admin CLI \
+                 (`nico-admin-cli credential add-bmc`), then re-explore it with \
+                 `nico-admin-cli site-explorer refresh <bmc-ip>`.",
+            ),
+            EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
+                "Transient: site explorer retries automatically on its next run (~2 min), or \
+                 force one now with `nico-admin-cli site-explorer refresh <bmc-ip>`. If \
+                 unauthorized responses persist across runs, correct the BMC credentials with \
+                 `nico-admin-cli credential add-bmc`.",
+            ),
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+            }
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
+                "No immediate action needed: site explorer treats this DGX H100 \
+                 firmware-inventory response as transient and retries on its next run (~2 min). \
+                 Force one now with `nico-admin-cli site-explorer refresh <bmc-ip>` if needed. \
+                 For general DGX H100/H200 Redfish API information, see \
+                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html.",
+            ),
             _ => None,
         }
     }
@@ -1634,10 +1727,15 @@ pub fn is_bf2_dpu_part_number(part_number: &str) -> bool {
     // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
     normalized_part_number.starts_with("mbf2")
 }
+
+pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
+    let normalized_part_number = part_number.to_lowercase();
+    normalized_part_number.starts_with("900-9d4b4")
+}
+
 // returns true if the passed in string is a BlueField part number
 pub fn is_bluefield_part_number(part_number: &str) -> bool {
     let normalized_part_number = part_number.trim().to_lowercase();
-
     normalized_part_number.contains("bluefield")
         || is_bf3_dpu_part_number(&normalized_part_number)
         // prefix matching for BlueField-3 SuperNICs (https://docs.nvidia.com/networking/display/bf3dpu)
@@ -1645,6 +1743,7 @@ pub fn is_bluefield_part_number(part_number: &str) -> bool {
         // prefix matching for BlueField-2 DPU (https://docs.nvidia.com/nvidia-bluefield-2-ethernet-dpu-user-guide.pdf)
         // TODO (sp): should we be matching on all the individual models listed ("MBF2M516C-CECOT", .. etc)
         || is_bf2_dpu_part_number(&normalized_part_number)
+        || is_bf4_dpu_part_number(&normalized_part_number)
 }
 
 /// The kind of BlueField/Mellanox device, classified from its Redfish part number.
@@ -1806,6 +1905,32 @@ impl EndpointExplorationReport {
             .map(str::to_string)
             .collect()
     }
+
+    /// Serial key used to join a DPU BMC endpoint to the same DPU as reported by
+    /// its host BMC.
+    pub fn dpu_pairing_serial_number(&self) -> Option<&str> {
+        if !self.is_dpu() {
+            return None;
+        }
+
+        self.systems
+            .first()
+            .and_then(|system| system.serial_number.as_deref())
+            .map(str::trim)
+            .filter(|serial| !serial.is_empty())
+            .or_else(|| {
+                // BF4 Redfish does not currently expose the product serial or
+                // DPU/NIC mode on the system object. The stable product serial
+                // lives on the Bluefield_BMC chassis and matches the serial the
+                // host BMC reports for the PCIe/network-adapter device.
+                self.chassis
+                    .iter()
+                    .find(|chassis| chassis.id == "Bluefield_BMC")
+                    .and_then(|chassis| chassis.serial_number.as_deref())
+                    .map(str::trim)
+                    .filter(|serial| !serial.is_empty())
+            })
+    }
 }
 
 /// Builds the [`ExploredMlxDevice`] view across a set of explored endpoints.
@@ -1817,22 +1942,14 @@ impl EndpointExplorationReport {
 /// without those two fields. This is the same serial correlation site
 /// exploration already uses to attach DPUs to their hosts.
 pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<ExploredMlxDevice> {
-    // Index explored DPU endpoints by their (trimmed) system serial number, so a
-    // host-reported device can be matched to the DPU's own BMC endpoint -- the
-    // same key site exploration uses in `record_host_dpu_device`. Empty serials
-    // are skipped, and a serial reported by more than one DPU endpoint is dropped
-    // as ambiguous: better to attach nothing than to join to the wrong DPU.
+    // Index explored DPU endpoints by the serial that host BMCs report for the
+    // same device. Empty serials are skipped, and a serial reported by more than
+    // one DPU endpoint is dropped as ambiguous: better to attach nothing than to
+    // join to the wrong DPU.
     let mut dpu_by_serial: HashMap<&str, &ExploredEndpoint> = HashMap::new();
     let mut ambiguous: HashSet<&str> = HashSet::new();
     for ep in endpoints.iter().filter(|ep| ep.report.is_dpu()) {
-        let Some(serial) = ep
-            .report
-            .systems
-            .first()
-            .and_then(|system| system.serial_number.as_deref())
-            .map(str::trim)
-            .filter(|serial| !serial.is_empty())
-        else {
+        let Some(serial) = ep.report.dpu_pairing_serial_number() else {
             continue;
         };
         if dpu_by_serial.insert(serial, ep).is_some() {
@@ -2074,6 +2191,59 @@ mod explored_mlx_device_tests {
     }
 
     #[test]
+    fn projects_bf4_and_joins_dpu_by_bluefield_bmc_chassis_serial() {
+        const BF4_SERIAL: &str = "MT020000000003";
+        let host = endpoint(
+            "192.0.2.20",
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                systems: vec![ComputerSystem {
+                    pcie_devices: vec![pcie(
+                        "900-9D4B4-CWAA-TSA",
+                        "82.48.0802",
+                        BF4_SERIAL,
+                        "mat_2",
+                    )],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        let dpu = endpoint(
+            "192.0.2.50",
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                systems: vec![ComputerSystem {
+                    id: "Bluefield".to_string(),
+                    // BF4 leaves the system serial unset; the stable product
+                    // serial used for host pairing is on the Bluefield_BMC
+                    // chassis below.
+                    serial_number: None,
+                    ..Default::default()
+                }],
+                chassis: vec![Chassis {
+                    id: "Bluefield_BMC".to_string(),
+                    serial_number: Some(BF4_SERIAL.to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+
+        let devices = collect_explored_mlx_devices(&[host, dpu]);
+        assert_eq!(devices.len(), 1);
+
+        let bf4 = &devices[0];
+        assert_eq!(bf4.device_kind, MlxDeviceKind::Unknown);
+        assert_eq!(bf4.part_number.as_deref(), Some("900-9D4B4-CWAA-TSA"));
+        assert_eq!(bf4.serial_number.as_deref(), Some(BF4_SERIAL));
+        assert_eq!(bf4.dpu_bmc_ip, Some("192.0.2.50".parse().unwrap()));
+        // BF4 does not currently expose DPU/NIC mode through Redfish; missing
+        // mode must not prevent the serial join.
+        assert_eq!(bf4.nic_mode, None);
+    }
+
+    #[test]
     fn serial_join_skips_empty_and_ambiguous_serials() {
         let dpu = |addr: &str, serial: &str| {
             endpoint(
@@ -2194,6 +2364,94 @@ mod tests {
             boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
+    }
+
+    #[test]
+    fn dpu_bios_error_schema_contains_operator_action() {
+        let error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+            details: "DPU BMC BIOS attributes not ready".to_string(),
+            response_body: None,
+            response_code: None,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(
+            schema.error_code,
+            EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+        );
+        assert_eq!(
+            schema.mitigation.as_deref(),
+            Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+        );
+        assert!(
+            schema
+                .text
+                .contains("Invalid Redfish response for DPU BIOS")
+        );
+    }
+
+    #[test]
+    fn intermittent_unauthorized_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::IntermittentUnauthorized {
+            details: "temporary unauthorized response".to_string(),
+            response_body: None,
+            response_code: Some(401),
+            consecutive_count: 1,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(
+            schema.error_code,
+            ErrorCode::nico(ErrorSubsystem::SiteExplorer, 145)
+        );
+        assert_eq!(schema.error_code.to_string(), "NICO-SITEEXPLORER-145");
+        // The mitigation answers "how do I retry?" and "what does escalate mean?"
+        // with concrete Admin CLI commands.
+        let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
+    }
+
+    #[test]
+    fn unsupported_vendor_error_schema_points_at_hcl() {
+        const HCL_URL: &str = "https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list";
+
+        value_scenarios!(
+            run = |error: EndpointExplorationError| error
+                .operator_error_schema()
+                .mitigation
+                .is_some_and(|mitigation| mitigation.contains(HCL_URL));
+            "vendor errors" {
+                EndpointExplorationError::UnsupportedVendor {
+                    vendor: "unknown".to_string(),
+                } => true,
+                EndpointExplorationError::MissingVendor => true,
+            }
+        );
+    }
+
+    #[test]
+    fn dgx_h100_fw_inventory_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::VikingFWInventoryForbiddenError {
+            details: "HTTP 403 at /redfish/v1/UpdateService/FirmwareInventory".to_string(),
+            response_body: None,
+            response_code: Some(403),
+        };
+
+        let serialized = serde_json::to_value(&error).expect("error serializes");
+        let schema = error.operator_error_schema();
+        let mitigation = schema.mitigation.expect("has a mitigation");
+
+        assert!(schema.text.contains("DGX H100"));
+        assert!(!schema.text.contains("Viking"));
+        assert_eq!(serialized["Type"], "VikingFWInventoryForbiddenError");
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("general DGX H100/H200 Redfish API information"));
+        assert!(
+            mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html")
+        );
     }
 
     /// `find_version` locates the firmware version matching a component regex,

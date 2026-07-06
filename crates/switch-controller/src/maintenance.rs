@@ -256,6 +256,12 @@ pub(super) async fn build_switch_endpoint(
     })
 }
 
+/// Resolve the per-device BMC root credentials for the given MAC.
+///
+/// Per-device secrets are authoritative; there is deliberately no site-wide
+/// fallback. A missing per-MAC secret means the switch has not been
+/// (re)ingested, and falling back to the rotating site-wide credential would
+/// mask that and break the moment the site rotates.
 async fn lookup_bmc_credentials(
     credential_manager: &dyn CredentialManager,
     bmc_mac: MacAddress,
@@ -265,29 +271,14 @@ async fn lookup_bmc_credentials(
             bmc_mac_address: bmc_mac,
         },
     };
-    let creds = match credential_manager.get_credentials(&bmc_key).await {
-        Ok(Some(creds)) => Some(creds),
-        Ok(None) => None,
-        Err(error) => {
-            return Err(format!(
-                "failed to read BMC credentials for {}: {}",
-                bmc_mac, error
-            ));
-        }
-    };
-
-    match creds {
-        Some(creds) => Ok(creds),
-        None => {
-            let sitewide_key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::SiteWideRoot,
-            };
-            credential_manager
-                .get_credentials(&sitewide_key)
-                .await
-                .map_err(|error| format!("failed to read site-wide BMC credentials: {}", error))?
-                .ok_or_else(|| format!("no BMC credentials configured for {} or sitewide", bmc_mac))
-        }
+    match credential_manager.get_credentials(&bmc_key).await {
+        Ok(Some(creds)) => Ok(creds),
+        Ok(None) => Err(format!(
+            "no per-device BMC credentials configured for {bmc_mac}; the device must be (re)ingested"
+        )),
+        Err(error) => Err(format!(
+            "failed to read BMC credentials for {bmc_mac}: {error}"
+        )),
     }
 }
 

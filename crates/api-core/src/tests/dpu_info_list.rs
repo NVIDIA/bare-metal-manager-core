@@ -72,6 +72,7 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
             last_dhcp_requests: vec![],
             dpu_extension_service_version: None,
             dpu_extension_services: vec![],
+            astra_config_status: None,
         }))
         .await
         .unwrap();

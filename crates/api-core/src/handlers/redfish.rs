@@ -393,7 +393,7 @@ pub(crate) async fn create_client(
         rpc::forge::BmcMetaDataGetResponse,
         http::Uri,
         HeaderMap,
-        reqwest::Client,
+        reqwest_middleware::ClientWithMiddleware,
     ),
     CarbideError,
 > {
@@ -450,7 +450,7 @@ pub(crate) async fn create_client(
             .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
             .timeout(std::time::Duration::from_secs(60)); // Limit the overall request to 60 seconds
 
-        match builder.build() {
+        let client = match builder.build() {
             Ok(client) => client,
             Err(err) => {
                 tracing::error!(%err, "build_http_client");
@@ -458,7 +458,12 @@ pub(crate) async fn create_client(
                     "Http building failed: {err}"
                 )));
             }
-        }
+        };
+        // The `reqwest-tracing` middleware injects the current span's W3C trace context into every
+        // outgoing request (#2438).
+        reqwest_middleware::ClientBuilder::new(client)
+            .with(reqwest_tracing::TracingMiddleware::default())
+            .build()
     };
     Ok((metadata, new_uri, headers, http_client))
 }
@@ -558,15 +563,15 @@ impl TestBehavior {
     }
 }
 
-// Subset of the data we care about from reqwest::Error, so that we can mock it (we can't build our
-// own reqwest::Error as its constructors are all private.)
+// Subset of the data we care about from the HTTP error, so that we can mock it (we can't build our
+// own reqwest error as its constructors are all private.)
 pub struct RequestErrorInfo {
     pub status_code: Option<http::status::StatusCode>,
     pub description: String,
 }
 
-impl From<reqwest::Error> for RequestErrorInfo {
-    fn from(e: reqwest::Error) -> Self {
+impl From<reqwest_middleware::Error> for RequestErrorInfo {
+    fn from(e: reqwest_middleware::Error) -> Self {
         Self {
             status_code: e.status(),
             description: e.to_string(),

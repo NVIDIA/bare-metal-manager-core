@@ -279,6 +279,14 @@ impl BmcPoolMetrics {
                 .build(),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        Self::new(
+            &opentelemetry::global::meter("ssh-console-ipmi-test"),
+            Arc::default(),
+        )
+    }
 }
 
 impl BmcPool {

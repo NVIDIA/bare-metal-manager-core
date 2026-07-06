@@ -90,7 +90,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 
 	var tn *cdbm.Tenant
 
-	tns, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tns, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org, DB error", nil)

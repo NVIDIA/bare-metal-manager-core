@@ -18,6 +18,10 @@
 #[cfg(test)]
 mod tests;
 
+mod artifact_cache;
+
+mod artifact_resolution;
+
 pub mod config;
 
 pub mod defaults;
@@ -27,5 +31,9 @@ pub mod downloader;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
+pub use artifact_cache::firmware_cache_filename;
+pub use artifact_resolution::{
+    ResolvedFirmwareArtifact, ResolvedFirmwareArtifactSource, resolve_files_firmware_artifact,
+};
 pub use config::{FirmwareConfig, FirmwareConfigSnapshot};
 pub use downloader::FirmwareDownloader;

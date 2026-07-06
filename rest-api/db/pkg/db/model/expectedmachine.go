@@ -47,29 +47,67 @@ var (
 type ExpectedMachine struct {
 	bun.BaseModel `bun:"table:expected_machine,alias:em"`
 
-	ID                       uuid.UUID `bun:"id,pk"`
-	SiteID                   uuid.UUID `bun:"site_id,type:uuid,notnull"`
-	Site                     *Site     `bun:"rel:belongs-to,join:site_id=id"`
-	BmcMacAddress            string    `bun:"bmc_mac_address,notnull"`
-	ChassisSerialNumber      string    `bun:"chassis_serial_number,notnull"`
-	SkuID                    *string   `bun:"sku_id"`
-	Sku                      *SKU      `bun:"rel:belongs-to,join:sku_id=id"`
-	MachineID                *string   `bun:"machine_id"`
-	Machine                  *Machine  `bun:"rel:belongs-to,join:machine_id=id"`
-	FallbackDpuSerialNumbers []string  `bun:"fallback_dpu_serial_numbers,array"`
-	BmcIpAddress             *string   `bun:"bmc_ip_address"`
-	RackID                   *string   `bun:"rack_id"`
-	Name                     *string   `bun:"name"`
-	Manufacturer             *string   `bun:"manufacturer"`
-	Model                    *string   `bun:"model"`
-	Description              *string   `bun:"description"`
-	SlotID                   *int32    `bun:"slot_id"`
-	TrayIdx                  *int32    `bun:"tray_idx"`
-	HostID                   *int32    `bun:"host_id"`
-	Labels                   Labels    `bun:"labels,type:jsonb"`
-	Created                  time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                  time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	CreatedBy                uuid.UUID `bun:"type:uuid,notnull"`
+	ID                       uuid.UUID            `bun:"id,pk"`
+	SiteID                   uuid.UUID            `bun:"site_id,type:uuid,notnull"`
+	Site                     *Site                `bun:"rel:belongs-to,join:site_id=id"`
+	BmcMacAddress            string               `bun:"bmc_mac_address,notnull"`
+	ChassisSerialNumber      string               `bun:"chassis_serial_number,notnull"`
+	SkuID                    *string              `bun:"sku_id"`
+	Sku                      *SKU                 `bun:"rel:belongs-to,join:sku_id=id"`
+	MachineID                *string              `bun:"machine_id"`
+	Machine                  *Machine             `bun:"rel:belongs-to,join:machine_id=id"`
+	FallbackDpuSerialNumbers []string             `bun:"fallback_dpu_serial_numbers,array"`
+	BmcIpAddress             *string              `bun:"bmc_ip_address"`
+	RackID                   *string              `bun:"rack_id"`
+	Name                     *string              `bun:"name"`
+	Manufacturer             *string              `bun:"manufacturer"`
+	Model                    *string              `bun:"model"`
+	Description              *string              `bun:"description"`
+	SlotID                   *int32               `bun:"slot_id"`
+	TrayIdx                  *int32               `bun:"tray_idx"`
+	HostID                   *int32               `bun:"host_id"`
+	IsDpfEnabled             *bool                `bun:"is_dpf_enabled"`
+	Labels                   Labels               `bun:"labels,type:jsonb"`
+	HostLifecycleProfile     HostLifecycleProfile `bun:"host_lifecycle_profile,type:jsonb,notnull"`
+	Created                  time.Time            `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated                  time.Time            `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	CreatedBy                uuid.UUID            `bun:"type:uuid,notnull"`
+}
+
+// HostLifecycleProfile holds per-host lifecycle settings that affect how a host
+// progresses through its state machine. It is persisted alongside the
+// ExpectedMachine as JSONB and mirrored to Core via the workflow proto.
+type HostLifecycleProfile struct {
+	// DisableLockdown, when non-nil, controls whether the host is locked down
+	// during lifecycle management. A nil value means the setting is unset, so
+	// Core preserves its existing value (patch semantics).
+	DisableLockdown *bool `json:"disable_lockdown,omitempty"`
+}
+
+// HasSetFields reports whether the profile carries at least one explicitly set
+// field. Keep this method in sync when adding fields to HostLifecycleProfile so
+// update paths do not mistake an empty patch object for a requested write.
+func (h HostLifecycleProfile) HasSetFields() bool {
+	return h.DisableLockdown != nil
+}
+
+// ToProto returns the workflow proto for this profile, or nil when no setting
+// is present so the outer field stays unset and Core preserves its DB value.
+func (h HostLifecycleProfile) ToProto() *cwssaws.HostLifecycleProfile {
+	if !h.HasSetFields() {
+		return nil
+	}
+	return &cwssaws.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
+}
+
+// FromProto populates the receiver from a workflow proto profile. A nil proto
+// clears the receiver to its zero value.
+func (h *HostLifecycleProfile) FromProto(proto *cwssaws.HostLifecycleProfile) {
+	if proto == nil {
+		*h = HostLifecycleProfile{}
+		return
+	}
+	h.DisableLockdown = proto.DisableLockdown
 }
 
 // ExpectedMachineCredentials carries the BMC credentials for one
@@ -119,6 +157,10 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	if em.HostID != nil {
 		proto.HostId = em.HostID
 	}
+	if em.IsDpfEnabled != nil {
+		proto.IsDpfEnabled = em.IsDpfEnabled
+	}
+	proto.HostLifecycleProfile = em.HostLifecycleProfile.ToProto()
 
 	if creds.Username != nil {
 		proto.BmcUsername = *creds.Username
@@ -183,6 +225,8 @@ func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachi
 	em.TrayIdx = proto.TrayIdx
 	em.HostID = proto.HostId
 	em.Labels.FromProto(proto.Metadata.GetLabels())
+	em.IsDpfEnabled = proto.IsDpfEnabled
+	em.HostLifecycleProfile.FromProto(proto.GetHostLifecycleProfile())
 }
 
 // ExpectedMachineCreateInput input parameters for Create method
@@ -204,6 +248,8 @@ type ExpectedMachineCreateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	IsDpfEnabled             *bool
+	HostLifecycleProfile     HostLifecycleProfile
 	CreatedBy                uuid.UUID
 }
 
@@ -225,6 +271,8 @@ type ExpectedMachineUpdateInput struct {
 	TrayIdx                  *int32
 	HostID                   *int32
 	Labels                   map[string]string
+	IsDpfEnabled             *bool
+	HostLifecycleProfile     *HostLifecycleProfile
 }
 
 // ExpectedMachineClearInput input parameters for Clear method
@@ -366,6 +414,8 @@ func (emsd ExpectedMachineSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx,
 			TrayIdx:                  input.TrayIdx,
 			HostID:                   input.HostID,
 			Labels:                   input.Labels,
+			IsDpfEnabled:             input.IsDpfEnabled,
+			HostLifecycleProfile:     input.HostLifecycleProfile,
 			CreatedBy:                input.CreatedBy,
 		}
 		expectedMachines = append(expectedMachines, em)
@@ -597,6 +647,9 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 	expectedMachines := make([]*ExpectedMachine, 0, len(inputs))
 	ids := make([]uuid.UUID, 0, len(inputs))
 	columnsSet := make(map[string]bool)
+	// host_lifecycle_profile is applied in its own bulk update scoped to only the
+	// rows that set it (see below), so rows that omit it keep their existing value.
+	hlpUpdates := make([]*ExpectedMachine, 0, len(inputs))
 
 	for _, input := range inputs {
 		em := &ExpectedMachine{
@@ -663,9 +716,27 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			em.HostID = input.HostID
 			columnsSet["host_id"] = true
 		}
+		if input.IsDpfEnabled != nil {
+			em.IsDpfEnabled = input.IsDpfEnabled
+			columnsSet["is_dpf_enabled"] = true
+		}
 
 		expectedMachines = append(expectedMachines, em)
 		ids = append(ids, input.ExpectedMachineID)
+
+		// host_lifecycle_profile is deliberately kept out of the shared
+		// columnsSet. The bulk UPDATE applies one column list to every row, so
+		// folding it in would write the column for rows that omitted it (their
+		// model carries the zero value here), silently clearing the persisted
+		// profile. Apply it separately only to rows that included the field and
+		// merge the JSONB patch below so empty or partial profiles preserve
+		// existing stored values.
+		if input.HostLifecycleProfile != nil {
+			hlpUpdates = append(hlpUpdates, &ExpectedMachine{
+				ID:                   input.ExpectedMachineID,
+				HostLifecycleProfile: *input.HostLifecycleProfile,
+			})
+		}
 	}
 
 	// Build column list
@@ -692,6 +763,21 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		Exec(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply host_lifecycle_profile only to the rows that provided it. Rows that
+	// omitted it are absent here and keep their persisted value. Merge the JSONB
+	// patch like Site config updates so an empty object is a no-op and future
+	// profile fields can be updated independently.
+	for _, em := range hlpUpdates {
+		_, err = db.GetIDB(tx, emsd.dbSession).NewUpdate().
+			Model((*ExpectedMachine)(nil)).
+			Set("host_lifecycle_profile = host_lifecycle_profile || ?::jsonb", em.HostLifecycleProfile).
+			Where("id = ?", em.ID).
+			Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Fetch the updated expected machines

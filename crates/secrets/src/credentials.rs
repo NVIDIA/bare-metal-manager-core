@@ -29,6 +29,10 @@ use serde::{Deserialize, Serialize};
 use crate::SecretsError;
 
 const PASSWORD_LEN: usize = 16;
+const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+const NUMCHARS: &[u8] = b"0123456789";
+const SPECIALCHARS: &[u8] = b"^%$@!~_";
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Credentials {
     UsernamePassword { username: String, password: String },
@@ -57,64 +61,96 @@ impl fmt::Display for Credentials {
 }
 
 impl Credentials {
-    pub fn generate_password() -> String {
-        const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
-        const NUMCHARS: &[u8] = b"0123456789";
-        const EXTRACHARS: &[u8] = b"^%$@!~_";
-        const CHARSET: [&[u8]; 4] = [UPPERCHARS, LOWERCHARS, NUMCHARS, EXTRACHARS];
-
-        let mut rng = rand::rng();
-
+    /// Build a `PASSWORD_LEN`-character password by drawing uniformly from
+    /// `charset` (a list of character classes) and then overwriting one
+    /// distinct random position per class, guaranteeing at least one
+    /// character from each class.
+    fn generate_password_with_charset(rng: &mut impl rand::Rng, charset: &[&[u8]]) -> String {
         let mut password: Vec<char> = (0..PASSWORD_LEN)
             .map(|_| {
-                let chid = rng.random_range(0..CHARSET.len());
-                let idx = rng.random_range(0..CHARSET[chid].len());
-                CHARSET[chid][idx] as char
+                let class = rng.random_range(0..charset.len());
+                let idx = rng.random_range(0..charset[class].len());
+                charset[class][idx] as char
             })
             .collect();
 
-        // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
-        let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
-        positions_to_overlap.shuffle(&mut rand::rng());
-        let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
-
-        for (index, pos) in positions_to_overlap.enumerate() {
-            let char_index = rng.random_range(0..CHARSET[index].len());
-            password[pos] = CHARSET[index][char_index] as char;
+        // Enforce 1 uppercase, 1 lowercase, 1 digit and (when present) 1 symbol
+        // by overwriting a distinct random position with a character from each
+        // class.
+        let mut positions = (0..PASSWORD_LEN).collect::<Vec<_>>();
+        positions.shuffle(&mut *rng);
+        for (class, &pos) in positions.iter().take(charset.len()).enumerate() {
+            let idx = rng.random_range(0..charset[class].len());
+            password[pos] = charset[class][idx] as char;
         }
 
         password.into_iter().collect()
+    }
+
+    pub fn generate_password() -> String {
+        Self::generate_password_with_charset(
+            &mut rand::rng(),
+            &[UPPERCHARS, LOWERCHARS, NUMCHARS, SPECIALCHARS],
+        )
     }
 
     pub fn generate_password_no_special_char() -> String {
-        const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
-        const NUMCHARS: &[u8] = b"0123456789";
-        const CHARSET: [&[u8]; 3] = [UPPERCHARS, LOWERCHARS, NUMCHARS];
+        Self::generate_password_with_charset(&mut rand::rng(), &[UPPERCHARS, LOWERCHARS, NUMCHARS])
+    }
 
-        let mut rng = rand::rng();
-
-        let mut password: Vec<char> = (0..PASSWORD_LEN)
-            .map(|_| {
-                let chid = rng.random_range(0..CHARSET.len());
-                let idx = rng.random_range(0..CHARSET[chid].len());
-                CHARSET[chid][idx] as char
-            })
-            .collect();
-
-        // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
-        let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
-        positions_to_overlap.shuffle(&mut rand::rng());
-        let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
-
-        for (index, pos) in positions_to_overlap.enumerate() {
-            let char_index = rng.random_range(0..CHARSET[index].len());
-            password[pos] = CHARSET[index][char_index] as char;
+    /// Validate that an operator-supplied password meets the strength floor the
+    /// generator also satisfies: at least `PASSWORD_LEN` bytes and at least one
+    /// uppercase, lowercase, digit and ASCII-punctuation character.
+    ///
+    /// This is a generic strength gate, not an exact mirror of the generator: it
+    /// accepts any `is_ascii_punctuation` symbol (the generator only emits a
+    /// curated subset), and length is measured in bytes -- fine for the ASCII
+    /// passwords these credentials use in practice. It is also not a
+    /// device-specific charset check, so a password that passes here may still be
+    /// rejected later by a particular BMC/UEFI password policy; that is enforced
+    /// at the device by the convergence engine.
+    ///
+    /// Explicit passwords passed to `RotateCredential` are checked with this
+    /// before being written to the secret store.
+    pub fn validate_password_strength(password: &str) -> Result<(), PasswordPolicyError> {
+        if password.len() < PASSWORD_LEN {
+            return Err(PasswordPolicyError::TooShort {
+                min: PASSWORD_LEN,
+                actual: password.len(),
+            });
         }
 
-        password.into_iter().collect()
+        let mut missing = Vec::new();
+        if !password.chars().any(|c| c.is_ascii_uppercase()) {
+            missing.push("uppercase");
+        }
+        if !password.chars().any(|c| c.is_ascii_lowercase()) {
+            missing.push("lowercase");
+        }
+        if !password.chars().any(|c| c.is_ascii_digit()) {
+            missing.push("digit");
+        }
+        if !password.chars().any(|c| c.is_ascii_punctuation()) {
+            missing.push("punctuation");
+        }
+        if !missing.is_empty() {
+            return Err(PasswordPolicyError::MissingCharacterClasses {
+                missing: missing.join(", "),
+            });
+        }
+
+        Ok(())
     }
+}
+
+/// Reasons an operator-supplied password fails the strength policy enforced by
+/// [`Credentials::validate_password_strength`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum PasswordPolicyError {
+    #[error("password too short: {actual} characters, minimum {min}")]
+    TooShort { min: usize, actual: usize },
+    #[error("password is missing required character classes: {missing}")]
+    MissingCharacterClasses { missing: String },
 }
 
 #[async_trait]
@@ -241,13 +277,21 @@ pub enum CredentialType {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum BmcCredentialType {
-    // Site Wide Root Credentials
+    /// Site-wide BMC root, version 0: the initial site-wide credential set at
+    /// ingestion / set-from-factory (`machines/bmc/site/root`). Under credential
+    /// rotation this is simply version 0 of the site-wide credential; the
+    /// *current* version is recorded in `sitewide_credential_rotation`'s
+    /// `target_version` and resolved via [`BmcCredentialType::site_wide_root`].
+    /// It is not an alias and is never overwritten by a rotation -- once the site
+    /// has rotated, this path still holds the v0 value while the live credential
+    /// is at [`SiteWideRootVersioned`].
     SiteWideRoot,
-    /// Versioned site-wide BMC root "rotate-TO" target written by a rotation
-    /// (`machines/bmc/site/root/v{N}`). The unversioned [`SiteWideRoot`]
-    /// (`machines/bmc/site/root`) stays as the "current site target" alias used
-    /// at ingestion / set-from-factory; this variant addresses a specific
-    /// rotation target version.
+    /// Site-wide BMC root at a specific rotation version `N >= 1`
+    /// (`machines/bmc/site/root/v{N}`), written by `RotateCredential`. Immutable
+    /// per version. The "current site-wide credential" is whichever version
+    /// `sitewide_credential_rotation.target_version` names; consumers resolve it
+    /// with [`BmcCredentialType::site_wide_root`] rather than reading a fixed
+    /// path. Version 0 lives at the unversioned [`SiteWideRoot`] path instead.
     SiteWideRootVersioned {
         version: u32,
     },
@@ -259,6 +303,22 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
+}
+
+impl BmcCredentialType {
+    /// Resolve the site-wide BMC root credential key for `version`, implementing
+    /// the table-driven "current site-wide credential" contract: a caller reads
+    /// `sitewide_credential_rotation.target_version` and passes it here. Version 0
+    /// is the legacy unversioned path ([`SiteWideRoot`]); later versions are
+    /// version-addressed ([`SiteWideRootVersioned`]). This is the single place
+    /// that encodes "v0 lives at the unversioned path", so consumers never branch
+    /// on it themselves.
+    pub fn site_wide_root(version: u32) -> Self {
+        match version {
+            0 => Self::SiteWideRoot,
+            version => Self::SiteWideRootVersioned { version },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -315,19 +375,22 @@ pub enum CredentialKey {
     NicLockdownIkm {
         credential_type: NicLockdownIkm,
     },
-    /// Versioned site-wide host UEFI "rotate-TO" target
-    /// (`machines/all_hosts/site_default/uefi-metadata-items/auth/v{N}`). The
-    /// unversioned [`CredentialKey::HostUefi`] / [`CredentialType::SiteDefault`]
-    /// path stays as the current site target (= v0) used at ingestion /
-    /// set-from-factory; this variant addresses a specific rotation target
-    /// version. Admin/rotation-written only; not a loginable per-device
-    /// credential.
+    /// Site-wide host UEFI credential at rotation version `N >= 1`
+    /// (`machines/all_hosts/site_default/uefi-metadata-items/auth/v{N}`), written
+    /// by `RotateCredential`. Table-driven like BMC: the unversioned
+    /// [`CredentialKey::HostUefi`] / [`CredentialType::SiteDefault`] path is
+    /// version 0, and which version is current is defined by
+    /// `sitewide_credential_rotation.target_version`. Consumers resolve the live
+    /// key with [`CredentialKey::host_uefi_site_default`] rather than reading a
+    /// fixed path; no unversioned alias is maintained. Admin/rotation-written
+    /// only; not a loginable per-device credential.
     HostUefiSiteVersioned {
         version: u32,
     },
-    /// Versioned site-wide DPU UEFI "rotate-TO" target
+    /// Site-wide DPU UEFI credential at rotation version `N >= 1`
     /// (`machines/all_dpus/site_default/uefi-metadata-items/auth/v{N}`). See
-    /// [`CredentialKey::HostUefiSiteVersioned`].
+    /// [`CredentialKey::HostUefiSiteVersioned`]; resolve via
+    /// [`CredentialKey::dpu_uefi_site_default`].
     DpuUefiSiteVersioned {
         version: u32,
     },
@@ -449,6 +512,34 @@ impl CredentialPrefix {
 }
 
 impl CredentialKey {
+    /// Resolve the site-wide host UEFI credential key for `version`, the
+    /// table-driven "current site-wide host UEFI credential" lookup: a caller
+    /// reads `sitewide_credential_rotation.target_version` (host_uefi) and passes
+    /// it here. Version 0 is the legacy unversioned site-default path
+    /// ([`CredentialType::SiteDefault`]); later versions are version-addressed
+    /// ([`Self::HostUefiSiteVersioned`]).
+    pub fn host_uefi_site_default(version: u32) -> Self {
+        match version {
+            0 => Self::HostUefi {
+                credential_type: CredentialType::SiteDefault,
+            },
+            version => Self::HostUefiSiteVersioned { version },
+        }
+    }
+
+    /// Resolve the site-wide DPU UEFI credential key for `version`. See
+    /// [`Self::host_uefi_site_default`]; version 0 is the legacy unversioned
+    /// site-default path and later versions are version-addressed
+    /// ([`Self::DpuUefiSiteVersioned`]).
+    pub fn dpu_uefi_site_default(version: u32) -> Self {
+        match version {
+            0 => Self::DpuUefi {
+                credential_type: CredentialType::SiteDefault,
+            },
+            version => Self::DpuUefiSiteVersioned { version },
+        }
+    }
+
     /// prefix returns the CredentialPrefix category
     /// this key belongs to.
     pub fn prefix(&self) -> CredentialPrefix {
@@ -621,6 +712,72 @@ mod tests {
         assert!(password.chars().any(|c| c.is_lowercase()));
         assert!(password.chars().any(|c| c.is_ascii_digit()));
         assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn generated_password_satisfies_strength_policy() {
+        // Every randomly generated password must pass the same policy we
+        // enforce on operator-supplied passwords. Repeated so the
+        // class-overwrite logic is exercised across many random layouts.
+        for _ in 0..256 {
+            let password = Credentials::generate_password();
+            Credentials::validate_password_strength(&password)
+                .expect("generated password should satisfy the strength policy");
+        }
+    }
+
+    #[test]
+    fn validate_password_strength_table() {
+        check_values(
+            [
+                Check {
+                    scenario: "valid: all four classes, long enough",
+                    input: "Abcdefghijk1234!",
+                    expect: true,
+                },
+                Check {
+                    scenario: "too short",
+                    input: "Ab1!",
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing uppercase",
+                    input: "abcdefghijk1234!",
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing lowercase",
+                    input: "ABCDEFGHIJK1234!",
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing digit",
+                    input: "Abcdefghijklmn!@",
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing punctuation",
+                    input: "Abcdefghijk12345",
+                    expect: false,
+                },
+            ],
+            |pw: &str| Credentials::validate_password_strength(pw).is_ok(),
+        );
+    }
+
+    #[test]
+    fn validate_password_strength_reports_specific_failures() {
+        assert_eq!(
+            Credentials::validate_password_strength("Ab1!"),
+            Err(PasswordPolicyError::TooShort {
+                min: PASSWORD_LEN,
+                actual: 4,
+            })
+        );
+        assert!(matches!(
+            Credentials::validate_password_strength("abcdefghijk1234!"),
+            Err(PasswordPolicyError::MissingCharacterClasses { .. })
+        ));
     }
 
     // Pins the exact Vault path for the versioned lockdown IKM, including

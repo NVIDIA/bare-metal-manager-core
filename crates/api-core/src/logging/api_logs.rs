@@ -163,6 +163,13 @@ where
                 tenant.organization_id = tracing::field::Empty,
             );
 
+            // Continue any distributed trace the caller started: make the inbound W3C trace
+            // context (`traceparent`/`tracestate`) the parent of this request span. The shared
+            // tower layer serves both the gRPC and REST listeners, so this single extractor
+            // covers both ingress paths. No-op when there is no valid inbound context, leaving
+            // the request span a fresh root (issue #2438).
+            trace_propagation::set_span_parent_from_headers(&request_span, request.headers());
+
             // Try to extract the gRPC service and method from the URI
             let mut grpc_method: Option<String> = None;
             let mut grpc_service: Option<String> = None;

@@ -16,7 +16,7 @@
  */
 
 pub mod args;
-pub mod cmds;
+pub mod cmd;
 
 #[cfg(test)]
 mod tests;
@@ -27,12 +27,15 @@ mod tests;
 // subcommands.
 pub use args::Opts;
 
-use crate::cfg::dispatch::Dispatch;
+use crate::cfg::dispatch::dispatch_via_run;
+use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;
 
-impl Dispatch for Opts {
-    async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {
-        cmds::handle_show_version(&self, &ctx.api_client, ctx.config.format).await
+impl Run for Opts {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::handle_show_version(&self, &ctx.api_client, ctx.config.format).await
     }
 }
+
+dispatch_via_run!(Opts);

@@ -31,6 +31,7 @@ pub(crate) struct OtlpMetricsDrainTask {
     endpoint: String,
     batch_size: usize,
     flush_interval: Duration,
+    metric_name_prefix: String,
 }
 
 impl OtlpMetricsDrainTask {
@@ -39,12 +40,14 @@ impl OtlpMetricsDrainTask {
         endpoint: String,
         batch_size: usize,
         flush_interval: Duration,
+        metric_name_prefix: String,
     ) -> Self {
         Self {
             queue,
             endpoint,
             batch_size,
             flush_interval,
+            metric_name_prefix,
         }
     }
 
@@ -133,7 +136,7 @@ impl OtlpMetricsDrainTask {
             return;
         }
 
-        let request = build_metrics_export_request(batch);
+        let request = build_metrics_export_request(batch, &self.metric_name_prefix);
         batch.clear();
 
         let point_count = request

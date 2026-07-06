@@ -33,9 +33,8 @@ type ExpectedRackCreateRequest struct {
 	// Human-readable name of the Expected Rack
 	Name NullableString `json:"name,omitempty"`
 	// Human-readable description of the Expected Rack
-	Description NullableString `json:"description,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Racks. Well-known keys (`chassis.*`, `location.*`) are used to convey chassis identity and physical location.
-	Labels map[string]string `json:"labels,omitempty"`
+	Description NullableString    `json:"description,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 type _ExpectedRackCreateRequest ExpectedRackCreateRequest
@@ -294,7 +293,7 @@ func (o *ExpectedRackCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	for _, requiredProperty := range requiredProperties {
-		if _, exists := allProperties[requiredProperty]; !exists {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
 	}

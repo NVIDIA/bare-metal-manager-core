@@ -87,6 +87,20 @@ async fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
     }
 }
 
+pub async fn bmc_for_machine(machine_info: MachineInfo) -> TestBmcHandle {
+    let machine_id = match &machine_info {
+        MachineInfo::Host(_) => "test-host-id",
+        MachineInfo::Dpu(_) => "test-dpu-id",
+    };
+    test_bmc(machine_router(
+        &machine_info,
+        Arc::new(NoopCallbacks),
+        machine_id.to_string(),
+        false,
+    ))
+    .await
+}
+
 fn host_info(hw_type: HostHardwareType) -> MachineInfo {
     let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(0);
     let mut pool = TEST_MAC_POOL.lock().unwrap();

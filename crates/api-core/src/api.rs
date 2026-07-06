@@ -39,7 +39,7 @@ use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
-use carbide_site_explorer::EndpointExplorer;
+use carbide_site_explorer::{EndpointExplorationLocks, EndpointExplorer};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -83,6 +83,9 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
+    /// In-process per-endpoint exploration locks, shared with the site-explorer loop so periodic
+    /// exploration and ad-hoc `RefreshEndpointReport` calls never probe the same BMC at once.
+    pub(crate) endpoint_exploration_locks: EndpointExplorationLocks,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
@@ -1473,6 +1476,20 @@ impl Forge for Api {
         crate::handlers::credential::delete_credential(self, request).await
     }
 
+    async fn rotate_credential(
+        &self,
+        request: Request<rpc::RotateCredentialRequest>,
+    ) -> Result<Response<rpc::RotateCredentialResult>, Status> {
+        crate::handlers::credential_rotation::rotate_credential(self, request).await
+    }
+
+    async fn get_credential_rotation_status(
+        &self,
+        request: Request<rpc::CredentialRotationStatusRequest>,
+    ) -> Result<Response<rpc::CredentialRotationStatusResult>, Status> {
+        crate::handlers::credential_rotation::get_credential_rotation_status(self, request).await
+    }
+
     async fn re_wrap_secrets(
         &self,
         request: Request<rpc::ReWrapSecretsRequest>,
@@ -2612,6 +2629,20 @@ impl Forge for Api {
         crate::handlers::firmware::get_desired_firmware_versions(self, request)
     }
 
+    async fn upsert_host_firmware_config(
+        &self,
+        request: Request<rpc::UpsertHostFirmwareConfigRequest>,
+    ) -> Result<Response<rpc::HostFirmwareConfigResponse>, Status> {
+        crate::handlers::firmware::upsert_host_firmware_config(self, request).await
+    }
+
+    async fn delete_host_firmware_config(
+        &self,
+        request: Request<rpc::DeleteHostFirmwareConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::firmware::delete_host_firmware_config(self, request).await
+    }
+
     async fn create_sku(
         &self,
         request: Request<rpc::SkuList>,
@@ -2857,7 +2888,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_device_report(self, request).await
+        crate::handlers::svpc::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
@@ -2866,7 +2897,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
+        crate::handlers::svpc::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(

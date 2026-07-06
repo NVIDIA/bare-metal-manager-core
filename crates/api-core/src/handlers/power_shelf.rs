@@ -75,15 +75,24 @@ pub async fn find_power_shelf(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let power_shelves: Vec<rpc::PowerShelf> = power_shelf_list
+    let power_shelves = convert_power_shelves(power_shelf_list)?;
+
+    Ok(Response::new(rpc::PowerShelfList { power_shelves }))
+}
+
+/// Convert DB power shelves into their RPC representation. `bmc_info` is
+/// populated by the power-shelf load query and carried through the model->rpc
+/// conversion, so no extra resolution is needed here.
+fn convert_power_shelves(
+    power_shelf_list: Vec<model::power_shelf::PowerShelf>,
+) -> Result<Vec<rpc::PowerShelf>, CarbideError> {
+    power_shelf_list
         .into_iter()
         .map(rpc::PowerShelf::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| CarbideError::Internal {
             message: format!("Failed to convert power shelf: {}", e),
-        })?;
-
-    Ok(Response::new(rpc::PowerShelfList { power_shelves }))
+        })
 }
 
 pub async fn find_ids(
@@ -129,47 +138,9 @@ pub async fn find_by_ids(
     )
     .await?;
 
-    let bmc_info_map: std::collections::HashMap<_, _> = {
-        let rows = db_power_shelf::find_bmc_info_by_power_shelf_ids(&mut txn, &power_shelf_ids)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: format!("Failed to get power shelf BMC info: {}", e),
-            })?;
-
-        rows.into_iter()
-            .map(|row| {
-                (
-                    row.power_shelf_id,
-                    rpc::BmcInfo {
-                        ip: Some(row.pmc_ip.to_string()),
-                        mac: Some(row.pmc_mac.to_string()),
-                        version: None,
-                        firmware_version: None,
-                        port: None,
-                        machine_interface_id: None,
-                    },
-                )
-            })
-            .collect()
-    };
-
     let _ = txn.rollback().await;
 
-    let power_shelves: Vec<rpc::PowerShelf> = power_shelf_list
-        .into_iter()
-        .map(|ps| {
-            let id = ps.id;
-            let bmc_info = bmc_info_map.get(&id).cloned();
-
-            rpc::PowerShelf::try_from(ps).map(|mut rpc_ps| {
-                rpc_ps.bmc_info = bmc_info;
-                rpc_ps
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to convert power shelf: {}", e),
-        })?;
+    let power_shelves = convert_power_shelves(power_shelf_list)?;
 
     Ok(Response::new(rpc::PowerShelfList { power_shelves }))
 }

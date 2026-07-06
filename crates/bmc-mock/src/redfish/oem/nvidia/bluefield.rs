@@ -55,7 +55,7 @@ impl BluefieldState {
     }
 
     /// Whether the BlueField currently reports NIC mode.
-    fn nic_mode(&self) -> bool {
+    pub fn nic_mode(&self) -> bool {
         self.mode.lock().unwrap().nic_mode
     }
 

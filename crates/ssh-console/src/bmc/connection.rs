@@ -69,6 +69,12 @@ pub enum SpawnError {
     Ipmi(#[from] connection_impl::ipmi::SpawnError),
 }
 
+impl SpawnError {
+    pub(crate) fn retry_immediately(&self) -> bool {
+        matches!(self, Self::Ipmi(error) if error.retry_immediately())
+    }
+}
+
 /// Get the address and auth details to use for a connection to a given machine or instance ID.
 ///
 /// This information is normally gotten by calling GetBMCMetadData on carbide-api, but it can

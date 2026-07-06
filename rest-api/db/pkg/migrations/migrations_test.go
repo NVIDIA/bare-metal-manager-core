@@ -904,7 +904,7 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 
 	// GetAll operating systems and verify
 	tnDAO := model.NewTenantDAO(dbSession)
-	tns, err := tnDAO.GetAllByOrg(context.Background(), nil, tenant1.Org, nil)
+	tns, _, err := tnDAO.GetAll(ctx, nil, model.TenantFilterInput{Orgs: []string{tenant1.Org}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(tns))
 	assert.Equal(t, tenant1.ID, tns[0].ID)

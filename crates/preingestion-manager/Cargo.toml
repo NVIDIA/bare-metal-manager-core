@@ -9,6 +9,10 @@ authors.workspace = true
 [lib]
 name = "carbide_preingestion_manager"
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db" }
@@ -37,6 +41,7 @@ carbide-firmware = { path = "../firmware", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-uuid = { path = "../uuid" }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

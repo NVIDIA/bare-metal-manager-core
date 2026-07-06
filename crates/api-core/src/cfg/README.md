@@ -534,6 +534,7 @@ Extends `StateControllerConfig` with:
 | `enabled` | `bool` | `false` | Enable machine validation tests. |
 | `test_selection_mode` | `MachineValidationTestSelectionMode` | `Default` | `Default`, `EnableAll`, or `DisableAll`. |
 | `run_interval` | `Duration` | `60s` | Validation check interval. |
+| `stale_run_timeout` | `Duration` | `24h` | Grace period before an active validation run is considered stale. Values below `90s` are raised to `90s` to avoid marking healthy heartbeat-based runs stale. |
 | `tests` | `Vec<MachineValidationTestConfig>` | `[]` | Per-test enable/disable overrides. |
 
 ### `BomValidationConfig`

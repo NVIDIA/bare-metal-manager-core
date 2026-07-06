@@ -89,17 +89,13 @@ pub async fn find_switch(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let endpoint_info = endpoint_info_map.get(&s.id);
+            let id = s.id;
+            let endpoint_info = endpoint_info_map.get(&id);
 
+            // `bmc_info` is populated by the switch load query and carried
+            // through the model->rpc conversion; only nvos_info is stitched in
+            // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.bmc_info = endpoint_info.map(|row| rpc::BmcInfo {
-                    ip: Some(row.bmc_ip.to_string()),
-                    mac: Some(row.bmc_mac.to_string()),
-                    version: None,
-                    firmware_version: None,
-                    port: None,
-                    machine_interface_id: None,
-                });
                 rpc_switch.nvos_info = endpoint_info.and_then(|row| {
                     let (Some(nvos_mac), Some(nvos_ip)) =
                         (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())
@@ -180,17 +176,13 @@ pub async fn find_by_ids(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let endpoint_info = endpoint_info_map.get(&s.id);
+            let id = s.id;
+            let endpoint_info = endpoint_info_map.get(&id);
 
+            // `bmc_info` is populated by the switch load query and carried
+            // through the model->rpc conversion; only nvos_info is stitched in
+            // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.bmc_info = endpoint_info.map(|row| rpc::BmcInfo {
-                    ip: Some(row.bmc_ip.to_string()),
-                    mac: Some(row.bmc_mac.to_string()),
-                    version: None,
-                    firmware_version: None,
-                    port: None,
-                    machine_interface_id: None,
-                });
                 rpc_switch.nvos_info = endpoint_info.and_then(|row| {
                     let (Some(nvos_mac), Some(nvos_ip)) =
                         (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())

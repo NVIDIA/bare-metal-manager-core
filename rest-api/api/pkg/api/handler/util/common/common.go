@@ -100,7 +100,7 @@ func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession 
 func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.Tenant, error) {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	ts, err := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+	ts, _, err := tnDAO.GetAll(ctx, tx, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1188,6 +1188,18 @@ func UnwrapWorkflowError(err error) (code int, unwrappedError error) {
 	return
 }
 
+// GRPCStatusMessage returns the gRPC status message when err is a gRPC status,
+// otherwise err.Error(). Intended for errors already unwrapped by ExecuteCoreGRPC.
+func GRPCStatusMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	if s, ok := status.FromError(err); ok {
+		return s.Message()
+	}
+	return err.Error()
+}
+
 // GetUserAndEnrichLogger retrieves the user from the echo context and enriches the logger
 // and tracer span with user ID information (StarfleetID or AuxiliaryID).
 // This eliminates the repetitive if-else block for user ID logging across handlers.
@@ -1256,6 +1268,83 @@ func IsProvider(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Sessi
 	}
 
 	return infrastructureProvider, nil
+}
+
+// SiteTemporalClientPool resolves the per-site Temporal client used to proxy
+// requests to Core.
+type SiteTemporalClientPool interface {
+	GetClientByID(siteID uuid.UUID) (tclient.Client, error)
+}
+
+// AuthorizeProviderSiteForCoreInput carries the inputs for AuthorizeProviderSiteForCore.
+type AuthorizeProviderSiteForCoreInput struct {
+	Ctx       context.Context
+	Logger    zerolog.Logger
+	DBSession *cdb.Session
+	SCP       SiteTemporalClientPool
+	Org       string
+	User      *cdbm.User
+	SiteID    string
+}
+
+// AuthorizeProviderSiteForCore validates that user is a Provider Admin for org,
+// resolves siteStrID to a Site owned by the org's Infrastructure Provider, and
+// returns the per-site Temporal client plus the site ID string. The site ID is
+// the shared key used to encrypt redacted secret fields for transport to the
+// site agent.
+func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient.Client, string, *cutil.APIError) {
+	if in.User == nil {
+		in.Logger.Error().Msg("invalid User object found in request context")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(in.User, in.Org)
+	if !ok {
+		if err != nil {
+			in.Logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			in.Logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", in.Org), nil)
+	}
+
+	if ok := auth.ValidateUserRoles(in.User, in.Org, nil, auth.ProviderAdminRole); !ok {
+		in.Logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	provider, err := GetInfrastructureProviderForOrg(in.Ctx, nil, in.DBSession, in.Org)
+	if err != nil {
+		if errors.Is(err, ErrOrgInstrastructureProviderNotFound) {
+			return nil, "", cutil.NewAPIError(http.StatusNotFound,
+				fmt.Sprintf("Org '%v' does not have an Infrastructure Provider", in.Org), nil)
+		}
+		in.Logger.Error().Err(err).Msg("error retrieving Infrastructure Provider for this org")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)
+	}
+
+	site, err := GetSiteFromIDString(in.Ctx, nil, in.SiteID, in.DBSession)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) || errors.Is(err, ErrInvalidID) {
+			in.Logger.Warn().Err(err).Str("Site ID", in.SiteID).Msg("site not found in request")
+			return nil, "", cutil.NewAPIError(http.StatusBadRequest,
+				fmt.Sprintf("Could not find Site with ID specified in request data: %s", in.SiteID), nil)
+		}
+		in.Logger.Error().Err(err).Str("Site ID", in.SiteID).Msg("error retrieving Site from DB")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Site due to DB error", nil)
+	}
+
+	if site.InfrastructureProviderID != provider.ID {
+		return nil, "", cutil.NewAPIError(http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	stc, err := in.SCP.GetClientByID(site.ID)
+	if err != nil {
+		in.Logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return nil, "", cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+	}
+
+	return stc, site.ID.String(), nil
 }
 
 // IsTenant ensures that user is authorized to act as a Tenant Admin for the org.

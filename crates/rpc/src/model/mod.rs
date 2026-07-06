@@ -32,6 +32,7 @@ pub mod expected_power_shelf;
 pub mod expected_rack;
 pub mod expected_switch;
 pub mod extension_service;
+pub mod firmware;
 pub mod hardware_info;
 pub mod health;
 pub mod ib_partition;

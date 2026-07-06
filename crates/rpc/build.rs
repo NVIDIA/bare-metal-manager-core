@@ -343,6 +343,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.PrefixFilterPolicyEntry",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.AstraConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraAttachment", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraConfigStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraAttachmentStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraPhase", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.HostRepresentorInterceptBridging", "#[derive(serde::Serialize)]")
@@ -965,6 +971,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.InstanceNetworkAutoConfig",
             "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RotationCredentialType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.RotateCredentialResult",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.CredentialRotationStatusResult",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.DeviceCredentialRotationStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .build_server(true)
         .build_client(true)

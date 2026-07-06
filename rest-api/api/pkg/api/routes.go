@@ -562,6 +562,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetMachineStatusDetailsHandler(dbSession),
 		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/dpu",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllDpuMachineHandler(dbSession, scp),
+		},
 		// Machine GPU Stats endpoint
 		{
 			Path:    apiPathPrefix + "/machine/gpu/stats",
@@ -1064,6 +1069,18 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/site/:siteID/tenant-identity/token-delegation",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTenantIdentityTokenDelegationHandler(dbSession, scp),
+		},
+		// Host Firmware Config endpoint (Provider Admin). Proxied to Core via
+		// UpsertHostFirmwareConfig.
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodPut,
+			Handler: apiHandler.NewCreateOrUpdateHostFirmwareConfigHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/firmware-config/host",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteHostFirmwareConfigHandler(dbSession, scp),
 		},
 	}
 
