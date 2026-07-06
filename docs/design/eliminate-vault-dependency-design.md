@@ -29,12 +29,13 @@
 | 2026-07-06 | Bill Minckler | Applied the same subsystem grouping to §3.2.1 (config), §3.3.1 (functionality), §3.3.3 (data flow), and §3.3.5 (logging) for consistency and scannability (no substantive content change). |
 | 2026-07-06 | Bill Minckler | Annotated the dangling references to the DPU device-attestation config guide (§1.6, §3.4): it ships with the #2917 feature and is not present in this branch. |
 | 2026-07-06 | Bill Minckler | Reworded the DPU identity work from "attestation" to "identity verification" where it described cert-chain identity derivation, to avoid implying full measured-boot/quote attestation (§1.3, §1.6, §3.4). Kept genuine attestation references (AttestQuote, the SPDM/NRAS FSM, the [dpu_device_attestation] config key). |
+| 2026-07-06 | Bill Minckler | Reframed §2 / §1.1 so DPU device identity (#2917) and the host TPM EK are the hardware-rooted identity anchor *under* Node authentication (#355), and stated explicitly that the device-identity work exists solely to enable the move to JWT (not a standalone feature; GitHub issue hierarchy unchanged). |
 
 # 1. Introduction
 
 ## 1.1 Purpose and scope
 
-This document records the architecture and design for the Vault-elimination epic ([#195](https://github.com/NVIDIA/infra-controller/issues/195)): the credential-storage abstraction and backends, encryption-at-rest, gradual/reversible backend migration, node-auth JWT, DPU hardware identity, and device-CA management. Certificate (PKI) issuance is in scope as a tracked gap, not as a delivered replacement.
+This document records the architecture and design for the Vault-elimination epic ([#195](https://github.com/NVIDIA/infra-controller/issues/195)): the credential-storage abstraction and backends, encryption-at-rest, gradual/reversible backend migration, and node authentication (JWT bearer tokens) — including the DPU BlueField IRoT device identity and host TPM EK that anchor it (with device-CA management), the hardware root that lets node auth move off mTLS client certificates. Certificate (PKI) issuance is in scope as a tracked gap, not as a delivered replacement.
 
 ## 1.2 Assumptions
 
@@ -113,12 +114,12 @@ The architecture breaks into four subsystems; each is summarized here — struct
 - *Structure* — a *distinct* `CertificateProvider` trait, so PKI can diverge from credential storage; today only `ForgeVaultClient` (Vault PKI) implements it.
 - *Limitation* — the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1; phased removal plan in §3.6.4).
 
-**Node authentication (#355).**
+**Node authentication (#355) — the path off client certs / mTLS.**
 - *Structure / behavior* — JWT bearer tokens, additive to mTLS; issued at discovery / attestation / refresh and validated as the same SPIFFE principal as mTLS.
-- *Limitation* — issuance and refresh should be authorized by the machine's **verified hardware-rooted identity** (DPU BlueField IRoT, or host TPM EK), not by an mTLS client certificate; the current implementation still gates refresh on mTLS as a transitional step (open item O4).
-
-**DPU device identity (#2917).**
-- *Structure / behavior* — discovery triggers an out-of-band DPU-BMC Redfish SPDM IRoT fetch + server-side verification, yielding a hardware-rooted `machine_id`; trusted device-CA roots are seeded via the admin CLI.
+- *Hardware-rooted identity anchor* — the identity that authorizes token issuance/refresh comes from verified hardware, not an mTLS client cert. In this epic the device-identity work exists **solely to provide this anchor** — i.e., to enable the move to JWT — not as a standalone feature:
+  - **DPU BlueField IRoT (#2917)** — discovery triggers an out-of-band DPU-BMC Redfish SPDM IRoT fetch + server-side cert-chain verification, yielding a hardware-rooted `machine_id`; trusted device-CA roots are seeded via the admin CLI.
+  - **Host TPM EK** — the analogous host path (`tpm-ca`).
+- *Limitation* — wiring that verified hardware identity to authorize JWT issuance/refresh, replacing the transitional mTLS gate, is open item O4; only then does node auth fully drop the client-cert dependency.
 
 # 3. Design details
 
