@@ -1976,10 +1976,10 @@ async fn handle_restart_verification(
         {
             Ok(client) => client,
             Err(err) => {
-                tracing::warn!(
-                    "Failed to create Redfish client for host {} during force-restart verification: {}",
-                    mh_snapshot.host_snapshot.id,
-                    err
+                tracing::debug!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    error = %err,
+                    "Failed to create Redfish client for host during force-restart verification",
                 );
                 ctx.pending_db_writes
                     .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -1992,29 +1992,25 @@ async fn handle_restart_verification(
             }
         };
 
-        let restart_found = match check_restart_in_logs(
-            host_redfish_client.as_ref(),
-            last_reboot.time,
-        )
-        .await
-        {
-            Ok(found) => found,
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to fetch BMC logs for host {} during force-restart verification: {}",
-                    mh_snapshot.host_snapshot.id,
-                    err
-                );
-                ctx.pending_db_writes
-                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                        machine_id: mh_snapshot.host_snapshot.id,
-                        current_reboot: *last_reboot,
-                        verified: None,
-                        attempts: 0,
-                    });
-                return Ok(None); // Skip verification, continue with state transition
-            }
-        };
+        let restart_found =
+            match check_restart_in_logs(host_redfish_client.as_ref(), last_reboot.time).await {
+                Ok(found) => found,
+                Err(err) => {
+                    tracing::debug!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %err,
+                        "Failed to fetch BMC logs for host during force-restart verification",
+                    );
+                    ctx.pending_db_writes
+                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                            machine_id: mh_snapshot.host_snapshot.id,
+                            current_reboot: *last_reboot,
+                            verified: None,
+                            attempts: 0,
+                        });
+                    return Ok(None); // Skip verification, continue with state transition
+                }
+            };
 
         if restart_found {
             ctx.pending_db_writes
@@ -2082,10 +2078,10 @@ async fn handle_restart_verification(
             {
                 Ok(client) => client,
                 Err(err) => {
-                    tracing::warn!(
-                        "Failed to create Redfish client for DPU {} during force-restart verification: {}",
-                        dpu.id,
-                        err
+                    tracing::debug!(
+                        machine_id = %dpu.id,
+                        error = %err,
+                        "Failed to create Redfish client for DPU during force-restart verification",
                     );
                     ctx.pending_db_writes
                         .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -2098,31 +2094,28 @@ async fn handle_restart_verification(
                 }
             };
 
-            let restart_found = match check_restart_in_logs(
-                dpu_redfish_client.as_ref(),
-                last_reboot.time,
-            )
-            .await
-            {
-                Ok(found) => found,
-                Err(err) => {
-                    tracing::warn!(
-                        "Failed to fetch BMC logs for DPU {} during force-restart verification: {}",
-                        dpu.id,
-                        err
-                    );
+            let restart_found =
+                match check_restart_in_logs(dpu_redfish_client.as_ref(), last_reboot.time).await {
+                    Ok(found) => found,
+                    Err(err) => {
+                        tracing::debug!(
+                            machine_id = %dpu.id,
+                            error = %err,
+                            "Failed to fetch BMC logs for DPU during force-restart verification",
+                        );
 
-                    ctx.pending_db_writes
-                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                            machine_id: dpu.id,
-                            current_reboot: last_reboot,
-                            verified: None,
-                            attempts: 0,
-                        });
+                        ctx.pending_db_writes.push(
+                            MachineWriteOp::UpdateRestartVerificationStatus {
+                                machine_id: dpu.id,
+                                current_reboot: last_reboot,
+                                verified: None,
+                                attempts: 0,
+                            },
+                        );
 
-                    continue; // Skip verification, continue with state transition
-                }
-            };
+                        continue; // Skip verification, continue with state transition
+                    }
+                };
 
             if restart_found {
                 ctx.pending_db_writes
