@@ -24,6 +24,9 @@
 | 2026-07-06 | Bill Minckler | Reformatted §3.1 design-alternative options (a/b/c/…) into nested lists with the "Selected" rationale as a trailing note (no content change). |
 | 2026-07-06 | Bill Minckler | Clarified §3.1 node-authentication: Vault-free node auth has two routes — a non-Vault cert issuer (if certs are kept) or JWT-only with the cert provider disabled (a config choice, given O1 optional-provider + O4), the latter contingent on nothing else consuming the client certs. |
 | 2026-07-06 | Bill Minckler | Recorded cert-consumer audit: issued machine certs are used solely for control-plane mTLS auth/identity; refined §3.1 route 2 (JWT-only feasible but not a config flip — needs a JWT auth path + machine-id re-sourcing in 3 handlers) and noted the provider also mints the UFM server cert (O1 step 2). |
+| 2026-07-06 | Bill Minckler | Fixed §3.3.3 bootstrap diagram: enrollment RPCs (DiscoverMachine/AttestQuote) are anonymous and authorized by verified hardware identity — removed the incorrect (mTLS) label. |
+| 2026-07-06 | Bill Minckler | Reorganized §2 by subsystem (Credential store / Certificate issuance / Node authentication / DPU device identity), each with its structure, behavior, and open limitation, replacing the aspect-based prose (no substantive content change). |
+| 2026-07-06 | Bill Minckler | Applied the same subsystem grouping to §3.2.1 (config), §3.3.1 (functionality), §3.3.3 (data flow), and §3.3.5 (logging) for consistency and scannability (no substantive content change). |
 
 # 1. Introduction
 
@@ -97,11 +100,23 @@ This document records the architecture and design for the Vault-elimination epic
  DPU identity: discover → DPU BMC Redfish SPDM IRoT CertChain → verify → machine_id
 ```
 
-**Static aspect.** Trait layering in `crates/secrets`: `CredentialReader`/`CredentialWriter`/`CredentialManager` and a distinct `CertificateProvider`. Concrete backends: `ForgeVaultClient` (KV2 + PKI), `PostgresCredentialManager` (append-only encrypted `secrets` journal), env/file local readers, `MemoryCredentialStore`, and `ChainedCredentialReader`. KMS providers in `crates/kms-provider`: `Integrated`, `Transit`, `Multi`. (Credential store — #354/#2811.)
+The architecture breaks into four subsystems; each is summarized here — structure, runtime behavior, and any open limitation — and detailed in §3.2–§3.3.
 
-**Dynamic aspect.** Reads resolve first-match across the configured chain; writes go to a single writer and are envelope-encrypted on the Postgres path; an optional one-time Vault→Postgres import seeds existing secrets; node tokens are issued at discovery/attestation/refresh and validated as the same SPIFFE principal as mTLS; DPU discovery triggers an out-of-band BMC IRoT fetch + server-side verification that yields a hardware-rooted `machine_id`. (Credential store #354/#2811, node auth #355, DPU identity #2917.)
+**Credential store (#354 / #2811).**
+- *Structure* — `CredentialReader` / `CredentialWriter` / `CredentialManager` traits over pluggable backends (`ForgeVaultClient` Vault KV2, `PostgresCredentialManager` append-only encrypted `secrets` journal, env/file readers, `MemoryCredentialStore`), composed first-match by `ChainedCredentialReader`; KMS providers `Integrated` / `Transit` / `Multi` in `crates/kms-provider`.
+- *Behavior* — reads resolve first-match (env → file → backends); writes go to a single writer and are envelope-encrypted on the Postgres path; an optional one-time Vault→Postgres import seeds existing secrets.
+- *Limitation* — the production KEK still uses Vault/OpenBao Transit (open item O2).
 
-**Key assumptions and limitations.** PKI/cert issuance is still Vault and the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1, which now carries a phased removal plan in §3.6.4). The production KEK uses Transit (Vault/OpenBao) (open item O2). Node-token issuance and refresh are authorized by the machine's **verified hardware-rooted identity** (DPU BlueField IRoT, or host TPM EK), not by an mTLS client certificate; the current implementation still gates refresh on mTLS as a transitional step pending that tie-in (open item O4).
+**Certificate issuance (#2880).**
+- *Structure* — a *distinct* `CertificateProvider` trait, so PKI can diverge from credential storage; today only `ForgeVaultClient` (Vault PKI) implements it.
+- *Limitation* — the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1; phased removal plan in §3.6.4).
+
+**Node authentication (#355).**
+- *Structure / behavior* — JWT bearer tokens, additive to mTLS; issued at discovery / attestation / refresh and validated as the same SPIFFE principal as mTLS.
+- *Limitation* — issuance and refresh should be authorized by the machine's **verified hardware-rooted identity** (DPU BlueField IRoT, or host TPM EK), not by an mTLS client certificate; the current implementation still gates refresh on mTLS as a transitional step (open item O4).
+
+**DPU device identity (#2917).**
+- *Structure / behavior* — discovery triggers an out-of-band DPU-BMC Redfish SPDM IRoT fetch + server-side verification, yielding a hardware-rooted `machine_id`; trusted device-CA roots are seeded via the admin CLI.
 
 # 3. Design details
 
@@ -141,11 +156,10 @@ This document records the architecture and design for the Vault-elimination epic
 
 ### 3.2.1 Configuration data
 
-- `[secrets]`: `backends` (ordered read list of `postgres`/`vault`; env+file always tried ahead), `writer` (single target), `import_from` (one-time Vault import), `kms.providers` + `routing` (path-prefix → KEK id). (#354/#2811.)
-- `[dpu_device_attestation].mode`: `disabled` | `best_effort` | `required`. (#2917.)
-- `[node_auth]`: `enabled` (default false), `issuer`, `audience`, `token_ttl_sec` (≤ 86400). (#355.)
-- `[auth.trust]`: SPIFFE trust domain + machine base path (required when node-auth enabled).
-- On-disk: node-auth token (`0600`), client cert/key paths. Env: `CARBIDE_STATIC_CREDENTIAL_*`, `CARBIDE_CREDENTIAL_STORE`.
+- **Credential store (#354/#2811)** — `[secrets]`: `backends` (ordered read list of `postgres`/`vault`; env+file always tried ahead), `writer` (single target), `import_from` (one-time Vault import), `kms.providers` + `routing` (path-prefix → KEK id). Env: `CARBIDE_STATIC_CREDENTIAL_*`, `CARBIDE_CREDENTIAL_STORE`.
+- **Node authentication (#355)** — `[node_auth]`: `enabled` (default false), `issuer`, `audience`, `token_ttl_sec` (≤ 86400); `[auth.trust]`: SPIFFE trust domain + machine base path (required when node-auth enabled). On-disk: node-auth token (`0600`).
+- **Certificate issuance (#2880)** — on-disk client cert/key paths.
+- **DPU device identity (#2917)** — `[dpu_device_attestation].mode`: `disabled` | `best_effort` | `required`.
 
 ### 3.2.2 External interface and specification
 
@@ -180,7 +194,9 @@ This document records the architecture and design for the Vault-elimination epic
 
 ### 3.3.1 Functionality and behavior
 
-Credential read/write through the chain (#354/#2811); envelope encryption on the Postgres write path; node-token issuance/validation/refresh (#355); DPU IRoT fetch→verify→identity selection→binding (#2917); device-CA seeding (#2917).
+- **Credential store (#354/#2811)** — read/write through the chain; envelope encryption on the Postgres write path.
+- **Node authentication (#355)** — node-token issuance / validation / refresh.
+- **DPU device identity (#2917)** — IRoT fetch → verify → identity selection → binding; device-CA seeding.
 
 ### 3.3.2 Control flow
 
@@ -199,7 +215,8 @@ SPDM controller:   FetchMetadata → FetchCertificate → (BlueField) hand off a
 
 ### 3.3.3 Data flow
 
-Secret value → per-record DEK (AEAD, path as associated data) → ciphertext+nonce in `secrets`; DEK → KMS wrap → `encrypted_dek`+`kek_id`. IRoT cert chain: DPU BMC → api-core (PEM→DER) → chain verification against `dpu_device_ca_certs` → `machine_id` (hash of verified leaf) → `dpu_device_cert_status` binding.
+- **Credential store (#354/#2811)** — secret value → per-record DEK (AEAD, path as associated data) → ciphertext+nonce in `secrets`; DEK → KMS wrap → `encrypted_dek` + `kek_id`.
+- **DPU device identity (#2917)** — IRoT cert chain: DPU BMC → api-core (PEM→DER) → chain verification against `dpu_device_ca_certs` → `machine_id` (hash of verified leaf) → `dpu_device_cert_status` binding.
 
 **Sequence diagrams — node bootstrap and token refresh.**
 
@@ -211,7 +228,7 @@ sequenceDiagram
     participant F as Forge (api-core)
     participant HW as HW verifier (DPU IRoT / host TPM EK)
     participant CS as Credential store (ES256 signing key)
-    A->>F: DiscoverMachine / AttestQuote (mTLS)
+    A->>F: DiscoverMachine / AttestQuote (anonymous — no cert/token yet)
     F->>HW: Verify hardware identity
     HW-->>F: Verified machine_id (fail-closed in required mode)
     F->>CS: Load or create site ES256 signing key
@@ -246,7 +263,8 @@ sequenceDiagram
 
 ### 3.3.5 Logging and debugging
 
-No credential values or token contents are logged; which credential authenticated a request is logged at debug; device-identity verification outcome (verified machine_id, or soft-failure reason) is logged at info/warn.
+- **Credentials / tokens** — no credential values or token contents are logged; which credential authenticated a request is logged at debug.
+- **DPU device identity** — verification outcome (verified `machine_id`, or soft-failure reason) is logged at info/warn.
 
 ### 3.3.6 State machine
 
