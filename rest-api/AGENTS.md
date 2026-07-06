@@ -237,6 +237,15 @@ main patterns:
   endpoints are security-sensitive because they are mounted before auth
   middleware.
 
+- `FromDBModel` (we want to transition from NewX to this receiver) and `ToDBModel` for converting between APi and DB models
+- All API model attributes should be structured, we don't allow schemaless JSON exposure. JSON tags must be camel Case. All constants should be in Pascal Case.
+- Implementor should seek observe all existing endpoint routes to make the best decision for a new route. Naming the route and attributes correctly is critical, once published in a release tag it must use deprecation to  In general we follow REST best practices:
+  - Creating new objects should be done using POST
+  - Updates should be done using PATCH
+  - PUT is used only if the endpoint supports both creation or update
+  - Unless the resource has no unique identifier, PATCH, GET and DELETE routes must end with resource ID
+  - GET requests that return multiple objects must return pagination information in designated pagination header in response
+
 Keep handlers thin and reuse the common surfaces already in the tree:
 
 1. Start handlers with `common.SetupHandler`, defer the span end, check the
