@@ -702,14 +702,20 @@ pub async fn batch_allocate_instances(
     )
     .await?;
 
-    for mid in &machine_ids {
-        let dpa_search_config = DpaSearchConfig::default();
-        let dpa_interfaces =
-            db::dpa_interface::find_by_machine_id(&mut txn, *mid, dpa_search_config).await?;
-        let machine_snapshot = snapshot_map.get(mid).unwrap();
-        let mut machine_snapshot = machine_snapshot.clone();
-        machine_snapshot.dpa_interface_snapshots = dpa_interfaces;
-        snapshot_map.insert(*mid, machine_snapshot.clone());
+    // Attach each machine's DPA interfaces to its snapshot in-place, loaded
+    // with a single batched query rather than one query per machine. The ids
+    // are sourced from the snapshot map itself (not the request list, which may
+    // hold duplicates) so the query keys and the removal keys are the same
+    // deduplicated set; each map key is visited exactly once, so `remove` is
+    // safe here.
+    let dpa_search_config = DpaSearchConfig::default();
+    let snapshot_ids: Vec<MachineId> = snapshot_map.keys().copied().collect();
+    let mut dpa_interfaces_by_machine =
+        db::dpa_interface::find_by_machine_ids(&mut txn, &snapshot_ids, dpa_search_config).await?;
+    for (machine_id, snapshot) in snapshot_map.iter_mut() {
+        snapshot.dpa_interface_snapshots = dpa_interfaces_by_machine
+            .remove(machine_id)
+            .unwrap_or_default();
     }
 
     // Verify all snapshots were loaded and validate usability
