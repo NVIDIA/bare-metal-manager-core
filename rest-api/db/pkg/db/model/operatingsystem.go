@@ -446,6 +446,15 @@ type OperatingSystemFilterInput struct {
 	IsActive                 *bool
 	// IncludeDeleted includes soft-deleted records (used by inventory sync to detect deletions).
 	IncludeDeleted bool
+
+	// ProviderOSVisibleAtSiteIDs restricts provider-owned OS visibility when
+	// InfrastructureProviderID is set together with TenantIDs (tenant admin view).
+	// Only provider-owned OSes with at least one site association at one of these
+	// sites are included. If nil, no cross-ownership provider entries are shown
+	// alongside tenant entries (default). If set to an empty slice, no provider
+	// entries match. This field is ignored when InfrastructureProviderID is used
+	// without TenantIDs (provider-only view).
+	ProviderOSVisibleAtSiteIDs *[]uuid.UUID
 }
 
 var _ bun.BeforeAppendModelHook = (*OperatingSystem)(nil)
@@ -615,13 +624,39 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 		query = query.Where("os.org IN (?)", bun.In(filter.Orgs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "filter.org", filter.Orgs)
 	}
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
-	}
-	if filter.TenantIDs != nil {
+	hasTenants := len(filter.TenantIDs) > 0
+	hasProvider := filter.InfrastructureProviderID != nil
+	hasSiteScope := filter.ProviderOSVisibleAtSiteIDs != nil
+
+	switch {
+	case hasTenants && hasProvider && hasSiteScope:
+		// Tenant admin view: own tenant entries + provider entries at accessible sites.
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			q = q.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
+			if len(*filter.ProviderOSVisibleAtSiteIDs) > 0 {
+				q = q.WhereOr(
+					"(os.infrastructure_provider_id = ? AND EXISTS (SELECT 1 FROM operating_system_site_association WHERE operating_system_id = os.id AND deleted IS NULL AND site_id IN (?)))",
+					*filter.InfrastructureProviderID, bun.In(*filter.ProviderOSVisibleAtSiteIDs),
+				)
+			}
+			return q
+		})
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_with_provider_at_sites", filter.TenantIDs)
+	case hasTenants && hasProvider:
+		// Dual-role view: own tenant entries + own provider entries, no site restriction.
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs)).
+				WhereOr("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		})
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_or_provider", filter.TenantIDs)
+	case hasTenants:
 		query = query.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_id", filter.TenantIDs)
+	case hasProvider:
+		// Provider-only view: only provider-owned entries.
+		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
 	}
 	if filter.OsTypes != nil {
 		query = query.Where("os.type IN (?)", bun.In(filter.OsTypes))
