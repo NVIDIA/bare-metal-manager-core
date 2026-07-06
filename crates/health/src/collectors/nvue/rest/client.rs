@@ -841,6 +841,7 @@ mod tests {
         assert!(empty_temps.is_empty());
 
         let empty_leakage: LeakageEnvironmentResponse = serde_json::from_str("{}").unwrap();
+
         assert!(empty_leakage.is_empty());
 
         let empty_env: PlatformEnvironmentResponse = serde_json::from_str("{}").unwrap();

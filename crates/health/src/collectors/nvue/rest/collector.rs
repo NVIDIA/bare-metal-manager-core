@@ -140,21 +140,6 @@ fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
     }
 }
 
-/// Builds a switch-target health report with the current observation time.
-fn switch_report(
-    source: ReportSource,
-    successes: Vec<HealthReportSuccess>,
-    alerts: Vec<HealthReportAlert>,
-) -> HealthReport {
-    HealthReport {
-        source,
-        target: Some(HealthReportTarget::Switch),
-        observed_at: Some(chrono::Utc::now()),
-        successes,
-        alerts,
-    }
-}
-
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
     pub data_sink: Option<Arc<dyn DataSink>>,
@@ -547,28 +532,28 @@ impl NvueRestCollector {
 
     /// Emits reboot-reason metadata as an info metric.
     ///
-    /// The reason endpoint records context for a reboot decision but is not
-    /// itself a health condition, so it does not generate a health report.
+    /// `reason` is intentionally kept as the Prometheus grouping label because
+    /// the metric is not useful without it. `gentime` and `user` are excluded
+    /// from labels because they churn per event and can expose operator data.
     fn emit_reboot_reason_data(&self, reason: &RebootReasonResponse) {
+        let reason_text = reason.reason.as_deref().unwrap_or("unknown");
+        let gentime = reason.gentime.as_deref().unwrap_or("unknown");
+        let user = reason.user.as_deref().unwrap_or("unknown");
+
+        tracing::info!(
+            switch_id = %self.switch_id,
+            reason = reason_text,
+            gentime,
+            user,
+            "nvue_rest: collected system reboot reason"
+        );
+
         self.emit_metric(
             "reboot_reason_info",
             None,
             1.0,
             "info",
-            vec![
-                (
-                    Cow::Borrowed("reason"),
-                    reason.reason.as_deref().unwrap_or("unknown").to_string(),
-                ),
-                (
-                    Cow::Borrowed("gentime"),
-                    reason.gentime.as_deref().unwrap_or("unknown").to_string(),
-                ),
-                (
-                    Cow::Borrowed("user"),
-                    reason.user.as_deref().unwrap_or("unknown").to_string(),
-                ),
-            ],
+            vec![(Cow::Borrowed("reason"), reason_text.to_string())],
         );
     }
 
@@ -602,16 +587,18 @@ impl NvueRestCollector {
     /// top-level `null` means the switch did not provide leakage data, so the
     /// previous leakage state must not be cleared as healthy.
     fn emit_leakage_unavailable(&self) {
-        let report = switch_report(
-            ReportSource::NvueLeakage,
-            Vec::new(),
-            vec![HealthReportAlert {
+        let report = HealthReport {
+            source: ReportSource::NvueLeakage,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
                 probe_id: Probe::NvueLeakage,
                 target: None,
                 message: "NVUE leakage data is unavailable".to_string(),
                 classifications: vec![Classification::SensorFailure],
             }],
-        );
+        };
 
         self.emit_event(CollectorEvent::HealthReport(Arc::new(report)));
     }
@@ -657,7 +644,13 @@ impl NvueRestCollector {
             }
         }
 
-        switch_report(ReportSource::NvueLeakage, successes, alerts)
+        HealthReport {
+            source: ReportSource::NvueLeakage,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes,
+            alerts,
+        }
     }
 
     fn emit_event(&self, event: CollectorEvent) {
@@ -1315,7 +1308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reboot_reason_emits_info_metric_labels() {
+    fn test_reboot_reason_emits_reason_label_without_user_or_gentime() {
         let sink = Arc::new(CapturingSink::default());
         let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
         collector.data_sink = Some(sink.clone());
@@ -1331,12 +1324,6 @@ mod tests {
         let samples = sink.samples.lock().unwrap();
         let reports = sink.reports.lock().unwrap();
         let sample = samples.first().expect("reboot reason emits one sample");
-        let label_value = |label: &str| {
-            sample
-                .labels
-                .iter()
-                .find_map(|(key, value)| (key == label).then_some(value.as_str()))
-        };
 
         assert_eq!(samples.len(), 1);
         assert!(reports.is_empty());
@@ -1345,13 +1332,15 @@ mod tests {
         assert_eq!(sample.metric_type, "reboot_reason_info");
         assert_eq!(sample.unit, "info");
         assert_eq!(sample.value, 1.0);
-        assert_eq!(label_value("reason"), Some("package upgrade"));
-        assert_eq!(label_value("gentime"), Some("2026-07-05 12:34:56"));
-        assert_eq!(label_value("user"), Some("admin"));
+
+        assert_eq!(
+            sample.labels,
+            vec![(Cow::Borrowed("reason"), "package upgrade".to_string())]
+        );
     }
 
     #[test]
-    fn test_leakage_emits_metrics_and_switch_report() {
+    fn test_leakage_emits_metrics_and_health_report() {
         let sink = Arc::new(CapturingSink::default());
         let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
         collector.data_sink = Some(sink.clone());
