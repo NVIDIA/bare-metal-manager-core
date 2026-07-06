@@ -3827,9 +3827,9 @@ async fn check_fw_component_version(
                 return Ok(None);
             }
 
-            tracing::warn!(
+            tracing::debug!(
                 machine_id=%dpu_snapshot.id,
-                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
+                "{:#?} FW not yet at the expected version. Expected: {}, Current: {}",
                 component,
                 expected_version,
                 cur_version,
@@ -3839,14 +3839,14 @@ async fn check_fw_component_version(
             // This will cause continuous reboot of machine after first failure_retry_time is
             // passed.
             return Ok(Some(StateHandlerOutcome::wait(format!(
-                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
+                "{:#?} FW not yet at the expected version. Expected: {}, Current: {}",
                 component, expected_version, cur_version,
             ))));
         }
 
         tracing::info!(
             machine_id=%dpu_snapshot.id,
-            "{:#?} FW updated succesfully to {}",
+            "{:#?} FW updated successfully to {}",
             component,
             expected_version,
         );

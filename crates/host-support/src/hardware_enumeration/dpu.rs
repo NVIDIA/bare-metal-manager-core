@@ -134,7 +134,7 @@ pub fn wait_until_all_ports_available() {
         }
     }
 
-    debug!("lldp: Ports {:?} are read succesfully.", ports_read);
+    debug!("lldp: Ports {:?} are read successfully.", ports_read);
 }
 
 // LLDP was broken in multiple forge versions. It was fixed in HBN 2.1/ doca 2.6, as per
