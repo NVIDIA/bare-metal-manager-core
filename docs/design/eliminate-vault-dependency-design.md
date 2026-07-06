@@ -21,6 +21,7 @@
 | 2026-07-02 | Bill Minckler | Addressed review comment on §3.3.3: added sequence diagrams for the node bootstrap and token-refresh flows. |
 | 2026-07-06 | Bill Minckler | Corrected §1.3 constraint: DPU device-identity attestation depends on direct controller→DPU-BMC Redfish access (established at discovery), not on DPF — removed the incorrect DPF-targeting statement. |
 | 2026-07-06 | Bill Minckler | Expanded O1 (§3.6.4) into a phased plan to remove the unconditional Vault-client construction / hard startup dependency (decouple Vault-client build → optional provider type → non-Vault issuer → retire Vault PKI); §2 now points to it. |
+| 2026-07-06 | Bill Minckler | Reformatted §3.1 design-alternative options (a/b/c/…) into nested lists with the "Selected" rationale as a trailing note (no content change). |
 
 # 1. Introduction
 
@@ -104,9 +105,23 @@ This document records the architecture and design for the Vault-elimination epic
 
 ## 3.1 Design alternatives
 
-- **Credential storage.** (a) Vault-only (status quo); (b) PostgreSQL with a DB extension (e.g. pgcrypto) — operational burden, key handling in-DB; (c) PostgreSQL with application-layer envelope encryption and KMS-wrapped DEKs; (d) plain PostgreSQL on an encrypted disk/volume (LUKS/dm-crypt, cloud block-storage encryption, or Postgres TDE) — keeps credentials encrypted at rest with no application code changes. **Selected (c)** — it satisfies the #354 secure-if-stolen requirement across more threat models than (d): disk encryption protects only physically stolen or decommissioned media and leaves plaintext exposed to a live SQL-level dump, a compromised DB role/connection, and logical backups, with the key held by the OS/infra rather than outside the DB trust boundary and no per-record rotation. Disk encryption is nonetheless **recommended in addition** (defense-in-depth): operators should enable volume/disk encryption for the database and its backups regardless of the credential-storage mechanism.
-- **DPU identity acquisition.** (a) In-band — the DPU agent presents its device cert and signs a nonce during discovery (requires DPU-side DICE/signing integration); (b) out-of-band — the controller fetches the IRoT cert from the DPU BMC over Redfish SPDM. **Selected (b)** — no DPU agent change, reuses the existing SPDM controller fetch machinery, verification co-located in api-core with the host TPM EK path.
-- **Node authentication.** (a) Replace mTLS outright; (b) additive dual-support (JWT alongside mTLS). **Selected (b)** — same principal/RBAC, reversible migration. Both methods are accepted concurrently: during a rolling upgrade both must remain valid until every machine runs a JWT-capable version, and the two may coexist indefinitely. Retaining mTLS does not by itself remove Vault — fully eliminating Vault while continuing to issue client certificates still requires a non-Vault certificate issuer (see the certificate-issuance alternatives below, which evaluate the k8s `CertificateSigningRequest` API and cert-manager; open item O1 / #2880).
+- **Credential storage.**
+  - (a) Vault-only (status quo).
+  - (b) PostgreSQL with a DB extension (e.g. pgcrypto) — operational burden, key handling in-DB.
+  - (c) PostgreSQL with application-layer envelope encryption and KMS-wrapped DEKs.
+  - (d) Plain PostgreSQL on an encrypted disk/volume (LUKS/dm-crypt, cloud block-storage encryption, or Postgres TDE) — keeps credentials encrypted at rest with no application code changes.
+
+  **Selected (c)** — it satisfies the #354 secure-if-stolen requirement across more threat models than (d): disk encryption protects only physically stolen or decommissioned media and leaves plaintext exposed to a live SQL-level dump, a compromised DB role/connection, and logical backups, with the key held by the OS/infra rather than outside the DB trust boundary and no per-record rotation. Disk encryption is nonetheless **recommended in addition** (defense-in-depth): operators should enable volume/disk encryption for the database and its backups regardless of the credential-storage mechanism.
+- **DPU identity acquisition.**
+  - (a) In-band — the DPU agent presents its device cert and signs a nonce during discovery (requires DPU-side DICE/signing integration).
+  - (b) Out-of-band — the controller fetches the IRoT cert from the DPU BMC over Redfish SPDM.
+
+  **Selected (b)** — no DPU agent change, reuses the existing SPDM controller fetch machinery, verification co-located in api-core with the host TPM EK path.
+- **Node authentication.**
+  - (a) Replace mTLS outright.
+  - (b) Additive dual-support (JWT alongside mTLS).
+
+  **Selected (b)** — same principal/RBAC, reversible migration. Both methods are accepted concurrently: during a rolling upgrade both must remain valid until every machine runs a JWT-capable version, and the two may coexist indefinitely. Retaining mTLS does not by itself remove Vault — fully eliminating Vault while continuing to issue client certificates still requires a non-Vault certificate issuer (see the certificate-issuance alternatives below, which evaluate the k8s `CertificateSigningRequest` API and cert-manager; open item O1 / #2880).
 - **KMS (key-encryption-key custody).** Committed providers: *Integrated* (256-bit AES key from env/file/config; Vault-free but dev/test custody), *Transit* (Vault/OpenBao server-side wrap; production today, but Vault-dependent and requires a static Vault token — the k8s SA login flow is unsupported for Transit), and *Multi* (composes providers, enabling migration). `active` selects the write-time provider; `routing` maps path prefixes → `kek_id`. Production currently depends on Transit (**open item O2**). Non-Vault production candidates (each = a new `KmsBackend` impl + `ProviderConfig` variant; the trait only wraps/unwraps a 256-bit symmetric DEK, so additions are contained, and the opaque wrapped blob maps to the existing `EncryptedDek` the same way Transit does):
   - *Managed cloud KMS — AWS KMS / GCP Cloud KMS / Azure Key Vault (Keys).* Server-side wrap (Encrypt/Decrypt, GenerateDataKey, or wrapKey/unwrapKey), HSM-backed, managed rotation + native audit, and **workload-identity auth** (IRSA / GKE Workload Identity / Azure Managed Identity) — which also removes Transit's static-token limitation. Best fit for cloud deployments. (Azure Key Vault here is the managed cloud KMS, not HashiCorp Vault.)
   - *On-prem key managers — PKCS#11 HSM (AWS CloudHSM / Thales Luna / Entrust nShield via the `cryptoki` crate) or KMIP (Thales CipherTrust / Fortanix).* Strongest custody (key never leaves the HSM), FIPS/compliance; higher operational cost. Best fit for on-prem/regulated environments.
