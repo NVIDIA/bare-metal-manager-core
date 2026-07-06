@@ -26,7 +26,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -298,47 +297,37 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Validate org
-	ok, err := auth.ValidateOrgMembership(dbUser, org)
-	if !ok {
-		if err != nil {
-			logger.Error().Err(err).Msg("error validating org membership for User in request")
-		} else {
-			logger.Warn().Msg("could not validate org membership for user, access denied")
-		}
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-	}
-
-	// Validate role, only Tenant Admins are allowed to create OperatingSystem
-	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
+	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, csh.dbSession, org, dbUser, false, nil)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate request
 	// Bind request data to API model
 	apiRequest := model.APIOperatingSystemCreateRequest{}
-	err = c.Bind(&apiRequest)
+	err := c.Bind(&apiRequest)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error binding request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
-	// Validate the tenant for which this OperatingSystem is being created
-	tenant, err := common.GetTenantForOrg(ctx, nil, csh.dbSession, org)
-	if err != nil {
-		if err == common.ErrOrgTenantNotFound {
-			logger.Warn().Err(err).Msg("Org does not have a Tenant associated")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Org does not have a Tenant associated", nil)
-		}
-		logger.Error().Err(err).Msg("unable to retrieve tenant for org")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant for org", nil)
+
+	// Infer OS type from the provided source fields (ipxeScript -> iPXE,
+	// ipxeTemplateId -> Templated iPXE, otherwise Image).
+	osType := apiRequest.GetOperatingSystemType()
+
+	// Provider Admin is limited to iPXE Template-based OSes. When both roles
+	// allow the action, Provider Admin takes priority (provider-owned OS).
+	allowedByProvider := ip != nil && osType == cdbm.OperatingSystemTypeTemplatedIPXE
+	allowedByTenant := tenant != nil
+	if !allowedByProvider && !allowedByTenant {
+		logger.Warn().Msg("caller is not permitted to create this Operating System")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only create iPXE Template-based Operating Systems", nil)
 	}
 
-	// Default TenantID to org's Tenant when nil; validate when set
-	if apiRequest.TenantID == nil {
-		apiRequest.TenantID = cutil.GetPtr(tenant.ID.String())
-	} else if *apiRequest.TenantID != tenant.ID.String() {
+	// If the caller provided an explicit tenantId in the body (deprecated), validate
+	// it matches the org's tenant.
+	// TODO: tenantId as parameter is deprecated and will need to be removed by 2026-10-01.
+	if tenant != nil && apiRequest.TenantID != nil && *apiRequest.TenantID != tenant.ID.String() {
 		logger.Warn().Str("tenantId", *apiRequest.TenantID).Msg("TenantID in request does not match org's Tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "TenantID specified in request does not match org's Tenant", nil)
 	}
@@ -357,33 +346,26 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating user data in Operating System creation request", verr)
 	}
 
-	// check for name uniqueness for the tenant, ie, tenant cannot have another os with same name
+	// Check for name uniqueness within the owner's scope (provider or tenant).
 	// TODO consider doing this with an advisory lock for correctness
 	osDAO := cdbm.NewOperatingSystemDAO(csh.dbSession)
-	oss, tot, err := osDAO.GetAll(
-		ctx,
-		nil,
-		cdbm.OperatingSystemFilterInput{
-			TenantIDs: []uuid.UUID{tenant.ID},
-			Names:     []string{apiRequest.Name},
-		},
-		cdbp.PageInput{},
-		nil,
-	)
+	uniquenessFilter := cdbm.OperatingSystemFilterInput{Names: []string{apiRequest.Name}}
+	if allowedByProvider {
+		uniquenessFilter.InfrastructureProviderID = &ip.ID
+	} else {
+		uniquenessFilter.TenantIDs = []uuid.UUID{tenant.ID}
+	}
+	oss, tot, err := osDAO.GetAll(ctx, nil, uniquenessFilter, cdbp.PageInput{}, nil)
 	if err != nil {
-		logger.Error().Err(err).Msg("db error checking for name uniqueness of tenant os")
+		logger.Error().Err(err).Msg("db error checking for name uniqueness of os")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create OperatingSystem due to DB error", nil)
 	}
 	if tot > 0 {
-		logger.Warn().Str("tenantId", tenant.ID.String()).Str("name", apiRequest.Name).Msg("Operating System with same name already exists for tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Another Operating System with specified name already exists for Tenant", validation.Errors{
+		logger.Warn().Str("name", apiRequest.Name).Msg("Operating System with same name already exists")
+		return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Another Operating System with specified name already exists", validation.Errors{
 			"id": errors.New(oss[0].ID.String()),
 		})
 	}
-
-	// Infer OS type from the provided source fields (ipxeScript -> iPXE,
-	// ipxeTemplateId -> Templated iPXE, otherwise Image).
-	osType := apiRequest.GetOperatingSystemType()
 
 	// Set the phoneHomeEnabled if provided in request
 	phoneHomeEnabled := false
@@ -391,65 +373,93 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		phoneHomeEnabled = *apiRequest.PhoneHomeEnabled
 	}
 
-	// Verify or validate site
+	// Resolve and validate target sites. Site ownership differs by caller:
+	// provider-owned OSes (Templated iPXE only) target the provider's own sites;
+	// tenant-owned OSes target sites the tenant has access to.
 	tsDAO := cdbm.NewTenantSiteDAO(csh.dbSession)
 	rdbst := []cdbm.Site{}
 	sttsmap := map[uuid.UUID]*cdbm.TenantSite{}
 	dbossd := []cdbm.StatusDetail{}
 
-	// Get all TenantSite records for the Tenant
-	tss, _, err := tsDAO.GetAll(
-		ctx,
-		nil,
-		cdbm.TenantSiteFilterInput{
-			TenantIDs: []uuid.UUID{tenant.ID},
-		},
-		cdbp.PageInput{
-			Limit: cutil.GetPtr(cdbp.TotalLimit),
-		},
-		nil,
-	)
-	if err != nil {
-		logger.Error().Err(err).Msg("db error retrieving TenantSite records for Tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site associations for Tenant, DB error", nil)
-	}
-	for _, ts := range tss {
-		cts := ts
-		sttsmap[ts.SiteID] = &cts
-	}
-
-	// Validate the site for which this image based Operating System is being created
-	for _, stID := range apiRequest.SiteIDs {
-		site, serr := common.GetSiteFromIDString(ctx, nil, stID, csh.dbSession)
-		if serr != nil {
-			if serr == common.ErrInvalidID {
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, invalid Site ID: %s", stID), nil)
+	if allowedByProvider {
+		// Provider-owned Templated iPXE: sites are the explicitly requested ones,
+		// validated to be Registered and to belong to the provider.
+		for _, stID := range apiRequest.SiteIDs {
+			site, serr := common.GetSiteFromIDString(ctx, nil, stID, csh.dbSession)
+			if serr != nil {
+				if serr == common.ErrInvalidID {
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, invalid Site ID: %s", stID), nil)
+				}
+				if serr == cdb.ErrDoesNotExist {
+					return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Failed to create Operating System, could not find Site with ID: %s ", stID), nil)
+				}
+				logger.Warn().Err(serr).Str("Site ID", stID).Msg("error retrieving Site from DB by ID")
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, could not retrieve Site with ID: %s, DB error", stID), nil)
 			}
-			if serr == cdb.ErrDoesNotExist {
-				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Failed to create Operating System, could not find Site with ID: %s ", stID), nil)
+			if site.Status != cdbm.SiteStatusRegistered {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, Site: %s specified in request is not in Registered state", site.ID.String()), nil)
 			}
-			logger.Warn().Err(serr).Str("Site ID", stID).Msg("error retrieving Site from DB by ID")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, could not retrieve Site with ID: %s, DB error", stID), nil)
+			if site.InfrastructureProviderID != ip.ID {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Unable to associate Operating System with Site: %s, Site does not belong to provider", stID), nil)
+			}
+			rdbst = append(rdbst, *site)
+		}
+	} else {
+		// Tenant-owned: validate requested sites against the tenant's site access.
+		// Get all TenantSite records for the Tenant
+		tss, _, terr := tsDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.TenantSiteFilterInput{
+				TenantIDs: []uuid.UUID{tenant.ID},
+			},
+			cdbp.PageInput{
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
+			},
+			nil,
+		)
+		if terr != nil {
+			logger.Error().Err(terr).Msg("db error retrieving TenantSite records for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site associations for Tenant, DB error", nil)
+		}
+		for _, ts := range tss {
+			cts := ts
+			sttsmap[ts.SiteID] = &cts
 		}
 
-		if site.Status != cdbm.SiteStatusRegistered {
-			logger.Warn().Msg(fmt.Sprintf("Unable to associate Operating System to Site: %s. Site is not in Registered state", site.ID.String()))
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, Site: %s specified in request is not in Registered state", site.ID.String()), nil)
-		}
+		// Validate the site for which this image based Operating System is being created
+		for _, stID := range apiRequest.SiteIDs {
+			site, serr := common.GetSiteFromIDString(ctx, nil, stID, csh.dbSession)
+			if serr != nil {
+				if serr == common.ErrInvalidID {
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, invalid Site ID: %s", stID), nil)
+				}
+				if serr == cdb.ErrDoesNotExist {
+					return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Failed to create Operating System, could not find Site with ID: %s ", stID), nil)
+				}
+				logger.Warn().Err(serr).Str("Site ID", stID).Msg("error retrieving Site from DB by ID")
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, could not retrieve Site with ID: %s, DB error", stID), nil)
+			}
 
-		// Validate the TenantSite exists for current tenant and this site
-		_, ok := sttsmap[site.ID]
-		if !ok {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Unable to associate Operating System with Site: %s, Tenant does not have access to Site", stID), nil)
-		}
+			if site.Status != cdbm.SiteStatusRegistered {
+				logger.Warn().Msg(fmt.Sprintf("Unable to associate Operating System to Site: %s. Site is not in Registered state", site.ID.String()))
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create Operating System, Site: %s specified in request is not in Registered state", site.ID.String()), nil)
+			}
 
-		// Validate the Site has the ImageBasedOperatingSystem capability enabled for Image based Operating Systems
-		if osType == cdbm.OperatingSystemTypeImage && (site.Config == nil || !site.Config.ImageBasedOperatingSystem) {
-			logger.Warn().Str("siteId", stID).Msg("Image based Operating System is not supported for Site, ImageBasedOperatingSystem capability is not enabled")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Creation of Image based Operating Systems is not supported. Site must have ImageBasedOperatingSystem capability enabled.", nil)
-		}
+			// Validate the TenantSite exists for current tenant and this site
+			_, ok := sttsmap[site.ID]
+			if !ok {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Unable to associate Operating System with Site: %s, Tenant does not have access to Site", stID), nil)
+			}
 
-		rdbst = append(rdbst, *site)
+			// Validate the Site has the ImageBasedOperatingSystem capability enabled for Image based Operating Systems
+			if osType == cdbm.OperatingSystemTypeImage && (site.Config == nil || !site.Config.ImageBasedOperatingSystem) {
+				logger.Warn().Str("siteId", stID).Msg("Image based Operating System is not supported for Site, ImageBasedOperatingSystem capability is not enabled")
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Creation of Image based Operating Systems is not supported. Site must have ImageBasedOperatingSystem capability enabled.", nil)
+			}
+
+			rdbst = append(rdbst, *site)
+		}
 	}
 
 	// A Templated iPXE Operating System is rendered on-Site from its iPXE template,
@@ -476,6 +486,18 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		osStatusMessage = "received Operating System creation request, syncing"
 	}
 
+	// Assign ownership: provider-owned OSes carry InfrastructureProviderID
+	// (tenant_id=nil); tenant-owned OSes carry TenantID
+	// (infrastructure_provider_id=nil). This aligns with the sync model where
+	// OSes from nico-core are provider-owned.
+	var ownerTenantID *uuid.UUID
+	var ownerProviderID *uuid.UUID
+	if allowedByProvider {
+		ownerProviderID = &ip.ID
+	} else {
+		ownerTenantID = &tenant.ID
+	}
+
 	// Values needed after the transaction closure
 	var os *cdbm.OperatingSystem
 	var dbossa []cdbm.OperatingSystemSiteAssociation
@@ -487,28 +509,29 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 	err = cdb.WithTx(ctx, csh.dbSession, func(tx *cdb.Tx) error {
 		// Create the db record for Operating System
 		osInput := cdbm.OperatingSystemCreateInput{
-			Name:                   apiRequest.Name,
-			Description:            apiRequest.Description,
-			Org:                    org,
-			TenantID:               &tenant.ID,
-			OsType:                 osType,
-			ImageURL:               apiRequest.ImageURL,
-			ImageSHA:               apiRequest.ImageSHA,
-			ImageAuthType:          apiRequest.ImageAuthType,
-			ImageAuthToken:         apiRequest.ImageAuthToken,
-			ImageDisk:              apiRequest.ImageDisk,
-			RootFsId:               apiRequest.RootFsID,
-			RootFsLabel:            apiRequest.RootFsLabel,
-			IpxeScript:             apiRequest.IpxeScript,
-			IpxeTemplateId:         apiRequest.IpxeTemplateId,
-			IpxeTemplateParameters: apiRequest.IpxeTemplateParameters.ToDBModel(),
-			IpxeTemplateArtifacts:  apiRequest.IpxeTemplateArtifacts.ToDBModel(),
-			UserData:               apiRequest.UserData,
-			AllowOverride:          apiRequest.AllowOverride,
-			EnableBlockStorage:     apiRequest.EnableBlockStorage,
-			PhoneHomeEnabled:       phoneHomeEnabled,
-			Status:                 osStatus,
-			CreatedBy:              dbUser.ID,
+			Name:                     apiRequest.Name,
+			Description:              apiRequest.Description,
+			Org:                      org,
+			TenantID:                 ownerTenantID,
+			InfrastructureProviderID: ownerProviderID,
+			OsType:                   osType,
+			ImageURL:                 apiRequest.ImageURL,
+			ImageSHA:                 apiRequest.ImageSHA,
+			ImageAuthType:            apiRequest.ImageAuthType,
+			ImageAuthToken:           apiRequest.ImageAuthToken,
+			ImageDisk:                apiRequest.ImageDisk,
+			RootFsId:                 apiRequest.RootFsID,
+			RootFsLabel:              apiRequest.RootFsLabel,
+			IpxeScript:               apiRequest.IpxeScript,
+			IpxeTemplateId:           apiRequest.IpxeTemplateId,
+			IpxeTemplateParameters:   apiRequest.IpxeTemplateParameters.ToDBModel(),
+			IpxeTemplateArtifacts:    apiRequest.IpxeTemplateArtifacts.ToDBModel(),
+			UserData:                 apiRequest.UserData,
+			AllowOverride:            apiRequest.AllowOverride,
+			EnableBlockStorage:       apiRequest.EnableBlockStorage,
+			PhoneHomeEnabled:         phoneHomeEnabled,
+			Status:                   osStatus,
+			CreatedBy:                dbUser.ID,
 		}
 		createdOs, derr := osDAO.Create(ctx, tx, osInput)
 		if derr != nil {
@@ -767,7 +790,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, false, false)
+	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -1056,7 +1079,7 @@ func (gsh GetOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, false, false)
+	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, false, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -1258,22 +1281,9 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Validate org
-	ok, err := auth.ValidateOrgMembership(dbUser, org)
-	if !ok {
-		if err != nil {
-			logger.Error().Err(err).Msg("error validating org membership for User in request")
-		} else {
-			logger.Warn().Msg("could not validate org membership for user, access denied")
-		}
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-	}
-
-	// Validate role, only Tenant Admins are allowed to update OperatingSystem
-	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
+	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, ush.dbSession, org, dbUser, false, nil)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Get os ID from URL param
@@ -1322,41 +1332,45 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating user data in Operating System creation request", verr)
 	}
 
-	// Validate the tenant for which this OperatingSystem is being updated
-	tenant, err := common.GetTenantForOrg(ctx, nil, ush.dbSession, org)
-	if err != nil {
-		if err == common.ErrOrgTenantNotFound {
-			logger.Warn().Err(err).Msg("Org does not have a Tenant associated")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Org does not have a Tenant associated", nil)
+	// Enforce ownership: both roles are evaluated independently so a dual-role
+	// caller is permitted if either role authorizes the operation.
+	ownedByTenant := tenant != nil && os.TenantID != nil && *os.TenantID == tenant.ID && os.InfrastructureProviderID == nil
+	ownedByProvider := false
+	if ip != nil && os.InfrastructureProviderID != nil {
+		if *os.InfrastructureProviderID != ip.ID {
+			logger.Warn().Msg("provider admin cannot update operating system owned by a different provider")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only update Operating Systems owned by their own provider", nil)
 		}
-		logger.Error().Err(err).Msg("unable to retrieve tenant for org")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant for org", nil)
+		ownedByProvider = true
+	}
+	if !ownedByProvider && !ownedByTenant {
+		if ip != nil && tenant == nil {
+			logger.Warn().Msg("provider admin cannot update tenant-owned operating system")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only update provider-owned Operating Systems", nil)
+		}
+		if tenant != nil && ip == nil {
+			logger.Warn().Msg("tenant admin cannot update provider-owned operating system")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant Admin can only update their own Operating Systems", nil)
+		}
+		logger.Warn().Msg("user does not have permission to update this operating system")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Operating System does not belong to your tenant or infrastructure provider", nil)
 	}
 
-	// verify tenant matches
-	if os.TenantID == nil || tenant.ID != *os.TenantID {
-		logger.Warn().Msg("tenant in os does not belong to tenant in org")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Tenant for OperatingSystem in request does not match tenant in org", nil)
-	}
-
-	// check for name uniqueness for the tenant, ie, tenant cannot have another os with same name
+	// Check for name uniqueness within the owner's scope (provider or tenant).
 	if apiRequest.Name != nil && *apiRequest.Name != os.Name {
-		oss, tot, serr := osDAO.GetAll(
-			ctx,
-			nil,
-			cdbm.OperatingSystemFilterInput{
-				TenantIDs: []uuid.UUID{tenant.ID},
-				Names:     []string{*apiRequest.Name},
-			},
-			cdbp.PageInput{},
-			nil,
-		)
+		uniquenessFilter := cdbm.OperatingSystemFilterInput{Names: []string{*apiRequest.Name}}
+		if os.InfrastructureProviderID != nil {
+			uniquenessFilter.InfrastructureProviderID = os.InfrastructureProviderID
+		} else {
+			uniquenessFilter.TenantIDs = []uuid.UUID{tenant.ID}
+		}
+		oss, tot, serr := osDAO.GetAll(ctx, nil, uniquenessFilter, cdbp.PageInput{}, nil)
 		if serr != nil {
-			logger.Error().Err(serr).Msg("db error checking for name uniqueness of tenant os")
+			logger.Error().Err(serr).Msg("db error checking for name uniqueness of os")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update OperatingSystem due to DB error", nil)
 		}
 		if tot > 0 {
-			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Another Operating System with specified name already exists for Tenant", validation.Errors{
+			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Another Operating System with specified name already exists", validation.Errors{
 				"id": errors.New(oss[0].ID.String()),
 			})
 		}
@@ -1765,22 +1779,9 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Validate org
-	ok, err := auth.ValidateOrgMembership(dbUser, org)
-	if !ok {
-		if err != nil {
-			logger.Error().Err(err).Msg("error validating org membership for User in request")
-		} else {
-			logger.Warn().Msg("could not validate org membership for user, access denied")
-		}
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-	}
-
-	// Validate role, only Tenant Admins are allowed to delete OperatingSystem
-	ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-	if !ok {
-		logger.Warn().Msg("user does not have Tenant Admin role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
+	ip, tenant, apiError := common.IsProviderOrTenant(ctx, logger, dsh.dbSession, org, dbUser, false, nil)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Get operating system ID from URL param
@@ -1794,17 +1795,6 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Operating System ID in URL", nil)
 	}
 
-	// Validate the tenant for which this OperatingSystem is being updated
-	tenant, err := common.GetTenantForOrg(ctx, nil, dsh.dbSession, org)
-	if err != nil {
-		if err == common.ErrOrgTenantNotFound {
-			logger.Warn().Err(err).Msg("Org does not have a Tenant associated")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Org does not have a Tenant associated", nil)
-		}
-		logger.Error().Err(err).Msg("unable to retrieve tenant for org")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant for org", nil)
-	}
-
 	// Check that operating system exists
 	osDAO := cdbm.NewOperatingSystemDAO(dsh.dbSession)
 	os, err := osDAO.GetByID(ctx, nil, osID, nil)
@@ -1816,10 +1806,28 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Could not retrieve Operating System to delete", nil)
 	}
 
-	// verify tenant matches
-	if os.TenantID == nil || tenant.ID != *os.TenantID {
-		logger.Warn().Msg("tenant in os does not belong to tenant in org")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Tenant for Operating System in request does not match tenant in org", nil)
+	// Enforce ownership: both roles are evaluated independently so a dual-role
+	// caller is permitted if either role authorizes the operation.
+	ownedByTenant := tenant != nil && os.TenantID != nil && *os.TenantID == tenant.ID && os.InfrastructureProviderID == nil
+	ownedByProvider := false
+	if ip != nil && os.InfrastructureProviderID != nil {
+		if *os.InfrastructureProviderID != ip.ID {
+			logger.Warn().Msg("provider admin cannot delete operating system owned by a different provider")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only delete Operating Systems owned by their own provider", nil)
+		}
+		ownedByProvider = true
+	}
+	if !ownedByProvider && !ownedByTenant {
+		if ip != nil && tenant == nil {
+			logger.Warn().Msg("provider admin cannot delete tenant-owned operating system")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only delete provider-owned Operating Systems", nil)
+		}
+		if tenant != nil && ip == nil {
+			logger.Warn().Msg("tenant admin cannot delete provider-owned operating system")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant Admin can only delete their own Operating Systems", nil)
+		}
+		logger.Warn().Msg("user does not have permission to delete this operating system")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Operating System does not belong to your tenant or infrastructure provider", nil)
 	}
 
 	// Verify if tenant associated with Site in case of Image based OS
@@ -1859,7 +1867,11 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 	// verify no instances are using the os
 	isDAO := cdbm.NewInstanceDAO(dsh.dbSession)
 
-	instances, _, err := isDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, OperatingSystemIDs: []uuid.UUID{os.ID}}, paginator.PageInput{}, nil)
+	instanceFilter := cdbm.InstanceFilterInput{OperatingSystemIDs: []uuid.UUID{os.ID}}
+	if tenant != nil {
+		instanceFilter.TenantIDs = []uuid.UUID{tenant.ID}
+	}
+	instances, _, err := isDAO.GetAll(ctx, nil, instanceFilter, paginator.PageInput{}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Instances for Operating System from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instances for deleting operatingsystem", nil)

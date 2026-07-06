@@ -8680,13 +8680,12 @@ paths:
       description: |-
         Create an Operating System for the org.
 
-        Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
+        Ownership is derived from the caller's role:
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        - Tenant admin (`TENANT_ADMIN`): creates a Tenant-owned Operating System of any type (Image, iPXE, or Templated iPXE).
+        - Provider admin (`PROVIDER_ADMIN`): may only create Provider-owned Operating Systems of type `Templated iPXE`.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
-
-        Only Tenants are allowed to create Operating System for MVP.
+        The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
       requestBody:
         content:
           application/json:
