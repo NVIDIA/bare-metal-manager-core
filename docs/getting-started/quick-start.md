@@ -77,16 +77,15 @@ Everything in this step must be done **before** running `setup.sh`. Skipping any
 ### 3a. Set Required Environment Variables
 
 ```bash
-export KUBECONFIG=/path/to/kubeconfig          # your cluster kubeconfig
-export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>  # your registry pull credential
+export KUBECONFIG=/path/to/kubeconfig                 # cluster kubeconfig
+export REGISTRY_PULL_USERNAME=<registry-user>         # registry username
+export REGISTRY_PULL_SECRET=<registry-user-pass>      # registry username password
 export NICO_IMAGE_REGISTRY=my-registry.example.com/nico  # base registry for all NICo images
-export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>  # e.g. v2025.12.30-rc1
+export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>      # e.g. v2025.12.30-rc1
 export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # e.g. v1.0.4
 ```
 
 `NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup.
-
-Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
