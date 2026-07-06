@@ -15,26 +15,18 @@
  * limitations under the License.
  */
 
-mod create;
-mod set_virtualizer;
-mod show;
+pub mod args;
+pub mod cmd;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowVpc;
-pub use show::cmd::show;
+pub use args::Args;
 
-#[cfg(test)]
-mod tests;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-use clap::Parser;
-
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Create VPC")]
-    Create(create::Args),
-    #[clap(about = "Display VPC information")]
-    Show(show::Args),
-    SetVirtualizer(set_virtualizer::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        ctx.assert_cloud_unsafe_op_message()?;
+        cmd::create(self, ctx.config.format, &ctx.api_client).await
+    }
 }

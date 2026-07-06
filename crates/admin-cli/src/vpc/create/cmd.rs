@@ -15,26 +15,29 @@
  * limitations under the License.
  */
 
-mod create;
-mod set_virtualizer;
-mod show;
+use ::rpc::admin_cli::output::OutputFormat;
 
-// Cross-module re-exports for jump module
-pub use show::args::Args as ShowVpc;
-pub use show::cmd::show;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-#[cfg(test)]
-mod tests;
+pub async fn create(
+    args: Args,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let vpc = api_client.0.create_vpc(args).await?;
 
-use clap::Parser;
+    match output_format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&vpc)?),
+        OutputFormat::AsciiTable => {
+            println!(
+                "{}",
+                crate::vpc::show::cmd::convert_vpc_to_nice_format(&vpc)?
+            );
+        }
+        _ => println!("{}", serde_yaml::to_string(&vpc)?),
+    }
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Create VPC")]
-    Create(create::Args),
-    #[clap(about = "Display VPC information")]
-    Show(show::Args),
-    SetVirtualizer(set_virtualizer::Args),
+    Ok(())
 }
