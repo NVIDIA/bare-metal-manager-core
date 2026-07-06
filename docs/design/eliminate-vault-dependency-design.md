@@ -30,6 +30,7 @@
 | 2026-07-06 | Bill Minckler | Annotated the dangling references to the DPU device-attestation config guide (§1.6, §3.4): it ships with the #2917 feature and is not present in this branch. |
 | 2026-07-06 | Bill Minckler | Reworded the DPU identity work from "attestation" to "identity verification" where it described cert-chain identity derivation, to avoid implying full measured-boot/quote attestation (§1.3, §1.6, §3.4). Kept genuine attestation references (AttestQuote, the SPDM/NRAS FSM, the [dpu_device_attestation] config key). |
 | 2026-07-06 | Bill Minckler | Reframed §2 / §1.1 so DPU device identity (#2917) and the host TPM EK are the hardware-rooted identity anchor *under* Node authentication (#355), and stated explicitly that the device-identity work exists solely to enable the move to JWT (not a standalone feature; GitHub issue hierarchy unchanged). |
+| 2026-07-06 | Bill Minckler | Rewrote §1–§3 to describe the epic's **end state**: removed transitional (mTLS-gated refresh), current-code, and unmerged-branch language. The current state of the code now lives in the status doc (`eliminate-vault-dependency.md`). |
 
 # 1. Introduction
 
@@ -78,7 +79,7 @@ This document records the architecture and design for the Vault-elimination epic
 | :---- | :---- |
 | Design note: Eliminate Dependency on Vault (overview / open items) | `docs/design/eliminate-vault-dependency.md` |
 | Epic #195 and sub-tasks #353/#354/#355/#357/#1837/#1852/#2811/#2880/#2917 | GitHub NVIDIA/infra-controller |
-| Config guide: DPU device-identity verification (ships with #2917; not in this branch) | `docs/configuration/dpu_device_attestation.md` |
+| Config guide: DPU device-identity verification (#2917) | `docs/configuration/dpu_device_attestation.md` |
 
 # 2. Architectural details
 
@@ -99,7 +100,7 @@ This document records the architecture and design for the Vault-elimination epic
         ▼
    KMS provider (Integrated | Transit | Multi)  ── Transit = Vault/OpenBao [open O2]
 
- Node auth:  Discover/AttestQuote/RefreshNodeToken → ES256 JWT, authorized by verified HW identity (transitional: mTLS)
+ Node auth:  Discover/AttestQuote/RefreshNodeToken → ES256 JWT, authorized by verified HW identity (DPU IRoT / host TPM EK)
  DPU identity: discover → DPU BMC Redfish SPDM IRoT CertChain → verify → machine_id
 ```
 
@@ -107,19 +108,19 @@ The architecture breaks into four subsystems; each is summarized here — struct
 
 **Credential store (#354 / #2811).**
 - *Structure* — `CredentialReader` / `CredentialWriter` / `CredentialManager` traits over pluggable backends (`ForgeVaultClient` Vault KV2, `PostgresCredentialManager` append-only encrypted `secrets` journal, env/file readers, `MemoryCredentialStore`), composed first-match by `ChainedCredentialReader`; KMS providers `Integrated` / `Transit` / `Multi` in `crates/kms-provider`.
-- *Behavior* — reads resolve first-match (env → file → backends); writes go to a single writer and are envelope-encrypted on the Postgres path; an optional one-time Vault→Postgres import seeds existing secrets.
-- *Limitation* — the production KEK still uses Vault/OpenBao Transit (open item O2).
+- *Behavior* — reads resolve first-match (env → file → backends); writes go to a single writer and are envelope-encrypted on the Postgres path.
+- *Key custody* — the production KEK is held by a non-Vault KMS provider, so the credential store has no residual Vault dependency (roadmap: O2).
 
 **Certificate issuance (#2880).**
-- *Structure* — a *distinct* `CertificateProvider` trait, so PKI can diverge from credential storage; today only `ForgeVaultClient` (Vault PKI) implements it.
-- *Limitation* — the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1; phased removal plan in §3.6.4).
+- *Structure* — a *distinct* `CertificateProvider` trait, so PKI can diverge from credential storage; the provider is pluggable and optional.
+- *End state* — PKI is served by a **non-Vault** issuer, or removed entirely under JWT-only node auth (see §3.1); either way the control plane starts and runs without Vault (roadmap: O1 / #2880).
 
 **Node authentication (#355) — the path off client certs / mTLS.**
-- *Structure / behavior* — JWT bearer tokens, additive to mTLS; issued at discovery / attestation / refresh and validated as the same SPIFFE principal as mTLS.
-- *Hardware-rooted identity anchor* — the identity that authorizes token issuance/refresh comes from verified hardware, not an mTLS client cert. In this epic the device-identity work exists **solely to provide this anchor** — i.e., to enable the move to JWT — not as a standalone feature:
+- *Structure / behavior* — machines authenticate with **ES256 JWT bearer tokens**, issued at discovery/attestation and refreshed before expiry, carrying the SPIFFE machine identity as the RBAC principal.
+- *Authorization* — token issuance and refresh are authorized by the machine's **verified hardware-rooted identity**, not by an mTLS client certificate, so a stolen token cannot be refreshed indefinitely (roadmap: O4).
+- *Hardware-rooted identity anchor* — the device-identity work exists **solely to provide this anchor** (to enable JWT-based node auth), not as a standalone feature:
   - **DPU BlueField IRoT (#2917)** — discovery triggers an out-of-band DPU-BMC Redfish SPDM IRoT fetch + server-side cert-chain verification, yielding a hardware-rooted `machine_id`; trusted device-CA roots are seeded via the admin CLI.
   - **Host TPM EK** — the analogous host path (`tpm-ca`).
-- *Limitation* — wiring that verified hardware identity to authorize JWT issuance/refresh, replacing the transitional mTLS gate, is open item O4; only then does node auth fully drop the client-cert dependency.
 
 # 3. Design details
 
@@ -141,18 +142,18 @@ The architecture breaks into four subsystems; each is summarized here — struct
   - (a) Replace mTLS outright.
   - (b) Additive dual-support (JWT alongside mTLS).
 
-  **Selected (b)** — same principal/RBAC, reversible migration. Both methods are accepted concurrently: during a rolling upgrade both must remain valid until every machine runs a JWT-capable version, and the two may coexist indefinitely. Retaining mTLS does not by itself remove Vault, but there are two routes to Vault-free node auth:
-  1. **Keep issuing client certificates** from a **non-Vault certificate issuer** (the certificate-issuance alternatives below evaluate the k8s `CertificateSigningRequest` API and cert-manager; O1 / #2880).
-  2. **Drop client-cert issuance and go JWT-only.** A code audit (branch `remove-vault-dep-design`) confirms the issued machine certs are used *solely* as an mTLS auth/identity mechanism against the control-plane gRPC API — no data-plane / agent-to-agent mTLS, no cert forwarding, no other SPIFFE-from-cert authorization — so nothing outside control-plane auth would break. It is **not**, however, a pure config flip on the current branch: (i) no JWT/bearer auth path exists yet (the `Authorization` handling is a stub and `Principal::JWT` is commented out; node-auth #355 lives on the `agent-jwt` branch, not here); (ii) three handlers derive the machine id from the client cert — `renew_machine_certificate`, `sign_machine_identity` (the tenant JWT-SVID feature), and phone-home — and would need to take identity from the verified token instead; (iii) bootstrap endpoints (`DiscoverMachine` / `AttestQuote` / `Version`) are already anonymous, so enrollment does not need a pre-existing cert. So JWT-only is architecturally feasible and needs **no non-Vault issuer**, but it depends on the O4 auth work above, not a flag.
-- **KMS (key-encryption-key custody).** Committed providers: *Integrated* (256-bit AES key from env/file/config; Vault-free but dev/test custody), *Transit* (Vault/OpenBao server-side wrap; production today, but Vault-dependent and requires a static Vault token — the k8s SA login flow is unsupported for Transit), and *Multi* (composes providers, enabling migration). `active` selects the write-time provider; `routing` maps path prefixes → `kek_id`. Production currently depends on Transit (**open item O2**). Non-Vault production candidates (each = a new `KmsBackend` impl + `ProviderConfig` variant; the trait only wraps/unwraps a 256-bit symmetric DEK, so additions are contained, and the opaque wrapped blob maps to the existing `EncryptedDek` the same way Transit does):
+  **Selected (b)** — same SPIFFE principal / RBAC, and a reversible rollout (both methods accepted concurrently until every machine is JWT-capable). The end state is JWT authorized by verified hardware identity; the residual client-cert / mTLS dependency is then eliminated by one of two routes, decided under O1 / #2880:
+  1. **Keep issuing client certificates** from a **non-Vault certificate issuer** (see the certificate-issuance alternatives below).
+  2. **No client-cert issuance (JWT-only).** The issued machine certs back only control-plane mTLS auth/identity — nothing else consumes them — so once machine identity is sourced from the verified token, certificate issuance can be disabled entirely, with no non-Vault issuer required.
+- **KMS (key-encryption-key custody).** Providers: *Integrated* (256-bit AES key from env/file/config; Vault-free but dev/test custody), *Transit* (Vault/OpenBao server-side wrap — Vault-dependent, an interim option only; requires a static Vault token — the k8s SA login flow is unsupported for Transit), and *Multi* (composes providers, enabling migration). `active` selects the write-time provider; `routing` maps path prefixes → `kek_id`. The end state uses a **non-Vault production KMS** (roadmap: O2). Non-Vault production candidates (each = a new `KmsBackend` impl + `ProviderConfig` variant; the trait only wraps/unwraps a 256-bit symmetric DEK, so additions are contained, and the opaque wrapped blob maps to the existing `EncryptedDek` the same way Transit does):
   - *Managed cloud KMS — AWS KMS / GCP Cloud KMS / Azure Key Vault (Keys).* Server-side wrap (Encrypt/Decrypt, GenerateDataKey, or wrapKey/unwrapKey), HSM-backed, managed rotation + native audit, and **workload-identity auth** (IRSA / GKE Workload Identity / Azure Managed Identity) — which also removes Transit's static-token limitation. Best fit for cloud deployments. (Azure Key Vault here is the managed cloud KMS, not HashiCorp Vault.)
   - *On-prem key managers — PKCS#11 HSM (AWS CloudHSM / Thales Luna / Entrust nShield via the `cryptoki` crate) or KMIP (Thales CipherTrust / Fortanix).* Strongest custody (key never leaves the HSM), FIPS/compliance; higher operational cost. Best fit for on-prem/regulated environments.
   - *Hardened Integrated.* Keep the Integrated provider but source its key file from a CSI secrets-store / External-Secrets mount backed by a cloud secret manager or a sealed secret. Lowest effort (no new code), but the KEK is plaintext in node memory/at-rest — acceptable only if that node trust boundary is sufficient.
   - *Niche — TPM-sealed KEK (if control-plane nodes have TPMs), or Tink as a uniform envelope abstraction over cloud KMS.*
   Migration uses `Multi` (decrypt with Transit, encrypt with the new provider) + `routing`, then re-encrypt on rotation.
-- **Certificate issuance (PKI) — the O1 direction.** Today the `CertificateProvider` is Vault PKI, constructed unconditionally at startup. Candidate replacements:
+- **Certificate issuance (PKI) — the O1 direction.** The end state replaces Vault PKI with a non-Vault issuer (or removes issuance entirely under JWT-only node auth). Candidate replacements:
   - *Kubernetes cert-manager — **rejected**.* cert-manager issues certificates as in-cluster Kubernetes Secrets for Pods/Ingress via declarative `Certificate` CRDs, whereas carbide issues per-machine mTLS client certificates **synchronously to external machines** (DPU/host/Scout) at discovery/renewal, returning the keypair over gRPC. It is a structural mismatch on four counts: (1) **consumer model** — k8s Secret vs. external requester (cert-manager cannot deliver a keypair to a non-cluster machine); (2) **declarative/eventually-consistent reconcile** vs. the synchronous on-demand `get_certificate(...)` call that must return the cert inline; (3) **cardinality** — one `Certificate` CR + Secret per machine means heavy etcd object count/churn at fleet scale for external, often-ephemeral identities; and (4) **it is not a CA** — cert-manager only fronts an `Issuer`, so backing it with the existing Vault issuer keeps Vault, and backing it with a non-Vault issuer relocates the CA private key into a k8s Secret (weaker custody than Vault Transit/HSM). It is also not SPIFFE-identity-native.
-  - *Kubernetes `CertificateSigningRequest` (CSR) API — **model adopted, k8s transport rejected**.* The CSR *model* is desirable: the machine generates its own keypair and submits only a CSR, so the private key never transits (an improvement over today's server-side keygen + key handoff). But the k8s CSR **API as the issuance interface** was rejected because: (1) it is not a CA — you must run a custom-`signerName` signer backed by your own CA key, so key custody and "drop Vault" are unchanged (built-in signers are k8s-internal and reusing the cluster CA would conflate the machine trust domain with the control-plane PKI); (2) it is async/object-in-etcd (CSR → approve → sign → poll) versus the synchronous discovery RPC, with per-issuance etcd churn at fleet scale; and (3) external machines are not k8s API clients, so carbide would create and sign the CSR on their behalf — an internal hop adding ceremony without the CSR API's native requester-identity/RBAC benefit. The CSR model can instead be adopted over carbide's own gRPC (machine-held key + server-side CSR signing with SPIFFE/subject policy) without k8s CSR objects.
+  - *Kubernetes `CertificateSigningRequest` (CSR) API — **model adopted, k8s transport rejected**.* The CSR *model* is desirable: the machine generates its own keypair and submits only a CSR, so the private key never transits (an improvement over server-side keygen + key handoff). But the k8s CSR **API as the issuance interface** was rejected because: (1) it is not a CA — you must run a custom-`signerName` signer backed by your own CA key, so key custody and "drop Vault" are unchanged (built-in signers are k8s-internal and reusing the cluster CA would conflate the machine trust domain with the control-plane PKI); (2) it is async/object-in-etcd (CSR → approve → sign → poll) versus the synchronous discovery RPC, with per-issuance etcd churn at fleet scale; and (3) external machines are not k8s API clients, so carbide would create and sign the CSR on their behalf — an internal hop adding ceremony without the CSR API's native requester-identity/RBAC benefit. The CSR model can instead be adopted over carbide's own gRPC (machine-held key + server-side CSR signing with SPIFFE/subject policy) without k8s CSR objects.
   - *Programmatic in-process CA, or SPIRE (SPIFFE-native) — **candidate direction**.* Better fit for synchronous, per-machine, SPIFFE-named issuance and RBAC principal mapping; can accept a machine-generated CSR over gRPC (capturing the CSR-model benefit above). Selection deferred (open item O1 / #2880).
 
 ## 3.2 Static design
@@ -207,7 +208,7 @@ The architecture breaks into four subsystems; each is summarized here — struct
 Credential read:   get_credentials(key) → env? → file? → backends[0]? → backends[1]? → first hit
 Credential write:  set_credentials(key,val) → writer backend → (Postgres) DEK-encrypt → KMS-wrap DEK → append row
 Node bootstrap:    Discover/AttestQuote → verify hardware identity (DPU IRoT / host TPM EK) → issue ES256 JWT (sub=SPIFFE) → client persists 0600 → renew @50% TTL
-Node refresh:      RefreshNodeToken → re-verify hardware identity → new JWT   [transitional impl: proof = mTLS client cert]
+Node refresh:      RefreshNodeToken → re-verify hardware identity (DPU IRoT / host TPM EK) → new JWT
 DPU identity:      Discover(DPU) → [mode≠disabled] serial→explored BMC → Redfish IRoT CertChain
                    → verify_device_cert_chain(roots) → select_dpu_machine_id(mode,verified,legacy_known)
                    → record dpu_device_cert_status
@@ -248,9 +249,8 @@ sequenceDiagram
     participant A as Agent (DPU/host/Scout)
     participant F as Forge (api-core)
     participant HW as HW verifier (DPU IRoT / host TPM EK)
-    A->>F: RefreshNodeToken (proof of identity)
-    Note over A,F: Target: proof = re-verified hardware identity.<br/>Transitional: proof = mTLS client cert.
-    F->>HW: Re-verify hardware identity (transitional: validate mTLS client cert)
+    A->>F: RefreshNodeToken (proof = hardware identity)
+    F->>HW: Re-verify hardware identity (DPU IRoT / host TPM EK)
     HW-->>F: OK / permission denied
     F->>F: Mint new ES256 JWT
     F-->>A: New node_token (JWT)
@@ -262,7 +262,7 @@ sequenceDiagram
 - `required` mode with no verified identity → discovery fails closed; `best_effort` soft-failures (no BMC, no IRoT, Redfish error, verify failure) → fall back to legacy id.
 - Chain verification rejects on invalid validity window, non-CA issuer, name mismatch, trailing bytes, or `NoTrustedRoot`.
 - Credential config errors (bad `backends`) fail boot before side effects; envelope decrypt failure surfaces an error, not plaintext.
-- Refresh without a verified hardware-rooted identity → permission denied (transitional impl rejects refresh lacking the mTLS client cert).
+- Refresh without a verified hardware-rooted identity → permission denied.
 
 ### 3.3.5 Logging and debugging
 
@@ -276,9 +276,9 @@ SPDM device attestation FSM: `FetchMetadata → FetchCertificate → {BlueField:
 ## 3.4 Security design
 
 - **Secrets at rest:** envelope encryption; per-record DEK wrapped by a KMS-held KEK; append-only journal; path as associated data. DB theft without the KEK yields only ciphertext. KEK rotation via routing; value rotation via new journal entries / site-versioned keys. Disk/volume encryption of the database and its backups is recommended as an additional layer (defense-in-depth) but does not replace envelope encryption — it protects only physically stolen media, not a live SQL dump, a compromised DB role, or logical backups.
-- **Node auth:** bearer tokens accepted only on a TLS listener; refresh is authorized by the machine's verified hardware-rooted identity — not by the bearer token itself — so a stolen token cannot be refreshed indefinitely (the transitional implementation uses the mTLS client cert as that proof); token file `0600`.
+- **Node auth:** bearer tokens accepted only on a TLS listener; refresh is authorized by the machine's verified hardware-rooted identity — not by the bearer token itself — so a stolen token cannot be refreshed indefinitely; token file `0600`.
 - **Device identity:** strict chain validation (validity, CA basic-constraints, issuer name-match, full DER consumption, trusted-root termination); fail-closed in `required` mode.
-- **Device-CA trust model (open):** verification trusts exactly the seeded roots (no NVIDIA pinning yet). Because the IRoT lets the DPU owner re-provision its CA, operators must seed only the NVIDIA factory root unless they control an owner CA (covered in the DPU device-identity config guide that ships with #2917). This mirrors the existing host TPM-EK / `tpm-ca` flow.
+- **Device-CA trust model (open):** verification trusts exactly the seeded roots (no NVIDIA pinning yet). Because the IRoT lets the DPU owner re-provision its CA, operators must seed only the NVIDIA factory root unless they control an owner CA (documented in the DPU device-identity config guide, #2917). This mirrors the existing host TPM-EK / `tpm-ca` flow.
 - **Threat-model note:** assets = component credentials, signing keys, device identities; trust boundaries = Vault/KMS, PostgreSQL, DPU BMC (authenticated Redfish/TLS).
 
 ## 3.5 Testing
@@ -301,7 +301,7 @@ Per-path, per-record encryption and the first-match chain scale with credential 
 
 ### 3.6.4 Future work (tracked open items)
 
-- **O1 — non-Vault certificate issuance + optional-at-startup Vault (#2880):** today `run.rs` builds one Vault client unconditionally (`create_vault_client(&vault_config, …)?`) and reuses it as the `certificate_provider` (`certificate_provider = vault_client.clone()`), so PKI stays on Vault and a Vault outage aborts boot even when no credential backend uses Vault. `Api.certificate_provider` is a non-optional `Arc<dyn CertificateProvider>`, and `ForgeVaultClient` is its only implementation. Phased removal plan:
+- **O1 — non-Vault certificate issuance + optional-at-startup Vault (#2880):** decouple PKI from Vault so a Vault-free deployment starts and runs. (The current unconditional Vault-client construction is captured in the status doc, §16.1.) Phased plan:
   1. **Decouple Vault-client construction from cert issuance.** Build the Vault client only when a Vault role is actually configured — `vault` present in `[secrets].backends`/`writer`, an `import_from` set, or the certificate provider selected as Vault PKI — so a fully non-Vault config boots without contacting Vault. Add a `[certificates].provider` selector (default `vault` for back-compat).
   2. **Make the provider optional in the type system.** Change `Api.certificate_provider` to an optional / `Disabled` provider; the handlers that issue certs (`handlers/attestation.rs`, `handlers/credential.rs`, `handlers/machine_discovery.rs`) return a typed "certificate issuance not configured" error instead of assuming a provider exists. This lets a JWT-only deployment (after O4) run with no cert provider at all. Two audit caveats: (a) the same `CertificateProvider` also mints the **UFM fabric server cert** (`write_ufm_certs` in `credential.rs`) — a separate consumer, so gate *machine-cert* issuance without dropping UFM issuance (or supply that cert another way); (b) machine identity is currently read from the client cert in `renew_machine_certificate`, `sign_machine_identity`, and phone-home, which must re-source identity from the node token under JWT-only.
   3. **Add a non-Vault `CertificateProvider`.** Implement the §3.1 candidate direction (in-process CA, or SPIRE, accepting a machine-generated CSR over gRPC) as a selectable `[certificates].provider`; run Vault and the new issuer in parallel during migration.
@@ -309,8 +309,8 @@ Per-path, per-record encryption and the first-match chain scale with credential 
   Steps 1–2 make Vault *optional at startup* and can land ahead of choosing an issuer; steps 3–4 are the #2880 issuer work. Combined with O2 (KEK off Transit), this removes the last hard Vault dependency and meets the epic's Vault-free goal.
 - **O2 — non-Vault production KMS:** so the Postgres KEK does not transitively depend on Vault/OpenBao Transit. Candidate providers are enumerated in §3.1 (managed cloud KMS — AWS/GCP/Azure; PKCS#11 HSM or KMIP for on-prem; or a hardened Integrated provider as the no-new-code interim). Cloud KMS additionally uses workload-identity auth, removing Transit's static-token constraint.
 - **O3 — dedicated migration/rotation for the credential types covered only generically** (NMX-M, BGP, MQTT, NIC-lockdown IKM, extension-service, machine-identity encryption key, rack token, SSH/HBN/Redfish; UFM #1837; per-switch NVOS #1852; reader/writer rollout #2811).
-- **O4 — wire hardware identity to node-token issuance/refresh** (implements the §3.3 refresh design): use the verified hardware identity (DPU IRoT #2917; host TPM EK) to authorize JWT issuance/refresh (#355), replacing the transitional mTLS gate.
-- **Encryption convergence (after O2):** unify the two encryption-at-rest subsystems onto a **shared KMS-backed envelope primitive**. Today there are two: the **machine-identity signing-key encryption** (`machine_identity/crypto.rs` + `carbide_secrets::key_encryption`) — single-tier AES, `key_id`-tagged, KEK = a `MachineIdentityEncryptionKey` *credential*, with re-wrap rotation — and the **credential-store KMS envelope** (`kms-provider` + `api-core/src/secrets`) — two-tier per-record DEK wrapped by a KMS KEK. Converge them at the **crypto/KEK-custody layer only** (one primitive: per-record DEK wrapped by a KMS KEK, `kek_id`-tagged, re-wrap-on-rotation), with both keeping their own storage (`tenant_identity_config` columns vs the `secrets` table). Benefits: a single KEK-custody story, the signing-key KEK gains the O2 non-Vault KMS options, and the O3 recursion (the machine-identity KEK being a credential stored under the credential-store envelope) is removed. Requires migrating existing machine-identity ciphertext (the dual-slot rewrap machinery already supports overlap) and re-sourcing `MachineIdentityEncryptionKey` from a raw credential to a KMS-managed KEK. **Gate on O2** — converging before a non-Vault KMS exists would merely move the signing-key KEK onto Transit/Vault.
+- **O4 — wire hardware identity to node-token issuance/refresh** (implements the §3.3 refresh design): use the verified hardware identity (DPU IRoT #2917; host TPM EK) to authorize JWT issuance/refresh (#355), so node auth requires no mTLS client certificate.
+- **Encryption convergence (after O2):** unify the two encryption-at-rest subsystems onto a **shared KMS-backed envelope primitive**. There are two: the **machine-identity signing-key encryption** (`machine_identity/crypto.rs` + `carbide_secrets::key_encryption`) — single-tier AES, `key_id`-tagged, KEK = a `MachineIdentityEncryptionKey` *credential*, with re-wrap rotation — and the **credential-store KMS envelope** (`kms-provider` + `api-core/src/secrets`) — two-tier per-record DEK wrapped by a KMS KEK. Converge them at the **crypto/KEK-custody layer only** (one primitive: per-record DEK wrapped by a KMS KEK, `kek_id`-tagged, re-wrap-on-rotation), with both keeping their own storage (`tenant_identity_config` columns vs the `secrets` table). Benefits: a single KEK-custody story, the signing-key KEK gains the O2 non-Vault KMS options, and the O3 recursion (the machine-identity KEK being a credential stored under the credential-store envelope) is removed. Requires migrating existing machine-identity ciphertext (the dual-slot rewrap machinery already supports overlap) and re-sourcing `MachineIdentityEncryptionKey` from a raw credential to a KMS-managed KEK. **Gate on O2** — converging before a non-Vault KMS exists would merely move the signing-key KEK onto Transit/Vault.
 - **Optional hardening:** NVIDIA-issuance pinning (name constraints/policy OID) and deriving `machine_id` from a stable in-cert identifier so IRoT re-provisioning does not re-key a DPU.
 
 ## Issue map
