@@ -9289,7 +9289,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/GenericHttpError'
-      operationId: get-machine-health-report
+      operationId: get-all-machine-health-report
       description: |-
         Get all health reports for a specific Machine.
 

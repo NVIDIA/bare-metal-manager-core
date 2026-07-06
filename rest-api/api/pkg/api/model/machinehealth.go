@@ -68,28 +68,24 @@ func (mh *APIMachineHealth) FromProto(protoHealth *cwssaws.HealthReport) {
 		mh.ObservedAtDeprecated = cutil.GetPtr(observed)
 	}
 
-	if len(protoHealth.Alerts) > 0 {
-		mh.Alerts = []APIMachineHealthProbeAlert{}
-		for _, alert := range protoHealth.Alerts {
-			if alert == nil {
-				continue
-			}
-			ahpa := APIMachineHealthProbeAlert{}
-			ahpa.FromProto(alert)
-			mh.Alerts = append(mh.Alerts, ahpa)
+	mh.Alerts = []APIMachineHealthProbeAlert{}
+	for _, alert := range protoHealth.Alerts {
+		if alert == nil {
+			continue
 		}
+		ahpa := APIMachineHealthProbeAlert{}
+		ahpa.FromProto(alert)
+		mh.Alerts = append(mh.Alerts, ahpa)
 	}
 
-	if len(protoHealth.Successes) > 0 {
-		mh.Successes = []APIMachineHealthProbeSuccess{}
-		for _, success := range protoHealth.Successes {
-			if success == nil {
-				continue
-			}
-			ahps := APIMachineHealthProbeSuccess{}
-			ahps.FromProto(success)
-			mh.Successes = append(mh.Successes, ahps)
+	mh.Successes = []APIMachineHealthProbeSuccess{}
+	for _, success := range protoHealth.Successes {
+		if success == nil {
+			continue
 		}
+		ahps := APIMachineHealthProbeSuccess{}
+		ahps.FromProto(success)
+		mh.Successes = append(mh.Successes, ahps)
 	}
 }
 
