@@ -47,7 +47,9 @@ CreateOrUpdateMachineHealthReport Create or update Machine health report
 
 Add or update health report override for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -206,7 +208,9 @@ DeleteMachineHealthReport Delete Machine health report
 
 Remove a health report override for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -350,7 +354,9 @@ GetAllMachineHealthReport Retrieve all Machine health reports
 
 Get all health reports for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

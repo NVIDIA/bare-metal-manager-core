@@ -24,6 +24,8 @@ var _ MappedNullable = &BMCResetRequest{}
 type BMCResetRequest struct {
 	// Reset the BMC via ipmitool instead of Redfish.
 	UseIpmiTool *bool `json:"useIpmiTool,omitempty"`
+	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
 }
 
 // NewBMCResetRequest instantiates a new BMCResetRequest object
@@ -79,6 +81,38 @@ func (o *BMCResetRequest) SetUseIpmiTool(v bool) {
 	o.UseIpmiTool = &v
 }
 
+// GetAcknowledgeAttachedInstance returns the AcknowledgeAttachedInstance field value if set, zero value otherwise.
+func (o *BMCResetRequest) GetAcknowledgeAttachedInstance() bool {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		var ret bool
+		return ret
+	}
+	return *o.AcknowledgeAttachedInstance
+}
+
+// GetAcknowledgeAttachedInstanceOk returns a tuple with the AcknowledgeAttachedInstance field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BMCResetRequest) GetAcknowledgeAttachedInstanceOk() (*bool, bool) {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		return nil, false
+	}
+	return o.AcknowledgeAttachedInstance, true
+}
+
+// HasAcknowledgeAttachedInstance returns a boolean if a field has been set.
+func (o *BMCResetRequest) HasAcknowledgeAttachedInstance() bool {
+	if o != nil && !IsNil(o.AcknowledgeAttachedInstance) {
+		return true
+	}
+
+	return false
+}
+
+// SetAcknowledgeAttachedInstance gets a reference to the given bool and assigns it to the AcknowledgeAttachedInstance field.
+func (o *BMCResetRequest) SetAcknowledgeAttachedInstance(v bool) {
+	o.AcknowledgeAttachedInstance = &v
+}
+
 func (o BMCResetRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -91,6 +125,9 @@ func (o BMCResetRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.UseIpmiTool) {
 		toSerialize["useIpmiTool"] = o.UseIpmiTool
+	}
+	if !IsNil(o.AcknowledgeAttachedInstance) {
+		toSerialize["acknowledgeAttachedInstance"] = o.AcknowledgeAttachedInstance
 	}
 	return toSerialize, nil
 }

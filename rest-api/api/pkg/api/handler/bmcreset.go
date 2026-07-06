@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -18,6 +19,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
@@ -82,14 +84,9 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, false)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, true)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
-	if provider == nil {
-		logger.Warn().Msg("user does not have Provider role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
 	machine, err := cdbm.NewMachineDAO(h.dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
@@ -101,14 +98,38 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine details, DB error", nil)
 	}
 
-	if machine.InfrastructureProviderID != provider.ID {
-		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider")
-		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Machine with specified ID", nil)
+	isAssociated := false
+	if provider != nil {
+		isAssociated = machine.InfrastructureProviderID == provider.ID
+	}
+
+	if !isAssociated && tenant != nil {
+		// Check if privileged Tenant has a Tenant Account with Machine's Provider
+		taDAO := cdbm.NewTenantAccountDAO(h.dbSession)
+		_, taCount, err := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+			InfrastructureProviderID: &machine.InfrastructureProviderID,
+			TenantIDs:                []uuid.UUID{tenant.ID},
+		}, paginator.PageInput{}, []string{})
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to retrieve Tenant Account details from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Account to determine access to Machine, DB error", nil)
+		}
+		isAssociated = taCount > 0
+	}
+
+	if !isAssociated {
+		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider or privileged Tenant")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org does not have access to Machine", nil)
 	}
 
 	if machine.IsMissingOnSite {
 		logger.Error().Msg("Machine is missing on site, unable to reset BMC")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to reset BMC", nil)
+	}
+
+	if machine.IsAssigned && (apiReq.AcknowledgeAttachedInstance == nil || !*apiReq.AcknowledgeAttachedInstance) {
+		logger.Error().Msg("Machine is currently in use by an Instance and cannot have its BMC reset without acknowledging the attached Instance")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is currently in use by an Instance, set acknowledgeAttachedInstance to true to proceed", nil)
 	}
 
 	if machine.Site == nil {

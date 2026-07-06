@@ -43,6 +43,8 @@ var MachineDpuReprovisionModeValues = []MachineDpuReprovisionMode{
 type APIMachineDpuReprovisionRequest struct {
 	Mode           MachineDpuReprovisionMode `json:"mode"`
 	UpdateFirmware bool                      `json:"updateFirmware"`
+	// AcknowledgeAttachedInstance indicates the caller is aware that an Instance is currently attached to the Machine.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance"`
 }
 
 // Validate validates the APIMachineDpuReprovisionRequest

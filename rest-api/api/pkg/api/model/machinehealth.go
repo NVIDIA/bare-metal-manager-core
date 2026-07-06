@@ -298,7 +298,7 @@ func (amhrer *APIMachineHealthReportEntryRequest) Validate() error {
 		err = validation.ValidateStruct(&amhrer.Alerts[i],
 			validation.Field(&amhrer.Alerts[i].ID, validation.Required.Error(validationErrorValueRequired)),
 			validation.Field(&amhrer.Alerts[i].Message, validation.Required.Error(validationErrorValueRequired)),
-			validation.Field(&amhrer.Alerts[i].InAlertSince, validation.By(util.ValidateStrTime)),
+			validation.Field(&amhrer.Alerts[i].InAlertSince, validation.By(util.ValidateStrPtrTime)),
 		)
 		if err != nil {
 			return validation.Errors{

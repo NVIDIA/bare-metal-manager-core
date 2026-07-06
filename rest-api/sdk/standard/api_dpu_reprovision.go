@@ -46,7 +46,10 @@ func (r ApiReprovisionMachineDpuRequest) Execute() (*MessageResponse, *http.Resp
 ReprovisionMachineDpu Reprovision Machine DPUs
 
 Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

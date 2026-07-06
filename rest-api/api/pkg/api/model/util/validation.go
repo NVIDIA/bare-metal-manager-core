@@ -161,12 +161,17 @@ func IsEmptyStrPtr(s *string) bool {
 }
 
 // ValidateStrTime is a utility function to validate a string as a time.Time
-func ValidateStrTime(value interface{}) error {
-	s, ok := value.(string)
+func ValidateStrPtrTime(value interface{}) error {
+	s, ok := value.(*string)
 	if !ok {
-		return errors.New("value must be a string")
+		return errors.New("value must be a string pointer")
 	}
-	_, err := time.Parse(time.RFC3339, s)
+
+	if s == nil {
+		return nil
+	}
+
+	_, err := time.Parse(time.RFC3339, *s)
 	if err != nil {
 		return fmt.Errorf("value is not a valid RFC3339 time")
 	}

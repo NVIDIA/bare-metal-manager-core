@@ -28,6 +28,8 @@ type DpuReprovisionRequest struct {
 	Mode string `json:"mode"`
 	// Whether to update firmware during reprovisioning.
 	UpdateFirmware *bool `json:"updateFirmware,omitempty"`
+	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
 }
 
 type _DpuReprovisionRequest DpuReprovisionRequest
@@ -110,6 +112,38 @@ func (o *DpuReprovisionRequest) SetUpdateFirmware(v bool) {
 	o.UpdateFirmware = &v
 }
 
+// GetAcknowledgeAttachedInstance returns the AcknowledgeAttachedInstance field value if set, zero value otherwise.
+func (o *DpuReprovisionRequest) GetAcknowledgeAttachedInstance() bool {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		var ret bool
+		return ret
+	}
+	return *o.AcknowledgeAttachedInstance
+}
+
+// GetAcknowledgeAttachedInstanceOk returns a tuple with the AcknowledgeAttachedInstance field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *DpuReprovisionRequest) GetAcknowledgeAttachedInstanceOk() (*bool, bool) {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		return nil, false
+	}
+	return o.AcknowledgeAttachedInstance, true
+}
+
+// HasAcknowledgeAttachedInstance returns a boolean if a field has been set.
+func (o *DpuReprovisionRequest) HasAcknowledgeAttachedInstance() bool {
+	if o != nil && !IsNil(o.AcknowledgeAttachedInstance) {
+		return true
+	}
+
+	return false
+}
+
+// SetAcknowledgeAttachedInstance gets a reference to the given bool and assigns it to the AcknowledgeAttachedInstance field.
+func (o *DpuReprovisionRequest) SetAcknowledgeAttachedInstance(v bool) {
+	o.AcknowledgeAttachedInstance = &v
+}
+
 func (o DpuReprovisionRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -123,6 +157,9 @@ func (o DpuReprovisionRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["mode"] = o.Mode
 	if !IsNil(o.UpdateFirmware) {
 		toSerialize["updateFirmware"] = o.UpdateFirmware
+	}
+	if !IsNil(o.AcknowledgeAttachedInstance) {
+		toSerialize["acknowledgeAttachedInstance"] = o.AcknowledgeAttachedInstance
 	}
 	return toSerialize, nil
 }

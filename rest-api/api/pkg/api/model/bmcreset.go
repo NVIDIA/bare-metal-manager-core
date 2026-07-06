@@ -10,6 +10,8 @@ import (
 // APIMachineBMCResetRequest represents a request to reset the BMC of a Machine
 type APIMachineBMCResetRequest struct {
 	UseIpmiTool bool `json:"useIpmiTool"`
+	// AcknowledgeAttachedInstance indicates the caller is aware that an Instance is currently attached to the Machine.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance"`
 }
 
 // ToProto converts the APIMachineBMCResetRequest to a Core gRPC AdminBmcResetRequest
