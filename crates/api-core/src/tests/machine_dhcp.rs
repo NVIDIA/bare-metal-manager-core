@@ -699,7 +699,8 @@ async fn test_dhcp_record_address_family(
         &segment_id,
         IpAddressFamily::Ipv4,
     )
-    .await?;
+    .await?
+    .expect("IPv4 DHCP record should exist");
     assert!(
         ipv4_record.address.is_ipv4(),
         "IPv4 query should return an IPv4 address, got: {}",
@@ -716,7 +717,8 @@ async fn test_dhcp_record_address_family(
         &segment_id,
         IpAddressFamily::Ipv6,
     )
-    .await?;
+    .await?
+    .expect("IPv6 DHCP record should exist");
     assert!(
         ipv6_record.address.is_ipv6(),
         "IPv6 query should return an IPv6 address, got: {}",
@@ -724,6 +726,100 @@ async fn test_dhcp_record_address_family(
     );
     assert_eq!(ipv6_record.address, ipv6_addr);
     txn.rollback().await?;
+
+    Ok(())
+}
+
+// test_dhcp_record_missing_address_family_is_none verifies that
+// find_by_mac_address reports a missing record as Ok(None) rather than an
+// error. An IPv4-only interface has no IPv6 row in the machine_dhcp_records
+// view, and the lookup treats that as an ordinary "no record for this family"
+// outcome the DHCP path can act on, not a query failure.
+#[crate::sqlx_test]
+async fn test_dhcp_record_missing_address_family_is_none(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    // Create a machine via DHCPv4 discovery — gives us an interface with an
+    // IPv4 address only; no IPv6 address is ever allocated.
+    let mac_address = "AB:CD:EF:67:89:AB";
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    let segment_id = response.segment_id.unwrap();
+    let parsed_mac: MacAddress = mac_address.parse().unwrap();
+
+    // An IPv6 lookup for the same interface finds no row in the view: the
+    // query succeeds and the miss surfaces as None.
+    let mut txn = pool.begin().await?;
+    let ipv6_record = db::dhcp_record::find_by_mac_address(
+        &mut txn,
+        &parsed_mac,
+        &segment_id,
+        IpAddressFamily::Ipv6,
+    )
+    .await?;
+    assert!(
+        ipv6_record.is_none(),
+        "IPv6 lookup on an IPv4-only interface should find no record, got: {ipv6_record:?}"
+    );
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+// test_discover_dhcp_dangling_address_is_not_found verifies the RPC-level
+// contract for a dangling allocation: the interface holds an address, but no
+// prefix on the segment contains it, so the machine_dhcp_records view has no
+// row to answer with. discover_dhcp reports that miss as NotFound -- a state
+// the caller can act on -- rather than an internal error.
+#[crate::sqlx_test]
+async fn test_discover_dhcp_dangling_address_is_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    // A normal DHCPv4 discovery allocates an in-prefix address.
+    let mac_address = "AB:CD:EF:13:57:9B";
+    env.api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await
+        .unwrap();
+
+    // Strand the allocation: move the interface's address outside every prefix
+    // on the segment. The interface still holds an IPv4 address (so discovery
+    // does not re-allocate), but the machine_dhcp_records view no longer has a
+    // row for it.
+    let parsed_mac: MacAddress = mac_address.parse().unwrap();
+    let mut txn = pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), parsed_mac).await?;
+    let interface = &interfaces[0];
+    let dangling: IpAddr = "198.51.100.42".parse().unwrap();
+    sqlx::query("UPDATE machine_interface_addresses SET address = $1 WHERE interface_id = $2")
+        .bind(dangling)
+        .bind(interface.id)
+        .execute(&mut *txn)
+        .await?;
+    txn.commit().await?;
+
+    // Re-discovery surfaces the miss as a clean NotFound, not a server fault.
+    let result = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await;
+    let status = result.expect_err("a dangling address should not produce a DHCP record");
+    assert_eq!(status.code(), tonic::Code::NotFound);
 
     Ok(())
 }
