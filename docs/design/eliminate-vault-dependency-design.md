@@ -27,6 +27,8 @@
 | 2026-07-06 | Bill Minckler | Fixed §3.3.3 bootstrap diagram: enrollment RPCs (DiscoverMachine/AttestQuote) are anonymous and authorized by verified hardware identity — removed the incorrect (mTLS) label. |
 | 2026-07-06 | Bill Minckler | Reorganized §2 by subsystem (Credential store / Certificate issuance / Node authentication / DPU device identity), each with its structure, behavior, and open limitation, replacing the aspect-based prose (no substantive content change). |
 | 2026-07-06 | Bill Minckler | Applied the same subsystem grouping to §3.2.1 (config), §3.3.1 (functionality), §3.3.3 (data flow), and §3.3.5 (logging) for consistency and scannability (no substantive content change). |
+| 2026-07-06 | Bill Minckler | Annotated the dangling references to the DPU device-attestation config guide (§1.6, §3.4): it ships with the #2917 feature and is not present in this branch. |
+| 2026-07-06 | Bill Minckler | Reworded the DPU identity work from "attestation" to "identity verification" where it described cert-chain identity derivation, to avoid implying full measured-boot/quote attestation (§1.3, §1.6, §3.4). Kept genuine attestation references (AttestQuote, the SPDM/NRAS FSM, the [dpu_device_attestation] config key). |
 
 # 1. Introduction
 
@@ -46,7 +48,7 @@ This document records the architecture and design for the Vault-elimination epic
 - Migration off Vault must be gradual and reversible (downgrade supported).
 - Rust workspace, tonic/gRPC, SPIFFE identity, Casbin/RBAC reused unchanged by new auth paths.
 - `machine_id` is the system-wide identity key (DB PK, SPIFFE subject); the existing fleet must not be re-keyed.
-- DPU device-identity attestation requires the controller to have direct access to the DPU BMC Redfish endpoint; the device identity is established at discovery. Identity-only, not full attestation.
+- DPU device-identity verification requires the controller to have direct access to the DPU BMC Redfish endpoint; the device identity is established at discovery. This is identity verification only — cert-chain validation to derive `machine_id` — not measured-boot / quote attestation of the DPU.
 
 ## 1.4 External dependencies
 
@@ -75,7 +77,7 @@ This document records the architecture and design for the Vault-elimination epic
 | :---- | :---- |
 | Design note: Eliminate Dependency on Vault (overview / open items) | `docs/design/eliminate-vault-dependency.md` |
 | Epic #195 and sub-tasks #353/#354/#355/#357/#1837/#1852/#2811/#2880/#2917 | GitHub NVIDIA/infra-controller |
-| Config guide: DPU Device-Identity Attestation | `docs/configuration/dpu_device_attestation.md` |
+| Config guide: DPU device-identity verification (ships with #2917; not in this branch) | `docs/configuration/dpu_device_attestation.md` |
 
 # 2. Architectural details
 
@@ -275,7 +277,7 @@ SPDM device attestation FSM: `FetchMetadata → FetchCertificate → {BlueField:
 - **Secrets at rest:** envelope encryption; per-record DEK wrapped by a KMS-held KEK; append-only journal; path as associated data. DB theft without the KEK yields only ciphertext. KEK rotation via routing; value rotation via new journal entries / site-versioned keys. Disk/volume encryption of the database and its backups is recommended as an additional layer (defense-in-depth) but does not replace envelope encryption — it protects only physically stolen media, not a live SQL dump, a compromised DB role, or logical backups.
 - **Node auth:** bearer tokens accepted only on a TLS listener; refresh is authorized by the machine's verified hardware-rooted identity — not by the bearer token itself — so a stolen token cannot be refreshed indefinitely (the transitional implementation uses the mTLS client cert as that proof); token file `0600`.
 - **Device identity:** strict chain validation (validity, CA basic-constraints, issuer name-match, full DER consumption, trusted-root termination); fail-closed in `required` mode.
-- **Device-CA trust model (open):** verification trusts exactly the seeded roots (no NVIDIA pinning yet). Because the IRoT lets the DPU owner re-provision its CA, operators must seed only the NVIDIA factory root unless they control an owner CA (documented in the config guide). This mirrors the existing host TPM-EK / `tpm-ca` flow.
+- **Device-CA trust model (open):** verification trusts exactly the seeded roots (no NVIDIA pinning yet). Because the IRoT lets the DPU owner re-provision its CA, operators must seed only the NVIDIA factory root unless they control an owner CA (covered in the DPU device-identity config guide that ships with #2917). This mirrors the existing host TPM-EK / `tpm-ca` flow.
 - **Threat-model note:** assets = component credentials, signing keys, device identities; trust boundaries = Vault/KMS, PostgreSQL, DPU BMC (authenticated Redfish/TLS).
 
 ## 3.5 Testing
