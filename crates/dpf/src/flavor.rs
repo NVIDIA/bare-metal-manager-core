@@ -24,7 +24,7 @@ use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode,
     DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
 };
-use crate::types::DpfProxyDetails;
+use crate::types::{DpfProxyDetails, DpuDeploymentType};
 
 pub const DEFAULT_FLAVOR_NAME: &str = "dpu-flavor";
 
@@ -75,6 +75,23 @@ fn validate_proxy_string(value: &str, field: &str) -> Result<(), crate::error::D
         )));
     }
     Ok(())
+}
+
+/// Build the DPUFlavor spec for a specific deployment type. If `proxy` is set, a containerd
+/// proxy drop-in config file is appended so the DPU can pull images through the proxy.
+///
+/// Returns `ConfigError` if any proxy string contains characters that would break the generated
+/// systemd `Environment="..."` lines (quotes, newlines, or other control characters).
+///
+/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
+/// before creating the resource in the cluster.
+pub fn default_flavor_for(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+    // This should be used to create a separate flavor for BF3, BF4Generic, BF4Astra
+    _deployment_type: DpuDeploymentType,
+) -> Result<DPUFlavor, crate::error::DpfError> {
+    default_flavor(namespace, proxy)
 }
 
 /// Build the default DPUFlavor spec. If `proxy` is set, a containerd proxy drop-in config file

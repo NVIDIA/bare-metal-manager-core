@@ -89,10 +89,9 @@ func (h CreateOrUpdateBMCCredentialHandler) Handle(c echo.Context) error {
 	logger.Info().Str("kind", apiReq.Kind).Str("siteID", apiReq.SiteID).Msg("creating or updating BMC credential via Core proxy")
 
 	// "password" is redacted from the Temporal payload and carried encrypted.
-	code, err := common.ExecuteCoreGRPC(ctx, stc, createCredentialMethod, apiReq.ToProto(), nil, siteID, "password")
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to create or update BMC credential")
-		return cutil.NewAPIErrorResponse(c, code, "Failed to create or update BMC credential", nil)
+	if apiErr := common.ExecuteCoreGRPC(ctx, stc, createCredentialMethod, apiReq.ToProto(), nil, siteID, "password"); apiErr != nil {
+		logAPIError(logger, apiErr, "failed to create or update BMC credential")
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	return c.JSON(http.StatusOK, apiReq.ToResponse())

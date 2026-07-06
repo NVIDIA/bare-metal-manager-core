@@ -2627,3 +2627,41 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 		assert.Equal(t, tenantID.String(), got.DeleteAttribution.InitiatedBy.TenantId)
 	})
 }
+
+func TestValidateInfiniBandRequestForMachineCapability(t *testing.T) {
+	deviceType := cdbm.MachineCapabilityDeviceType("")
+	machineIbCaps := []cdbm.MachineCapability{
+		{
+			Type:            cdbm.MachineCapabilityTypeInfiniBand,
+			Name:            "MT28908 Family [ConnectX-6]",
+			Vendor:          cutil.GetPtr("Mellanox Technologies"),
+			Count:           cutil.GetPtr(3),
+			DeviceType:      &deviceType,
+			InactiveDevices: []int{1, 3},
+		},
+	}
+
+	t.Run("satisfied when requested device instance is active on machine", func(t *testing.T) {
+		req := APIInstanceCreateRequest{
+			InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
+				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 0, IsPhysical: true},
+			},
+		}
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		assert.True(t, match.Satisfied)
+		assert.True(t, match.CountSatisfiable)
+		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
+	})
+
+	t.Run("not satisfied but count satisfiable when requested device instance is inactive on machine", func(t *testing.T) {
+		req := APIInstanceCreateRequest{
+			InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
+				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
+			},
+		}
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		assert.False(t, match.Satisfied)
+		assert.True(t, match.CountSatisfiable)
+		assert.Equal(t, []int{0}, match.UnsatisfiedRequestIndices)
+	})
+}

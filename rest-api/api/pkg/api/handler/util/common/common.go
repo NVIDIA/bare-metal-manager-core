@@ -82,6 +82,28 @@ var (
 	RequestAsTenant = "Tenant"
 )
 
+// InfiniBandMachineSelectionError is returned when no machine satisfies the requested InfiniBand
+// device instances but enough active ports exist on a candidate machine.
+type InfiniBandMachineSelectionError struct {
+	SuggestedByDevice map[string][]int
+}
+
+func (e *InfiniBandMachineSelectionError) Error() string {
+	return "Requested InfiniBand device instances are not available on any Machine for this Instance Type"
+}
+
+// ValidationError returns a validation error that includes suggested device instances.
+func (e *InfiniBandMachineSelectionError) ValidationError() validation.Errors {
+	errMsg := "requested device instances are not available on any Machine for this Instance Type"
+
+	for device, deviceInstances := range e.SuggestedByDevice {
+		errMsg += fmt.Sprintf(". Use deviceInstances: %v for device: %s", deviceInstances, device)
+	}
+	return validation.Errors{
+		"infiniBandInterfaces": errors.New(errMsg),
+	}
+}
+
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
 func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.InfrastructureProvider, error) {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
@@ -275,7 +297,7 @@ func AcquireInstanceTypeQuotaLock(ctx context.Context, tx *cdb.Tx, tenantID uuid
 }
 
 // GetUnallocatedMachineForInstanceType provides unallocatd machine based on instancetype
-func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType) (*cdbm.Machine, error) {
+func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Logger, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType, apiRequest *cam.APIInstanceCreateRequest) (*cdbm.Machine, error) {
 	if instanceType == nil {
 		return nil, ErrInvalidFunctionParams
 	}
@@ -286,6 +308,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 	}
 
 	mcDAO := cdbm.NewMachineDAO(dbSession)
+	mcCapDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
 	// Get all available Machines for the Instance Type
 	// Since this query is occurring outside of a lock, we will have to double check availability of Machines
@@ -313,6 +336,34 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 		},
 	)
 
+	var infiniBandInterfaces []cam.APIInfiniBandInterfaceCreateOrUpdateRequest
+	if apiRequest != nil {
+		infiniBandInterfaces = apiRequest.InfiniBandInterfaces
+	}
+	requireInfiniBandMatch := len(infiniBandInterfaces) > 0
+	var suggestedByDevice map[string][]int
+	foundInfiniBandSuggestion := false
+
+	// Get all Machine InfiniBand Capabilities for the Machines
+	machineIbCapsByMachineID := map[string][]cdbm.MachineCapability{}
+	if requireInfiniBandMatch && len(machines) > 0 {
+		machineIDs := make([]string, len(machines))
+		for i, mc := range machines {
+			machineIDs[i] = mc.ID
+		}
+		allIbCaps, _, capErr := mcCapDAO.GetAll(ctx, tx, machineIDs, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		if capErr != nil {
+			logger.Error().Err(capErr).Msg("failed to retrieve Machine InfiniBand Capabilities from DB")
+			return nil, capErr
+		}
+		for _, cap := range allIbCaps {
+			if cap.MachineID == nil {
+				continue
+			}
+			machineIbCapsByMachineID[*cap.MachineID] = append(machineIbCapsByMachineID[*cap.MachineID], cap)
+		}
+	}
+
 	if len(machines) > 0 {
 		for _, mc := range machines {
 			// Acquire an advisory lock on the MachineID, other provider will be look for other is this is being locked
@@ -336,12 +387,37 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 				continue
 			}
 
+			// If InfiniBand Interfaces are specified in the request, verify that the Machine has matching InfiniBand Interfaces
+			if requireInfiniBandMatch {
+				// Get the Machine InfiniBand Capabilities for the Machine
+				machineIbCaps := machineIbCapsByMachineID[mc.ID]
+				if len(machineIbCaps) == 0 {
+					continue
+				}
+
+				// Validate the InfiniBand Interfaces against the Machine InfiniBand Capabilities
+				match := apiRequest.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+				if !match.Satisfied {
+					// If the request is not satisfied, but the count is satisfiable, keep track of the suggestion and continue to the next machine
+					// if foundInfiniBandSuggestion is true, we have already found a suggestion and we don't need to find another one
+					if match.CountSatisfiable && !foundInfiniBandSuggestion {
+						foundInfiniBandSuggestion = true
+						suggestedByDevice = make(map[string][]int, len(match.SuggestedByDevice))
+						for device, instances := range match.SuggestedByDevice {
+							suggestedByDevice[device] = append([]int(nil), instances...)
+						}
+					}
+					continue
+				}
+			}
+
 			// We should now be able to proceed with the allocation
 			// Update the machine status to assigned
 			updateInput := cdbm.MachineUpdateInput{
 				MachineID:  mc.ID,
 				IsAssigned: cutil.GetPtr(true),
 			}
+
 			// return the updated machine
 			mcu, err := mcDAO.Update(ctx, tx, updateInput)
 			if err != nil {
@@ -349,6 +425,10 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 			}
 			return mcu, nil
 		}
+	}
+	// If we found a suggestion, return the error with the suggestion
+	if foundInfiniBandSuggestion {
+		return nil, &InfiniBandMachineSelectionError{SuggestedByDevice: suggestedByDevice}
 	}
 	return nil, ErrInstanceTypeMachineNotFound
 }
@@ -888,6 +968,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	// All Machines valid if Instance Type does not have Capabilities
 	if total == 0 {
 		return true, nil, nil
+
 	}
 
 	// Build a map of capability type to capability object for instancetype
@@ -1336,6 +1417,10 @@ func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient
 
 	if site.InfrastructureProviderID != provider.ID {
 		return nil, "", cutil.NewAPIError(http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	if site.Status != cdbm.SiteStatusRegistered {
+		return nil, "", cutil.NewAPIError(http.StatusBadRequest, "Site is not in Registered state, unable to execute operation on Site", nil)
 	}
 
 	stc, err := in.SCP.GetClientByID(site.ID)

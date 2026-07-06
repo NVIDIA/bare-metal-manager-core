@@ -202,12 +202,25 @@ async fn create_and_register_dpudevices_and_dpunode(
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
+            deployment_type: dpf_sdk.deployment_type_for_dpu(dpu).map_err(dpf_error)?,
         };
         dpf_sdk
             .register_dpu_device(device_info)
             .await
             .map_err(dpf_error)?;
     }
+
+    let primary_dpu = state
+        .dpu_snapshots
+        .iter()
+        .find(|dpu| dpu.id == primary_dpu_id)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: state.host_snapshot.id.to_string(),
+            missing: "primary_dpu_snapshot",
+        })?;
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(primary_dpu)
+        .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
         .dpu_snapshots
@@ -218,6 +231,7 @@ async fn create_and_register_dpudevices_and_dpunode(
         node_id: dpf_id(&state.host_snapshot)?,
         host_bmc_ip: bmc_ip(&state.host_snapshot)?,
         device_ids,
+        deployment_type,
     };
     dpf_sdk
         .register_dpu_node(node_info)
@@ -479,8 +493,11 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(dpu_snapshot)
+        .map_err(dpf_error)?;
     if !dpf_sdk
-        .verify_node_labels(&node_name)
+        .verify_node_labels(&node_name, deployment_type)
         .await
         .map_err(dpf_error)?
     {

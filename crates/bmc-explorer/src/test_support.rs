@@ -72,6 +72,7 @@ pub async fn detect_hw_type<B: Bmc>(
         need_oem_nvidia_bluefield: is_bluefield_system,
         ignore_500_on_bios_fetch: is_bluefield_system,
         retry_404_on_eth_interfaces: is_bluefield_system,
+        need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;

@@ -57,11 +57,11 @@ hardware_health_reports = "MonitorOnly"
 [firmware_global]
 autoupdate = true
 
-# NOTE: carbide-api resolves these paths relative to the process working
-# directory, NOT relative to this config file.  Do NOT run carbide-api
+# NOTE: nico-api resolves these paths relative to the process working
+# directory, NOT relative to this config file.  Do NOT run nico-api
 # directly with this file from an IDE or any directory other than the repo
 # root — cert loading will fail silently.
-# run-carbide-api.sh works around this by copying the config to /tmp and
+# run-nico-api.sh works around this by copying the config to /tmp and
 # rewriting these values to absolute paths before passing it to the binary.
 [tls]
 identity_pemfile_path = "dev/certs/localhost/localhost.crt"

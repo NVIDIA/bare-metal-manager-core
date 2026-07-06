@@ -1017,24 +1017,11 @@ pub enum ComputeAllocationEnforcement {
 
 /// DPF (DPU Platform Framework) configuration for
 /// deploying DPU fabric as a Kubernetes service.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Default, Deserialize)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
-    /// Kubernetes deployment name for the DPF service.
-    #[serde(default = "default_dpf_deployment_name")]
-    pub deployment_name: String,
-    /// Kubernetes DPUFlavor CR name.
-    #[serde(default = "default_dpf_flavor_name")]
-    pub flavor_name: String,
-    /// Label key applied to DPUNode CRs for deployment matching.
-    #[serde(default = "default_dpf_node_label_key")]
-    pub node_label_key: String,
-    /// URL to the BlueField firmware bundle (BFB) for
-    /// DPU provisioning.
-    #[serde(default = "default_dpf_bfb_url")]
-    pub bfb_url: String,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`. This also overrides if
@@ -1048,21 +1035,10 @@ pub struct DpfConfig {
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
     pub proxy: Option<DpfProxyDetails>,
-}
-
-impl Default for DpfConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            deployment_name: default_dpf_deployment_name(),
-            flavor_name: default_dpf_flavor_name(),
-            node_label_key: default_dpf_node_label_key(),
-            bfb_url: String::new(),
-            docker_image_pull_secret: None,
-            services: Box::default(),
-            proxy: None,
-        }
-    }
+    /// Per-generation DPUDeployment configurations. BF3 is always present with sensible
+    /// defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`.
+    #[serde(default)]
+    pub deployments: DpfDeploymentsConfig,
 }
 
 impl DpfConfig {
@@ -1156,6 +1132,109 @@ pub struct DpfServiceConfig {
     /// Secret to use to pull the docker images.
     #[serde(default = "default_dpf_image_pull_secret")]
     pub docker_image_pull_secret: String,
+}
+
+/// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
+/// Services are inherited from the top-level [`DpfConfig`].
+///
+/// No serde field defaults: when `[dpf.deployments.bf3]` or
+/// `[dpf.deployments.bf4_generic]` is written in the config file, all four
+/// fields are required. The `Default` impl (BF3 values) is only used when the
+/// entire `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on
+/// the `bf3` field of [`DpfDeploymentsConfig`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfDeploymentConfig {
+    /// URL to the BlueField firmware bundle (BFB) for DPU provisioning.
+    #[serde(default = "default_dpf_bfb_url")]
+    pub bfb_url: String,
+    /// Kubernetes DPUFlavor CR name.
+    pub flavor_name: String,
+    /// Kubernetes DPUDeployment CR name.
+    pub deployment_name: String,
+    /// Label key applied to DPUNode CRs for this deployment's node selector.
+    pub node_label_key: String,
+    // TODO: add optional services handling here.
+}
+
+impl Default for DpfDeploymentConfig {
+    fn default() -> Self {
+        Self {
+            bfb_url: default_dpf_bfb_url(),
+            flavor_name: default_dpf_flavor_name(),
+            deployment_name: default_dpf_deployment_name(),
+            node_label_key: default_dpf_node_label_key(),
+        }
+    }
+}
+
+/// Named DPUDeployment configurations under `[dpf.deployments]`.
+/// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfDeploymentsConfig {
+    /// BF3 deployment. Present by default with sensible values; override individual
+    /// fields in `[dpf.deployments.bf3]` when the site uses non-default names or BFBs.
+    #[serde(default)]
+    pub bf3: DpfDeploymentConfig,
+    /// BF4 generic deployment (NICo + BF4 via DPF).
+    #[serde(default)]
+    pub bf4_generic: Option<DpfDeploymentConfig>,
+}
+
+impl DpfDeploymentsConfig {
+    /// Returns all active deployment configs as `(name, config)` pairs.
+    /// Add new deployments here when they are introduced.
+    fn all(&self) -> Vec<(&'static str, &DpfDeploymentConfig)> {
+        let mut v = vec![("bf3", &self.bf3)];
+        if let Some(bf4) = &self.bf4_generic {
+            v.push(("bf4_generic", bf4));
+        }
+        v
+    }
+
+    /// Validates that no two active deployments share a `deployment_name`,
+    /// `flavor_name`, or `node_label_key`. Returns an error listing every
+    /// conflict so the operator can fix them all in one pass.
+    pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
+        let deployments = self.all();
+        let mut errors: Vec<String> = Vec::new();
+
+        let name_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.deployment_name.as_str()))
+            .collect();
+        let flavor_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.flavor_name.as_str()))
+            .collect();
+        let label_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.node_label_key.as_str()))
+            .collect();
+        let checks = [
+            ("deployment_name", &name_vals),
+            ("flavor_name", &flavor_vals),
+            ("node_label_key", &label_vals),
+        ];
+        for (field, values) in &checks {
+            let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+            for (name, value) in values.iter() {
+                if let Some(prev) = seen.insert(value, name) {
+                    errors.push(format!(
+                        "{field} {value:?} is shared by deployments {prev:?} and {name:?}"
+                    ));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(eyre::eyre!(
+                "DPF deployment configuration has conflicting identifiers:\n  - {}",
+                errors.join("\n  - ")
+            ))
+        }
+    }
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
@@ -1755,6 +1834,34 @@ pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch mTLS services configured on scoped switches before NMX cluster
+    /// setup proceeds. When omitted or empty, defaults to ScaleUpFabric manager
+    /// and telemetry interface services.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [rack_state_controller]
+    /// nmx_cluster_switch_mtls_services = [
+    ///   "scale_up_fabric_manager",
+    ///   "scale_up_fabric_telemetry_interface",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub nmx_cluster_switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl RackStateControllerConfig {
+    /// Returns configured NMX cluster switch mTLS services, or the ScaleUpFabric
+    /// defaults when the field was omitted or left empty in config.
+    pub fn effective_nmx_cluster_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_nmx_cluster_switch_mtls_services(
+                &self.nmx_cluster_switch_mtls_services,
+            ),
+        )
+    }
 }
 
 /// SwitchStateController related config
@@ -1763,6 +1870,34 @@ pub struct SwitchStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch services that receive installed mTLS certificates during RMS
+    /// `configure_switch_certificate` calls initiated by the switch state
+    /// machine.
+    ///
+    /// When this field is omitted or empty, all supported services are used.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [switch_state_controller]
+    /// switch_mtls_services = [
+    ///   "nvue_api",
+    ///   "scale_up_fabric_telemetry",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl SwitchStateControllerConfig {
+    /// Returns the configured switch mTLS services, or all supported services
+    /// when the field was omitted or left empty in config.
+    pub fn effective_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_switch_mtls_services(&self.switch_mtls_services),
+        )
+    }
 }
 
 /// SpdmStateController related config

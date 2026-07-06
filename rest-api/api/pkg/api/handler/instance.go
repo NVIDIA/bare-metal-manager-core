@@ -1078,11 +1078,16 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Select unallocated Machine for the requested instance type
-			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, tx, cih.dbSession, instanceType)
+			machine, err = common.GetUnallocatedMachineForInstanceType(ctx, logger, tx, cih.dbSession, instanceType, &apiRequest)
 			if err != nil {
+				var ibSelErr *common.InfiniBandMachineSelectionError
+				if errors.As(err, &ibSelErr) {
+					return cutil.NewAPIError(http.StatusBadRequest, ibSelErr.Error(), ibSelErr.ValidationError())
+				}
 				if err == common.ErrInstanceTypeMachineNotFound {
 					return cutil.NewAPIError(http.StatusBadRequest,
 						"No Machines are available for specified Instance Type", nil)
+
 				}
 				logger.Error().Err(err).Msg("error retrieving Machine from DB for Instance Type")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve available baremetal Machines for specified Instance Type", nil)
@@ -1121,7 +1126,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusBadRequest, "InfiniBand Interfaces cannot be specified if Instance Type or Machine doesn't have InfiniBand Capability", nil)
 			}
 
-			// Validate InfiniBand Interfaces if Instance Type has InfiniBand Capability
+			// Validate InfiniBand Interfaces against the selected Machine's InfiniBand Capabilities
 			err = apiRequest.ValidateInfiniBandInterfaces(ibCaps)
 			if err != nil {
 				logger.Error().Err(err).Msg("Failed to validate InfiniBand interfaces in request data")

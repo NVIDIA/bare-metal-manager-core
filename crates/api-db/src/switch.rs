@@ -606,6 +606,8 @@ pub struct SwitchEndpointRow {
     pub bmc_ip: IpAddr,
     pub nvos_mac: Option<MacAddress>,
     pub nvos_ip: Option<IpAddr>,
+    /// `machine_interfaces.hostname` plus domain for the NVOS interface (TLS SNI).
+    pub nvos_hostname: Option<String>,
 }
 
 /// Ready switch endpoint selected for NMX-C rack-level operations.
@@ -638,7 +640,12 @@ pub async fn find_switch_endpoints_by_ids(
             es.bmc_mac_address   AS bmc_mac,
             bmc_mia.address      AS bmc_ip,
             nvos_mi.mac_address  AS nvos_mac,
-            nvos_mia.address     AS nvos_ip
+            nvos_mia.address     AS nvos_ip,
+            CASE
+                WHEN nvos_d.name IS NOT NULL AND nvos_d.name <> '' THEN
+                    nvos_mi.hostname || '.' || nvos_d.name
+                ELSE nvos_mi.hostname
+            END                  AS nvos_hostname
         FROM switches s
         JOIN expected_switches es
             ON es.bmc_mac_address = s.bmc_mac_address
@@ -653,6 +660,8 @@ pub async fn find_switch_endpoints_by_ids(
            AND nvos_mi.mac_address = ANY(es.nvos_mac_addresses)
         LEFT JOIN machine_interface_addresses nvos_mia
             ON nvos_mia.interface_id = nvos_mi.id
+        LEFT JOIN domains nvos_d
+            ON nvos_d.id = nvos_mi.domain_id
         WHERE s.id = ANY($1)
           AND bmc_ns.network_segment_type = 'underlay'
         ORDER BY s.id

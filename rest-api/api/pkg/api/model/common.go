@@ -10,13 +10,13 @@ const (
 )
 
 // APIDeletionAcceptedResponse is the JSON body for accepted async DELETE requests.
-type APIDeletionAcceptedResponse struct {
+type APIMessageResponse struct {
 	Message string `json:"message"`
 }
 
 // NewAPIDeletionAcceptedResponse returns the JSON body for accepted async deletes.
-func NewAPIDeletionAcceptedResponse() APIDeletionAcceptedResponse {
-	return APIDeletionAcceptedResponse{
+func NewAPIDeletionAcceptedResponse() APIMessageResponse {
+	return APIMessageResponse{
 		Message: DeletionRequestAcceptedMessage,
 	}
 }

@@ -57,16 +57,25 @@ on:
         default: ""
         type: string
       ngc_path:
-        description: 'NGC path for resource uploads'
+        description: 'NGC org/team for resource uploads (empty = skip)'
         required: false
-        default: '0837451325059433/carbide-dev'
         type: string
+        default: ''
     secrets:
       NVCR_USERNAME:
         description: 'NVCR username'
         required: false
       NVCR_TOKEN:
         description: 'NVCR token'
+        required: false
+      NICO_TARGET_REGISTRY_USERNAME:
+        description: "Username for the push target registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_TARGET_REGISTRY_TOKEN:
+        description: "Token for the push target registry (falls back to NVCR_TOKEN)"
+        required: false
+      NICO_NGC_TOKEN:
+        description: "Key for NGC helm/resource uploads (falls back to NVCR_TOKEN)"
         required: false
 
 jobs:
@@ -105,12 +114,20 @@ jobs:
           # directly — avoids unauthenticated 429 rate limits. Matches core docker-build.yml.
           buildkitd-config: /etc/buildkit/buildkitd.toml
 
-      - name: Login to NVCR
-        uses: docker/login-action@v3
-        with:
-          registry: nvcr.io
-          username: ${{ secrets.NVCR_USERNAME }}
-          password: ${{ secrets.NVCR_TOKEN }}
+      - name: Derive registry host
+        id: registry-host
+        env:
+          TARGET_REGISTRY: ${{ inputs.target_registry }}
+          PUSH_ENABLED: ${{ inputs.push_enabled }}
+          HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
+        run: |
+          HOST="${TARGET_REGISTRY%%/*}"
+          echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && { [ "${HAS_TARGET_TOKEN}" != "true" ] || [ "${HAS_TARGET_USERNAME}" != "true" ]; }; then
+            echo "::error::pushing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets"
+            exit 1
+          fi
 
       - name: Determine Docker tags
         id: docker-tags
@@ -147,6 +164,7 @@ jobs:
           build-args: |
             TARGETOS=linux
             TARGETARCH=${{ matrix.arch }}
+            VERSION=${{ steps.docker-tags.outputs.primary_tag }}
           tags: ${{ steps.docker-tags.outputs.arch_tag }}
           cache-from: type=gha,scope=${{ inputs.service_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}-${{ matrix.arch }}
@@ -192,12 +210,20 @@ jobs:
           echo "${got}" | grep -q "${want}" \
             || { echo "::error::${{ matrix.arch }} ${{ inputs.binary_name }} is not ${want}: ${got}"; exit 1; }
 
+      - name: Login to target registry
+        if: ${{ inputs.push_enabled == true }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          password: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
       - name: Push ${{ matrix.arch }} image
         if: inputs.push_enabled == true
         run: docker push "${{ steps.docker-tags.outputs.arch_tag }}"
 
       - name: Upload binary artifact with semantic version
-        if: inputs.push_enabled == true
+        if: inputs.push_enabled == true && inputs.ngc_path != ''
         uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -206,10 +232,10 @@ jobs:
           version: ${{ steps.docker-tags.outputs.artifact_version }}
           path: artifacts/${{ inputs.binary_name }}-${{ matrix.arch }}
           ngc-path: ${{ inputs.ngc_path }}
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Upload binary artifact with latest tag
-        if: inputs.is_main_branch == 'true' && inputs.push_enabled == true
+        if: inputs.is_main_branch == 'true' && inputs.push_enabled == true && inputs.ngc_path != ''
         uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-binary-${{ matrix.arch }}
@@ -218,7 +244,7 @@ jobs:
           version: latest
           path: artifacts/${{ inputs.binary_name }}-${{ matrix.arch }}
           ngc-path: ${{ inputs.ngc_path }}
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
 
   # Stitch the per-arch images pushed by `build` into one multi-arch manifest at the
   # bare tag, then export/upload the image tarball. Push refs only.
@@ -234,12 +260,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to NVCR
+      - name: Derive registry host
+        id: registry-host
+        env:
+          TARGET_REGISTRY: ${{ inputs.target_registry }}
+          PUSH_ENABLED: ${{ inputs.push_enabled }}
+          HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
+        run: |
+          HOST="${TARGET_REGISTRY%%/*}"
+          echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+          if [ "${PUSH_ENABLED}" = "true" ] && [ "${HOST}" != "nvcr.io" ] && { [ "${HAS_TARGET_TOKEN}" != "true" ] || [ "${HAS_TARGET_USERNAME}" != "true" ]; }; then
+            echo "::error::pushing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets"
+            exit 1
+          fi
+
+      - name: Login to target registry
+        if: ${{ inputs.push_enabled == true }}
         uses: docker/login-action@v3
         with:
-          registry: nvcr.io
-          username: ${{ secrets.NVCR_USERNAME }}
-          password: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          password: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Determine Docker tags
         id: docker-tags
@@ -279,6 +321,7 @@ jobs:
             | gzip > "artifacts/${{ inputs.service_name }}-${{ steps.docker-tags.outputs.artifact_version }}.tar.gz"
 
       - name: Upload Docker image artifact with semantic version
+        if: inputs.ngc_path != ''
         uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
@@ -287,10 +330,10 @@ jobs:
           version: ${{ steps.docker-tags.outputs.artifact_version }}
           path: artifacts/${{ inputs.service_name }}-${{ steps.docker-tags.outputs.artifact_version }}.tar.gz
           ngc-path: ${{ inputs.ngc_path }}
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Upload Docker image artifact with latest tag
-        if: inputs.is_main_branch == 'true'
+        if: inputs.is_main_branch == 'true' && inputs.ngc_path != ''
         uses: NVIDIA/dsx-github-actions/.github/actions/resource-push-ngc@ae74448cafa69f20fe0011c5351c2a864a8f632d
         with:
           name: ${{ inputs.service_name }}-image
@@ -299,4 +342,4 @@ jobs:
           version: latest
           path: artifacts/${{ inputs.service_name }}-${{ steps.docker-tags.outputs.artifact_version }}.tar.gz
           ngc-path: ${{ inputs.ngc_path }}
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}

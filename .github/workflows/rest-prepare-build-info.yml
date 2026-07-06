@@ -24,6 +24,8 @@ on:
       target_registry:
         description: "Target NVCR registry path"
         value: ${{ jobs.prepare.outputs.target_registry }}
+      target_ngc_path:
+        value: ${{ jobs.prepare.outputs.target_ngc_path }}
       branch_name:
         description: "Sanitized branch name for use in image tags"
         value: ${{ jobs.prepare.outputs.branch_name }}
@@ -53,6 +55,7 @@ jobs:
       short_sha: ${{ steps.generate-version.outputs.short_sha }}
       full_sha: ${{ steps.generate-version.outputs.full_sha }}
       target_registry: ${{ steps.generate-version.outputs.target_registry }}
+      target_ngc_path: ${{ steps.generate-version.outputs.target_ngc_path }}
       branch_name: ${{ steps.generate-version.outputs.branch_name }}
       branch_sha_tag: ${{ steps.generate-version.outputs.branch_sha_tag }}
       is_main_branch: ${{ steps.generate-version.outputs.is_main_branch }}
@@ -69,6 +72,10 @@ jobs:
 
       - name: Generate version and build information
         id: generate-version
+        env:
+          REGISTRY_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
@@ -77,7 +84,29 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
 
-          target_registry="nvcr.io/0837451325059433/carbide-dev"
+          if [[ "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" == *$'\n'* || "${REGISTRY_OVERRIDE}${NGC_PATH_OVERRIDE}" == *$'\r'* ]]; then
+            echo "::error::registry variables must be single-line values"
+            exit 1
+          fi
+          # canonical endpoints are constants: variables must not redirect them
+          if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
+            target_registry="nvcr.io/0837451325059433/carbide-dev"
+          else
+            if [ -z "${REGISTRY_OVERRIDE}" ]; then
+              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
+              exit 1
+            fi
+            _norm="${REGISTRY_OVERRIDE%/}"
+            _host=$(printf '%s' "${_norm%%/*}" | tr '[:upper:]' '[:lower:]'); _host="${_host%:443}"
+            _path=$(printf '%s' "${_norm#*/}" | tr '[:upper:]' '[:lower:]')
+            case "${_host}/${_path}" in
+              "nvcr.io/0837451325059433/carbide-dev"|"nvcr.io/0837451325059433/carbide")
+                echo "::error::this repository must not target the canonical registries"
+                exit 1;;
+            esac
+            target_registry="${REGISTRY_OVERRIDE}"
+          fi
+          target_registry="${target_registry%/}"
 
           BRANCH_NAME="${{ github.ref_name }}"
           BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
@@ -96,7 +125,7 @@ jobs:
             RELEASE_TAG=""
           fi
 
-          if echo "${{ github.event.head_commit.message }}" | grep -q "push-container"; then
+          if printf '%s' "${COMMIT_MESSAGE}" | grep -q "push-container"; then
             PUSH_REQUESTED="true"
           else
             PUSH_REQUESTED="false"
@@ -106,6 +135,16 @@ jobs:
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
           echo "full_sha=$FULL_SHA" >> $GITHUB_OUTPUT
           echo "target_registry=$target_registry" >> $GITHUB_OUTPUT
+          if [ "${GITHUB_REPOSITORY}" = "NVIDIA/infra-controller" ]; then
+            echo "target_ngc_path=${target_registry#*/}" >> $GITHUB_OUTPUT
+          else
+            case "${NGC_PATH_OVERRIDE%/}" in
+              "0837451325059433/carbide-dev"|"0837451325059433/carbide")
+                echo "::error::this repository must not publish helm/resources to the canonical NGC path"
+                exit 1;;
+            esac
+            echo "target_ngc_path=${NGC_PATH_OVERRIDE:-}" >> $GITHUB_OUTPUT
+          fi
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "branch_sha_tag=$BRANCH_SHA_TAG" >> $GITHUB_OUTPUT
           echo "is_main_branch=$IS_MAIN_BRANCH" >> $GITHUB_OUTPUT

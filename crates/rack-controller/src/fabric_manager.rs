@@ -342,6 +342,7 @@ mod tests {
             os_ip: Some("198.51.100.10".to_string()),
             os_username: Some("nvos".to_string()),
             os_password: Some("password".to_string()),
+            os_hostname: None,
         }
     }
 

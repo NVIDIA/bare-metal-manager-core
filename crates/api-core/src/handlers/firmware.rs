@@ -19,11 +19,12 @@ use std::collections::{HashMap, HashSet};
 
 use ::rpc::model::firmware::firmware_component_type_from_rpc;
 use ::rpc::{Timestamp, forge as rpc};
+use carbide_firmware::FirmwareConfigSnapshot;
 use chrono::TimeZone;
 use itertools::Itertools;
 use model::firmware::{
-    DesiredFirmwareVersions, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
-    FirmwareFileArtifact,
+    DesiredFirmwareVersions, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
+    FirmwareFileArtifact, HostFirmwareConfig,
 };
 use regex::Regex;
 use tonic::{Request, Response, Status};
@@ -83,17 +84,24 @@ pub(crate) async fn set_firmware_update_time_window(
     Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
 }
 
-pub(crate) fn list_host_firmware(
+async fn effective_host_firmware_snapshot(
+    api: &Api,
+) -> Result<FirmwareConfigSnapshot, CarbideError> {
+    let host_firmware_configs =
+        db::host_firmware_config::list_configs(&api.database_connection).await?;
+
+    Ok(api
+        .runtime_config
+        .get_firmware_config()
+        .create_snapshot_with_overrides(host_firmware_configs))
+}
+
+pub(crate) async fn list_host_firmware(
     api: &Api,
     _request: Request<rpc::ListHostFirmwareRequest>,
 ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
     let mut ret = vec![];
-    for entry in api
-        .runtime_config
-        .get_firmware_config()
-        .create_snapshot()
-        .into_values()
-    {
+    for entry in effective_host_firmware_snapshot(api).await?.into_values() {
         for (component, component_info) in entry.components {
             for firmware in component_info.known_firmware {
                 if firmware.default {
@@ -118,16 +126,14 @@ pub(crate) fn list_host_firmware(
     }))
 }
 
-pub(crate) fn get_desired_firmware_versions(
+pub(crate) async fn get_desired_firmware_versions(
     api: &Api,
     request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
 ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
     log_request_data(&request);
 
-    let entries = api
-        .runtime_config
-        .get_firmware_config()
-        .create_snapshot()
+    let entries = effective_host_firmware_snapshot(api)
+        .await?
         .into_values()
         .map(|firmware| {
             let vendor = firmware.vendor;
@@ -309,38 +315,38 @@ impl HostFirmwareConfigPatch {
 }
 
 fn merge_host_firmware_config_patch(
-    existing: Option<Firmware>,
+    existing: Option<HostFirmwareConfig>,
     patch: HostFirmwareConfigPatch,
-) -> Result<Firmware, CarbideError> {
-    let mut firmware = existing.unwrap_or_else(|| Firmware {
+) -> Result<HostFirmwareConfig, CarbideError> {
+    let mut runtime_config = existing.unwrap_or_else(|| HostFirmwareConfig {
         vendor: patch.vendor,
         model: patch.model.clone(),
         components: HashMap::new(),
-        explicit_start_needed: false,
+        explicit_start_needed: None,
         ordering: Vec::new(),
     });
 
-    firmware.vendor = patch.vendor;
-    firmware.model = patch.model;
+    runtime_config.vendor = patch.vendor;
+    runtime_config.model = patch.model;
     if let Some(explicit_start_needed) = patch.explicit_start_needed {
-        firmware.explicit_start_needed = explicit_start_needed;
+        runtime_config.explicit_start_needed = Some(explicit_start_needed);
     }
     if !patch.ordering.is_empty() {
-        firmware.ordering = patch.ordering;
+        runtime_config.ordering = patch.ordering;
     }
 
     for (component_type, incoming_component) in patch.components {
-        if let Some(existing_component) = firmware.components.get_mut(&component_type) {
+        if let Some(existing_component) = runtime_config.components.get_mut(&component_type) {
             merge_host_firmware_component(existing_component, incoming_component);
         } else {
-            firmware
+            runtime_config
                 .components
                 .insert(component_type, incoming_component.into_component());
         }
     }
 
-    validate_host_firmware_config(&firmware)?;
-    Ok(firmware)
+    validate_host_firmware_config(&runtime_config)?;
+    Ok(runtime_config)
 }
 
 // Merge an incoming component patch into an existing component. Incoming firmware
@@ -394,7 +400,7 @@ fn merge_host_firmware_component(
 // Validate the final firmware config after applying a patch. The persisted
 // config must have a complete component ordering and exactly one default
 // firmware version per component.
-fn validate_host_firmware_config(firmware: &Firmware) -> Result<(), CarbideError> {
+fn validate_host_firmware_config(firmware: &HostFirmwareConfig) -> Result<(), CarbideError> {
     if firmware.components.is_empty() {
         return Err(CarbideError::InvalidArgument(
             "at least one firmware component is required".to_string(),
@@ -735,7 +741,7 @@ fn host_firmware_config_response(
                 },
             )
             .collect(),
-        explicit_start_needed: config.explicit_start_needed,
+        explicit_start_needed: config.explicit_start_needed.unwrap_or(false),
         ordering: config
             .ordering
             .into_iter()
@@ -1187,8 +1193,8 @@ mod tests {
 
     #[test]
     fn merge_host_firmware_config_preserves_optional_fields_when_omitted() {
-        let existing = Firmware {
-            explicit_start_needed: true,
+        let existing = HostFirmwareConfig {
+            explicit_start_needed: Some(true),
             ordering: vec![FirmwareComponentType::Bmc],
             ..test_firmware(HashMap::from([(
                 FirmwareComponentType::Bmc,
@@ -1206,14 +1212,14 @@ mod tests {
 
         let merged = merge_host_firmware_config_patch(Some(existing), patch).unwrap();
 
-        assert!(merged.explicit_start_needed);
+        assert_eq!(merged.explicit_start_needed, Some(true));
         assert_eq!(merged.ordering, vec![FirmwareComponentType::Bmc]);
     }
 
     #[test]
     fn merge_host_firmware_config_updates_optional_fields_when_present() {
-        let existing = Firmware {
-            explicit_start_needed: true,
+        let existing = HostFirmwareConfig {
+            explicit_start_needed: Some(true),
             ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
             ..test_firmware(HashMap::from([(
                 FirmwareComponentType::Bmc,
@@ -1235,8 +1241,30 @@ mod tests {
 
         let merged = merge_host_firmware_config_patch(Some(existing), patch).unwrap();
 
-        assert!(!merged.explicit_start_needed);
+        assert_eq!(merged.explicit_start_needed, Some(false));
         assert_eq!(merged.ordering, vec![FirmwareComponentType::Bmc]);
+    }
+
+    #[test]
+    fn merge_host_firmware_config_keeps_omitted_explicit_start_absent_on_create() {
+        let patch = HostFirmwareConfigPatch {
+            ordering: vec![FirmwareComponentType::Bmc],
+            ..test_patch(HashMap::from([(
+                FirmwareComponentType::Bmc,
+                test_component(
+                    "^FW_BMC_0$",
+                    vec![test_entry(
+                        "7.30",
+                        true,
+                        "https://firmware.example.invalid/bmc-7.30.bin",
+                    )],
+                ),
+            )]))
+        };
+
+        let merged = merge_host_firmware_config_patch(None, patch).unwrap();
+
+        assert_eq!(merged.explicit_start_needed, None);
     }
 
     #[test]
@@ -1392,15 +1420,17 @@ mod tests {
         }
     }
 
-    fn test_firmware(components: HashMap<FirmwareComponentType, FirmwareComponent>) -> Firmware {
+    fn test_firmware(
+        components: HashMap<FirmwareComponentType, FirmwareComponent>,
+    ) -> HostFirmwareConfig {
         let mut ordering: Vec<_> = components.keys().copied().collect();
         ordering.sort();
 
-        Firmware {
+        HostFirmwareConfig {
             vendor: bmc_vendor::BMCVendor::Nvidia,
             model: "DGXH100".to_string(),
             components,
-            explicit_start_needed: false,
+            explicit_start_needed: Some(false),
             ordering,
         }
     }

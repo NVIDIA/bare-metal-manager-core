@@ -17,6 +17,7 @@
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
 use std::ops::Add;
 use std::path::PathBuf;
@@ -428,9 +429,12 @@ struct IterationResult {
 struct CurrentNetworkVersion {
     managed_host_config_version: Option<String>,
     instance_network_config_version: Option<String>,
+    // This hashes over a bunch of unversioned fields from the API.
+    unversioned_fields_hash: Option<u64>,
 }
 
 impl CurrentNetworkVersion {
+    // Return whether our stored version matches the specific config.
     pub fn matches_versions_from(
         &self,
         conf: impl AsRef<ManagedHostNetworkConfigResponse>,
@@ -440,8 +444,23 @@ impl CurrentNetworkVersion {
         let instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version);
 
-        self.managed_host_config_version.as_deref() == managed_host_config_version
-            && self.instance_network_config_version.as_deref() == instance_network_config_version
+        let config_versions_identical = self.managed_host_config_version.as_deref()
+            == managed_host_config_version
+            && self.instance_network_config_version.as_deref() == instance_network_config_version;
+        match (config_versions_identical, self.unversioned_fields_hash) {
+            (true, Some(unversioned_fields_hash)) => {
+                if unversioned_fields_hash == Self::hash_unversioned_fields(conf) {
+                    true
+                } else {
+                    tracing::info!(
+                        "An unversioned field in ManagedHostNetworkConfigResponse has changed"
+                    );
+                    false
+                }
+            }
+            (false, _) => false,
+            (_, None) => false,
+        }
     }
 
     pub fn update_from(&mut self, conf: impl AsRef<ManagedHostNetworkConfigResponse>) {
@@ -450,6 +469,73 @@ impl CurrentNetworkVersion {
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
         self.instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version).map(String::from);
+        self.unversioned_fields_hash
+            .replace(Self::hash_unversioned_fields(conf));
+    }
+
+    // Some of the fields aren't covered by any of the ConfigVersions that we
+    // receive from the API, so let's try to catch changes in these so that we
+    // don't skip a needed config update.
+    fn hash_unversioned_fields(conf: &ManagedHostNetworkConfigResponse) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let h = &mut hasher;
+
+        conf.additional_route_target_imports.hash(h);
+        conf.anycast_site_prefixes.hash(h);
+        conf.asn.hash(h);
+        conf.bgp_leaf_session_password.hash(h);
+        conf.common_internal_route_target.hash(h);
+        conf.datacenter_asn.hash(h);
+        conf.deny_prefixes.hash(h);
+        conf.deprecated_deny_prefixes.hash(h);
+        conf.dhcp_servers.hash(h);
+        conf.internet_l3_vni.hash(h);
+        conf.network_security_policy_overrides.hash(h);
+        conf.ntp_servers.hash(h);
+        conf.remote_id.hash(h);
+        conf.route_servers.hash(h);
+        conf.site_global_vpc_vni.hash(h);
+        conf.stateful_acls_enabled.hash(h);
+        conf.tenant_host_asn.hash(h);
+        conf.vni_device.hash(h);
+        conf.vpc_isolation_behavior.hash(h);
+
+        conf.dpu_extension_services
+            .iter()
+            .for_each(|dpu_extension_service| {
+                dpu_extension_service.removed.hash(h);
+                dpu_extension_service.service_id.hash(h);
+                // We can probably ignore the other fields, assuming good
+                // behavior from the versioning.
+            });
+
+        if let Some(routing_profile) = &conf.routing_profile {
+            routing_profile.accepted_leaks_from_underlay.hash(h);
+            routing_profile.allowed_anycast_prefixes.hash(h);
+            routing_profile.leak_default_route_from_underlay.hash(h);
+            routing_profile.leak_tenant_host_routes_to_underlay.hash(h);
+            routing_profile.route_target_imports.hash(h);
+            routing_profile.route_targets_on_exports.hash(h);
+            routing_profile.tenant_leak_communities_accepted.hash(h);
+        }
+
+        if let Some(traffic_intercept_config) = &conf.traffic_intercept_config {
+            traffic_intercept_config.additional_overlay_vtep_ip.hash(h);
+            traffic_intercept_config.public_prefixes.hash(h);
+            traffic_intercept_config
+                .secondary_vtep_aggregate_prefixes
+                .hash(h);
+            if let Some(bridging) = &traffic_intercept_config.bridging {
+                bridging.hbn_bridge.hash(h);
+                bridging.host_representor_intercept_bridging.hash(h);
+                bridging.internal_bridge_routing_prefix.hash(h);
+                bridging.vf_intercept_bridge_name.hash(h);
+                bridging.vf_intercept_bridge_port.hash(h);
+                bridging.vf_intercept_bridge_sf.hash(h);
+            }
+        }
+
+        hasher.finish()
     }
 }
 

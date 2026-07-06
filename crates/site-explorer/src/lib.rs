@@ -367,6 +367,15 @@ impl SiteExplorer {
         Ok(())
     }
 
+    async fn firmware_config_snapshot(&self) -> SiteExplorerResult<FirmwareConfigSnapshot> {
+        let host_firmware_configs =
+            db::host_firmware_config::list_configs(&self.database_connection).await?;
+
+        Ok(self
+            .firmware_config
+            .create_snapshot_with_overrides(host_firmware_configs))
+    }
+
     async fn run(&mut self, cancel_token: CancellationToken) {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
@@ -1821,6 +1830,12 @@ impl SiteExplorer {
         let underlay_segments =
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
                 .await?;
+        // A BMC that shares the host network is preallocated on a HostInband segment so scan
+        // those too, but only for BMC interfaces. The host in-band NIC also DHCPs onto a
+        // HostInband segment with no machine_id and must never be treated as a Redfish endpoint.
+        let host_inband_segments =
+            db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::HostInband))
+                .await?;
         let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
         let expected_switches = db::expected_switch::find_all(&mut txn).await?;
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
@@ -1990,21 +2005,28 @@ impl SiteExplorer {
         );
 
         let build_index_start = Instant::now();
-        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
+        let scannable_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id)
-                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
+                let is_bmc = iface.interface_type == InterfaceType::Bmc;
+                // On Underlay an unadopted interface is a BMC to explore, and adopted BMCs
+                // stay visible too.
+                let underlay = underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || is_bmc);
+                // On HostInband only scan BMCs. The host in-band NIC also DHCPs here with no
+                // machine_id and is not a Redfish endpoint.
+                let host_inband = host_inband_segments.contains(&iface.segment_id) && is_bmc;
+                underlay || host_inband
             })
             .collect();
-        let underlay_interface_count = underlay_interfaces.len();
+        let scannable_interface_count = scannable_interfaces.len();
         metrics.record_update_explored_endpoints_count(
-            "underlay_interfaces",
-            underlay_interface_count,
+            "scannable_interfaces",
+            scannable_interface_count,
         );
 
-        // Start an index of all underlay interfaces, expected machines, expected power shelves, and expected switches.
-        let index = ExploredEndpointIndex::builder(explored_endpoints, underlay_interfaces)
+        // Start an index of all scannable interfaces, expected machines, expected power shelves, and expected switches.
+        let index = ExploredEndpointIndex::builder(explored_endpoints, scannable_interfaces)
             .with_expected_machines(expected_machines)
             .with_expected_switches(expected_switches)
             .with_expected_power_shelves(expected_power_shelves)
@@ -2160,7 +2182,7 @@ impl SiteExplorer {
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
             expected_count - index.all_matched_expected_machines().len();
-        let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
+        let fw_config_snapshot = Arc::new(self.firmware_config_snapshot().await?);
 
         let probe_start = Instant::now();
         for endpoint in explore_endpoint_data.into_iter() {

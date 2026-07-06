@@ -3,6 +3,11 @@ name: Build Artifacts (Boot & Ephemeral Images)
 on:
   workflow_call:
     inputs:
+      target_login:
+        description: 'Allow authenticating to the build-container host when it differs from the extras host (publish runs only)'
+        required: false
+        default: false
+        type: boolean
       arch:
         description: 'Target architecture: x86_64 or aarch64'
         required: true
@@ -144,12 +149,32 @@ jobs:
           arch: ${{ inputs.arch }}
 
       # Setup Docker for container-based builds
-      - name: Setup Docker authentication
+      - name: Derive registry hosts
+        id: registry-hosts
+        env:
+          EXTRAS: ${{ inputs.extras_container }}
+          BUILD: ${{ inputs.build_container }}
+        run: |
+          echo "extras_host=${EXTRAS%%/*}" >> "$GITHUB_OUTPUT"
+          echo "build_host=${BUILD%%/*}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Docker authentication (source)
         if: inputs.use_container == true || inputs.inject_extras == true
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ steps.registry-hosts.outputs.extras_host || 'nvcr.io' }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # the build container ref points at the target registry after a rebuild;
+      # log in there too when it is a different host.
+      - name: Setup Docker authentication (target)
+        if: inputs.target_login == true && inputs.use_container == true && inputs.build_container != '' && steps.registry-hosts.outputs.build_host != steps.registry-hosts.outputs.extras_host
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ steps.registry-hosts.outputs.build_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Pull carbide-extras container
         if: inputs.inject_extras == true && inputs.extras_container != ''
@@ -162,6 +187,18 @@ jobs:
         run: |
           echo "Pulling build container: ${{ inputs.build_container }}"
           docker pull ${{ inputs.build_container }}
+
+      - name: Log out of source registry
+        env:
+          EXTRAS: ${{ inputs.extras_container }}
+          BUILD: ${{ inputs.build_container }}
+        run: |
+          # Later build tasks pull public images from the same host (e.g.
+          # nvcr.io/nvidia/doca in the bfb flow); a scoped credential denies
+          # those pulls while anonymous access succeeds. All authenticated
+          # pulls are done at this point.
+          if [ -n "${BUILD}" ]; then docker logout "${BUILD%%/*}" 2>/dev/null || true; fi
+          if [ -n "${EXTRAS}" ]; then docker logout "${EXTRAS%%/*}" 2>/dev/null || true; fi
 
       - name: Set up environment variables
         run: |

@@ -29,7 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_firmware::{
-    FirmwareDownloader, ResolvedFirmwareArtifactSource, resolve_files_firmware_artifact,
+    FirmwareConfigSnapshot, FirmwareDownloader, ResolvedFirmwareArtifactSource,
+    resolve_files_firmware_artifact,
 };
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
@@ -45,7 +46,7 @@ use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
-use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
     ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase, NicMode, PowerDrainState,
     PreingestionState, TimeSyncResetPhase,
@@ -502,18 +503,27 @@ async fn one_endpoint(
 }
 
 impl PreingestionManagerStatic {
+    async fn firmware_config_snapshot(
+        &self,
+        db: &PgPool,
+    ) -> PreingestionManagerResult<FirmwareConfigSnapshot> {
+        let host_firmware_configs = db::host_firmware_config::list_configs(db).await?;
+        Ok(self
+            .config
+            .firmware
+            .create_snapshot_with_overrides(host_firmware_configs))
+    }
+
     /// find_fw_info_for_host looks up the firmware config for the given endpoint
-    fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
-        let vendor = match &endpoint.report.vendor {
-            Some(vendor) => vendor.to_owned(),
-            None => {
-                // No vendor found for the endpoint, we can't match firmware
-                tracing::debug!("find_fw_info_for_host: {} No vendor", endpoint.address);
-                return None;
-            }
-        };
-        let model = endpoint.report.model()?;
-        self.config.firmware.create_snapshot().find(vendor, &model)
+    async fn find_fw_info_for_host(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> PreingestionManagerResult<Option<Firmware>> {
+        Ok(self
+            .firmware_config_snapshot(db)
+            .await?
+            .find_fw_info_for_host(endpoint))
     }
 
     /// check_firmware_versions_below_preingestion will check if we actually need to do firmware upgrades before
@@ -524,7 +534,7 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
     ) -> PreingestionManagerResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
-        let fw_info = match self.find_fw_info_for_host(endpoint) {
+        let fw_info = match self.find_fw_info_for_host(db, endpoint).await? {
             None => {
                 tracing::debug!(
                     "check_firmware_versions_below_preingestion {}: No matching firmware info found",
@@ -615,7 +625,7 @@ impl PreingestionManagerStatic {
             return Ok(false);
         }
 
-        let fw_info = match self.find_fw_info_for_host(endpoint) {
+        let fw_info = match self.find_fw_info_for_host(db, endpoint).await? {
             None => {
                 // No desired firmware description found for this host
                 tracing::debug!(
@@ -759,10 +769,13 @@ impl PreingestionManagerStatic {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
 
                         // If we have multiple firmware files to be uploaded, do the next one.
-                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint)
+                        if let Some(fw_info) = self.find_fw_info_for_host(db, endpoint).await?
                             && let Some(component_info) = fw_info.components.get(upgrade_type)
                             && let Some(selected_firmware) =
-                                component_info.known_firmware.iter().find(|&x| x.default)
+                                select_firmware_for_artifact_continuation(
+                                    component_info,
+                                    final_version,
+                                )
                         {
                             let firmware_number = firmware_number + 1;
                             if usize::try_from(firmware_number).is_ok_and(|firmware_number| {
@@ -876,7 +889,7 @@ impl PreingestionManagerStatic {
                 RedfishError::HTTPErrorCode { status_code, .. } => {
                     if status_code == NOT_FOUND {
                         // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
-                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint)
+                        if let Some(fw_info) = self.find_fw_info_for_host(db, endpoint).await?
                             && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *upgrade_type)
                             && current_version == final_version
@@ -1225,7 +1238,7 @@ impl PreingestionManagerStatic {
         upgrade_type: &FirmwareComponentType,
         previous_reset_time: &Option<i64>,
     ) -> PreingestionManagerResult<()> {
-        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+        if let Some(fw_info) = self.find_fw_info_for_host(db, endpoint).await? {
             if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
                     // Still not reporting the new version.
@@ -2717,6 +2730,22 @@ struct InUpgradeFirmwareWaitArgs<'a> {
     firmware_number: u32,
 }
 
+fn select_firmware_for_artifact_continuation<'a>(
+    component_info: &'a FirmwareComponent,
+    final_version: &str,
+) -> Option<&'a FirmwareEntry> {
+    component_info
+        .known_firmware
+        .iter()
+        .find(|firmware| firmware.version == final_version)
+        .or_else(|| {
+            component_info
+                .known_firmware
+                .iter()
+                .find(|firmware| firmware.default)
+        })
+}
+
 /// need_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if
 /// so returns the FirmwareEntry matching the desired upgrade along with the ID that Redfish uses to specify its version.
 fn need_upgrade(
@@ -3016,6 +3045,8 @@ impl CreateClientForIngestedHost for Arc<dyn RedfishClientPool> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
@@ -3066,5 +3097,31 @@ mod tests {
         ] {
             assert_eq!(is_bfb_artifact(Path::new(path)), expected, "{path}");
         }
+    }
+
+    #[test]
+    fn select_firmware_for_artifact_continuation_selects_requested_or_default() {
+        value_scenarios!(run = |requested_version| {
+            let component = FirmwareComponent {
+                known_firmware: vec![
+                    FirmwareEntry::standard_notdefault("6.00.30.00"),
+                    FirmwareEntry::standard("6.50.00.00"),
+                ],
+                ..FirmwareComponent::default()
+            };
+
+            select_firmware_for_artifact_continuation(&component, requested_version)
+                .unwrap()
+                .version
+                .clone()
+        };
+            "final-version preference" {
+                "6.00.30.00" => "6.00.30.00".to_string(),
+            }
+
+            "default fallback" {
+                "7.00.00.00" => "6.50.00.00".to_string(),
+            }
+        );
     }
 }

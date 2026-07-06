@@ -3,6 +3,16 @@ name: Build Container with Buildx
 on:
   workflow_call:
     inputs:
+      target_prebuild_login:
+        description: 'Log into the target registry before the build (base refs point there after a rebuild)'
+        required: false
+        default: false
+        type: boolean
+      source_registry_host:
+        description: 'Registry host for read-only base-image pulls (empty = skip source login)'
+        required: false
+        default: ''
+        type: string
       dockerfile_path:
         description: 'Path to Dockerfile'
         required: true
@@ -28,7 +38,7 @@ on:
         type: boolean
         default: true
       image_name:
-        description: 'Image name without registry prefix'
+        description: 'Full image repository (registry/path/name), no tag'
         required: true
         type: string
       image_tag:
@@ -77,6 +87,18 @@ on:
       NVCR_TOKEN:
         description: "NVIDIA Container Registry API token"
         required: false
+      NICO_SOURCE_REGISTRY_USERNAME:
+        description: "Username for the read-only source registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_SOURCE_REGISTRY_TOKEN:
+        description: "Token for the read-only source registry (falls back to NVCR_TOKEN)"
+        required: false
+      NICO_TARGET_REGISTRY_USERNAME:
+        description: "Username for the push target registry (falls back to NVCR_USERNAME)"
+        required: false
+      NICO_TARGET_REGISTRY_TOKEN:
+        description: "Token for the push target registry (falls back to NVCR_TOKEN)"
+        required: false
     outputs:
       image_digest:
         description: 'Image digest'
@@ -97,7 +119,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.push.outputs.digest || steps.build.outputs.digest }}
       image_tag: ${{ inputs.image_tag }}
       image_ref: ${{ steps.tag_list.outputs.primary }}
       tags: ${{ steps.tag_list.outputs.tags }}
@@ -113,16 +135,37 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        if: inputs.push
         uses: docker/setup-buildx-action@v3
         with:
           buildkitd-config: /etc/buildkit/buildkitd.toml
 
-      - name: Login to NVCR
+      - name: Derive registry host
+        id: registry-host
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+        run: echo "host=${IMAGE_NAME%%/*}" >> "$GITHUB_OUTPUT"
+
+      # Pull credentials and push credentials can differ in mirrors: base
+      # images come from the source registry, the built image goes to the
+      # target (whose login happens after the build, so no credential is
+      # ever presented during base-image pulls).
+      - name: Login to source registry
+        if: ${{ inputs.source_registry_host != '' }}
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ inputs.source_registry_host }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # needed when this run rebuilt base containers (their refs point at the
+      # target) and for multi-platform builds that push from the build step
+      - name: Login to target registry (pre-build)
+        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller')) }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Prepare tag list
         id: tag_list
@@ -165,19 +208,50 @@ jobs:
             echo "build_args=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build and optionally push Docker image
+      - name: Build image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ inputs.context_path }}
           file: ${{ inputs.dockerfile_path }}
           platforms: ${{ inputs.platforms }}
-          push: ${{ inputs.push }}
-          load: ${{ inputs.load && !inputs.push }}
+          # canonical pushes straight from the build step (original behavior,
+          # BuildKit provenance intact); mirrors defer the push until after the
+          # build so no credential is present during base pulls. Multi-platform
+          # images cannot be loaded into the classic store, so they always push
+          # directly.
+          push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller') }}
+          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+          # mirrors: the docker exporter cannot attach attestations, and
+          # provenance would embed private downstream repo refs into artifacts
+          provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
           cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+
+      - name: Login to target registry
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ steps.registry-host.outputs.host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      - name: Push image tags
+        id: push
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
+        env:
+          TAGS: ${{ steps.tag_list.outputs.tags }}
+          PRIMARY: ${{ steps.tag_list.outputs.primary }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r TAG; do
+            [ -z "${TAG}" ] && continue
+            docker push "${TAG}"
+          done <<< "${TAGS}"
+          DIGEST=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${PRIMARY}" | grep -m1 -F "${PRIMARY%:*}@")
+          echo "digest=${DIGEST##*@}" >> "$GITHUB_OUTPUT"
 
       # Scan the image the build step just loaded into the daemon — no rebuild.
       # Only runs when the image is actually loaded (load=true and not pushing,

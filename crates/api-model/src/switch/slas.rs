@@ -21,6 +21,9 @@ pub const INITIALIZING: u64 = 300; // 5 minutes
 /// SLA for Switch configuring in seconds
 pub const CONFIGURING: u64 = 300; // 5 minutes
 
+/// SLA for Switch fetch-info in seconds
+pub const FETCH_INFO: u64 = 300; // 5 minutes
+
 /// SLA for Switch validating in seconds
 pub const VALIDATING: u64 = 300; // 5 minutes
 

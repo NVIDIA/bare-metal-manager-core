@@ -2626,7 +2626,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
     ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
-        crate::handlers::firmware::get_desired_firmware_versions(self, request)
+        crate::handlers::firmware::get_desired_firmware_versions(self, request).await
     }
 
     async fn upsert_host_firmware_config(
@@ -2880,7 +2880,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ListHostFirmwareRequest>,
     ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
-        crate::handlers::firmware::list_host_firmware(self, request)
+        crate::handlers::firmware::list_host_firmware(self, request).await
     }
 
     // Scout is telling Carbide the mlx device configuration in its machine
@@ -3382,6 +3382,14 @@ impl Forge for Api {
         request: Request<rpc::ComponentPowerControlRequest>,
     ) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
         crate::handlers::component_manager::component_power_control(self, request).await
+    }
+
+    async fn component_configure_switch_certificate(
+        &self,
+        request: Request<rpc::ComponentConfigureSwitchCertificateRequest>,
+    ) -> Result<Response<rpc::ComponentConfigureSwitchCertificateResponse>, Status> {
+        crate::handlers::component_manager::component_configure_switch_certificate(self, request)
+            .await
     }
 
     async fn get_component_inventory(

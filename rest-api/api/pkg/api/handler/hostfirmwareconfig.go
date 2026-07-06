@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -90,13 +89,10 @@ func (uhfch CreateOrUpdateHostFirmwareConfigHandler) Handle(c echo.Context) erro
 		Msg("upserting Host Firmware Config via Core proxy")
 
 	var protoResponse cwssaws.HostFirmwareConfigResponse
-	code, err := common.ExecuteCoreGRPC(ctx, temporalClient, upsertHostFirmwareConfigMethod, protoRequest, &protoResponse, siteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to upsert Host Firmware Config")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf(
-			"Failed to create or update Host Firmware Config: %s",
-			common.GRPCStatusMessage(err),
-		), nil)
+	apiErr = common.ExecuteCoreGRPC(ctx, temporalClient, upsertHostFirmwareConfigMethod, protoRequest, &protoResponse, siteID)
+	if apiErr != nil {
+		logAPIError(logger, apiErr, "failed to upsert Host Firmware Config via Core proxy")
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	apiConfig := &model.APIHostFirmwareConfig{}
@@ -175,13 +171,10 @@ func (dhfch DeleteHostFirmwareConfigHandler) Handle(c echo.Context) error {
 		Str("siteID", apiRequest.SiteID).
 		Msg("deleting Host Firmware Config via Core proxy")
 
-	code, err := common.ExecuteCoreGRPC(ctx, temporalClient, deleteHostFirmwareConfigMethod, protoRequest, nil, siteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to delete Host Firmware Config")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf(
-			"Failed to delete Host Firmware Config: %s",
-			common.GRPCStatusMessage(err),
-		), nil)
+	apiErr = common.ExecuteCoreGRPC(ctx, temporalClient, deleteHostFirmwareConfigMethod, protoRequest, nil, siteID)
+	if apiErr != nil {
+		logAPIError(logger, apiErr, "failed to delete Host Firmware Config via Core proxy")
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	return c.NoContent(http.StatusNoContent)

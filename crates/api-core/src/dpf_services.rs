@@ -30,7 +30,9 @@ use carbide_dpf::{
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
-use crate::cfg::file::{DEFAULT_DPF_IMAGE_PULL_SECRET, DpfServiceConfig};
+use crate::cfg::file::{
+    DEFAULT_DPF_IMAGE_PULL_SECRET, DpfMandatoryServicesConfig, DpfServiceConfig,
+};
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
@@ -425,6 +427,18 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             &cfg.helm_version,
         )
     }
+}
+
+/// Build the full list of mandatory DPU services from config.
+pub fn mandatory_services(cfg: &DpfMandatoryServicesConfig) -> Vec<ServiceDefinition> {
+    vec![
+        dts_service(&cfg.dts),
+        doca_hbn_service(&cfg.doca_hbn),
+        dhcp_server_service(&cfg.dhcp_server),
+        dpu_agent_service(&cfg.dpu_agent),
+        fmds_service(&cfg.fmds),
+        otelcol_service(&cfg.otel),
+    ]
 }
 
 #[cfg(test)]

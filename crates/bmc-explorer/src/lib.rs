@@ -136,6 +136,9 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         need_oem_nvidia_bluefield: is_bluefield_system,
         ignore_500_on_bios_fetch: is_bluefield_system,
         retry_404_on_eth_interfaces: is_bluefield_system,
+        // BlueField-4 returns null in the Members field in
+        // BootOptions. This is a workaround for this bug.
+        need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;

@@ -200,6 +200,7 @@ async fn test_register_devices_node_and_force_delete() {
             serial_number: format!("SN-{}", i),
             dpu_machine_id: format!("dpu-{}-id", i),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }
@@ -209,6 +210,7 @@ async fn test_register_devices_node_and_force_delete() {
         node_id: "host-001".to_string(),
         host_bmc_ip: "192.168.1.1".parse().unwrap(),
         device_ids: vec!["dpu-1".to_string(), "dpu-2".to_string()],
+        deployment_type: DpuDeploymentType::Bf3,
     };
     sdk.register_dpu_node(node_info).await.unwrap();
 

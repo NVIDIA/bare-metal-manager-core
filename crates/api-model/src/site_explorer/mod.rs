@@ -830,9 +830,16 @@ impl EndpointExplorationReport {
         self.chassis
             .iter()
             .find(|chassis| chassis.id == "Card1")
-            .and_then(|chassis| chassis.part_number.as_deref())
-            .map(str::trim)
-            .filter(|part_number| !part_number.is_empty())
+            .and_then(chassis_part_number)
+            .or_else(|| {
+                // BF4 DPU BMC firmware often leaves Card1 empty and publishes the
+                // product part on the integrated BMC chassis instead (POR id
+                // `Bluefield_BMC` on some trays, `BlueField_BMC_0` on others).
+                self.chassis
+                    .iter()
+                    .find(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                    .and_then(chassis_part_number)
+            })
     }
 
     /// Return `true` if the explored endpoint is a DPU
@@ -1196,8 +1203,19 @@ pub enum EndpointExplorationError {
     /// This field just exists here until site-explorer updates existing records
     #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
     MissingRedfish { uri: Option<String> },
-    #[error("BMC vendor field is not populated. Unsupported BMC.")]
-    MissingVendor,
+    /// The BMC's Redfish ServiceRoot (`/redfish/v1`) did not yield a vendor we
+    /// recognize. `observed` is the raw vendor string we read from the root —
+    /// the `Vendor` field, falling back to the first `Oem` key. `None` means the
+    /// BMC reported neither, which is commonly transient while the BMC is still
+    /// initializing/syncing (exploration will retry). `Some(value)` means the BMC
+    /// reported a vendor we don't support yet — `value` is what it sent.
+    #[error(
+        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed Vendor/Oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
+    )]
+    MissingVendor {
+        #[serde(default)]
+        observed: Option<String>,
+    },
     #[error(
         "Site explorer will not explore this endpoint to avoid lockout: it could not login previously"
     )]
@@ -1306,7 +1324,7 @@ impl OperatorError for EndpointExplorationError {
                 ErrorCode::nico(SiteExplorer, 120)
             }
             EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
-            EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
+            EndpointExplorationError::MissingVendor { .. } => ErrorCode::nico(SiteExplorer, 122),
             EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
             EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => {
                 ErrorCode::nico(SiteExplorer, 131)
@@ -1338,7 +1356,7 @@ impl OperatorError for EndpointExplorationError {
                 "Verify endpoint network reachability and that the BMC Redfish service is listening.",
             ),
             EndpointExplorationError::UnsupportedVendor { .. }
-            | EndpointExplorationError::MissingVendor => Some(
+            | EndpointExplorationError::MissingVendor { .. } => Some(
                 "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
                  Compatibility List \
                  (https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list); \
@@ -1731,6 +1749,20 @@ pub fn is_bf2_dpu_part_number(part_number: &str) -> bool {
 pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
     let normalized_part_number = part_number.to_lowercase();
     normalized_part_number.starts_with("900-9d4b4")
+        || normalized_part_number.starts_with("900-9d4a4")
+}
+
+/// Whether a DPU BMC chassis member carries the card product identity (part/serial).
+fn is_dpu_product_chassis_id(id: &str) -> bool {
+    matches!(id, "Bluefield_BMC" | "BlueField_BMC_0")
+}
+
+fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
+    chassis
+        .part_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|part_number| !part_number.is_empty())
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -2035,6 +2067,60 @@ mod explored_mlx_device_tests {
         }
     }
 
+    fn dpu_report_with_bf4_bmc_chassis(
+        bmc_chassis_id: &str,
+        bmc_part_number: &str,
+    ) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![
+                Chassis {
+                    id: "Card1".to_string(),
+                    ..Default::default()
+                },
+                Chassis {
+                    id: bmc_chassis_id.to_string(),
+                    part_number: Some(bmc_part_number.to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn missing_vendor_decodes_legacy_unit_variant() {
+        // Records written before `observed` was added are stored as the bare
+        // internally-tagged unit form. They must still deserialize, defaulting
+        // `observed` to None.
+        let legacy: EndpointExplorationError =
+            serde_json::from_str(r#"{"Type":"MissingVendor"}"#).expect("legacy form must decode");
+        assert_eq!(
+            legacy,
+            EndpointExplorationError::MissingVendor { observed: None }
+        );
+    }
+
+    #[test]
+    fn missing_vendor_round_trips_with_observed() {
+        // New records carry the observed Vendor/Oem string and round-trip.
+        let with_observed = EndpointExplorationError::MissingVendor {
+            observed: Some("SomeNewVendor".to_string()),
+        };
+        let json = serde_json::to_string(&with_observed).expect("serialize");
+        let decoded: EndpointExplorationError = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, with_observed);
+
+        // And the absent case round-trips too.
+        let absent = EndpointExplorationError::MissingVendor { observed: None };
+        let json = serde_json::to_string(&absent).expect("serialize");
+        let decoded: EndpointExplorationError = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, absent);
+    }
+
     #[test]
     fn dpu_part_number_reads_card1_part_number() {
         assert_eq!(
@@ -2053,6 +2139,38 @@ mod explored_mlx_device_tests {
             dpu_report_with_card1_part_number(Some("   ")).dpu_part_number(),
             None
         );
+    }
+
+    #[test]
+    fn dpu_part_number_falls_back_to_dpu_bmc_chassis_when_card1_empty() {
+        const VR_BF4_PART: &str = "900-9D4A4-00CB-TS4";
+        assert_eq!(
+            dpu_report_with_bf4_bmc_chassis("Bluefield_BMC", VR_BF4_PART).dpu_part_number(),
+            Some(VR_BF4_PART)
+        );
+        assert_eq!(
+            dpu_report_with_bf4_bmc_chassis("BlueField_BMC_0", VR_BF4_PART).dpu_part_number(),
+            Some(VR_BF4_PART)
+        );
+        let mut report = dpu_report_with_card1_part_number(Some("900-9D3B6-00CV-AA0"));
+        report.chassis.push(Chassis {
+            id: "Bluefield_BMC".to_string(),
+            part_number: Some(VR_BF4_PART.to_string()),
+            ..Default::default()
+        });
+        assert_eq!(
+            report.dpu_part_number(),
+            Some("900-9D3B6-00CV-AA0"),
+            "Card1 part number must win when present"
+        );
+    }
+
+    #[test]
+    fn is_bf4_dpu_part_number_matches_vera_rubin_sku() {
+        assert!(is_bf4_dpu_part_number("900-9D4B4-CWAA-TSA"));
+        assert!(is_bf4_dpu_part_number("900-9D4A4-00CB-TS4"));
+        assert!(is_bluefield_part_number("900-9D4A4-00CB-TS4"));
+        assert!(!is_bf4_dpu_part_number("900-9D3B6-00CV-AA0"));
     }
 
     #[test]
@@ -2427,7 +2545,7 @@ mod tests {
                 EndpointExplorationError::UnsupportedVendor {
                     vendor: "unknown".to_string(),
                 } => true,
-                EndpointExplorationError::MissingVendor => true,
+                EndpointExplorationError::MissingVendor { observed: None } => true,
             }
         );
     }

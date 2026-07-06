@@ -30,12 +30,15 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::{http, redfish};
 
 #[derive(Clone)]
-pub struct BluefieldState {
-    mode: Arc<Mutex<ModeState>>,
-    base_mac: MacAddress,
+pub enum BluefieldState {
+    Bluefield3 {
+        mode: Arc<Mutex<ModeState>>,
+        base_mac: MacAddress,
+    },
+    Bluefield4,
 }
 
-struct ModeState {
+pub struct ModeState {
     nic_mode: bool,
     /// A `Mode.Set` queues the requested mode here. A real BlueField applies it
     /// only after the host power-cycles, so it lands on `nic_mode` on the next
@@ -44,8 +47,8 @@ struct ModeState {
 }
 
 impl BluefieldState {
-    pub fn new(nic_mode: bool, base_mac: MacAddress) -> Self {
-        Self {
+    pub fn new_bf3(nic_mode: bool, base_mac: MacAddress) -> Self {
+        Self::Bluefield3 {
             mode: Arc::new(Mutex::new(ModeState {
                 nic_mode,
                 pending_nic_mode: None,
@@ -54,22 +57,39 @@ impl BluefieldState {
         }
     }
 
+    pub fn new_bf4() -> Self {
+        Self::Bluefield4
+    }
+
     /// Whether the BlueField currently reports NIC mode.
     pub fn nic_mode(&self) -> bool {
-        self.mode.lock().unwrap().nic_mode
+        match self {
+            Self::Bluefield3 { mode, .. } => mode.lock().unwrap().nic_mode,
+            Self::Bluefield4 => false,
+        }
     }
 
     /// Queue a `Mode.Set`; it takes effect on the next power cycle.
     fn stage_mode(&self, nic_mode: bool) {
-        self.mode.lock().unwrap().pending_nic_mode = Some(nic_mode);
+        match self {
+            Self::Bluefield3 { mode, .. } => {
+                mode.lock().unwrap().pending_nic_mode = Some(nic_mode);
+            }
+            Self::Bluefield4 => (),
+        }
     }
 
     /// Apply a queued `Mode.Set`, if any -- called on power-on, the point at
     /// which a real BlueField picks up a staged mode change.
     pub fn apply_pending_mode(&self) {
-        let mut mode = self.mode.lock().unwrap();
-        if let Some(pending) = mode.pending_nic_mode.take() {
-            mode.nic_mode = pending;
+        match self {
+            Self::Bluefield3 { mode, .. } => {
+                let mut mode = mode.lock().unwrap();
+                if let Some(pending) = mode.pending_nic_mode.take() {
+                    mode.nic_mode = pending;
+                }
+            }
+            Self::Bluefield4 => (),
         }
     }
 }
@@ -113,19 +133,27 @@ async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
     let redfish::oem::State::NvidiaBluefield(state) = state.oem_state else {
         return http::not_found();
     };
-    let mode = if state.nic_mode() {
-        "NicMode"
-    } else {
-        "DpuMode"
-    };
-    resource()
-        .json_patch()
-        .patch(json!({
-            "Mode": mode,
-            "BaseMAC": state.base_mac.to_string().replace(":", ""),
-        }))
-        .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
-        .into_ok_response()
+    match &state {
+        BluefieldState::Bluefield3 { base_mac, .. } => {
+            let mode = if state.nic_mode() {
+                "NicMode"
+            } else {
+                "DpuMode"
+            };
+            resource()
+                .json_patch()
+                .patch(json!({
+                    "Mode": mode,
+                    "BaseMAC": base_mac.to_string().replace(":", ""),
+                }))
+                .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
+                .into_ok_response()
+        }
+        BluefieldState::Bluefield4 => resource()
+            .json_patch()
+            .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
+            .into_ok_response(),
+    }
 }
 
 async fn patch_managers_oem_nvidia() -> Response {
@@ -172,7 +200,7 @@ mod tests {
     #[test]
     fn mode_set_is_staged_and_applied_on_power_on() {
         // Starts in DPU mode.
-        let bf = BluefieldState::new(false, MacAddress::new([0, 0, 0, 0, 0, 1]));
+        let bf = BluefieldState::new_bf3(false, MacAddress::new([0, 0, 0, 0, 0, 1]));
         assert!(!bf.nic_mode());
 
         // A `Mode.Set` to NIC mode is staged, not applied immediately -- a

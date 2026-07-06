@@ -27,8 +27,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use carbide_dpf::repository::{DpuRepository, K8sConfigRepository};
 use carbide_dpf::{
-    DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
-    KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
+    DpfError, DpfSdk, DpfSdkBuilder, DpuDeploymentType, DpuDeviceInfo, DpuNodeInfo,
+    InitDpfResourcesConfig, KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
 };
 use clap::{Parser, Subcommand};
 use libredfish::model::BootProgressTypes;
@@ -729,6 +729,7 @@ async fn run_provisioning_flow(
             serial_number: dpu.serial_number.clone(),
             dpu_machine_id: String::new(),
             is_primary: true,
+            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await?;
         tracing::info!(device_name = %dpu.device_name, serial = %dpu.serial_number, "Registered device");
@@ -739,6 +740,7 @@ async fn run_provisioning_flow(
         node_id: node_id.to_string(),
         host_bmc_ip: host_bmc_ip_addr,
         device_ids: dpus.iter().map(|d| d.device_name.clone()).collect(),
+        deployment_type: DpuDeploymentType::Bf3,
     };
     sdk.register_dpu_node(node_info).await?;
     tracing::info!(dpu_count = dpus.len(), "Node registered");

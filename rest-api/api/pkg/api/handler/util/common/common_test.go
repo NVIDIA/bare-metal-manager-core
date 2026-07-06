@@ -625,7 +625,12 @@ func TestAuthorizeProviderSiteForCore(t *testing.T) {
 	ip := TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, user)
 	assert.NotNil(t, ip)
 	site := TestBuildSite(t, dbSession, ip, "Test Site", user)
-	assert.NotNil(t, site)
+	sDAO := cdbm.NewSiteDAO(dbSession)
+	_, err := sDAO.Update(context.Background(), nil, cdbm.SiteUpdateInput{
+		SiteID: site.ID,
+		Status: cutil.GetPtr(cdbm.SiteStatusRegistered),
+	})
+	require.NoError(t, err)
 
 	otherOrg := "other-provider-org"
 	otherUser := TestBuildUser(t, dbSession, uuid.NewString(), otherOrg, []string{authz.ProviderAdminRole})
@@ -1037,7 +1042,7 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := GetUnallocatedMachineForInstanceType(ctx, tx, dbSession, tc.instancetype)
+			s, err := GetUnallocatedMachineForInstanceType(ctx, zerolog.Nop(), tx, dbSession, tc.instancetype, nil)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.NotNil(t, s)
@@ -2752,5 +2757,39 @@ func TestGetFlowUUIDPtr(t *testing.T) {
 		if assert.NotNil(t, got) {
 			assert.Equal(t, s, got.GetId())
 		}
+	})
+}
+
+func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
+	deviceType := cdbm.MachineCapabilityDeviceType("")
+	machineIbCaps := []cdbm.MachineCapability{
+		{
+			Type:            cdbm.MachineCapabilityTypeInfiniBand,
+			Name:            "MT28908 Family [ConnectX-6]",
+			Vendor:          cutil.GetPtr("Mellanox Technologies"),
+			Count:           cutil.GetPtr(3),
+			DeviceType:      &deviceType,
+			InactiveDevices: []int{1, 3},
+		},
+	}
+
+	t.Run("builds validation errors from suggested device instances", func(t *testing.T) {
+		req := cam.APIInstanceCreateRequest{
+			InfiniBandInterfaces: []cam.APIInfiniBandInterfaceCreateOrUpdateRequest{
+				{Device: "MT28908 Family [ConnectX-6]", DeviceInstance: 1, IsPhysical: true},
+			},
+		}
+		match := req.ValidateInfiniBandRequestForMachineCapability(machineIbCaps)
+		assert.False(t, match.Satisfied)
+		assert.True(t, match.CountSatisfiable)
+
+		selErr := &InfiniBandMachineSelectionError{SuggestedByDevice: match.SuggestedByDevice}
+		errs := selErr.ValidationError()
+		require.Len(t, errs, 1)
+		assert.Contains(t, errs, "infiniBandInterfaces")
+		errMsg := errs["infiniBandInterfaces"].Error()
+		assert.Contains(t, errMsg, "requested device instances are not available on any Machine for this Instance Type")
+		assert.Contains(t, errMsg, "Use deviceInstances: [0 2] for device: MT28908 Family [ConnectX-6]")
+		assert.Equal(t, []int{0, 2}, match.SuggestedByDevice["MT28908 Family [ConnectX-6]"])
 	})
 }

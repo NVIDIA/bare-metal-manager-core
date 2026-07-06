@@ -351,6 +351,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.AstraPhase", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
+        .btree_map("forge.TrafficInterceptBridging.host_representor_intercept_bridging")
         .type_attribute("forge.HostRepresentorInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")

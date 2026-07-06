@@ -129,6 +129,7 @@ impl DpuMachineInfo {
             | HostHardwareType::SupermicroGb300Nvl => hw::bluefield3::Mode::B3240ColdAisle,
             HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaSwitchNd5200Ld
+            | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::DellPowerEdgeR760Bf4 => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
             }
@@ -150,10 +151,27 @@ impl DpuMachineInfo {
     }
 
     fn bluefield4(&self) -> hw::bluefield4::Bluefield4<'_> {
+        let mode = match self.hw_type {
+            HostHardwareType::DellPowerEdgeR750
+            | HostHardwareType::NvidiaDgxH100
+            | HostHardwareType::GenericAmi
+            | HostHardwareType::GenericSupermicro
+            | HostHardwareType::WiwynnGB200Nvl
+            | HostHardwareType::LenovoGB300Nvl
+            | HostHardwareType::NvidiaDgxGb300
+            | HostHardwareType::SupermicroGb300Nvl
+            | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::NvidiaSwitchNd5200Ld => {
+                panic!("Bluefield4 DPU is defined for {}", self.hw_type)
+            }
+            HostHardwareType::NvidiaDgxVr => hw::bluefield4::Mode::B4240V,
+            HostHardwareType::DellPowerEdgeR760Bf4 => hw::bluefield4::Mode::B4240,
+        };
         hw::bluefield4::Bluefield4 {
             host_mac_address: self.host_mac_address,
             bmc_mac_address: self.bmc_mac_address,
             product_serial_number: Cow::Borrowed(&self.serial),
+            mode,
         }
     }
 
@@ -169,14 +187,16 @@ impl DpuMachineInfo {
             | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaSwitchNd5200Ld => DpuType::Bluefield3,
-            HostHardwareType::DellPowerEdgeR760Bf4 => DpuType::Bluefield4,
+            HostHardwareType::DellPowerEdgeR760Bf4 | HostHardwareType::NvidiaDgxVr => {
+                DpuType::Bluefield4
+            }
         }
     }
 
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self.dpu_type() {
             DpuType::Bluefield3 => Some("BlueField-3 DPU"),
-            DpuType::Bluefield4 => Some("B4240"),
+            DpuType::Bluefield4 => Some(self.bluefield4().model()),
         }
     }
 
@@ -215,6 +235,20 @@ impl DpuMachineInfo {
         match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().discovery_info(),
             DpuType::Bluefield4 => self.bluefield4().discovery_info(),
+        }
+    }
+
+    pub fn oem_state(&self) -> redfish::oem::State {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => redfish::oem::State::NvidiaBluefield(
+                redfish::oem::nvidia::bluefield::BluefieldState::new_bf3(
+                    self.settings.nic_mode,
+                    self.host_mac_address,
+                ),
+            ),
+            DpuType::Bluefield4 => redfish::oem::State::NvidiaBluefield(
+                redfish::oem::nvidia::bluefield::BluefieldState::new_bf4(),
+            ),
         }
     }
 }
@@ -275,6 +309,7 @@ impl HostMachineInfo {
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
             | HostHardwareType::SupermicroGb300Nvl
+            | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld
@@ -294,6 +329,9 @@ impl HostMachineInfo {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
             HostHardwareType::SupermicroGb300Nvl => redfish::oem::BmcVendor::Supermicro,
+            HostHardwareType::NvidiaDgxVr => {
+                redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
+            }
             HostHardwareType::LiteOnPowerShelf => redfish::oem::BmcVendor::LiteOn,
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
@@ -314,6 +352,7 @@ impl HostMachineInfo {
             HostHardwareType::LenovoGB300Nvl => Some("AMI Redfish Server"),
             HostHardwareType::NvidiaDgxGb300 => Some("GB BMC"),
             HostHardwareType::SupermicroGb300Nvl => Some("GB NVL"),
+            HostHardwareType::NvidiaDgxVr => Some("VR NVL72"),
             HostHardwareType::LiteOnPowerShelf => None,
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
@@ -331,6 +370,7 @@ impl HostMachineInfo {
             HostHardwareType::LenovoGB300Nvl => "1.21.1",
             HostHardwareType::NvidiaDgxGb300 => "1.17.0",
             HostHardwareType::SupermicroGb300Nvl => "1.17.0",
+            HostHardwareType::NvidiaDgxVr => "1.17.0",
             HostHardwareType::LiteOnPowerShelf => "1.9.0",
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
@@ -349,6 +389,7 @@ impl HostMachineInfo {
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().manager_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().manager_config(),
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().manager_config(),
+            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().manager_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().manager_config()
@@ -374,6 +415,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().system_config(callbacks),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().system_config(callbacks),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().system_config(callbacks),
+            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().system_config(callbacks),
             HostHardwareType::SupermicroGb300Nvl => {
                 self.supermicro_gb300_nvl().system_config(callbacks)
             }
@@ -398,6 +440,7 @@ impl HostMachineInfo {
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().chassis_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().chassis_config(),
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().chassis_config(),
+            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().chassis_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().chassis_config()
@@ -423,6 +466,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => {
                 self.supermicro_gb300_nvl().update_service_config()
             }
+            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().update_service_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().update_service_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
@@ -444,6 +488,7 @@ impl HostMachineInfo {
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
+            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().discovery_info()
@@ -703,6 +748,19 @@ impl HostMachineInfo {
         }
     }
 
+    fn dgx_vr_nvl(&self) -> hw::dgx_vr_nvl::DgxVrNvl<'_> {
+        let mut dpus = self.dpus.iter();
+        hw::dgx_vr_nvl::DgxVrNvl {
+            system_0_serial_number: "012345678901234567890123".into(),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
+            dpu: dpus
+                .next()
+                .expect("One DPU must present for VR NVL")
+                .bluefield4(),
+            bmc_mac_address_eth0: self.bmc_mac_address,
+        }
+    }
+
     fn liteon_power_shelf(&self) -> hw::liteon_power_shelf::LiteOnPowerShelf<'_> {
         hw::liteon_power_shelf::LiteOnPowerShelf {
             bmc_mac_address: self.bmc_mac_address,
@@ -794,12 +852,7 @@ impl MachineInfo {
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
-            MachineInfo::Dpu(dpu) => redfish::oem::State::NvidiaBluefield(
-                redfish::oem::nvidia::bluefield::BluefieldState::new(
-                    dpu.settings.nic_mode,
-                    dpu.host_mac_address,
-                ),
-            ),
+            MachineInfo::Dpu(dpu) => dpu.oem_state(),
         }
     }
 

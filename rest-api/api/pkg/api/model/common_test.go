@@ -18,7 +18,7 @@ func TestAPIDeletionAcceptedResponse_JSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"message":"`+DeletionRequestAcceptedMessage+`"}`, string(payload))
 
-	var decoded APIDeletionAcceptedResponse
+	var decoded APIMessageResponse
 	require.NoError(t, json.Unmarshal(payload, &decoded))
 	assert.Equal(t, DeletionRequestAcceptedMessage, decoded.Message)
 }

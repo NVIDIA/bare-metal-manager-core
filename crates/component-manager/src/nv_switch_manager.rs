@@ -6,7 +6,9 @@ use std::net::IpAddr;
 
 use carbide_secrets::credentials::Credentials;
 use mac_address::MacAddress;
-use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
+use model::component_manager::{
+    ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
+};
 
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
@@ -41,6 +43,8 @@ pub struct SwitchEndpoint {
     pub nvos_mac: MacAddress,
     pub bmc_credentials: Credentials,
     pub nvos_credentials: Credentials,
+    /// Fully qualified NVOS hostname from `machine_interfaces` (TLS SNI).
+    pub nvos_host_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +85,12 @@ impl crate::component_common::ComponentPowerStateResult for SwitchPowerStateResu
     fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigureSwitchCertificateJobStatus {
+    pub state: ConfigureSwitchCertificateState,
+    pub error: Option<String>,
 }
 
 /// Backend trait for NV-Switch management operations.
@@ -127,4 +137,15 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError>;
+    async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: Option<&str>,
+        services: Option<&[i32]>,
+    ) -> Result<String, ComponentManagerError>;
+
+    async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
 }

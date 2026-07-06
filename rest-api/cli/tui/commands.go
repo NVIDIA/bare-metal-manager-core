@@ -1096,10 +1096,6 @@ func cmdOSCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	isCloudInit, err := PromptConfirm("Cloud-init enabled?")
-	if err != nil {
-		return err
-	}
 	allowOverride, err := PromptConfirm("Allow override at instance creation?")
 	if err != nil {
 		return err
@@ -1112,7 +1108,6 @@ func cmdOSCreate(s *Session, _ []string) error {
 		"name":             name,
 		"tenantId":         tenantID,
 		"ipxeScript":       ipxeScript,
-		"isCloudInit":      isCloudInit,
 		"allowOverride":    allowOverride,
 		"phoneHomeEnabled": phoneHomeEnabled,
 	}

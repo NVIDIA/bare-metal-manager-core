@@ -1927,6 +1927,7 @@ impl InterfaceTranslationMode {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -2261,7 +2262,7 @@ mod tests {
                 vf_intercept_bridge_name: "br-beans".to_string(),
                 vf_intercept_bridge_port: "patch-br-beans-to-hbn".to_string(),
                 vf_intercept_bridge_sf: "pf0dpu5".to_string(),
-                host_representor_intercept_bridging: HashMap::from([(
+                host_representor_intercept_bridging: BTreeMap::from([(
                     "pf0hpf".to_string(),
                     rpc::HostRepresentorInterceptBridging {
                         bridge: "br-pf0".to_string(),
@@ -3037,7 +3038,7 @@ mod tests {
                     vf_intercept_bridge_sf: "pf0dpu5".to_string(),
                     internal_bridge_routing_prefix: "10.10.10.0/29".to_string(),
                     hbn_bridge: "br-hbn".to_string(),
-                    host_representor_intercept_bridging: HashMap::from([(
+                    host_representor_intercept_bridging: BTreeMap::from([(
                         "pf0hpf".to_string(),
                         rpc::HostRepresentorInterceptBridging {
                             bridge: "br-pf0".to_string(),

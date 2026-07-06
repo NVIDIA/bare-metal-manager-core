@@ -478,9 +478,9 @@ async fn test_deleted_provisioning_vpc_prefix_enters_deleting_on_first_controlle
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM vpc_prefix_state_history \
-             WHERE vpc_prefix_id = $1 AND state->>'state' = 'ready'",
+             WHERE object_id = $1 AND state->>'state' = 'ready'",
         )
-        .bind(id)
+        .bind(id.to_string())
         .fetch_one(&env.pool)
         .await
         .expect("Could not count ready history records"),

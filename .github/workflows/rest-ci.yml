@@ -127,6 +127,7 @@ jobs:
       short_sha: ${{ needs.prepare.outputs.short_sha }}
       branch_sha_tag: ${{ needs.prepare.outputs.branch_sha_tag }}
       target_registry: ${{ needs.prepare.outputs.target_registry }}
+      ngc_path: ${{ needs.prepare.outputs.target_ngc_path }}
       branch_name: ${{ needs.prepare.outputs.branch_name }}
       is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
       push_enabled: ${{ github.event_name != 'workflow_dispatch' && !contains(github.ref, 'pull-request/') }}
@@ -134,6 +135,9 @@ jobs:
     secrets:
       NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
       NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   helm:
     name: Helm Charts
@@ -142,10 +146,12 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/rest-helm-workflows.yml
     with:
+      ngc_path: ${{ needs.prepare.outputs.target_ngc_path }}
       app_version: ${{ needs.prepare.outputs.semantic_version }}
       chart_version: ${{ needs.prepare.outputs.helm_version }}
     secrets:
       NVCR_STG_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
   # ============================================================================
   # AGGREGATOR — single required check for branch protection

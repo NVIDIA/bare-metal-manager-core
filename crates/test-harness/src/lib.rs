@@ -18,6 +18,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+pub use carbide_api_core::cfg::file::CarbideConfig;
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 pub use carbide_api_core::test_support::{self, Api, rpc};
 use carbide_site_explorer::SiteExplorer;

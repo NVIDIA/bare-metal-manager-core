@@ -3,8 +3,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Self-contained script to start carbide-api on macOS.
-# Run from the repository root: ./dev/mac-local-dev/run-carbide-api.sh
+# Self-contained script to start nico-api on macOS.
+# Run from the repository root: ./dev/mac-local-dev/run-nico-api.sh
 #
 # Prerequisites: Docker Desktop, Rust toolchain, jq
 #
@@ -14,10 +14,10 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-VAULT_CONTAINER="carbide-vault"
+VAULT_CONTAINER="nico-vault"
 VAULT_PORT=8201
 VAULT_ADDR="http://localhost:$VAULT_PORT"
-TOKEN_FILE="/tmp/carbide-localdev-vault-root-token"
+TOKEN_FILE="/tmp/nico-localdev-vault-root-token"
 PG_CONTAINER="pgdev"
 
 # -----------------------------------------------------------------------------
@@ -44,7 +44,7 @@ cd "$REPO_ROOT"
 # Prerequisites
 # -----------------------------------------------------------------------------
 echo ""
-echo "=== Carbide API - Mac Local Development ==="
+echo "=== Nico API - Mac Local Development ==="
 echo ""
 
 for cmd in docker cargo jq curl; do
@@ -58,7 +58,7 @@ fi
 ok "Docker is running"
 
 # -----------------------------------------------------------------------------
-# Start Vault (port 8201 - dedicated for carbide, avoids kind cluster conflict)
+# Start Vault (port 8201 - dedicated for nico, avoids kind cluster conflict)
 # -----------------------------------------------------------------------------
 if docker ps --format '{{.Names}}' | grep -w "$VAULT_CONTAINER" >/dev/null; then
   ok "Vault container already running"
@@ -136,7 +136,10 @@ fi
 # -----------------------------------------------------------------------------
 # Environment
 # -----------------------------------------------------------------------------
-export CARBIDE_WEB_AUTH_TYPE="${CARBIDE_WEB_AUTH_TYPE:-none}"
+# api-web currently reads CARBIDE_WEB_AUTH_TYPE; keep both vars in sync during rename.
+WEB_AUTH_TYPE="${CARBIDE_WEB_AUTH_TYPE:-${NICO_WEB_AUTH_TYPE:-none}}"
+export NICO_WEB_AUTH_TYPE="$WEB_AUTH_TYPE"
+export CARBIDE_WEB_AUTH_TYPE="$WEB_AUTH_TYPE"
 export DATABASE_URL="postgresql://postgres:admin@localhost"
 export VAULT_ADDR="$VAULT_ADDR"
 # Vault runs without TLS in local dev (HTTP). The code requires VAULT_CACERT to
@@ -148,7 +151,7 @@ export VAULT_PKI_ROLE_NAME="role"
 export VAULT_TOKEN="$(cat "$TOKEN_FILE")"
 
 # -----------------------------------------------------------------------------
-# Firmware directory (carbide expects this)
+# Firmware directory (nico expects this)
 # -----------------------------------------------------------------------------
 if [ ! -d /opt/carbide/firmware ]; then
   info "Creating /opt/carbide/firmware (may prompt for password)..."
@@ -158,17 +161,18 @@ fi
 # -----------------------------------------------------------------------------
 # Generate a resolved config with absolute TLS paths
 #
-# carbide-api opens TLS paths relative to the process working directory, not
+# nico-api opens TLS paths relative to the process working directory, not
 # relative to the config file.  The checked-in config uses relative paths
 # (e.g. "dev/certs/…") which only work when CWD == repo root.  When launched
 # from an IDE or any other directory the cert load will silently fail.
 # We rewrite those paths to absolute ones in a throwaway /tmp copy so the
 # binary is always given correct paths regardless of CWD.
 # -----------------------------------------------------------------------------
-CARBIDE_TMP_CONFIG="/tmp/carbide-api-config-$$.toml"
+NICO_TMP_CONFIG="$(mktemp "${TMPDIR:-/tmp}/nico-api-config.XXXXXX.toml")" || die "Failed to create temporary config file"
+trap 'rm -f "$NICO_TMP_CONFIG"' EXIT
 sed "s|= \"dev/|= \"$REPO_ROOT/dev/|g" \
-  "$REPO_ROOT/dev/mac-local-dev/carbide-api-config.toml" > "$CARBIDE_TMP_CONFIG"
-ok "Resolved config written to $CARBIDE_TMP_CONFIG"
+  "$REPO_ROOT/dev/mac-local-dev/nico-api-config.toml" > "$NICO_TMP_CONFIG"
+ok "Resolved config written to $NICO_TMP_CONFIG"
 
 # -----------------------------------------------------------------------------
 # Migrations & Run
@@ -178,7 +182,7 @@ echo "=== Running migrations ==="
 cargo run --package carbide-api --no-default-features migrate || die "Database migrations failed; fix the issue above and re-run this script."
 
 echo ""
-echo "=== Starting Carbide API ==="
+echo "=== Starting Nico API ==="
 info "TPM/attestation features are not supported on Mac (requires Linux + TPM)."
 echo "   All other functionality is available."
 echo ""
@@ -187,4 +191,4 @@ echo "   gRPC:   grpcurl -insecure localhost:1079 list"
 echo ""
 
 exec env RUST_BACKTRACE=1 cargo run --package carbide-api --no-default-features -- run \
-  --config-path "$CARBIDE_TMP_CONFIG"
+  --config-path "$NICO_TMP_CONFIG"

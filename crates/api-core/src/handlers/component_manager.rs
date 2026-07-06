@@ -307,6 +307,14 @@ async fn queue_switch_power_control_via_state_controller(
     action: PowerAction,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
     let operation = map_switch_maintenance_operation(action);
+    queue_switch_maintenance_via_state_controller(api, switch_ids, operation).await
+}
+
+async fn queue_switch_maintenance_via_state_controller(
+    api: &Api,
+    switch_ids: &[SwitchId],
+    operation: SwitchMaintenanceOperation,
+) -> Result<Vec<rpc::ComponentResult>, Status> {
     let mut txn = api.txn_begin().await?;
     let existing = db::switch::find_by(
         &mut txn,
@@ -966,6 +974,7 @@ async fn resolve_switch_endpoints(
             nvos_mac,
             bmc_credentials,
             nvos_credentials,
+            nvos_host_name: row.nvos_hostname.filter(|hostname| !hostname.is_empty()),
         });
     }
 
@@ -1431,6 +1440,74 @@ pub(crate) async fn component_power_control(
     Ok(Response::new(rpc::ComponentPowerControlResponse {
         results,
     }))
+}
+
+pub(crate) async fn component_configure_switch_certificate(
+    api: &Api,
+    request: Request<rpc::ComponentConfigureSwitchCertificateRequest>,
+) -> Result<Response<rpc::ComponentConfigureSwitchCertificateResponse>, Status> {
+    log_request_data(&request);
+    let cm = require_component_manager(api)?;
+    let req = request.into_inner();
+    let bypass_state_controller = req.bypass_state_controller;
+    let domain_name = req.domain_name.as_deref();
+    let switch_ids = req
+        .switch_ids
+        .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
+
+    if cm.nv_switch_use_state_controller && !bypass_state_controller {
+        let results = queue_switch_maintenance_via_state_controller(
+            api,
+            &switch_ids.ids,
+            SwitchMaintenanceOperation::ReconfigureCertificate,
+        )
+        .await?;
+        return Ok(Response::new(
+            rpc::ComponentConfigureSwitchCertificateResponse { results },
+        ));
+    }
+
+    let endpoints = resolve_switch_endpoints(api, &switch_ids.ids).await?;
+    let mut results: Vec<_> = endpoints
+        .unresolved
+        .iter()
+        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+        .collect();
+
+    tracing::info!(
+        backend = cm.nv_switch.name(),
+        count = endpoints.resolved.endpoints.len(),
+        "configure switch certificate for switches"
+    );
+
+    for endpoint in &endpoints.resolved.endpoints {
+        let id = switch_mac_to_id_str(&endpoint.bmc_mac, &endpoints.resolved.mac_to_id);
+        match cm
+            .configure_switch_certificate(
+                endpoint,
+                domain_name,
+                Some(
+                    &api.runtime_config
+                        .switch_state_controller
+                        .effective_switch_mtls_services_as_i32(),
+                ),
+            )
+            .await
+            .map_err(component_manager_error_to_status)
+        {
+            Ok(job_id) => {
+                tracing::info!(switch_id = %id, %job_id, "started switch certificate configuration");
+                results.push(success_result(&id));
+            }
+            Err(status) => {
+                results.push(error_result(&id, status.message().to_string()));
+            }
+        }
+    }
+
+    Ok(Response::new(
+        rpc::ComponentConfigureSwitchCertificateResponse { results },
+    ))
 }
 
 /// Best-effort insert or removal of the health report override used to

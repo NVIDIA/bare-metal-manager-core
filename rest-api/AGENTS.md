@@ -197,6 +197,11 @@ verification expectations.
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
+- For disruptive machine operations, decide and encode the attached-Instance
+  behavior explicitly. If an operation can power-cycle or otherwise disrupt a
+  tenant workload, check `Machine.IsAssigned` (or the equivalent association)
+  and reject unless the product requirement explicitly allows Provider Admins
+  to override tenant attachment.
 
 ### REST endpoints through the Core gRPC proxy
 
@@ -290,6 +295,24 @@ predictable and every entity has the same surface:
    double-check — width casts on bounded request fields, enum-value
    checks, cross-field structural rules — belongs in `Validate`
    instead, so the translation step stays a focused mapper.
+
+   If a Core proto request needs values from both the URL path and the
+   JSON body, assemble those values on the API request object before
+   conversion. Use non-JSON fields, for example a `MachineID` field
+   tagged with `json:"-"`, for path-derived context. Set those fields
+   explicitly in the handler, then call `req.ToProto()` with no hidden
+   path-parameter arguments. Avoid
+   call sites like `req.ToProto(machineID)` when `req` came from the
+   body; they make readers re-discover where each proto field came from.
+   Name the file, handler, request/response DTOs, and OpenAPI schemas
+   after the REST resource and operation (`machinepower`,
+   `MachinePowerControlHandler`, `APIMachinePowerControlRequest`), not an
+   internal Core method or authorization concept. Prefer typed string enums
+   with receiver conversion methods such as `(MachinePowerAction).ToProto()`
+   over free conversion helpers. For simple response shapes, build the
+   response inline in the handler; reserve constructor helpers for real
+   construction logic. Shared handler helpers should return `*cutil.APIError`
+   when callers need to preserve client-facing status codes and messages.
 
    **What stays in the handler:** authorization (RBAC, tenant
    privileges, cross-resource ownership lookups), and validation that

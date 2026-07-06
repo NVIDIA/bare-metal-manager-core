@@ -33,17 +33,23 @@ The cluster must have:
 
 ### Site controller node DPU requirements
 
-If your site controller nodes are equipped with DPUs (BlueField NICs), the DPUs must be fully provisioned and configured **before** the Kubernetes cluster is set up. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
+Site controller nodes must be equipped with fully provisioned DPUs (Bluefield-3s) which are configured **before** the Kubernetes cluster is set up. We do not support configuring site controller nodes without DPUs today. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
 
 Specifically, you must complete the following before proceeding:
 
-- Flash the DPU firmware to a supported version using the BlueField Firmware Bundle.
-- Configure the DPU operating mode (DPU mode or NIC mode) to match your site controller networking topology. See the [network prerequisites](prerequisites/network.md) for the supported topologies.
+- Flash the DPU firmware to the latest supported version using the BlueField Firmware Bundle. Latest supported firmware versions:
+
+  | DOCA  | HBN   |
+  | ----- | ----- |
+  | 2.9.3 | 2.4.3 |
+
+- Configure the Bluefield-3 device in DPU mode (operating mode). We do not currently support NIC mode.
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
+- Verify that the DPU can connect to the outside world (curl -I https://www.google.com)
 
 Refer to the NVIDIA DOCA documentation and the BlueField Firmware Bundle download archive for firmware flashing instructions and supported firmware versions:
 
-[https://developer.nvidia.com/doca-2-9-2-lts-ovs-doca-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle](https://developer.nvidia.com/doca-2-9-2-lts-ovs-doca-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle)
+[https://developer.nvidia.com/doca-2-9-3-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle](https://developer.nvidia.com/doca-2-9-3-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle)
 
 ### Required tools (local machine)
 

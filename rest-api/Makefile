@@ -284,6 +284,26 @@ core-proto-fmt:
 	cd workflow-schema/cmd/core-proto-fmt && go run main.go
 
 core-protogen:
+	if ! command -v buf >/dev/null 2>&1; then \
+		echo "buf is not installed. Please install buf: https://buf.build/docs/installation"; \
+		exit 1; \
+	fi
+	if ! command -v protoc-gen-go >/dev/null 2>&1; then \
+		echo "protoc-gen-go is not installed. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
+		exit 1; \
+	fi
+	if ! protoc-gen-go --version | grep -q "1.36.11"; then \
+		echo "protoc-gen-go is not version 1.36.11. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
+		exit 1; \
+	fi
+	if ! command -v protoc-gen-go-grpc >/dev/null 2>&1; then \
+		echo "protoc-gen-go-grpc is not installed. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
+		exit 1; \
+	fi
+	if ! protoc-gen-go-grpc --version | grep -q "1.6.1"; then \
+		echo "protoc-gen-go-grpc is not version 1.6.1. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
+		exit 1; \
+	fi
 	echo "Generating protobuf for Core"
 	cd workflow-schema && buf generate
 	go fmt ./...

@@ -306,8 +306,8 @@ pub async fn delete_switch(
 }
 
 /// Force deletes a switch and optionally its associated interfaces from the database.
-/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch,
-/// its state history, and optionally its machine interfaces.
+/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch
+/// while retaining its state history.
 pub async fn admin_force_delete_switch(
     api: &Api,
     request: Request<rpc::AdminForceDeleteSwitchRequest>,
@@ -350,15 +350,6 @@ pub async fn admin_force_delete_switch(
         }
         interfaces_deleted = interface_ids.len() as u32;
     }
-
-    // Delete state history.
-    db::state_history::delete_by_object_id(
-        &mut txn,
-        db::state_history::StateHistoryTableId::Switch,
-        &switch_id,
-    )
-    .await
-    .map_err(CarbideError::from)?;
 
     // Hard-delete the switch.
     db_switch::final_delete(switch_id, &mut txn)

@@ -266,31 +266,18 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // Iterations 3-6: FirmwareUpgrade -> Completed.
+    // Iterations 3-7: FirmwareUpgrade(Start) -> Validating(Pending).
     //
-    // The default maintenance sequence is:
-    // FirmwareUpgrade -> ConfigureNmxCluster(Start)
-    // -> ConfigureNmxCluster(DisableScaleUpFabricState) -> PowerSequence -> Completed.
+    // Simple rack has no switches, so the real handler takes a shortened path:
+    // FirmwareUpgrade(Start) skips (no firmware-object JSON configured)
+    // -> ConfigureNmxCluster(Start)
+    // -> ConfigureNmxCluster(ConfigureCertificates Start) skips (no switches)
+    // -> PowerSequence(PoweringOn) -> Completed -> Validating(Pending).
     controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> ConfigureNmxCluster(Start)
-    controller.run_single_iteration().await; // ConfigureNmxCluster(Start) -> DisableScaleUpFabricState
-    controller.run_single_iteration().await; // DisableScaleUpFabricState -> PowerSequence
-    controller.run_single_iteration().await; // PowerSequence -> Completed
-
-    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
-    assert!(
-        matches!(
-            rack.controller_state.value,
-            RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::Completed
-            }
-        ),
-        "Expected rack to be in Maintenance(Completed), got: {:?}",
-        rack.controller_state.value
-    );
-
-    // Iteration 7: Maintenance(Completed) -> Validating(Pending).
-    // The handler clears rv.* labels (none present yet) and transitions.
-    controller.run_single_iteration().await;
+    controller.run_single_iteration().await; // ConfigureNmxCluster(Start) -> ConfigureCertificates(Start)
+    controller.run_single_iteration().await; // ConfigureCertificates(Start) -> PowerSequence(PoweringOn)
+    controller.run_single_iteration().await; // PowerSequence(PoweringOn) -> Completed
+    controller.run_single_iteration().await; // Completed -> Validating(Pending)
 
     let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
     assert!(
@@ -420,7 +407,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
         "{\"state\": \"discovering\"}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Start\"}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": \"Start\"}}}",
-        "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": \"DisableScaleUpFabricState\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": {\"ConfigureCertificates\": {\"configure_certificate\": \"Start\"}}}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"PowerSequence\": {\"rack_power\": \"PoweringOn\"}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": \"Completed\"}",
         "{\"state\": \"validating\", \"validating_state\": \"Pending\"}",
