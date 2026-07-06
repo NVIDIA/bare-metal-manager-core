@@ -141,11 +141,11 @@ switch config has NMX-C enabled; it does not use BMC or NICo API TLS material.
 For static switch-host endpoints, `switch.nmxc_enabled` controls this target
 eligibility after the `endpoint_role = "host"` and `is_primary = true` checks;
 it defaults to `switch.is_primary` when omitted.
-NMX-C notifications currently emit log events for tracing, log-file, and OTLP
+NMX-C notifications emit log events for tracing, log-file, and OTLP
 log sinks only; Prometheus metrics and switch health reports are separate scope.
-Current NMX-C collection uses plaintext gRPC over HTTP/2. TLS, certificate
-bypass, custom certificate loading, and mTLS are intentionally separate scope
-and should not be modeled with the NICo API SPIFFE certificate fields.
+
+NMX-C collection uses plaintext gRPC over HTTP/2. TLS, certificate
+bypass, custom certificate loading, and mTLS are intentionally separate scope; do not model them with the NICo API SPIFFE certificate fields.
 
 ### BMC Proxy
 
