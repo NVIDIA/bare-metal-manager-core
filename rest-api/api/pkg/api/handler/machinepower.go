@@ -46,7 +46,7 @@ func NewMachinePowerControlHandler(dbSession *cdb.Session, scp *sc.ClientPool, _
 
 // Handle godoc
 // @Summary Machine Power Control
-// @Description Power control a Machine through NICo Core. Provider Admin only.
+// @Description Power control a Machine.
 // @Tags machine-power
 // @Accept json
 // @Produce json

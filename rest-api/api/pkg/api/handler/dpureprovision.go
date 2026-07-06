@@ -41,7 +41,7 @@ func NewReprovisionMachineDpuHandler(dbSession *cdb.Session, scp *sc.ClientPool,
 
 // Handle godoc
 // @Summary Trigger DPU Reprovisioning
-// @Description Trigger DPU reprovisioning for a Machine. Provider Admin only.
+// @Description Trigger DPU reprovisioning for a Machine.
 // @Tags dpu-reprovision
 // @Accept json
 // @Produce json

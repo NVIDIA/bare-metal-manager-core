@@ -41,7 +41,7 @@ func NewResetMachineBMCHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *
 
 // Handle godoc
 // @Summary Reset Machine BMC
-// @Description Reset a Machine BMC. Provider Admin only.
+// @Description Reset a Machine BMC.
 // @Tags bmc-reset
 // @Accept json
 // @Produce json

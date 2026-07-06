@@ -40,8 +40,8 @@ func NewGetAllMachineHealthReportHandler(dbSession *cdb.Session, scp *sc.ClientP
 }
 
 // Handle godoc
-// @Summary List Machine Health Reports
-// @Description List Machine health report overrides through NICo Core. Provider Admin only.
+// @Summary Get all Machine Health Reports
+// @Description Get all health report overrides for a Machine.
 // @Tags health-report
 // @Accept json
 // @Produce json
@@ -174,7 +174,7 @@ func NewCreateOrUpdateMachineHealthReportHandler(dbSession *cdb.Session, scp *sc
 
 // Handle godoc
 // @Summary Insert Machine Health Report
-// @Description Add or update a Machine health report override through NICo Core. Provider Admin only.
+// @Description Add or update a Machine health report override.
 // @Tags health-report
 // @Accept json
 // @Produce json
@@ -315,7 +315,7 @@ func NewDeleteMachineHealthReportHandler(dbSession *cdb.Session, scp *sc.ClientP
 
 // Handle godoc
 // @Summary Remove Machine Health Report
-// @Description Remove a Machine health report override through NICo Core. Provider Admin only.
+// @Description Remove a Machine health report override.
 // @Tags health-report
 // @Accept json
 // @Produce json
