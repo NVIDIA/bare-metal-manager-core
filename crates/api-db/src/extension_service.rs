@@ -417,6 +417,26 @@ pub async fn find_version_info(
         }
     }
 
+    find_version_info_of_known_service(txn, service_id, version).await
+}
+
+/// Finds a specific version of an extension service, or the latest version if not specified,
+/// for callers that have already established the service exists and is not deleted (e.g. via a
+/// batched [`find_by_ids`] in the same transaction).
+///
+/// Unlike [`find_version_info`], this skips the service-existence probe and issues a single
+/// query, so an unknown service id surfaces as the version-not-found error rather than the
+/// service-not-found error.
+///
+/// # Parameters
+/// * `txn`        - A reference to an active DB transaction
+/// * `service_id` - The ID of the extension service
+/// * `version`    - Optional specific version number to retrieve. If None, returns the latest version
+pub async fn find_version_info_of_known_service(
+    txn: &mut PgConnection,
+    service_id: ExtensionServiceId,
+    version: Option<ConfigVersion>,
+) -> DatabaseResult<ExtensionServiceVersionInfo> {
     // Build the version lookup query.
     let mut builder = sqlx::QueryBuilder::new(
         "SELECT service_id, version, data, observability, has_credential, created, deleted \
@@ -727,4 +747,252 @@ pub async fn set_updated_timestamp(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test_batched_lookups {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use config_version::ConfigVersion;
+    use model::extension_service::ExtensionServiceType;
+    use model::metadata::Metadata;
+    use model::tenant::TenantOrganizationId;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
+
+    use super::*;
+
+    const TENANT_ORG: &str = "test-org";
+
+    /// Counts `sqlx::query*` tracing events so a batched query can be shown to collapse an N+1
+    /// loop down to a single database round trip.
+    #[derive(Clone, Default)]
+    struct QueryCounter(Arc<AtomicUsize>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
+        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
+            if e.metadata().target().starts_with("sqlx::query") {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+    impl QueryCounter {
+        fn count(&self) -> usize {
+            self.0.load(Ordering::Relaxed)
+        }
+    }
+
+    /// Seed N extension services (each with an initial version), returning their ids and the
+    /// exact `ConfigVersion` stored for each so tests can look versions up by exact match.
+    async fn seed_services(
+        pool: &sqlx::PgPool,
+        n: usize,
+    ) -> Vec<(ExtensionServiceId, ConfigVersion)> {
+        let tenant: TenantOrganizationId = TENANT_ORG.parse().expect("valid tenant org id");
+        let mut txn = pool.begin().await.expect("begin");
+
+        // Extension services carry an FK to tenants(organization_id); seed the tenant first.
+        crate::tenant::create_and_persist(
+            TENANT_ORG.to_string(),
+            Metadata {
+                name: "Test Org".to_string(),
+                description: String::new(),
+                labels: std::collections::HashMap::new(),
+            },
+            None,
+            &mut txn,
+        )
+        .await
+        .expect("create tenant");
+
+        let mut seeded = Vec::with_capacity(n);
+        for i in 0..n {
+            let service_id = ExtensionServiceId::new();
+            let version = ConfigVersion::initial();
+            create(
+                &mut txn,
+                version,
+                &service_id,
+                &ExtensionServiceType::KubernetesPod,
+                &format!("svc-{i}"),
+                &tenant,
+                Some("test service"),
+                "some-data",
+                None,
+                false,
+            )
+            .await
+            .expect("create extension service");
+            seeded.push((service_id, version));
+        }
+        txn.commit().await.expect("commit");
+        seeded
+    }
+
+    #[crate::sqlx_test]
+    async fn find_by_ids_collapses_n_plus_one(pool: sqlx::PgPool) {
+        const N: usize = 8;
+        let seeded = seed_services(&pool, N).await;
+        let ids = seeded.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+
+        // The reads run on plain pool connections -- no transaction -- so no
+        // begin/commit statements land in the counts. Each counted region
+        // acquires its connection inside the instrumented future.
+
+        // BEFORE: find_by_ids called with a 1-element slice per service (the pattern in dpu.rs).
+        let before = QueryCounter::default();
+        let looped = {
+            let counter = before.clone();
+            let pool = &pool;
+            let ids = &ids;
+            async move {
+                let mut conn = pool.acquire().await.expect("acquire");
+                let mut names = std::collections::HashMap::new();
+                for id in ids {
+                    let service = find_by_ids(&mut conn, &[*id], false)
+                        .await
+                        .expect("find_by_ids")
+                        .into_iter()
+                        .next()
+                        .expect("service present");
+                    names.insert(service.id, service.name);
+                }
+                names
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let before_count = before.count();
+
+        // AFTER: a single find_by_ids over the whole set.
+        let after = QueryCounter::default();
+        let batched = {
+            let counter = after.clone();
+            let pool = &pool;
+            let ids = &ids;
+            async move {
+                let mut conn = pool.acquire().await.expect("acquire");
+                find_by_ids(&mut conn, ids, false)
+                    .await
+                    .expect("find_by_ids")
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let after_count = after.count();
+
+        // Data equality: same set of (id -> name) pairs.
+        assert_eq!(batched.len(), N, "batched returned all N services");
+        let batched_names = batched
+            .into_iter()
+            .map(|service| (service.id, service.name))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            looped, batched_names,
+            "batched find_by_ids returns the same id->name mapping as the loop"
+        );
+
+        // Bite-check: the loop MUST be more than one query.
+        assert!(
+            before_count > 1,
+            "bite-check failed: looped find_by_ids issued {before_count} queries (expected > 1)"
+        );
+        assert_eq!(
+            before_count, N,
+            "looped find_by_ids issues one query per id"
+        );
+        assert_eq!(
+            after_count, 1,
+            "batched find_by_ids issues a single query for the whole set"
+        );
+
+        println!(
+            "extension_service by-id N+1: before(loop find_by_ids)={before_count} after(find_by_ids batch)={after_count} (N={N})"
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn find_version_info_of_known_service_skips_existence_probe(pool: sqlx::PgPool) {
+        let seeded = seed_services(&pool, 1).await;
+        let (service_id, version) = seeded[0];
+
+        // The reads run on plain pool connections -- no transaction -- so no
+        // begin/commit statements land in the counts. Each counted region
+        // acquires its connection inside the instrumented future.
+
+        // find_version_info: existence probe + version lookup.
+        let probed = QueryCounter::default();
+        let probed_info = {
+            let counter = probed.clone();
+            let pool = &pool;
+            async move {
+                let mut conn = pool.acquire().await.expect("acquire");
+                find_version_info(&mut conn, service_id, Some(version))
+                    .await
+                    .expect("find_version_info")
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let probed_count = probed.count();
+
+        // find_version_info_of_known_service: the version lookup alone.
+        let unprobed = QueryCounter::default();
+        let unprobed_info = {
+            let counter = unprobed.clone();
+            let pool = &pool;
+            async move {
+                let mut conn = pool.acquire().await.expect("acquire");
+                find_version_info_of_known_service(&mut conn, service_id, Some(version))
+                    .await
+                    .expect("find_version_info_of_known_service")
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let unprobed_count = unprobed.count();
+
+        // Data equality: both lookups return the same version row.
+        assert_eq!(
+            (
+                probed_info.service_id,
+                probed_info.version,
+                probed_info.data,
+                probed_info.observability,
+                probed_info.has_credential,
+                probed_info.created,
+            ),
+            (
+                unprobed_info.service_id,
+                unprobed_info.version,
+                unprobed_info.data,
+                unprobed_info.observability,
+                unprobed_info.has_credential,
+                unprobed_info.created,
+            ),
+            "both lookups return the same version info"
+        );
+
+        assert_eq!(
+            probed_count, 2,
+            "find_version_info issues two queries (existence probe + version lookup)"
+        );
+        assert_eq!(
+            unprobed_count, 1,
+            "find_version_info_of_known_service issues the version lookup alone"
+        );
+
+        println!(
+            "extension_service version lookup: find_version_info={probed_count} \
+             find_version_info_of_known_service={unprobed_count}"
+        );
+    }
 }

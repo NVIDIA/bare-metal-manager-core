@@ -347,6 +347,19 @@ pub(crate) async fn get_managed_host_network_config_inner(
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
             let mut tenant_loopback_ips: HashMap<VpcId, String> = HashMap::new();
 
+            // Resolve every segment domain in a single query up front, then look each one up by id
+            // inside the interface loop. The domains map keeps its rows keyed by id so a missing
+            // entry still surfaces the same NotFoundError the per-interface lookup used to raise.
+            let subdomain_ids = segment_details
+                .values()
+                .filter_map(|segment| segment.config.subdomain_id)
+                .unique()
+                .collect_vec();
+            let domains_by_id =
+                db::dns::domain::find_by_uuids(txn.as_pgconn(), &subdomain_ids)
+                    .await
+                    .map_err(CarbideError::from)?;
+
             // if there is no device then this is a legacy config and only the primary dpu is allowed.
             // all other DPUs don't get interfaces
             for iface in interfaces.iter().filter(|i|
@@ -397,16 +410,14 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
                 // Build the FQDN from this interface's segment domain.
                 let domain = match segment.config.subdomain_id {
-                    Some(domain_id) => {
-                        db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
-                            .await
-                            .map_err(CarbideError::from)?
-                            .ok_or_else(|| CarbideError::NotFoundError {
-                                kind: "domain",
-                                id: domain_id.to_string(),
-                            })?
-                            .name
-                    }
+                    Some(domain_id) => domains_by_id
+                        .get(&domain_id)
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "domain",
+                            id: domain_id.to_string(),
+                        })?
+                        .name
+                        .clone(),
                     None => "unknowndomain".to_string(),
                 };
                 let fqdn = if let Some(hostname) = &instance.config.tenant.hostname {
@@ -524,23 +535,37 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     // First fetch from the database, while we have a transaction:
     let extension_service_info = if let Some(instance) = snapshot.instance.as_ref() {
-        let mut extension_service_info: Vec<ExtensionServiceInfo> =
-            Vec::with_capacity(instance.config.extension_services.service_configs.len());
-        for config in &instance.config.extension_services.service_configs {
-            // @TODO(Felicity): optimize database query to fetch all extension service versions at once.
-            //  This might be ok for now since the number of extension services is expected to be small.
-            let service_res =
-                db::extension_service::find_by_ids(&mut txn, &[config.service_id], false).await?;
-            let service =
-                service_res
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "ExtensionService",
-                        id: config.service_id.to_string(),
-                    })?;
+        let service_configs = &instance.config.extension_services.service_configs;
 
-            let version = db::extension_service::find_version_info(
+        // Fetch every configured extension service in one query, then index by id so each config
+        // resolves its service from memory instead of issuing a query per config.
+        let service_ids = service_configs
+            .iter()
+            .map(|config| config.service_id)
+            .unique()
+            .collect_vec();
+        let services_by_id = db::extension_service::find_by_ids(&mut txn, &service_ids, false)
+            .await?
+            .into_iter()
+            .map(|service| (service.id, service))
+            .collect::<HashMap<_, _>>();
+
+        let mut extension_service_info: Vec<ExtensionServiceInfo> =
+            Vec::with_capacity(service_configs.len());
+        for config in service_configs {
+            let service = services_by_id
+                .get(&config.service_id)
+                .cloned()
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "ExtensionService",
+                    id: config.service_id.to_string(),
+                })?;
+
+            // The pinned version is looked up individually so the exact
+            // `version == config.version` selection (and its full data/credential/observability
+            // payload) is preserved per config. The batched `services_by_id` lookup above already
+            // established the service exists, so this skips the per-service existence probe.
+            let version = db::extension_service::find_version_info_of_known_service(
                 &mut txn,
                 config.service_id,
                 Some(config.version),
