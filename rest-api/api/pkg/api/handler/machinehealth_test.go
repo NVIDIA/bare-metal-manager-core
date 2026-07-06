@@ -16,7 +16,7 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-func TestListMachineHealthReportHandlerProxiesRequest(t *testing.T) {
+func TestGetAllMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &cwssaws.ListHealthReportResponse{
 		HealthReportEntries: []*cwssaws.HealthReportEntry{
 			{
@@ -28,7 +28,7 @@ func TestListMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 			},
 		},
 	})
-	handler := NewListMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
+	handler := NewGetAllMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
 	rec := fixture.Request(t, handler.Handle, http.MethodGet, "/", nil, "")
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -42,10 +42,10 @@ func TestListMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "password")
 }
 
-func TestInsertMachineHealthReportHandlerProxiesRequest(t *testing.T) {
+func TestCreateOrUpdateMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, nil)
-	handler := NewInsertMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
-	req := model.APIMachineHealthReportEntry{
+	handler := NewCreateOrUpdateMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
+	req := model.APIMachineHealthReportEntryRequest{
 		Source: "overrides.sre",
 		Mode:   model.MachineHealthReportModeMerge,
 		Alerts: []model.APIMachineHealthProbeAlert{{ID: "probe.alert", Message: "forced unhealthy"}},
@@ -63,18 +63,18 @@ func TestInsertMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "password")
 }
 
-func TestInsertMachineHealthReportHandlerRejectsInvalidRequest(t *testing.T) {
+func TestCreateOrUpdateMachineHealthReportHandlerRejectsInvalidRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, nil)
-	handler := NewInsertMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
+	handler := NewCreateOrUpdateMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
-	rec := fixture.Request(t, handler.Handle, http.MethodPut, "/", model.APIMachineHealthReportEntry{Mode: model.MachineHealthReportModeMerge}, "")
+	rec := fixture.Request(t, handler.Handle, http.MethodPut, "/", model.APIMachineHealthReportEntryRequest{Mode: model.MachineHealthReportModeMerge}, "")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, fixture.ProxiedReq.FullMethod)
 }
 
-func TestRemoveMachineHealthReportHandlerProxiesRequest(t *testing.T) {
+func TestDeleteMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, nil)
-	handler := NewRemoveMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
+	handler := NewDeleteMachineHealthReportHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
 	rec := fixture.Request(t, handler.Handle, http.MethodDelete, "/", nil, "overrides.sre")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
