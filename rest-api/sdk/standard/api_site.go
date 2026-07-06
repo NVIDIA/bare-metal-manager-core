@@ -314,13 +314,15 @@ type ApiGetAllSiteRequest struct {
 	orderBy                       *string
 }
 
-// Filter Sites by Infrastructure Provider ID
+// Filter Sites by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllSiteRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetAllSiteRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter Sites by Tenant ID
+// Filter Sites by Tenant ID. Deprecated: Tenant is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllSiteRequest) TenantId(tenantId string) ApiGetAllSiteRequest {
 	r.tenantId = &tenantId
 	return r

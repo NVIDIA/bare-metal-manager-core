@@ -2765,26 +2765,6 @@ func TestGetAllVPCHandler_Handle(t *testing.T) {
 			expectedNetworkSecurityGroupName: &nsg1.Name,
 		},
 		{
-			name: "get all VPCs with infrastructure provider success",
-			fields: fields{
-				dbSession: dbSession,
-				tc:        tc,
-				cfg:       cfg,
-			},
-			args: args{
-				org: tnOrg,
-				query: url.Values{
-					"includeRelation":          []string{cdbm.InfrastructureProviderRelationName},
-					"infrastructureProviderId": []string{ip.ID.String()},
-					"pageSize":                 []string{"30"},
-				},
-				user: tnu,
-			},
-			wantCount:      30,
-			wantTotalCount: totalCount,
-			wantRespCode:   http.StatusOK,
-		},
-		{
 			name: "get all VPCs by name as query full text search success",
 			fields: fields{
 				dbSession: dbSession,

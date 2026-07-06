@@ -1342,26 +1342,6 @@ func (gavh GetAllVPCHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errMsg, nil)
 	}
 
-	// Get infrastructure provider ID from query param
-	var infrastructureProviderID *uuid.UUID
-	qInfrastructureProviderID := c.QueryParam("infrastructureProviderId")
-	if qInfrastructureProviderID != "" {
-		id, serr := uuid.Parse(qInfrastructureProviderID)
-		if serr != nil {
-			logger.Warn().Err(serr).Msg("error parsing infrastructureProviderId in query into uuid")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Infrastructure Provider ID in query", nil)
-		}
-		infrastructureProviderID = &id
-
-		// Check for IP existence
-		ipDAO := cdbm.NewInfrastructureProviderDAO(gavh.dbSession)
-		_, verr := ipDAO.GetByID(ctx, nil, *infrastructureProviderID, nil)
-		if verr != nil {
-			logger.Warn().Err(verr).Msg("error retrieving InfrastructureProvider from DB by ID")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Could not retrieve InfrastructureProvider with ID specified in query", nil)
-		}
-	}
-
 	// Get site IDs from query param
 	var siteIDs []uuid.UUID
 
@@ -1434,10 +1414,9 @@ func (gavh GetAllVPCHandler) Handle(c echo.Context) error {
 	vpcDAO := cdbm.NewVpcDAO(gavh.dbSession)
 
 	vpcFilter := cdbm.VpcFilterInput{
-		Org:                      &org,
-		InfrastructureProviderID: infrastructureProviderID,
-		SearchQuery:              searchQuery,
-		TenantIDs:                []uuid.UUID{tenant.ID},
+		Org:         &org,
+		SearchQuery: searchQuery,
+		TenantIDs:   []uuid.UUID{tenant.ID},
 	}
 
 	if len(siteIDs) > 0 {

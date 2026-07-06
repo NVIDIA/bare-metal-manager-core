@@ -312,7 +312,8 @@ tags:
 
       Active Deprecations:
 
-      - Currently there are no active deprecations
+      Instance:
+      - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
 
       Recent Deprecations:
 
@@ -859,13 +860,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter Sites by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter Sites by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter Sites by Tenant ID
+          deprecated: true
+          description: "Filter Sites by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
           in: query
@@ -1756,13 +1759,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
@@ -1951,13 +1956,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: boolean
           in: query
@@ -6311,7 +6318,8 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter by Infrastructure Provider ID. Deprecated: Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the siteId parameter to scope results to a specific Infrastructure Provider's Sites."
         - schema:
             type: string
             format: uuid

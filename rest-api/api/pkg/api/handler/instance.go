@@ -4125,7 +4125,7 @@ func NewGetAllInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param infrastructureProviderId query string true "Infrastructure Provider ID"
+// @Param infrastructureProviderId query string false "Deprecated: Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use siteId to scope results to a specific Infrastructure Provider's Sites."
 // @Param siteId query string true "ID of Site"
 // @Param vpcId query string true "ID of Vpc"
 // @Param instanceTypeId query string false "ID of Instance Type"
@@ -4653,11 +4653,15 @@ func (gaih GetAllInstanceHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// Advertise the deprecated infrastructureProviderId query param this endpoint still accepts.
+	queryParamDeprecations := model.InstanceListQueryParamDeprecations()
+
 	apiInstances := []model.APIInstance{}
 	for _, ins := range dbInstances {
 		// Create response
 		dbInstance := ins
 		apiInstance := model.NewAPIInstance(&dbInstance, sitesByID[dbInstance.SiteID], ifcMap[dbInstance.ID], ibifcMap[dbInstance.ID], desdsMap[dbInstance.ID], nvlifcMap[dbInstance.ID], skgiasMap[dbInstance.ID], ssdMap[ins.ID.String()])
+		apiInstance.Deprecations = queryParamDeprecations
 
 		// If the instance has no NSG applied directly, and there
 		// were ethernet interfaces attached to VPCs (vpcsByInstance),
