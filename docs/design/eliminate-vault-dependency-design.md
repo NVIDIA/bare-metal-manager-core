@@ -31,6 +31,7 @@
 | 2026-07-06 | Bill Minckler | Reworded the DPU identity work from "attestation" to "identity verification" where it described cert-chain identity derivation, to avoid implying full measured-boot/quote attestation (§1.3, §1.6, §3.4). Kept genuine attestation references (AttestQuote, the SPDM/NRAS FSM, the [dpu_device_attestation] config key). |
 | 2026-07-06 | Bill Minckler | Reframed §2 / §1.1 so DPU device identity (#2917) and the host TPM EK are the hardware-rooted identity anchor *under* Node authentication (#355), and stated explicitly that the device-identity work exists solely to enable the move to JWT (not a standalone feature; GitHub issue hierarchy unchanged). |
 | 2026-07-06 | Bill Minckler | Rewrote §1–§3 to describe the epic's **end state**: removed transitional (mTLS-gated refresh), current-code, and unmerged-branch language. The current state of the code now lives in the status doc (`eliminate-vault-dependency.md`). |
+| 2026-07-06 | Bill Minckler | Replaced the §2 architecture ASCII chart with a Mermaid flowchart; arrows corrected so PostgresCredentialManager → PostgreSQL (encrypted `secrets`) and the KMS provider supplies the KEK, while ForgeVaultClient (KV2) → Vault/OpenBao KV2 (no KMS arrow). |
 
 # 1. Introduction
 
@@ -85,23 +86,29 @@ This document records the architecture and design for the Vault-elimination epic
 
 **High-level architecture.** A single backend-agnostic credential abstraction fronts pluggable storage backends; certificate issuance is a separate provider; node authentication adds JWT bearer tokens alongside mTLS; and DPU identity is rooted in a BMC-fetched hardware certificate.
 
-```
- Callers (handlers, controllers, agents)
-        │  CredentialReader/Writer/Manager        CertificateProvider
-        ▼                                                  │
- ┌───────────────────────────────────────────┐             ▼
- │ ChainedCredentialReader (first-match)     │     ForgeVaultClient (Vault PKI)
- │   env → file(YAML, hot-reload) → backends │     — separate trait, still Vault [open O1]
- │ writer = one backend                      │
- └───────────┬────────────────────┬──────────┘
-             ▼                    ▼
-   PostgresCredentialManager   ForgeVaultClient (KV2)
-        │  envelope-encrypt
-        ▼
-   KMS provider (Integrated | Transit | Multi)  ── Transit = Vault/OpenBao [open O2]
+```mermaid
+flowchart TD
+    Callers["Callers (handlers, controllers, agents)"]
 
- Node auth:  Discover/AttestQuote/RefreshNodeToken → ES256 JWT, authorized by verified HW identity (DPU IRoT / host TPM EK)
- DPU identity: discover → DPU BMC Redfish SPDM IRoT CertChain → verify → machine_id
+    Callers -->|"CredentialReader / Writer / Manager"| Chain
+    Callers -->|"CertificateProvider"| Cert["Certificate issuance:<br/>non-Vault issuer, or none under JWT-only (O1)"]
+
+    subgraph CS["Credential store"]
+        direction TB
+        Chain["ChainedCredentialReader (first-match)<br/>env → file (YAML, hot-reload) → backends<br/>writer = one backend"]
+        Chain --> PG["PostgresCredentialManager<br/>(envelope-encrypt)"]
+        Chain --> VKV["ForgeVaultClient (KV2)"]
+    end
+
+    KMS["KMS provider<br/>Integrated · Transit · Multi (O2)"] -->|"KEK: wrap / unwrap per-record DEK"| PG
+    PG --> PGDB[("PostgreSQL<br/>encrypted secrets")]
+    VKV --> VKVDB[("Vault / OpenBao KV2")]
+
+    subgraph NA["Node authentication → JWT (hardware-rooted)"]
+        direction TB
+        DPUID["DPU identity: BMC Redfish SPDM IRoT CertChain<br/>→ verify → machine_id"] --> HW["Verified HW identity:<br/>DPU BlueField IRoT / host TPM EK"]
+        HW -->|"authorizes issuance / refresh"| JWT["Discover / AttestQuote / RefreshNodeToken<br/>→ ES256 JWT"]
+    end
 ```
 
 The architecture breaks into four subsystems; each is summarized here — structure, runtime behavior, and any open limitation — and detailed in §3.2–§3.3.
