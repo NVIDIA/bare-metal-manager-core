@@ -38,70 +38,18 @@ func (p safetyPolicyRuntime) evaluate(
 ) pauseDecision {
 	for _, gate := range p.gates {
 		stats := statsForScope(current, completed, gate.SafetyGateScope())
-		if !gate.IsTripped(stats.failed, stats.total) {
+		if !gate.IsTripped(stats.StatusCounts.Failed, stats.SelectedTargets) {
 			continue
 		}
 
 		return pauseDecision{
 			pause:   true,
 			reason:  operationrun.OperationRunStatusReasonSafetyGate,
-			message: safetyGateTrippedMessage(gate, stats),
+			message: stats.SafetyGateTrippedMessage(gate),
 		}
 	}
 
 	return pauseDecision{}
-}
-
-func safetyGateTrippedMessage(
-	gate operationrun.SafetyGate,
-	stats safetyGateStats,
-) string {
-	scope := gate.SafetyGateScope()
-	if scope == "" {
-		scope = operationrun.SafetyGateScopeCurrentPhase
-	}
-
-	switch typed := gate.(type) {
-	case *operationrun.FailureRateGate:
-		return fmt.Sprintf(
-			"%s safety gate tripped for %s: %d/%d targets failed (%d%%, threshold %d%%)",
-			gate.SafetyGateKind(),
-			scope,
-			stats.failed,
-			stats.total,
-			failurePercent(stats),
-			typed.FailureThresholdPercent,
-		)
-	case *operationrun.FailureCountGate:
-		return fmt.Sprintf(
-			"%s safety gate tripped for %s: %d/%d targets failed (threshold %d)",
-			gate.SafetyGateKind(),
-			scope,
-			stats.failed,
-			stats.total,
-			typed.FailureThresholdCount,
-		)
-	default:
-		return fmt.Sprintf(
-			"%s safety gate tripped for %s: %d/%d targets failed",
-			gate.SafetyGateKind(),
-			scope,
-			stats.failed,
-			stats.total,
-		)
-	}
-}
-
-func failurePercent(stats safetyGateStats) int {
-	if stats.total == 0 {
-		return 0
-	}
-	return stats.failed * 100 / stats.total
-}
-
-type safetyGateStats struct {
-	failed int
-	total  int
 }
 
 // statsForScope aggregates target outcomes over the safety-gate scope selected
@@ -110,22 +58,13 @@ func statsForScope(
 	current []*operationrun.OperationRunTarget,
 	completed []*operationrun.OperationRunTarget,
 	scope operationrun.SafetyGateScope,
-) safetyGateStats {
-	stats := safetyGateStats{}
-	stats.add(current)
+) operationrun.PhaseStats {
+	stats := operationrun.PhaseStats{}
+	stats.AddTargets(current)
 	if scope != operationrun.SafetyGateScopeCumulativeRun {
 		return stats
 	}
 
-	stats.add(completed)
+	stats.AddTargets(completed)
 	return stats
-}
-
-func (s *safetyGateStats) add(targets []*operationrun.OperationRunTarget) {
-	for _, target := range targets {
-		s.total++
-		if target.Status == operationrun.OperationRunTargetStatusFailed {
-			s.failed++
-		}
-	}
 }

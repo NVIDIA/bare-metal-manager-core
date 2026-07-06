@@ -468,6 +468,32 @@ func TestOperationRunTargetStatusClaimedRoundTrip(t *testing.T) {
 	)
 }
 
+func TestProgressStatsRoundTrip(t *testing.T) {
+	stats := operationrun.ProgressStats{
+		CurrentPhase: operationrun.PhaseStats{
+			PhaseIndex:      2,
+			SelectedTargets: 3,
+			StatusCounts: operationrun.TargetStatusCounts{
+				Failed:  1,
+				Skipped: 1,
+			},
+		},
+		Cumulative: operationrun.PhaseStats{
+			PhaseIndex:      2,
+			SelectedTargets: 5,
+			StatusCounts: operationrun.TargetStatusCounts{
+				Completed:  1,
+				Failed:     1,
+				Terminated: 1,
+				Skipped:    1,
+			},
+		},
+	}
+
+	got := ProgressStatsFrom(ProgressStatsTo(stats))
+	require.Equal(t, stats, got)
+}
+
 func mustUnmarshalSelector(
 	t *testing.T,
 	raw []byte,

@@ -9,6 +9,7 @@ package operationrun
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,12 +72,20 @@ const (
 	OperationRunTargetStatusSkipped    OperationRunTargetStatus = "skipped"
 )
 
+// TerminalTargetStatuses returns all target statuses that have no remaining
+// work.
+func TerminalTargetStatuses() []OperationRunTargetStatus {
+	return []OperationRunTargetStatus{
+		OperationRunTargetStatusCompleted,
+		OperationRunTargetStatusFailed,
+		OperationRunTargetStatusTerminated,
+		OperationRunTargetStatusSkipped,
+	}
+}
+
 // IsTerminal reports whether this target has no remaining work.
 func (s OperationRunTargetStatus) IsTerminal() bool {
-	return s == OperationRunTargetStatusCompleted ||
-		s == OperationRunTargetStatusFailed ||
-		s == OperationRunTargetStatusTerminated ||
-		s == OperationRunTargetStatusSkipped
+	return slices.Contains(TerminalTargetStatuses(), s)
 }
 
 // IsFailedOrTerminated reports whether this target failed or terminated.
@@ -268,13 +277,16 @@ type ListOptions struct {
 type TargetPhaseScope int
 
 const (
-	// TargetPhaseScopeCurrentPhase returns the latest materialized phase.
+	// TargetPhaseScopeCurrentPhase returns the first materialized phase with
+	// non-terminal targets.
 	TargetPhaseScopeCurrentPhase TargetPhaseScope = iota
 	// TargetPhaseScopeCompletedPhases returns materialized phases before the
-	// current phase.
+	// current phase. If no current phase exists, every materialized phase is
+	// completed.
 	TargetPhaseScopeCompletedPhases
 	// TargetPhaseScopeCurrentAndCompletedPhases returns every materialized
-	// phase through the current phase.
+	// phase through the current phase. If no current phase exists, it returns
+	// every materialized phase.
 	TargetPhaseScopeCurrentAndCompletedPhases
 	// TargetPhaseScopeAllMaterializedTargets returns every materialized target
 	// row for internal planning use cases such as prior-run exclusions.

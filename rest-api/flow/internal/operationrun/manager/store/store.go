@@ -21,9 +21,10 @@ import (
 )
 
 const currentPhaseIndexSubquery = `(
-	SELECT MAX(phase_index)
-	FROM operation_run_target
-	WHERE operation_run_id = ?
+	SELECT MIN(phase_index)
+	FROM operation_run_target AS current_phase
+	WHERE current_phase.operation_run_id = ?
+	AND current_phase.status NOT IN (?)
 )`
 
 // txKeyType is an unexported type for the transaction context key, preventing
@@ -103,7 +104,7 @@ func (s *PostgresStore) Get(
 		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("operation run %s not found", id)
+			return nil, fmt.Errorf("operation run %s not found: %w", id, sql.ErrNoRows)
 		}
 
 		return nil, err
@@ -316,24 +317,36 @@ func applyTargetPhaseScope(
 	runID uuid.UUID,
 	scope operationrun.TargetPhaseScope,
 ) *bun.SelectQuery {
+	currentPhase := func() *bun.SelectQuery {
+		return q.Where(
+			"ort.phase_index = "+currentPhaseIndexSubquery,
+			runID,
+			bun.In(operationrun.TerminalTargetStatuses()),
+		)
+	}
+
 	switch scope {
 	case operationrun.TargetPhaseScopeCurrentPhase:
-		return q.Where(
-			"ort.phase_index = "+currentPhaseIndexSubquery,
-			runID,
-		)
+		return currentPhase()
 	case operationrun.TargetPhaseScopeCompletedPhases:
+		// If no non-terminal phase remains, the subquery returns NULL.
+		// COALESCE falls back to phase_index < phase_index + 1, intentionally
+		// creating a tautology to include all rows as "completed".
 		return q.Where(
-			"ort.phase_index < "+currentPhaseIndexSubquery,
+			"ort.phase_index < COALESCE("+currentPhaseIndexSubquery+", ort.phase_index + 1)",
 			runID,
+			bun.In(operationrun.TerminalTargetStatuses()),
 		)
-	case operationrun.TargetPhaseScopeCurrentAndCompletedPhases,
-		operationrun.TargetPhaseScopeAllMaterializedTargets:
+	case operationrun.TargetPhaseScopeCurrentAndCompletedPhases:
+		// Same fallback rationale as CompletedPhases above.
+		return q.Where(
+			"ort.phase_index <= COALESCE("+currentPhaseIndexSubquery+", ort.phase_index)",
+			runID,
+			bun.In(operationrun.TerminalTargetStatuses()),
+		)
+	case operationrun.TargetPhaseScopeAllMaterializedTargets:
 		return q
 	default:
-		return q.Where(
-			"ort.phase_index = "+currentPhaseIndexSubquery,
-			runID,
-		)
+		return currentPhase()
 	}
 }

@@ -1237,6 +1237,86 @@ func OperationRunTargetTo(
 	return result, nil
 }
 
+// ProgressStatsTo converts domain operation-run progress stats to protobuf.
+func ProgressStatsTo(
+	stats operationrun.ProgressStats,
+) *pb.OperationRunStats {
+	return &pb.OperationRunStats{
+		CurrentPhaseStats:    PhaseStatsTo(stats.CurrentPhase),
+		CumulativePhaseStats: PhaseStatsTo(stats.Cumulative),
+	}
+}
+
+// ProgressStatsFrom converts protobuf operation-run stats to the domain shape.
+func ProgressStatsFrom(
+	stats *pb.OperationRunStats,
+) operationrun.ProgressStats {
+	if stats == nil {
+		return operationrun.ProgressStats{}
+	}
+
+	return operationrun.ProgressStats{
+		CurrentPhase: PhaseStatsFrom(stats.GetCurrentPhaseStats()),
+		Cumulative:   PhaseStatsFrom(stats.GetCumulativePhaseStats()),
+	}
+}
+
+// PhaseStatsTo converts domain phase stats to protobuf.
+func PhaseStatsTo(
+	stats operationrun.PhaseStats,
+) *pb.OperationRunPhaseStats {
+	return &pb.OperationRunPhaseStats{
+		PhaseIndex:      stats.PhaseIndex,
+		SelectedTargets: int32(stats.SelectedTargets),
+		OutcomeCounts:   TargetStatusCountsTo(stats.StatusCounts),
+	}
+}
+
+// PhaseStatsFrom converts protobuf phase stats to the domain shape.
+func PhaseStatsFrom(
+	stats *pb.OperationRunPhaseStats,
+) operationrun.PhaseStats {
+	if stats == nil {
+		return operationrun.PhaseStats{}
+	}
+
+	return operationrun.PhaseStats{
+		PhaseIndex:      stats.GetPhaseIndex(),
+		SelectedTargets: int(stats.GetSelectedTargets()),
+		StatusCounts:    TargetStatusCountsFrom(stats.GetOutcomeCounts()),
+	}
+}
+
+// TargetStatusCountsTo converts domain target status counts to protobuf
+// outcome counts.
+func TargetStatusCountsTo(
+	stats operationrun.TargetStatusCounts,
+) *pb.OperationRunTargetOutcomeCounts {
+	return &pb.OperationRunTargetOutcomeCounts{
+		Completed:  int32(stats.Completed),
+		Failed:     int32(stats.Failed),
+		Terminated: int32(stats.Terminated),
+		Skipped:    int32(stats.Skipped),
+	}
+}
+
+// TargetStatusCountsFrom converts protobuf target outcome counts to the domain
+// status-count shape.
+func TargetStatusCountsFrom(
+	counts *pb.OperationRunTargetOutcomeCounts,
+) operationrun.TargetStatusCounts {
+	if counts == nil {
+		return operationrun.TargetStatusCounts{}
+	}
+
+	return operationrun.TargetStatusCounts{
+		Completed:  int(counts.GetCompleted()),
+		Failed:     int(counts.GetFailed()),
+		Terminated: int(counts.GetTerminated()),
+		Skipped:    int(counts.GetSkipped()),
+	}
+}
+
 // OperationRunListOptionsFrom converts a list-runs API request into domain
 // list options.
 func OperationRunListOptionsFrom(

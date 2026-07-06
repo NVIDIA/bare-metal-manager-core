@@ -15,6 +15,27 @@ func TestOperationRunStatusIsTerminalIncludesCompletedWithFailures(t *testing.T)
 	require.True(t, OperationRunStatusCompletedWithFailures.IsTerminal())
 }
 
+func TestTerminalTargetStatusesMatchIsTerminal(t *testing.T) {
+	terminal := map[OperationRunTargetStatus]struct{}{}
+	for _, status := range TerminalTargetStatuses() {
+		terminal[status] = struct{}{}
+	}
+
+	for _, status := range []OperationRunTargetStatus{
+		OperationRunTargetStatusPending,
+		OperationRunTargetStatusClaimed,
+		OperationRunTargetStatusBlocked,
+		OperationRunTargetStatusSubmitted,
+		OperationRunTargetStatusCompleted,
+		OperationRunTargetStatusFailed,
+		OperationRunTargetStatusTerminated,
+		OperationRunTargetStatusSkipped,
+	} {
+		_, listed := terminal[status]
+		require.Equal(t, status.IsTerminal(), listed, status)
+	}
+}
+
 func TestOperationRunTargetStatusFromTaskStatus(t *testing.T) {
 	tests := []struct {
 		name   string

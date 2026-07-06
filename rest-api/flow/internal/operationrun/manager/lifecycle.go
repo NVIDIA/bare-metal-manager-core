@@ -16,6 +16,9 @@ import (
 var (
 	// ErrOperationRunRequired reports that Create was called without a run.
 	ErrOperationRunRequired = errors.New("operation run is required")
+	// ErrOperationRunNotFound reports that an operation run ID does not match
+	// a persisted run.
+	ErrOperationRunNotFound = errors.New("operation run not found")
 	// ErrNoPlannedTargets reports that planning produced no executable targets.
 	ErrNoPlannedTargets = errors.New("operation run has no planned targets")
 )

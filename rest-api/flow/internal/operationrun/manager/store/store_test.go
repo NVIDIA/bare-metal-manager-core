@@ -5,12 +5,18 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
 
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -27,6 +33,38 @@ func (r fakeSQLResult) LastInsertId() (int64, error) {
 
 func (r fakeSQLResult) RowsAffected() (int64, error) {
 	return r.rowsAffected, r.err
+}
+
+func newOfflineBun() *bun.DB {
+	return bun.NewDB(nil, pgdialect.New())
+}
+
+func newMockPostgresStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
+	t.Helper()
+
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	return &PostgresStore{
+		pg: &cdb.Session{
+			DB: bun.NewDB(sqlDB, pgdialect.New()),
+		},
+	}, mock
+}
+
+func TestGetPreservesNoRowsForMissingRun(t *testing.T) {
+	store, mock := newMockPostgresStore(t)
+	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	mock.ExpectQuery("SELECT").
+		WillReturnError(sql.ErrNoRows)
+
+	run, err := store.Get(context.Background(), id)
+
+	require.Nil(t, run)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.ErrorContains(t, err, "operation run "+id.String()+" not found")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestCreateTargetsValidatesComponentsByType(t *testing.T) {
@@ -85,6 +123,96 @@ func TestCreateTargetsValidatesComponentsByType(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestApplyTargetPhaseScopeGeneratedSQL(t *testing.T) {
+	tests := []struct {
+		name    string
+		scope   operationrun.TargetPhaseScope
+		want    []string
+		wantNot []string
+	}{
+		{
+			name:  "current phase uses first non-terminal phase",
+			scope: operationrun.TargetPhaseScopeCurrentPhase,
+			want: []string{
+				"ort.phase_index = (",
+				"SELECT MIN(phase_index)",
+				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+			},
+			wantNot: []string{
+				"MAX(phase_index)",
+				"COALESCE(",
+			},
+		},
+		{
+			name:  "completed phases include all rows when no current phase exists",
+			scope: operationrun.TargetPhaseScopeCompletedPhases,
+			want: []string{
+				"ort.phase_index < COALESCE(",
+				"SELECT MIN(phase_index)",
+				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+				"ort.phase_index + 1",
+			},
+			wantNot: []string{
+				"MAX(phase_index)",
+			},
+		},
+		{
+			name:  "current and completed phases stops at current phase",
+			scope: operationrun.TargetPhaseScopeCurrentAndCompletedPhases,
+			want: []string{
+				"ort.phase_index <= COALESCE(",
+				"SELECT MIN(phase_index)",
+				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+				"ort.phase_index)",
+			},
+			wantNot: []string{
+				"MAX(phase_index)",
+			},
+		},
+		{
+			name:  "all materialized targets does not apply phase scope",
+			scope: operationrun.TargetPhaseScopeAllMaterializedTargets,
+			wantNot: []string{
+				"SELECT MIN(phase_index)",
+				"MAX(phase_index)",
+				"COALESCE(",
+				"current_phase.status NOT IN",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sql := targetPhaseScopeSQL(t, tt.scope)
+			for _, want := range tt.want {
+				require.Contains(t, sql, want)
+			}
+			for _, wantNot := range tt.wantNot {
+				require.NotContains(t, sql, wantNot)
+			}
+		})
+	}
+}
+
+func targetPhaseScopeSQL(
+	t *testing.T,
+	scope operationrun.TargetPhaseScope,
+) string {
+	t.Helper()
+
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	db := newOfflineBun()
+	var rows []dbmodel.OperationRunTarget
+	q := db.NewSelect().
+		Model(&rows).
+		Where("ort.operation_run_id = ?", runID)
+	q = applyTargetPhaseScope(q, runID, scope)
+
+	sql, err := q.AppendQuery(db.Formatter(), nil)
+	require.NoError(t, err)
+	return string(sql)
 }
 
 func TestFetchRunnableIDsRejectsNonPositiveLimit(t *testing.T) {

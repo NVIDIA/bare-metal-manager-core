@@ -5,6 +5,8 @@ package manager
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -24,7 +26,15 @@ func (m *ManagerImpl) Get(
 		return nil, fmt.Errorf("operation run ID is required")
 	}
 
-	return m.store.Get(ctx, id)
+	run, err := m.store.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s", ErrOperationRunNotFound, id)
+		}
+		return nil, err
+	}
+
+	return run, nil
 }
 
 // List returns operation runs matching opts.
@@ -52,5 +62,13 @@ func (m *ManagerImpl) ListTargets(
 		return nil, 0, fmt.Errorf("operation run ID is required")
 	}
 
-	return m.store.ListTargets(ctx, id, opts)
+	targets, total, err := m.store.ListTargets(ctx, id, opts)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, 0, fmt.Errorf("%w: %s", ErrOperationRunNotFound, id)
+		}
+		return nil, 0, err
+	}
+
+	return targets, total, nil
 }
