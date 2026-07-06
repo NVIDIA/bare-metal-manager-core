@@ -68,7 +68,7 @@ func (a *BMCResetAPIService) ResetMachineBmc(ctx context.Context, org string, ma
 //	@return MessageResponse
 func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
+		localVarHTTPMethod  = http.MethodPatch
 		localVarPostBody    interface{}
 		formFiles           []formFile
 		localVarReturnValue *MessageResponse
@@ -79,7 +79,7 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/bmc-reset"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/bmc/reset"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"machineId"+"}", url.PathEscape(parameterValueToString(r.machineId, "machineId")), -1)
 

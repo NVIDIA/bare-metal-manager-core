@@ -9161,7 +9161,7 @@ paths:
           description: Describes an error response for 500 Internal Server Error
           $ref: '#/components/responses/GenericHttpError'
       description: Org must have an Infrastructure Provider entity. Machine must belong to the Provider. User must have authorization role with `PROVIDER_ADMIN` suffix. Machine must meet certain criteria to be eligible for deletion.
-  '/v2/org/{org}/nico/machine/{machineId}/bmc-reset':
+  '/v2/org/{org}/nico/machine/{machineId}/bmc/reset':
     parameters:
       - schema:
           type: string
@@ -9175,7 +9175,7 @@ paths:
         in: path
         required: true
         description: ID of the Machine
-    post:
+    patch:
       summary: Reset Machine BMC
       tags:
         - BMC Reset

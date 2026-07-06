@@ -48,7 +48,7 @@ func NewResetMachineBMCHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *
 // @Param id path string true "ID of Machine"
 // @Param request body model.APIMachineBMCResetRequest true "Machine BMC reset request"
 // @Success 202 {object} model.APIMessageResponse
-// @Router /v2/org/{org}/nico/machine/{machineId}/bmc-reset [post]
+// @Router /v2/org/{org}/nico/machine/{machineId}/bmc/reset [patch]
 func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Machine", "ResetBmc", c, h.tracerSpan)
 	if handlerSpan != nil {

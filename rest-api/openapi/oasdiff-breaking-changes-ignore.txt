@@ -10,3 +10,4 @@ GET /v2/org/{org}/nico/machine/{machineId} the `health/alerts/items/inAlertSince
 PATCH /v2/org/{org}/nico/machine/{machineId} the `health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
 GET /v2/org/{org}/nico/machine/{machineId}/dpu the `items/health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
 PATCH /v2/org/{org}/nico/machine/{machineId}/dpu-reprovision api path removed without deprecation
+POST /v2/org/{org}/nico/machine/{machineId}/bmc-reset api path removed without deprecation

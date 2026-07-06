@@ -573,8 +573,8 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewReprovisionMachineDpuHandler(dbSession, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/machine/:id/bmc-reset",
-			Method:  http.MethodPost,
+			Path:    apiPathPrefix + "/machine/:id/bmc/reset",
+			Method:  http.MethodPatch,
 			Handler: apiHandler.NewResetMachineBMCHandler(dbSession, scp, cfg),
 		},
 		{

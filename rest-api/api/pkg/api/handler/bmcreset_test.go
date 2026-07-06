@@ -21,7 +21,7 @@ func TestResetMachineBMCHandlerProxiesRequest(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &cwssaws.AdminBmcResetResponse{})
 	handler := NewResetMachineBMCHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
-	rec := fixture.Request(t, handler.Handle, http.MethodPost, "/", model.APIMachineBMCResetRequest{UseIpmiTool: true}, "")
+	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIMachineBMCResetRequest{UseIpmiTool: true}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Equal(t, cwssaws.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
@@ -36,11 +36,15 @@ func TestResetMachineBMCHandlerProxiesRequest(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "password")
 }
 
-func TestResetMachineBMCHandlerRequiresRequestBody(t *testing.T) {
+func TestResetMachineBMCHandlerDefaultsUseIpmiTool(t *testing.T) {
 	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, nil)
 	handler := NewResetMachineBMCHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
-	rec := fixture.Request(t, handler.Handle, http.MethodPost, "/", nil, "")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, fixture.ProxiedReq.FullMethod)
+	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", nil, "")
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, cwssaws.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
+
+	var coreReq cwssaws.AdminBmcResetRequest
+	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
+	assert.False(t, coreReq.GetUseIpmitool())
 }
