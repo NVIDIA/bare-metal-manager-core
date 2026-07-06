@@ -1045,22 +1045,30 @@ impl Default for NvueRestConfig {
 
 /// Supported NVUE REST API paths.
 /// - system_health_enabled: Poll `/nvue_v1/system/health`.
+/// - system_reboot_reason_enabled: Poll `/nvue_v1/system/reboot/reason`.
 /// - cluster_apps_enabled: Poll `/nvue_v1/cluster/apps`.
 /// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
 /// - interfaces_enabled: Poll `/nvue_v1/interface`.
 /// - platform_environment_fan_enabled: Poll `/nvue_v1/platform/environment/fan`.
 /// - platform_environment_temperature_enabled: Poll `/nvue_v1/platform/environment/temperature`.
+/// - platform_environment_leakage_enabled: Poll `/nvue_v1/platform/environment/leakage`.
 /// - platform_environment_status_enabled: Poll `/nvue_v1/platform/environment` parent
 ///   summary for the aggregate `FAN_STATUS` LED state.
+///
+/// Disabling a flag skips the HTTP request. This is separate from leakage
+/// returning top-level JSON `null`, which still means the path was polled and
+/// should produce an explicit health-report result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueRestPaths {
     pub system_health_enabled: bool,
+    pub system_reboot_reason_enabled: bool,
     pub cluster_apps_enabled: bool,
     pub sdn_partitions_enabled: bool,
     pub interfaces_enabled: bool,
     pub platform_environment_fan_enabled: bool,
     pub platform_environment_temperature_enabled: bool,
+    pub platform_environment_leakage_enabled: bool,
     pub platform_environment_status_enabled: bool,
 }
 
@@ -1068,11 +1076,13 @@ impl Default for NvueRestPaths {
     fn default() -> Self {
         Self {
             system_health_enabled: true,
+            system_reboot_reason_enabled: true,
             cluster_apps_enabled: true,
             sdn_partitions_enabled: true,
             interfaces_enabled: true,
             platform_environment_fan_enabled: true,
             platform_environment_temperature_enabled: true,
+            platform_environment_leakage_enabled: true,
             platform_environment_status_enabled: true,
         }
     }
@@ -1738,9 +1748,11 @@ skip_empty_reports = false
             assert_eq!(rest.poll_interval, Duration::from_secs(300));
             assert_eq!(rest.request_timeout, Duration::from_secs(30));
             assert!(rest.paths.system_health_enabled);
+            assert!(rest.paths.system_reboot_reason_enabled);
             assert!(rest.paths.cluster_apps_enabled);
             assert!(rest.paths.sdn_partitions_enabled);
             assert!(rest.paths.interfaces_enabled);
+            assert!(rest.paths.platform_environment_leakage_enabled);
         }
     }
 
@@ -1771,6 +1783,8 @@ request_timeout = "45s"
                 assert_eq!(rest.poll_interval, Duration::from_secs(120));
                 assert_eq!(rest.request_timeout, Duration::from_secs(45));
                 assert!(rest.paths.system_health_enabled);
+                assert!(rest.paths.system_reboot_reason_enabled);
+                assert!(rest.paths.platform_environment_leakage_enabled);
             } else {
                 panic!("nvue rest config should be enabled");
             }
@@ -1846,9 +1860,11 @@ poll_interval = "1m"
 
 [collectors.nvue.rest.paths]
 system_health_enabled = true
+system_reboot_reason_enabled = false
 cluster_apps_enabled = false
 sdn_partitions_enabled = true
 interfaces_enabled = false
+platform_environment_leakage_enabled = false
 "#;
 
         let config: Config = Figment::new()
@@ -1860,9 +1876,11 @@ interfaces_enabled = false
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
             if let Configurable::Enabled(ref rest) = nvue.rest {
                 assert!(rest.paths.system_health_enabled);
+                assert!(!rest.paths.system_reboot_reason_enabled);
                 assert!(!rest.paths.cluster_apps_enabled);
                 assert!(rest.paths.sdn_partitions_enabled);
                 assert!(!rest.paths.interfaces_enabled);
+                assert!(!rest.paths.platform_environment_leakage_enabled);
             } else {
                 panic!("nvue rest config should be enabled");
             }

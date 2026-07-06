@@ -18,13 +18,19 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use super::client::{RestClient, UsernamePassword};
+use super::client::{
+    LeakageEnvironmentResponse, LeakageSensorData, OptionalNvueResponse, RebootReasonResponse,
+    RestClient, UsernamePassword,
+};
 use crate::HealthError;
 use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::sink::{
+    Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
+    HealthReportSuccess, HealthReportTarget, MetricSample, Probe, ReportSource,
+};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
@@ -88,6 +94,22 @@ fn temp_to_f64(value: Option<&str>) -> Option<f64> {
     value.and_then(|s| s.trim().parse::<f64>().ok())
 }
 
+const LEAKAGE_STATES: &[&str] = &["ok", "leak", "unknown"];
+
+/// Maps NVUE leakage sensor strings to the emitted StateSet domain.
+///
+/// NVUE OpenAPI defines populated leakage sensor states as `ok` or `leak`.
+/// `unknown` is an emitted fallback for per-sensor `null`, absent state, or an
+/// unrecognized value; the health report classifies that fallback as a sensor
+/// failure.
+fn leakage_state_to_state(state: Option<&str>) -> &'static str {
+    match state.map(str::trim) {
+        Some(s) if s.eq_ignore_ascii_case("ok") => "ok",
+        Some(s) if s.eq_ignore_ascii_case("leak") => "leak",
+        _ => "unknown",
+    }
+}
+
 const TEMP_STATE_STATES: &[&str] = &["ok", "not_ok"];
 
 /// Sensor `state` -> StateSet: "ok" (case-insensitive) => "ok", other present
@@ -115,6 +137,21 @@ fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
         Some("ok")
     } else {
         Some("not_ok")
+    }
+}
+
+/// Builds a switch-target health report with the current observation time.
+fn switch_report(
+    source: ReportSource,
+    successes: Vec<HealthReportSuccess>,
+    alerts: Vec<HealthReportAlert>,
+) -> HealthReport {
+    HealthReport {
+        source,
+        target: Some(HealthReportTarget::Switch),
+        observed_at: Some(chrono::Utc::now()),
+        successes,
+        alerts,
     }
 }
 
@@ -203,6 +240,24 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect system health"
+                );
+            }
+        }
+
+        match self.client.get_system_reboot_reason().await {
+            Ok(OptionalNvueResponse::Present(reason)) => {
+                self.emit_reboot_reason_data(&reason);
+
+                entity_count += 1;
+            }
+            Ok(OptionalNvueResponse::Null | OptionalNvueResponse::Disabled) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect system reboot reason"
                 );
             }
         }
@@ -391,6 +446,25 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             }
         }
 
+        match self.client.get_platform_environment_leakage().await {
+            Ok(OptionalNvueResponse::Present(leakage)) => {
+                entity_count += self.emit_leakage_data(&leakage);
+            }
+            Ok(OptionalNvueResponse::Null) => {
+                self.emit_leakage_unavailable();
+            }
+            Ok(OptionalNvueResponse::Disabled) => {}
+            Err(e) => {
+                fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
+                tracing::warn!(
+                error = ?e,
+                switch_id = %self.switch_id,
+                "nvue_rest: failed to collect platform environment leakage"
+                );
+            }
+        }
+
         match self.client.get_platform_environment().await {
             Ok(Some(env)) => {
                 // Switch-level FAN_STATUS LED. Emit only when present and mappable.
@@ -471,6 +545,121 @@ impl NvueRestCollector {
         }
     }
 
+    /// Emits reboot-reason metadata as an info metric.
+    ///
+    /// The reason endpoint records context for a reboot decision but is not
+    /// itself a health condition, so it does not generate a health report.
+    fn emit_reboot_reason_data(&self, reason: &RebootReasonResponse) {
+        self.emit_metric(
+            "reboot_reason_info",
+            None,
+            1.0,
+            "info",
+            vec![
+                (
+                    Cow::Borrowed("reason"),
+                    reason.reason.as_deref().unwrap_or("unknown").to_string(),
+                ),
+                (
+                    Cow::Borrowed("gentime"),
+                    reason.gentime.as_deref().unwrap_or("unknown").to_string(),
+                ),
+                (
+                    Cow::Borrowed("user"),
+                    reason.user.as_deref().unwrap_or("unknown").to_string(),
+                ),
+            ],
+        );
+    }
+
+    fn emit_leakage_data(&self, leakage: &LeakageEnvironmentResponse) -> usize {
+        let mut sensors = leakage.iter().collect::<Vec<_>>();
+        sensors.sort_by(|left, right| left.0.cmp(right.0));
+
+        for &(sensor_name, sensor) in &sensors {
+            let current =
+                leakage_state_to_state(sensor.as_ref().and_then(|sensor| sensor.state.as_deref()));
+
+            self.emit_state_set(
+                "leakage_state",
+                Some(sensor_name.as_str()),
+                current,
+                LEAKAGE_STATES,
+                vec![(Cow::Borrowed("sensor"), sensor_name.clone())],
+            );
+        }
+
+        let report = self.build_leakage_report(sensors.as_slice());
+        self.emit_event(CollectorEvent::HealthReport(Arc::new(report)));
+
+        sensors.len()
+    }
+
+    /// Emits a switch-level alert when the leakage endpoint returns top-level
+    /// JSON `null`.
+    ///
+    /// A concrete empty map means "no sensors reported" and is a source success;
+    /// top-level `null` means the switch did not provide leakage data, so the
+    /// previous leakage state must not be cleared as healthy.
+    fn emit_leakage_unavailable(&self) {
+        let report = switch_report(
+            ReportSource::NvueLeakage,
+            Vec::new(),
+            vec![HealthReportAlert {
+                probe_id: Probe::NvueLeakage,
+                target: None,
+                message: "NVUE leakage data is unavailable".to_string(),
+                classifications: vec![Classification::SensorFailure],
+            }],
+        );
+
+        self.emit_event(CollectorEvent::HealthReport(Arc::new(report)));
+    }
+
+    /// Builds the switch-level health report for NVUE leakage sensors.
+    ///
+    /// Empty leakage data means the endpoint was reachable and no sensors were
+    /// reported, so the source is healthy. Per-sensor `null` or unrecognized
+    /// states alert as sensor failures; explicit `leak` states alert as leaks.
+    fn build_leakage_report(
+        &self,
+        sensors: &[(&String, &Option<LeakageSensorData>)],
+    ) -> HealthReport {
+        let mut successes = Vec::new();
+        let mut alerts = Vec::new();
+
+        if sensors.is_empty() {
+            successes.push(HealthReportSuccess {
+                probe_id: Probe::NvueLeakage,
+                target: None,
+            });
+        }
+
+        for (sensor_name, sensor) in sensors {
+            match leakage_state_to_state(sensor.as_ref().and_then(|sensor| sensor.state.as_deref()))
+            {
+                "ok" => successes.push(HealthReportSuccess {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some((*sensor_name).clone()),
+                }),
+                "leak" => alerts.push(HealthReportAlert {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some((*sensor_name).clone()),
+                    message: format!("NVUE leakage sensor {sensor_name} reports leak"),
+                    classifications: vec![Classification::Leak],
+                }),
+                _ => alerts.push(HealthReportAlert {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some((*sensor_name).clone()),
+                    message: format!("NVUE leakage sensor {sensor_name} state is unknown"),
+                    classifications: vec![Classification::SensorFailure],
+                }),
+            }
+        }
+
+        switch_report(ReportSource::NvueLeakage, successes, alerts)
+    }
+
     fn emit_event(&self, event: CollectorEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
@@ -545,10 +734,12 @@ impl NvueRestCollector {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::sync::Mutex as StdMutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread::JoinHandle;
     use std::time::Duration;
 
     use mac_address::MacAddress;
@@ -592,6 +783,34 @@ mod tests {
                     sample.labels.iter().any(|(k, v)| k == label && v == value),
                     "{metric_type} state {state}: missing entity label {label}={value}"
                 );
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct CapturingSink {
+        samples: StdMutex<Vec<MetricSample>>,
+        reports: StdMutex<Vec<HealthReport>>,
+    }
+
+    impl DataSink for CapturingSink {
+        fn sink_type(&self) -> &'static str {
+            "capturing_sink"
+        }
+
+        fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            match event {
+                CollectorEvent::Metric(sample) => {
+                    self.samples.lock().unwrap().push((**sample).clone());
+                }
+                CollectorEvent::HealthReport(report) => {
+                    self.reports.lock().unwrap().push((**report).clone());
+                }
+                CollectorEvent::MetricCollectionStart
+                | CollectorEvent::MetricCollectionEnd
+                | CollectorEvent::CollectorRemoved
+                | CollectorEvent::Log(_)
+                | CollectorEvent::Firmware(_) => {}
             }
         }
     }
@@ -654,6 +873,19 @@ mod tests {
         assert_eq!(temp_to_f64(Some("x")), None);
         assert_eq!(temp_to_f64(Some("")), None);
         assert_eq!(temp_to_f64(None), None);
+    }
+
+    #[test]
+    fn test_leakage_state_mapping() {
+        assert_eq!(leakage_state_to_state(Some("ok")), "ok");
+        assert_eq!(leakage_state_to_state(Some("OK")), "ok");
+        assert_eq!(leakage_state_to_state(Some(" ok ")), "ok");
+        assert_eq!(leakage_state_to_state(Some("leak")), "leak");
+        assert_eq!(leakage_state_to_state(Some("LEAK")), "leak");
+        assert_eq!(leakage_state_to_state(Some(" leak ")), "leak");
+        assert_eq!(leakage_state_to_state(Some("missing")), "unknown");
+        assert_eq!(leakage_state_to_state(Some("   ")), "unknown");
+        assert_eq!(leakage_state_to_state(None), "unknown");
     }
 
     #[test]
@@ -1082,6 +1314,134 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_reboot_reason_emits_info_metric_labels() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let reason = RebootReasonResponse {
+            reason: Some("package upgrade".to_string()),
+            gentime: Some("2026-07-05 12:34:56".to_string()),
+            user: Some("admin".to_string()),
+        };
+
+        collector.emit_reboot_reason_data(&reason);
+
+        let samples = sink.samples.lock().unwrap();
+        let reports = sink.reports.lock().unwrap();
+        let sample = samples.first().expect("reboot reason emits one sample");
+        let label_value = |label: &str| {
+            sample
+                .labels
+                .iter()
+                .find_map(|(key, value)| (key == label).then_some(value.as_str()))
+        };
+
+        assert_eq!(samples.len(), 1);
+        assert!(reports.is_empty());
+        assert_eq!(sample.name, COLLECTOR_NAME);
+        assert_eq!(sample.key, "reboot_reason_info");
+        assert_eq!(sample.metric_type, "reboot_reason_info");
+        assert_eq!(sample.unit, "info");
+        assert_eq!(sample.value, 1.0);
+        assert_eq!(label_value("reason"), Some("package upgrade"));
+        assert_eq!(label_value("gentime"), Some("2026-07-05 12:34:56"));
+        assert_eq!(label_value("user"), Some("admin"));
+    }
+
+    #[test]
+    fn test_leakage_emits_metrics_and_switch_report() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let leakage: LeakageEnvironmentResponse = serde_json::from_str(
+            r#"{
+                "LEAK1":{"state":"ok"},
+                "LEAK2":{"state":"leak"},
+                "LEAK3":{"state":"unknown"},
+                "LEAK4": null
+            }"#,
+        )
+        .expect("leakage json parses");
+
+        let entity_count = collector.emit_leakage_data(&leakage);
+
+        let samples = sink.samples.lock().unwrap();
+
+        assert_eq!(entity_count, 4);
+        assert_eq!(samples.len(), 12);
+
+        let leak2_samples = samples
+            .iter()
+            .filter(|sample| {
+                sample.metric_type == "leakage_state"
+                    && sample
+                        .labels
+                        .iter()
+                        .any(|(key, value)| key == "sensor" && value == "LEAK2")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_state_set(
+            &leak2_samples,
+            "leakage_state",
+            Some(("sensor", "LEAK2")),
+            LEAKAGE_STATES,
+            "leak",
+        );
+
+        let reports = sink.reports.lock().unwrap();
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, ReportSource::NvueLeakage);
+        assert_eq!(reports[0].target, Some(HealthReportTarget::Switch));
+        assert_eq!(reports[0].successes.len(), 1);
+        assert_eq!(reports[0].alerts.len(), 3);
+
+        assert!(
+            reports[0]
+                .alerts
+                .iter()
+                .any(|alert| alert.classifications.contains(&Classification::Leak))
+        );
+
+        assert!(reports[0].alerts.iter().any(|alert| {
+            alert
+                .classifications
+                .contains(&Classification::SensorFailure)
+        }));
+    }
+
+    #[test]
+    fn test_empty_leakage_emits_source_success_report() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let leakage: LeakageEnvironmentResponse =
+            serde_json::from_str("{}").expect("empty leakage json parses");
+
+        let entity_count = collector.emit_leakage_data(&leakage);
+
+        let samples = sink.samples.lock().unwrap();
+
+        assert_eq!(entity_count, 0);
+        assert!(samples.is_empty());
+
+        let reports = sink.reports.lock().unwrap();
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, ReportSource::NvueLeakage);
+        assert_eq!(reports[0].target, Some(HealthReportTarget::Switch));
+        assert_eq!(reports[0].successes.len(), 1);
+        assert_eq!(reports[0].successes[0].probe_id, Probe::NvueLeakage);
+        assert_eq!(reports[0].successes[0].target, None);
+        assert!(reports[0].alerts.is_empty());
+    }
+
     struct ScriptedProvider {
         calls: AtomicUsize,
         // Each call pops the front. An empty queue yields an error. HealthError
@@ -1129,11 +1489,13 @@ mod tests {
     fn paths_all_disabled() -> NvueRestPaths {
         NvueRestPaths {
             system_health_enabled: false,
+            system_reboot_reason_enabled: false,
             cluster_apps_enabled: false,
             sdn_partitions_enabled: false,
             interfaces_enabled: false,
             platform_environment_fan_enabled: false,
             platform_environment_temperature_enabled: false,
+            platform_environment_leakage_enabled: false,
             platform_environment_status_enabled: false,
         }
     }
@@ -1165,6 +1527,83 @@ mod tests {
             addr,
             provider,
         }
+    }
+
+    fn spawn_json_response_server(body: &'static str) -> (url::Url, JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("test server binds local port");
+
+        let addr = listener.local_addr().expect("test server local addr");
+        let base_url = url::Url::parse(&format!("http://{addr}")).expect("test server url parses");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("test server accepts request");
+            let mut buffer = [0_u8; 2048];
+            let _bytes_read = stream.read(&mut buffer).expect("test server reads request");
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+
+            stream
+                .write_all(response.as_bytes())
+                .expect("test server writes response");
+        });
+
+        (base_url, handle)
+    }
+
+    fn collector_with_json_response(
+        paths: NvueRestPaths,
+        body: &'static str,
+    ) -> (NvueRestCollector, Arc<CapturingSink>, JoinHandle<()>) {
+        let (base_url, server) = spawn_json_response_server(body);
+
+        let client = RestClient::new_with_base_url_for_test(
+            "test-switch".to_string(),
+            base_url,
+            Duration::from_secs(1),
+            paths,
+        )
+        .expect("test rest client builds");
+
+        client.set_credentials(UsernamePassword {
+            username: "admin".to_string(),
+            password: None,
+        });
+
+        let sink = Arc::new(CapturingSink::default());
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.client = client;
+        collector.data_sink = Some(sink.clone());
+
+        (collector, sink, server)
+    }
+
+    async fn collect_response(
+        paths: NvueRestPaths,
+        body: &'static str,
+    ) -> (IterationResult, Vec<MetricSample>, Vec<HealthReport>) {
+        let (mut collector, sink, server) = collector_with_json_response(paths, body);
+
+        let result = collector
+            .run_iteration()
+            .await
+            .expect("response iteration succeeds");
+
+        server.join().expect("test server exits cleanly");
+
+        let samples = sink.samples.lock().unwrap().clone();
+        let reports = sink.reports.lock().unwrap().clone();
+
+        (result, samples, reports)
+    }
+
+    async fn collect_null_response(
+        paths: NvueRestPaths,
+    ) -> (IterationResult, Vec<MetricSample>, Vec<HealthReport>) {
+        collect_response(paths, "null").await
     }
 
     #[tokio::test]
@@ -1252,6 +1691,62 @@ mod tests {
             ),
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn run_iteration_reboot_reason_null_is_unavailable_metadata() {
+        let mut paths = paths_all_disabled();
+        paths.system_reboot_reason_enabled = true;
+
+        let (result, samples, reports) = collect_null_response(paths).await;
+
+        assert_eq!(result.fetch_failures, 0);
+        assert_eq!(result.entity_count, Some(0));
+        assert!(samples.is_empty());
+        assert!(reports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_iteration_metric_path_null_counts_fetch_failure() {
+        let mut paths = paths_all_disabled();
+        paths.cluster_apps_enabled = true;
+
+        let (result, samples, reports) = collect_null_response(paths).await;
+
+        assert_eq!(result.fetch_failures, 1);
+        assert_eq!(result.entity_count, Some(0));
+        assert!(samples.is_empty());
+        assert!(reports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_iteration_leakage_null_emits_unavailable_alert_report() {
+        let mut paths = paths_all_disabled();
+        paths.platform_environment_leakage_enabled = true;
+
+        let (result, samples, reports) = collect_null_response(paths).await;
+
+        assert_eq!(result.fetch_failures, 0);
+        assert_eq!(result.entity_count, Some(0));
+        assert!(samples.is_empty());
+
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].source, ReportSource::NvueLeakage);
+        assert_eq!(reports[0].target, Some(HealthReportTarget::Switch));
+        assert!(reports[0].successes.is_empty());
+        assert_eq!(reports[0].alerts.len(), 1);
+        assert_eq!(reports[0].alerts[0].probe_id, Probe::NvueLeakage);
+        assert_eq!(reports[0].alerts[0].target, None);
+
+        assert_eq!(
+            reports[0].alerts[0].classifications,
+            vec![Classification::SensorFailure]
+        );
+
+        assert_eq!(
+            reports[0].alerts[0].message,
+            "NVUE leakage data is unavailable"
+        );
     }
 
     #[tokio::test(start_paused = true)]

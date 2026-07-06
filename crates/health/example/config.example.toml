@@ -222,11 +222,13 @@ request_timeout = "30s"
 
 [collectors.nvue.rest.paths]
 system_health_enabled = true
+system_reboot_reason_enabled = true
 cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
 platform_environment_fan_enabled = true
 platform_environment_temperature_enabled = true
+platform_environment_leakage_enabled = true
 platform_environment_status_enabled = true
 
 # NVUE gNMI streaming collector which subscribes to

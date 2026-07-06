@@ -374,6 +374,7 @@ pub enum ReportSource {
     BmcLeakDetectors,
     TrayLeakDetection,
     RackLeakDetection,
+    NvueLeakage,
 }
 
 impl ReportSource {
@@ -384,6 +385,7 @@ impl ReportSource {
             Self::BmcLeakDetectors => "bmc-leak-detectors",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
+            Self::NvueLeakage => "nvue-leakage",
         }
     }
 }
@@ -393,6 +395,7 @@ pub enum Probe {
     Sensor,
     IntrusionSensorTriggered,
     LeakDetection,
+    NvueLeakage,
 }
 
 impl Probe {
@@ -401,6 +404,7 @@ impl Probe {
             Self::Sensor => "BmcSensor",
             Self::IntrusionSensorTriggered => "IntrusionSensorTriggered",
             Self::LeakDetection => "BmcLeakDetection",
+            Self::NvueLeakage => "NvueLeakage",
         }
     }
 }
@@ -805,6 +809,10 @@ mod tests {
             "rack leak detection" {
                 ReportSource::RackLeakDetection => "rack-leak-detection",
             }
+
+            "NVUE leakage" {
+                ReportSource::NvueLeakage => "nvue-leakage",
+            }
         );
     }
 
@@ -836,6 +844,13 @@ mod tests {
                 Probe::LeakDetection => ProbeSummary {
                     as_str: "BmcLeakDetection",
                     health_report_id: "BmcLeakDetection".to_string(),
+                },
+            }
+
+            "NVUE leakage" {
+                Probe::NvueLeakage => ProbeSummary {
+                    as_str: "NvueLeakage",
+                    health_report_id: "NvueLeakage".to_string(),
                 },
             }
         );
@@ -907,6 +922,7 @@ mod tests {
                     health_report_classification: "LeakDetector".to_string(),
                 },
             }
+
         );
     }
 
