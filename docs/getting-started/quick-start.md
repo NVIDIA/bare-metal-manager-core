@@ -67,6 +67,10 @@ The following tools must be installed on the machine that you will use to run `s
 The `helmfile` tool requires the `helm-diff` plugin. Install it as follows:
 
 ```bash
+# Helm v4
+helm plugin install https://github.com/databus23/helm-diff --verify=false
+
+# Helm v3
 helm plugin install https://github.com/databus23/helm-diff
 ```
 
