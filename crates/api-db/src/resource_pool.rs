@@ -86,14 +86,8 @@ where
     T: ToString + FromStr + Send + Sync + 'static,
     <T as FromStr>::Err: std::error::Error,
 {
-    let stats = stats(&mut *txn, value.name()).await?;
     let auto_assign = requested_value.is_none();
 
-    if (auto_assign && stats.auto_assign_free == 0)
-        || (!auto_assign && stats.non_auto_assign_free == 0)
-    {
-        return Err(ResourcePoolError::Empty.into());
-    }
     let query = "
 WITH allocate AS (
  SELECT id, value FROM resource_pool
@@ -124,26 +118,59 @@ RETURNING allocate.value
     let req = requested_value.map(|v| v.to_string());
     // TODO: We should probably update the `state_version` field too. But
     // it's hard to do this inside the SQL query.
-    let (allocated,): (String,) = sqlx::query_as(query)
+    let allocation = sqlx::query_scalar::<_, String>(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&free_state))
         .bind(sqlx::types::Json(&allocated_state))
         .bind(auto_assign)
         .bind(&req)
         .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| match e {
-            // A check for available allocations was done earlier.
-            // If a value was explicitly requested but we made it here,
-            // then it was either already allocated or it was not a value
-            // that is allowed to be explictly requested.
-            sqlx::Error::RowNotFound if !auto_assign => DatabaseError::FailedPrecondition(format!(
-                "`{}` not an available value for resource-pool `{}`",
-                req.unwrap_or_default(),
-                value.name()
-            )),
-            e => DatabaseError::query(query, e),
-        })?;
+        .await;
+
+    // A successful allocation is a single round-trip. The pool-state accounting
+    // (`stats`) is consulted only when the allocation statement returns no row,
+    // so it never burdens the common success path — while the error it produces
+    // is exactly what an up-front pre-scan would have returned.
+    //
+    // Concurrency note: the accounting now reads pool state at failure time
+    // rather than before the allocation attempt, so a caller losing a race
+    // against a concurrent drain reports the pool as it actually is when the
+    // attempt fails (Empty) rather than as it looked a moment earlier
+    // (FailedPrecondition or a generic no-row error). Which racer sees which
+    // error was never deterministic; the at-failure reading is the more
+    // truthful of the two orderings.
+    let allocated: String = match allocation {
+        Ok(row) => row,
+        Err(sqlx::Error::RowNotFound) => {
+            let stats = stats(&mut *txn, value.name()).await?;
+            let free = if auto_assign {
+                stats.auto_assign_free
+            } else {
+                stats.non_auto_assign_free
+            };
+            if free == 0 {
+                // The relevant partition of the pool is exhausted.
+                return Err(ResourcePoolError::Empty.into());
+            }
+            if !auto_assign {
+                // A specific value was requested and the pool has free
+                // non-auto-assign entries, but this value is not one of them:
+                // it was either already allocated or it is not a value that is
+                // allowed to be explicitly requested.
+                return Err(DatabaseError::FailedPrecondition(format!(
+                    "`{}` not an available value for resource-pool `{}`",
+                    req.unwrap_or_default(),
+                    value.name()
+                ))
+                .into());
+            }
+            // Auto-assign with free entries still matched no row (for example,
+            // every free row was locked by a concurrent allocation and skipped
+            // by `FOR UPDATE SKIP LOCKED`): surface it as a generic query error.
+            return Err(DatabaseError::query(query, sqlx::Error::RowNotFound).into());
+        }
+        Err(e) => return Err(DatabaseError::query(query, e).into()),
+    };
     let out = allocated
         .parse()
         .map_err(|e: <T as FromStr>::Err| ResourcePoolError::Parse {
@@ -1030,10 +1057,298 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases};
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
 
     use super::*;
+
+    /// A tracing `Layer` that tallies every `sqlx::query` event. sqlx emits one
+    /// such event per statement it executes, so the tally is a direct count of
+    /// database round-trips inside the scope it is attached to.
+    ///
+    /// sqlx consults the *current* dispatcher when logging a statement, so the
+    /// scoped `Dispatch` installed by `with_subscriber` sees these events
+    /// regardless of the harness's global `sqlx=warn` filter (see
+    /// `setup_test_logging`).
+    #[derive(Clone, Default)]
+    struct QueryCounter(Arc<AtomicUsize>);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
+        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
+            if e.metadata().target().starts_with("sqlx::query") {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Count the `sqlx::query` events emitted while `fut` runs, by driving it
+    /// under a scoped subscriber holding a fresh [`QueryCounter`].
+    async fn count_queries<F, T>(fut: F) -> (T, usize)
+    where
+        F: std::future::Future<Output = T>,
+    {
+        let counter = QueryCounter::default();
+        let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(counter.clone()));
+        let out = fut.with_subscriber(dispatch).await;
+        let count = counter.0.load(Ordering::Relaxed);
+        (out, count)
+    }
+
+    /// A single successful auto-assign `allocate` must cost exactly one database
+    /// round-trip. It previously cost two: a full-pool `stats()` pre-scan ran
+    /// ahead of the allocation statement on every call. The pre-scan is now
+    /// consulted only when the allocation statement returns no row, so the
+    /// common success path is halved to a single query while the error mapping
+    /// on the (rare) empty/unavailable path is unchanged.
+    #[crate::sqlx_test]
+    async fn allocate_issues_a_single_query(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        // Define the pool in its own committed transaction so the counted
+        // region below is nothing but the allocation.
+        let mut txn = pool.begin().await?;
+
+        // A small auto-assign integer pool: 100..=104 (5 values).
+        define(
+            &mut txn,
+            "test-query-count-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 100.to_string(),
+                    end: 105.to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+        txn.commit().await?;
+
+        let pool_handle =
+            ResourcePool::<i64>::new("test-query-count-pool".to_string(), ValueType::Integer);
+
+        // Measure exactly one successful allocation. The transaction lives
+        // inside the counted future: BEGIN is queued without an executed
+        // statement, and so is the rollback the drop performs, so neither
+        // adds to the count.
+        let (allocated, count) = count_queries(async {
+            let mut txn = pool.begin().await.expect("begin");
+            allocate(
+                &pool_handle,
+                &mut txn,
+                OwnerType::Machine,
+                "test-owner",
+                None,
+            )
+            .await
+        })
+        .await;
+
+        let value = allocated?;
+        assert!((100..105).contains(&value), "allocated value in range");
+
+        println!("allocate() issued {count} sqlx query(ies)");
+        assert_eq!(
+            count, 1,
+            "a successful auto-assign allocate must be a single round-trip"
+        );
+        Ok(())
+    }
+
+    /// An exhausted auto-assign pool must report [`ResourcePoolError::Empty`]
+    /// (the variant callers such as `allocate_loopback_ip` translate into
+    /// `ResourceExhausted`). This behaviour used to come from the `stats()`
+    /// pre-scan; it now comes from the allocation statement's `RowNotFound`.
+    #[crate::sqlx_test]
+    async fn allocate_empty_auto_assign_pool_is_empty_error(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // Pool with a single auto-assign value, which we drain.
+        define(
+            &mut txn,
+            "test-empty-auto-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 1.to_string(),
+                    end: 2.to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let pool_handle =
+            ResourcePool::<i64>::new("test-empty-auto-pool".to_string(), ValueType::Integer);
+
+        // Drain the only value.
+        allocate(&pool_handle, &mut txn, OwnerType::Machine, "owner-1", None).await?;
+
+        // The pool is now empty; auto-assign must report `Empty`.
+        let err = allocate(&pool_handle, &mut txn, OwnerType::Machine, "owner-2", None)
+            .await
+            .expect_err("draining then allocating from an empty pool must error");
+
+        assert!(
+            matches!(
+                err,
+                ResourcePoolDatabaseError::ResourcePool(ResourcePoolError::Empty)
+            ),
+            "empty auto-assign pool must map to ResourcePoolError::Empty, got {err:?}"
+        );
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    /// Requesting a specific value that the pool cannot hand out — while the
+    /// pool still has free non-auto-assign entries — must map to
+    /// `FailedPrecondition`, distinct from the `Empty` (exhausted) case. The
+    /// pool is seeded non-empty on purpose so the asserted status code is what
+    /// callers observe regardless of the pre-scan being present or deferred.
+    #[crate::sqlx_test]
+    async fn allocate_requested_value_unavailable_is_failed_precondition(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // A pool of non-auto-assign values 10, 11, 12 — so it has free
+        // non-auto-assign entries, but no auto-assign entries.
+        define(
+            &mut txn,
+            "test-requested-unavail-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 10.to_string(),
+                    end: 13.to_string(),
+                    auto_assign: false,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let pool_handle = ResourcePool::<i64>::new(
+            "test-requested-unavail-pool".to_string(),
+            ValueType::Integer,
+        );
+
+        // 99 is not in the pool, so the request cannot be satisfied even though
+        // the pool is not exhausted (free non-auto-assign entries remain).
+        let err = allocate(
+            &pool_handle,
+            &mut txn,
+            OwnerType::Machine,
+            "owner",
+            Some(99),
+        )
+        .await
+        .expect_err("requesting an unavailable value must error");
+
+        match err {
+            ResourcePoolDatabaseError::Database(boxed) => {
+                assert!(
+                    matches!(*boxed, DatabaseError::FailedPrecondition(_)),
+                    "expected FailedPrecondition, got {boxed:?}"
+                );
+            }
+            other => panic!("expected FailedPrecondition, got {other:?}"),
+        }
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    /// Requesting a specific value from an EXHAUSTED non-auto-assign pool must
+    /// map to `Empty`, not `FailedPrecondition`: exhaustion wins regardless of
+    /// whether the requested value was ever in the pool. The no-row branch
+    /// checks `free == 0` before the requested-value case on purpose — this
+    /// pins that ordering, which the old pre-scan enforced.
+    #[crate::sqlx_test]
+    async fn allocate_requested_value_from_exhausted_pool_is_empty_error(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+
+        // A single non-auto-assign value, which we drain by requesting it.
+        define(
+            &mut txn,
+            "test-exhausted-requested-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 20.to_string(),
+                    end: 21.to_string(),
+                    auto_assign: false,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let pool_handle = ResourcePool::<i64>::new(
+            "test-exhausted-requested-pool".to_string(),
+            ValueType::Integer,
+        );
+
+        // Drain the only value.
+        allocate(
+            &pool_handle,
+            &mut txn,
+            OwnerType::Machine,
+            "owner-1",
+            Some(20),
+        )
+        .await?;
+
+        // Requesting any value from the now-exhausted pool reports `Empty`.
+        let err = allocate(
+            &pool_handle,
+            &mut txn,
+            OwnerType::Machine,
+            "owner-2",
+            Some(20),
+        )
+        .await
+        .expect_err("allocating from an exhausted pool must error");
+
+        assert!(
+            matches!(
+                err,
+                ResourcePoolDatabaseError::ResourcePool(ResourcePoolError::Empty)
+            ),
+            "an exhausted pool must map to ResourcePoolError::Empty even for a requested value, got {err:?}"
+        );
+
+        txn.rollback().await?;
+        Ok(())
+    }
 
     #[test]
     fn test_expand_ipv6_prefix_120_values() {
