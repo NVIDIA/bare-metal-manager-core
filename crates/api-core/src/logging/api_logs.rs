@@ -130,9 +130,13 @@ where
             // For these `tracing::field::Empty` has to be used, so that the missing
             // information can be populated later.
 
-            // Field names are taken from the crate opentelemetry_semantic_conventions,
-            // e.g. `opentelemetry_semantic_conventions::trace::HTTP_STATUS_CODE`.
-            // However we can't reference these external definitions in the tracing macro
+            // Field names are taken from the crate opentelemetry_semantic_conventions, as of the
+            // time this code was written. Some of the field names in the semantic conventions
+            // standards have changed over time (ie. combining grpc_method and grpc_service into a
+            // single field, renaming rpc.grpc.status_code to rpc.response.status_code), but we're
+            // opting to keep using the original fields. So we don't use the opentelemetry-defined
+            // constants (e.g. `opentelemetry_semantic_conventions::trace::HTTP_STATUS_CODE`), since
+            // some of them have become deprecated and will be removed.
             let request_span = tracing::span!(
                 parent: None,
                 tracing::Level::INFO,
@@ -188,16 +192,10 @@ where
             }
 
             if let Some(service) = &grpc_service {
-                request_span.record(
-                    opentelemetry_semantic_conventions::trace::RPC_SERVICE,
-                    service,
-                );
+                request_span.record("rpc.service", service);
             }
             if let Some(method) = &grpc_method {
-                request_span.record(
-                    opentelemetry_semantic_conventions::trace::RPC_METHOD,
-                    method,
-                );
+                request_span.record("rpc.method", method);
             }
 
             let start = std::time::Instant::now();
@@ -219,10 +217,7 @@ where
             match &result {
                 Ok(result) => {
                     http_code = Some(result.status());
-                    request_span.record(
-                        opentelemetry_semantic_conventions::trace::HTTP_RESPONSE_STATUS_CODE,
-                        result.status().as_u16(),
-                    );
+                    request_span.record("http.response.status_code", result.status().as_u16());
 
                     if result.status() == hyper::http::StatusCode::OK {
                         // In gRPC the actual message status is not in the http status code,
@@ -254,10 +249,7 @@ where
                             })
                             .unwrap_or_else(String::new);
 
-                        request_span.record(
-                            opentelemetry_semantic_conventions::attribute::RPC_GRPC_STATUS_CODE,
-                            code as u64,
-                        );
+                        request_span.record("rpc.grpc.status_code", code as u64);
                         request_span.record(
                             "rpc.grpc.status_description",
                             format!("Code: {}, Message: {}", code.description(), message),

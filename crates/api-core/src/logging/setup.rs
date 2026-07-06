@@ -21,15 +21,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use carbide_metrics_utils::OtelView;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
-use opentelemetry::trace::{
-    Link, SamplingDecision, SamplingResult, SpanKind, TraceContextExt, TracerProvider,
-};
+use opentelemetry::trace::{Link, SpanKind, TraceContextExt, TracerProvider};
 use opentelemetry::{Context, KeyValue, TraceId, Value, global};
-use opentelemetry_otlp::{ExportConfig, WithExportConfig};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::ShouldSample;
+use opentelemetry_sdk::trace::{SamplingDecision, SamplingResult, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
 use spancounter::SpanCountReader;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
@@ -150,10 +148,7 @@ pub fn setup_logging(
                     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
                         .with_tonic()
                         .with_protocol(opentelemetry_otlp::Protocol::Grpc)
-                        .with_export_config(ExportConfig {
-                            endpoint: Some(endpoint),
-                            ..Default::default()
-                        })
+                        .with_endpoint(endpoint)
                         .build()?;
 
                     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
