@@ -18,6 +18,7 @@ use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use const_format::concatcp;
 use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
 use model::machine_boot_interface::MachineBootInterface;
@@ -189,33 +190,107 @@ pub async fn find_all(txn: impl DbReader<'_>) -> Result<Vec<ExploredEndpoint>, D
         .map_err(|e| DatabaseError::new("explored_endpoints find_all", e))
 }
 
+/// The WHERE clause matching endpoints still in preingestion that are neither
+/// waiting for a site-explorer refresh nor in an error state. If
+/// LastExplorationError is completely nonexistent it is NULL; if it is there
+/// and indicates a null value it is 'null'.
+///
+/// [`find_preingest_not_waiting_not_error`] and
+/// [`count_preingest_not_waiting_not_error`] both build their queries from
+/// this, so the row-returning and counting variants cannot drift apart.
+const PREINGEST_NOT_WAITING_NOT_ERROR_WHERE: &str = "(preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
+                            AND waiting_for_explorer_refresh = false
+                            AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null')";
+
 /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
 pub async fn find_preingest_not_waiting_not_error(
     txn: impl DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-    let query = "SELECT * FROM explored_endpoints
-                        WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
-                            AND waiting_for_explorer_refresh = false
-                            AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null')"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
+    const QUERY: &str = concatcp!(
+        "SELECT * FROM explored_endpoints
+                        WHERE ",
+        PREINGEST_NOT_WAITING_NOT_ERROR_WHERE
+    );
 
-    sqlx::query_as::<_, DbExploredEndpoint>(query)
+    sqlx::query_as::<_, DbExploredEndpoint>(QUERY)
         .fetch_all(txn)
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
         .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
 }
 
-/// find_preingest_installing returns the endpoints where wew are waiting for firmware installs
+/// Counts the endpoints still in preingestion that are neither waiting for a
+/// site-explorer refresh nor in an error state.
+///
+/// Callers that only need the number of such endpoints (e.g. a metric gauge)
+/// use this instead of `find_preingest_not_waiting_not_error(..).len()`: it runs
+/// the same predicate but selects a scalar `count(*)`, so the database neither
+/// returns nor decodes the per-row `exploration_report` jsonb blob. Unlike that
+/// row-returning twin, the count also includes rows whose `exploration_report`
+/// or `preingestion_state` would fail to deserialize (COUNT never decodes them)
+/// — intentional for a metrics counter.
+pub async fn count_preingest_not_waiting_not_error(
+    txn: impl DbReader<'_>,
+) -> Result<i64, DatabaseError> {
+    const QUERY: &str = concatcp!(
+        "SELECT count(*) FROM explored_endpoints
+                        WHERE ",
+        PREINGEST_NOT_WAITING_NOT_ERROR_WHERE
+    );
+
+    sqlx::query_scalar(QUERY).fetch_one(txn).await.map_err(|e| {
+        DatabaseError::new(
+            "explored_endpoints count_preingest_not_waiting_not_error",
+            e,
+        )
+    })
+}
+
+/// The WHERE clause matching endpoints waiting on a firmware install.
+///
+/// [`find_preingest_installing`] and [`count_preingest_installing`] both build
+/// their queries from this, so the row-returning and counting variants cannot
+/// drift apart.
+const PREINGEST_INSTALLING_WHERE: &str = "preingestion_state->'state' = '\"upgradefirmwarewait\"'";
+
+/// find_preingest_installing returns the endpoints where we are waiting for firmware installs.
+///
+/// The metrics caller now uses [`count_preingest_installing`]; this
+/// row-returning form remains for callers that need the endpoints themselves
+/// and anchors the count's parity test.
 pub async fn find_preingest_installing(
     txn: impl DbReader<'_>,
 ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-    let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"'";
+    const QUERY: &str = concatcp!(
+        "SELECT * FROM explored_endpoints WHERE ",
+        PREINGEST_INSTALLING_WHERE
+    );
 
-    sqlx::query_as::<_, DbExploredEndpoint>(query)
+    sqlx::query_as::<_, DbExploredEndpoint>(QUERY)
         .fetch_all(txn)
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
-        .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_not_waiting", e))
+        .map_err(|e| DatabaseError::new("explored_endpoints find_preingest_installing", e))
+}
+
+/// Counts the endpoints waiting for a firmware install to finish.
+///
+/// The counting counterpart to [`find_preingest_installing`]: callers that only
+/// need the number (e.g. a metric gauge) use this so the database returns a
+/// single scalar rather than every matching row's `exploration_report` jsonb.
+/// Unlike that row-returning twin, the count also includes rows whose
+/// `exploration_report` or `preingestion_state` would fail to deserialize
+/// (COUNT never decodes them) — intentional for a metrics counter.
+pub async fn count_preingest_installing(txn: impl DbReader<'_>) -> Result<i64, DatabaseError> {
+    const QUERY: &str = concatcp!(
+        "SELECT count(*) FROM explored_endpoints WHERE ",
+        PREINGEST_INSTALLING_WHERE
+    );
+
+    sqlx::query_scalar(QUERY)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("explored_endpoints count_preingest_installing", e))
 }
 
 /// find_all_no_upgrades returns all explored endpoints that site explorer has been able to probe, but ignores anything currently undergoing an upgrade
@@ -826,4 +901,91 @@ pub async fn set_pause_ingestion_and_poweron(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod count_preingest_tests {
+    use super::*;
+
+    /// An `UpgradeFirmwareWait` state — the one the "installing" predicate keys
+    /// on. Built from the real enum so the row-returning path can deserialize it.
+    fn installing_state() -> PreingestionState {
+        PreingestionState::UpgradeFirmwareWait {
+            task_id: "task-1".to_string(),
+            final_version: "1.2.3".to_string(),
+            upgrade_type: FirmwareComponentType::default(),
+            power_drains_needed: None,
+            firmware_number: None,
+        }
+    }
+
+    /// Inserts an explored endpoint with a fat, *decodable* `exploration_report`
+    /// blob and the given preingestion `state`. Both are built from the real
+    /// model types so the row-returning path can deserialize them — which is
+    /// exactly the per-row cost the count path avoids.
+    async fn seed_endpoint(txn: &mut PgConnection, addr: &str, state: PreingestionState) {
+        // A real report with a deliberately large field, so the row-returning
+        // path has genuine multi-KB jsonb to decode; the count path never
+        // touches it.
+        let report = EndpointExplorationReport {
+            model: Some("x".repeat(4096)),
+            ..Default::default()
+        };
+        sqlx::query(
+            "INSERT INTO explored_endpoints (address, exploration_report, version, preingestion_state, waiting_for_explorer_refresh) \
+             VALUES ($1::inet, $2, 'V1-T1733777281821769', $3, false)",
+        )
+        .bind(addr)
+        .bind(sqlx::types::Json(report))
+        .bind(sqlx::types::Json(state))
+        .execute(&mut *txn)
+        .await
+        .expect("seed explored_endpoint");
+    }
+
+    /// `count_preingest_not_waiting_not_error` returns the same tally as
+    /// `find_preingest_not_waiting_not_error(..).len()`. The win: the count
+    /// query returns one scalar, whereas the find query returns every matching
+    /// row and decodes each row's multi-KB `exploration_report` jsonb — so the
+    /// win is rows + per-row jsonb decode, N -> 0.
+    #[crate::sqlx_test]
+    async fn count_matches_find_not_waiting_not_error(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        // Three endpoints still in preingestion (not complete), not waiting, no error.
+        seed_endpoint(&mut txn, "10.0.0.1", PreingestionState::Initial).await;
+        seed_endpoint(&mut txn, "10.0.0.2", PreingestionState::RecheckVersions).await;
+        seed_endpoint(&mut txn, "10.0.0.3", installing_state()).await;
+        // One that is complete -> excluded by the predicate.
+        seed_endpoint(&mut txn, "10.0.0.4", PreingestionState::Complete).await;
+
+        let rows = find_preingest_not_waiting_not_error(&mut *txn)
+            .await
+            .unwrap();
+        let count = count_preingest_not_waiting_not_error(&mut *txn)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 3, "three endpoints match the predicate");
+        assert_eq!(count, 3, "count agrees with the row count");
+        assert_eq!(count, rows.len() as i64);
+    }
+
+    /// `count_preingest_installing` returns the same tally as
+    /// `find_preingest_installing(..).len()` without returning/decoding the
+    /// per-row jsonb reports.
+    #[crate::sqlx_test]
+    async fn count_matches_find_installing(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        seed_endpoint(&mut txn, "10.0.1.1", installing_state()).await;
+        seed_endpoint(&mut txn, "10.0.1.2", installing_state()).await;
+        // Not installing -> excluded.
+        seed_endpoint(&mut txn, "10.0.1.3", PreingestionState::Initial).await;
+
+        let rows = find_preingest_installing(&mut *txn).await.unwrap();
+        let count = count_preingest_installing(&mut *txn).await.unwrap();
+
+        assert_eq!(rows.len(), 2, "two endpoints are installing firmware");
+        assert_eq!(count, 2, "count agrees with the row count");
+        assert_eq!(count, rows.len() as i64);
+    }
 }

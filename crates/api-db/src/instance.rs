@@ -65,7 +65,43 @@ pub async fn find_ids(
     filter: model::instance::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
+    push_search_filter(&mut builder, filter)?;
 
+    let query = builder.build_query_as();
+    query
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("instance::find_ids", e))
+}
+
+/// Counts the instances matching `filter` without materializing their ids.
+///
+/// Callers that only need the number of matches use this instead of
+/// `find_ids(..).len()`: it runs the same predicate but selects a scalar
+/// `count(*)`, so the database returns a single row rather than one id per
+/// matching instance. Shares its WHERE clause with [`find_ids`] via
+/// [`push_search_filter`], so the two always agree on which rows match.
+pub async fn count_ids(
+    txn: impl DbReader<'_>,
+    filter: model::instance::InstanceSearchFilter,
+) -> Result<i64, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE TRUE "); // The TRUE will be optimized away.
+    push_search_filter(&mut builder, filter)?;
+
+    builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("instance::count_ids", e))
+}
+
+/// Appends the `InstanceSearchFilter` predicate onto a query builder whose SQL
+/// already ends in `... WHERE TRUE `. Shared by [`find_ids`] and [`count_ids`]
+/// so the row-returning and counting queries filter identically.
+fn push_search_filter(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    filter: model::instance::InstanceSearchFilter,
+) -> Result<(), DatabaseError> {
     if let Some(label) = filter.label {
         match (label.key.is_empty(), label.value) {
             // Label key is empty, label value is set.
@@ -127,11 +163,7 @@ WHERE instance_addresses.vpc_id = ",
         builder.push(")");
     }
 
-    let query = builder.build_query_as();
-    query
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::new("instance::find_ids", e))
+    Ok(())
 }
 
 pub async fn find(
@@ -1294,5 +1326,94 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(snapshots.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod count_ids_tests {
+    use super::*;
+
+    /// Seeds `n` instances for one tenant + instance type and returns the
+    /// filter that selects exactly those instances.
+    async fn seed_instances(
+        txn: &mut PgConnection,
+        tenant_org: &str,
+        instance_type_id: &str,
+        n: usize,
+    ) -> model::instance::InstanceSearchFilter {
+        sqlx::query("INSERT INTO instance_types (id, name) VALUES ($1, $1) ON CONFLICT DO NOTHING")
+            .bind(instance_type_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed instance_type");
+
+        for _ in 0..n {
+            let machine_id = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO machines (id, dpf) \
+                 VALUES ($1, '{\"enabled\": false, \"used_for_ingestion\": false}'::jsonb)",
+            )
+            .bind(machine_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed machine");
+            sqlx::query(
+                "INSERT INTO instances (id, machine_id, tenant_org, instance_type_id) \
+                 VALUES (gen_random_uuid(), $1, $2, $3)",
+            )
+            .bind(machine_id)
+            .bind(tenant_org)
+            .bind(instance_type_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed instance");
+        }
+
+        model::instance::InstanceSearchFilter {
+            label: None,
+            tenant_org_id: Some(tenant_org.to_string()),
+            vpc_id: None,
+            instance_type_id: Some(instance_type_id.to_string()),
+        }
+    }
+
+    /// `count_ids` returns the same tally as `find_ids(..).len()`, but the win
+    /// is in what crosses the wire: `find_ids` materializes and decodes one
+    /// `InstanceId` per matching row (N rows), whereas `count_ids` returns a
+    /// single scalar (1 row). Same one query either way — this is a
+    /// rows-transferred/decoded win (N -> 1), not a round-trip win.
+    #[crate::sqlx_test]
+    async fn count_ids_matches_find_ids_len_without_materializing(pool: sqlx::PgPool) {
+        const N: usize = 5;
+        let mut txn = pool.begin().await.unwrap();
+        let filter = seed_instances(&mut txn, "count-ids-tenant", "count-ids-type", N).await;
+
+        let ids = find_ids(&mut *txn, filter.clone()).await.unwrap();
+        let count = count_ids(&mut *txn, filter).await.unwrap();
+
+        // find_ids materialized N ids; count_ids returned the scalar tally.
+        assert_eq!(ids.len(), N, "find_ids should materialize {N} ids");
+        assert_eq!(count, N as i64, "count_ids should tally {N}");
+        assert_eq!(
+            count,
+            ids.len() as i64,
+            "count_ids must agree with find_ids(..).len()"
+        );
+    }
+
+    /// The shared WHERE builder keeps `count_ids` scoped to the same filter as
+    /// `find_ids`: instances for a different tenant are not counted.
+    #[crate::sqlx_test]
+    async fn count_ids_respects_the_filter(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let filter = seed_instances(&mut txn, "tenant-a", "type-a", 3).await;
+        // Rows sharing only ONE filter dimension: same tenant with another
+        // type, and another tenant with the same type. The filter must exclude
+        // both, so a regression that drops either predicate fails the count.
+        let _ = seed_instances(&mut txn, "tenant-a", "type-b", 2).await;
+        let _ = seed_instances(&mut txn, "tenant-b", "type-a", 2).await;
+
+        let count = count_ids(&mut *txn, filter).await.unwrap();
+        assert_eq!(count, 3, "only tenant-a/type-a instances are counted");
     }
 }

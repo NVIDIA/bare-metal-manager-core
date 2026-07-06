@@ -638,10 +638,13 @@ pub async fn batch_allocate_instances(
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let new_total_instance_count =
-            req_count + db::instance::find_ids(&mut txn, filter).await?.len();
+        // Saturate rather than wrap: an absurd request count then trips the
+        // limit check (fail closed) instead of going negative past it.
+        let new_total_instance_count = i64::try_from(req_count)
+            .unwrap_or(i64::MAX)
+            .saturating_add(db::instance::count_ids(&mut txn, filter).await?);
 
-        if new_total_instance_count > compute_allocation_total as usize {
+        if new_total_instance_count > i64::from(compute_allocation_total) {
             // # enforce_if_present:  Instance type not required in creation request. If sent and allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
             // # always:              Instance type not required in creation request. If sent, enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing / default-deny).
             // # warn_only (default): Instance type not required in creation request. If sent in and allocations are found, don't enforce, but log what would have happened if they were enforced.

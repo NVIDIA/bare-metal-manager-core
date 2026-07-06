@@ -484,6 +484,11 @@ pub async fn find_by_machine_ids(
     )
 }
 
+/// Counts the machine interfaces bound to a given segment.
+///
+/// Keep this predicate in sync with
+/// [`crate::instance_address::segment_has_allocations`] (used by the
+/// segment-drain reconcile).
 pub async fn count_by_segment_id(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,

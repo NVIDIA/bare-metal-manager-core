@@ -1317,6 +1317,7 @@ dependencies = [
  "carbide-version",
  "chrono",
  "config-version",
+ "const_format",
  "ctor",
  "dns-record",
  "domain",

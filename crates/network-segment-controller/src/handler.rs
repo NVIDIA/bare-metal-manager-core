@@ -129,21 +129,16 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        let num_machine_interfaces =
-                            db::machine_interface::count_by_segment_id(&mut txn, &state.id).await?;
-                        let num_instance_addresses =
-                            db::instance_address::count_by_segment_id(&mut txn, &state.id).await?;
-                        if num_machine_interfaces + num_instance_addresses > 0 {
+                        if db::instance_address::segment_has_allocations(&mut txn, &state.id)
+                            .await?
+                        {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)
                                 .unwrap_or_else(chrono::Utc::now);
-                            let total_allocated_ips =
-                                num_machine_interfaces + num_instance_addresses;
                             tracing::info!(
                                 ?delete_at,
-                                total_allocated_ips,
                                 segment = %state.id,
-                                "{total_allocated_ips} allocated IPs for segment. Waiting for deletion until {delete_at:?}",
+                                "Segment still has allocated IPs; waiting until the drain deadline to delete",
                             );
                             let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
