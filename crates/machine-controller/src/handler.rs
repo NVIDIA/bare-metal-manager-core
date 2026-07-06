@@ -1251,10 +1251,18 @@ impl MachineStateHandler {
                 }
             }
             ManagedHostState::Created => {
-                tracing::error!("Machine just created. We should not be here.");
-                Err(StateHandlerError::InvalidHostState(
-                    *host_machine_id,
-                    Box::new(mh_state.clone()),
+                // Created is the insert-default state, and its exits are external to
+                // this handler: machine-creation flows promote the row in the same
+                // transaction that creates it, and a predicted host is promoted when
+                // scout's discovery callout reports the real host. Transitioning here
+                // would race those writers -- the handler's only job is to wait.
+                tracing::debug!(
+                    machine_id = %host_machine_id,
+                    "Machine in Created; waiting for its creation flow or scout discovery",
+                );
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for the machine creation flow or the scout discovery callout"
+                        .to_string(),
                 ))
             }
             ManagedHostState::ForceDeletion => {
