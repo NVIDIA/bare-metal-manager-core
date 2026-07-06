@@ -40,13 +40,6 @@ impl LeakEventProcessor {
     }
 }
 
-fn is_leak_detector_alert(alert: &HealthReportAlert) -> bool {
-    alert
-        .classifications
-        .iter()
-        .any(|classification| classification == &Classification::LeakDetector)
-}
-
 fn leak_details(alerts: &[&HealthReportAlert]) -> String {
     let targets: BTreeSet<String> = alerts
         .iter()
@@ -74,15 +67,37 @@ impl EventProcessor for LeakEventProcessor {
             return Vec::new();
         };
 
-        if report.source != ReportSource::BmcLeakDetectors {
-            return Vec::new();
-        }
+        // Normalize each source's leak signal into the derived tray leak report
+        // consumed by rack leak aggregation.
+        let (target, leak_classification, alert_kind, detail_kind) = match report.source {
+            ReportSource::BmcLeakDetectors => (
+                HealthReportTarget::Machine,
+                Classification::LeakDetector,
+                "leak-detector",
+                "detectors",
+            ),
+            ReportSource::NvueLeakage => (
+                HealthReportTarget::Switch,
+                Classification::Leak,
+                "nvue-leakage",
+                "leakage sensors",
+            ),
+            _ => return Vec::new(),
+        };
 
         let leak_alerts: Vec<&HealthReportAlert> = report
             .alerts
             .iter()
-            .filter(|alert| is_leak_detector_alert(alert))
+            .filter(|alert| alert.classifications.contains(&leak_classification))
             .collect();
+
+        if report.source == ReportSource::NvueLeakage
+            && leak_alerts.is_empty()
+            && !report.alerts.is_empty()
+        {
+            // Non-leak NVUE alerts are sensor or availability failures, not an all-clear.
+            return Vec::new();
+        }
 
         let alerts = if self.is_leaking(leak_alerts.len()) {
             let details = leak_details(&leak_alerts);
@@ -91,9 +106,11 @@ impl EventProcessor for LeakEventProcessor {
                 probe_id: Probe::LeakDetection,
                 target: None,
                 message: format!(
-                    "Leak detected: {} leak-detector alerts reached threshold {} (detectors: {})",
+                    "Leak detected: {} {} alerts reached threshold {} ({}: {})",
                     leak_alerts.len(),
+                    alert_kind,
                     self.minimum_alerts_per_report,
+                    detail_kind,
                     details
                 ),
                 classifications: vec![Classification::Leak],
@@ -113,7 +130,7 @@ impl EventProcessor for LeakEventProcessor {
 
         let leak_report = HealthReport {
             source: ReportSource::TrayLeakDetection,
-            target: Some(HealthReportTarget::Machine),
+            target: Some(target),
             observed_at: Some(chrono::Utc::now()),
             successes,
             alerts,
@@ -209,6 +226,96 @@ mod tests {
                 .iter()
                 .any(|classification| classification == &Classification::Leak)
         );
+    }
+
+    #[test]
+    fn emits_switch_leak_report_for_nvue_leakage() {
+        let processor = LeakEventProcessor::new(1);
+
+        let report = HealthReport {
+            source: ReportSource::NvueLeakage,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::NvueLeakage,
+                target: Some("LEAK1".to_string()),
+                message: "NVUE leakage sensor state".to_string(),
+                classifications: vec![Classification::Leak],
+            }],
+        };
+
+        let emitted =
+            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+
+        assert_eq!(emitted.len(), 1);
+
+        let CollectorEvent::HealthReport(derived) = &emitted[0] else {
+            panic!("expected derived health report");
+        };
+
+        assert_eq!(derived.source, ReportSource::TrayLeakDetection);
+        assert_eq!(derived.target, Some(HealthReportTarget::Switch));
+        assert_eq!(derived.alerts.len(), 1);
+
+        assert!(
+            derived.alerts[0]
+                .classifications
+                .contains(&Classification::Leak)
+        );
+    }
+
+    #[test]
+    fn emits_switch_success_for_nvue_leakage_clear_report() {
+        let processor = LeakEventProcessor::new(1);
+
+        let report = HealthReport {
+            source: ReportSource::NvueLeakage,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![HealthReportSuccess {
+                probe_id: Probe::NvueLeakage,
+                target: Some("LEAK1".to_string()),
+            }],
+            alerts: Vec::new(),
+        };
+
+        let emitted =
+            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+
+        assert_eq!(emitted.len(), 1);
+
+        let CollectorEvent::HealthReport(derived) = &emitted[0] else {
+            panic!("expected derived health report");
+        };
+
+        assert_eq!(derived.target, Some(HealthReportTarget::Switch));
+        assert!(derived.alerts.is_empty());
+        assert_eq!(derived.successes.len(), 1);
+        assert_eq!(derived.successes[0].probe_id, Probe::LeakDetection);
+    }
+
+    #[test]
+    fn ignores_nvue_leakage_failure_without_leak_alert() {
+        let processor = LeakEventProcessor::new(1);
+
+        let report = HealthReport {
+            source: ReportSource::NvueLeakage,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::NvueLeakage,
+                target: Some("LEAK1".to_string()),
+                message: "NVUE leakage sensor state".to_string(),
+                classifications: vec![Classification::SensorFailure],
+            }],
+        };
+
+        let emitted =
+            processor.process_event(&context(), &CollectorEvent::HealthReport(Arc::new(report)));
+
+        assert!(emitted.is_empty());
     }
 
     #[test]
