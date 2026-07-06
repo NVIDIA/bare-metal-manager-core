@@ -48,9 +48,9 @@ fn convert_old_history(
 }
 
 #[allow(deprecated)]
-async fn convert_network_to_nice_format(
+pub async fn convert_network_to_nice_format(
     segment: forgerpc::NetworkSegment,
-    history: Vec<forgerpc::StateHistoryRecord>,
+    history: Option<Vec<forgerpc::StateHistoryRecord>>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
     let name = segment
@@ -157,28 +157,30 @@ async fn convert_network_to_nice_format(
         }
     }
 
-    writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
-    if history.is_empty() {
-        writeln!(&mut lines, "\tEMPTY")?;
-    } else {
-        writeln!(
-            &mut lines,
-            "\tState          Version                      Time"
-        )?;
-        writeln!(
-            &mut lines,
-            "\t---------------------------------------------------"
-        )?;
-        for x in history.iter().rev().take(5).rev() {
+    if let Some(history) = history {
+        writeln!(&mut lines, "STATE HISTORY: (Latest 5 only)")?;
+        if history.is_empty() {
+            writeln!(&mut lines, "\tEMPTY")?;
+        } else {
             writeln!(
                 &mut lines,
-                "\t{:<15} {:25} {}",
-                serde_json::from_str::<NetworkState>(&x.state)
-                    .map(|ns| ns.state)
-                    .unwrap_or_else(|_| x.state.clone()),
-                x.version,
-                x.time.unwrap_or_default()
+                "\tState          Version                      Time"
             )?;
+            writeln!(
+                &mut lines,
+                "\t---------------------------------------------------"
+            )?;
+            for x in history.iter().rev().take(5).rev() {
+                writeln!(
+                    &mut lines,
+                    "\t{:<15} {:25} {}",
+                    serde_json::from_str::<NetworkState>(&x.state)
+                        .map(|ns| ns.state)
+                        .unwrap_or_else(|_| x.state.clone()),
+                    x.version,
+                    x.time.unwrap_or_default()
+                )?;
+            }
         }
     }
 
@@ -331,7 +333,7 @@ async fn show_network_information(
     } else {
         println!(
             "{}",
-            convert_network_to_nice_format(segment, history, api_client).await?
+            convert_network_to_nice_format(segment, Some(history), api_client).await?
         );
     }
     Ok(())
