@@ -453,7 +453,10 @@ jobs:
         run: |
           PUBLISH=false
 
-          if [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
+          # test harness: let the marker force publish even from pull-request/N
+          if [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
+            PUBLISH=true
+          elif [[ "${EVENT_NAME}" == "pull_request" ]] || [[ "${REF}" =~ pull-request/[0-9]+ ]] ; then
             PUBLISH=false
           elif [[ "${REF}" == "refs/heads/main" ]] || [[ "${REF}" =~ ^refs/heads/release/ ]] || [[ "${REF}" =~ ^refs/tags/ ]] || [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
             PUBLISH=true
@@ -872,10 +875,12 @@ jobs:
               ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
               ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
 
-            docker buildx imagetools create -t \
-              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:latest \
-              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
-              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+              docker buildx imagetools create -t \
+                ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:latest \
+                ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+                ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+            fi
 
   # ============================================================================
   # BUILD STAGE - Boot Artifacts
@@ -990,6 +995,7 @@ jobs:
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      tag_latest: false
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -1023,6 +1029,7 @@ jobs:
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      tag_latest: false
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -1128,6 +1135,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      tag_latest: false
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -1154,6 +1162,7 @@ jobs:
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      tag_latest: false
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -1757,7 +1766,7 @@ jobs:
 
   promote-to-be-scanned-image:
     # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
-    if: ${{ !cancelled() && github.repository == 'NVIDIA/infra-controller' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
+    if: ${{ !cancelled() && github.repository == 'NVIDIA/infra-controller' && github.ref == 'refs/heads/main' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
     needs:
       - prepare
       - build-release-container-x86_64
