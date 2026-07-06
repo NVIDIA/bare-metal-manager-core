@@ -19,26 +19,28 @@
 | 2026-07-02 | Bill Minckler | Addressed review comment on §3.1 node-authentication: clarified mTLS+JWT are supported concurrently through rolling upgrade (may coexist), and that retaining mTLS does not by itself remove Vault (still needs a non-Vault cert issuer, O1); noted the reviewer's cert-manager / k8s CSR suggestion is covered by the certificate-issuance alternatives. |
 | 2026-07-02 | Bill Minckler | Addressed review comment on §3.2.3.1: cross-referenced the existing machine-identity signing-key encryption as a reuse/refactor candidate for the credential-store envelope + KEK-rotation work (see §3.6.4). |
 | 2026-07-02 | Bill Minckler | Addressed review comment on §3.3.3: added sequence diagrams for the node bootstrap and token-refresh flows. |
+| 2026-07-06 | Bill Minckler | Corrected §1.3 constraint: DPU device-identity attestation depends on direct controller→DPU-BMC Redfish access (established at discovery), not on DPF — removed the incorrect DPF-targeting statement. |
+| 2026-07-06 | Bill Minckler | Expanded O1 (§3.6.4) into a phased plan to remove the unconditional Vault-client construction / hard startup dependency (decouple Vault-client build → optional provider type → non-Vault issuer → retire Vault PKI); §2 now points to it. |
 
 # 1. Introduction
 
 ## 1.1 Purpose and scope
 
-This document records the architecture and design for the Vault-elimination epic ([#195](https://github.com/NVIDIA/infra-controller/issues/195)) in the `infra-controller` (NICo/carbide) repository: the credential-storage abstraction and backends, encryption-at-rest, gradual/reversible backend migration, node-auth JWT, DPU hardware identity, and device-CA management. Certificate (PKI) issuance is in scope as a tracked gap, not as a delivered replacement.
+This document records the architecture and design for the Vault-elimination epic ([#195](https://github.com/NVIDIA/infra-controller/issues/195)): the credential-storage abstraction and backends, encryption-at-rest, gradual/reversible backend migration, node-auth JWT, DPU hardware identity, and device-CA management. Certificate (PKI) issuance is in scope as a tracked gap, not as a delivered replacement.
 
 ## 1.2 Assumptions
 
 - A KMS provider is available to wrap data-encryption keys (integrated/static for dev, Transit-compatible for production).
 - PostgreSQL is the control plane's datastore and is available.
 - For DPU device identity, the DPU BMC exposes the BlueField IRoT over Redfish SPDM `ComponentIntegrity`, and site-explorer has pre-ingested the BMC so a DPU is correlatable to its BMC by DMI serial.
-- NVIDIA BlueField device root CA(s) are obtainable out-of-band for production trust anchoring (open).
+- NVIDIA BlueField device root CA(s) are obtainable out-of-band for production trust anchoring.
 
 ## 1.3 Constraints
 
 - Migration off Vault must be gradual and reversible (downgrade supported).
 - Rust workspace, tonic/gRPC, SPIFFE identity, Casbin/RBAC reused unchanged by new auth paths.
 - `machine_id` is the system-wide identity key (DB PK, SPIFFE subject); the existing fleet must not be re-keyed.
-- DPU device-identity attestation targets DPF environments (controller has BMC access); identity-only, not full attestation.
+- DPU device-identity attestation requires the controller to have direct access to the DPU BMC Redfish endpoint; the device identity is established at discovery. Identity-only, not full attestation.
 
 ## 1.4 External dependencies
 
@@ -81,8 +83,8 @@ This document records the architecture and design for the Vault-elimination epic
  │ ChainedCredentialReader (first-match)     │     ForgeVaultClient (Vault PKI)
  │   env → file(YAML, hot-reload) → backends │     — separate trait, still Vault [open O1]
  │ writer = one backend                      │
- └───────────┬───────────────┬───────────────┘
-             ▼               ▼
+ └───────────┬────────────────────┬──────────┘
+             ▼                    ▼
    PostgresCredentialManager   ForgeVaultClient (KV2)
         │  envelope-encrypt
         ▼
@@ -96,7 +98,7 @@ This document records the architecture and design for the Vault-elimination epic
 
 **Dynamic aspect.** Reads resolve first-match across the configured chain; writes go to a single writer and are envelope-encrypted on the Postgres path; an optional one-time Vault→Postgres import seeds existing secrets; node tokens are issued at discovery/attestation/refresh and validated as the same SPIFFE principal as mTLS; DPU discovery triggers an out-of-band BMC IRoT fetch + server-side verification that yields a hardware-rooted `machine_id`. (Credential store #354/#2811, node auth #355, DPU identity #2917.)
 
-**Key assumptions and limitations.** PKI/cert issuance is still Vault and the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1). The production KEK uses Transit (Vault/OpenBao) (open item O2). Node-token issuance and refresh are authorized by the machine's **verified hardware-rooted identity** (DPU BlueField IRoT, or host TPM EK), not by an mTLS client certificate; the current implementation still gates refresh on mTLS as a transitional step pending that tie-in (open item O4).
+**Key assumptions and limitations.** PKI/cert issuance is still Vault and the provider is constructed unconditionally at startup, so Vault remains a hard startup dependency (the epic's Vault-free goal is not yet met — open item O1, which now carries a phased removal plan in §3.6.4). The production KEK uses Transit (Vault/OpenBao) (open item O2). Node-token issuance and refresh are authorized by the machine's **verified hardware-rooted identity** (DPU BlueField IRoT, or host TPM EK), not by an mTLS client certificate; the current implementation still gates refresh on mTLS as a transitional step pending that tie-in (open item O4).
 
 # 3. Design details
 
@@ -259,7 +261,12 @@ Per-path, per-record encryption and the first-match chain scale with credential 
 
 ### 3.6.4 Future work (tracked open items)
 
-- **O1 — non-Vault certificate issuance (#2880):** a non-Vault `CertificateProvider` and a config-gated/optional provider so Vault PKI can be disabled (blocks the epic's Vault-free goal).
+- **O1 — non-Vault certificate issuance + optional-at-startup Vault (#2880):** today `run.rs` builds one Vault client unconditionally (`create_vault_client(&vault_config, …)?`) and reuses it as the `certificate_provider` (`certificate_provider = vault_client.clone()`), so PKI stays on Vault and a Vault outage aborts boot even when no credential backend uses Vault. `Api.certificate_provider` is a non-optional `Arc<dyn CertificateProvider>`, and `ForgeVaultClient` is its only implementation. Phased removal plan:
+  1. **Decouple Vault-client construction from cert issuance.** Build the Vault client only when a Vault role is actually configured — `vault` present in `[secrets].backends`/`writer`, an `import_from` set, or the certificate provider selected as Vault PKI — so a fully non-Vault config boots without contacting Vault. Add a `[certificates].provider` selector (default `vault` for back-compat).
+  2. **Make the provider optional in the type system.** Change `Api.certificate_provider` to an optional / `Disabled` provider; the handlers that issue certs (`handlers/attestation.rs`, `handlers/credential.rs`, `handlers/machine_discovery.rs`) return a typed "certificate issuance not configured" error instead of assuming a provider exists. This lets a JWT-only deployment (after O4) run with no cert provider at all.
+  3. **Add a non-Vault `CertificateProvider`.** Implement the §3.1 candidate direction (in-process CA, or SPIRE, accepting a machine-generated CSR over gRPC) as a selectable `[certificates].provider`; run Vault and the new issuer in parallel during migration.
+  4. **Flip the default and retire Vault PKI.** Once the new issuer is proven and existing certs are reissued/rotated onto it, default the provider away from Vault and remove the Vault-PKI wiring.
+  Steps 1–2 make Vault *optional at startup* and can land ahead of choosing an issuer; steps 3–4 are the #2880 issuer work. Combined with O2 (KEK off Transit), this removes the last hard Vault dependency and meets the epic's Vault-free goal.
 - **O2 — non-Vault production KMS:** so the Postgres KEK does not transitively depend on Vault/OpenBao Transit. Candidate providers are enumerated in §3.1 (managed cloud KMS — AWS/GCP/Azure; PKCS#11 HSM or KMIP for on-prem; or a hardened Integrated provider as the no-new-code interim). Cloud KMS additionally uses workload-identity auth, removing Transit's static-token constraint.
 - **O3 — dedicated migration/rotation for the credential types covered only generically** (NMX-M, BGP, MQTT, NIC-lockdown IKM, extension-service, machine-identity encryption key, rack token, SSH/HBN/Redfish; UFM #1837; per-switch NVOS #1852; reader/writer rollout #2811).
 - **O4 — wire hardware identity to node-token issuance/refresh** (implements the §3.3 refresh design): use the verified hardware identity (DPU IRoT #2917; host TPM EK) to authorize JWT issuance/refresh (#355), replacing the transitional mTLS gate.
