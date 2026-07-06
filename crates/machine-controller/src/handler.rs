@@ -11227,24 +11227,84 @@ async fn set_host_boot_order(
                 }
             };
 
-            // Re-assert the platform BIOS config before reordering -- a NIC-mode
-            // reboot can de-enumerate the BlueField and revert HttpDev1 to the
-            // onboard default, and `set_boot_order_dpu_first` only reorders the
-            // boot options it finds, so it can't bring HttpDev1 back on its own.
-            // Re-running `machine_setup` (by interface id) restores the HTTP boot
-            // device for the reorder, the same recovery the BIOS-setup phase
-            // already does. Idempotent when it's already set, and applied by the
-            // existing RebootHost restart; the returned job id is dropped
-            // (zero-DPU hosts swallow it as `NoDpu`, and CheckBootOrder tracks
-            // the boot-order job below).
-            call_machine_setup_and_handle_no_dpu_error(
-                redfish_client,
-                Some(&boot_interface),
-                mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
-                &ctx.services.site_config,
-            )
-            .await
-            .map_err(|e| redfish_error("machine_setup", e))?;
+            // Don't re-apply a boot config that's already in place. `SetBootOrder`
+            // re-asserts the HTTP-boot device (`machine_setup`) and then sets the
+            // boot order, but on Dell two BIOS config writes can't share one
+            // pending job: re-asserting commits a config job, and
+            // `set_boot_order_dpu_first` then can't set the order (iDRAC `SYS011`,
+            // "a config job is already committed"), so re-applying an
+            // already-correct config collides and loops. Check first -- if the
+            // config is already set, skip straight to verification. Only when the
+            // HTTP-boot device was actually reverted (the boot NIC dropped off the
+            // BMC's Redfish inventory on a reboot) do we re-assert it, and then
+            // reboot to apply it before the boot-order set, so the two writes
+            // never land in one pass.
+            let is_bios_setup = boot_interface
+                .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                .await
+                .map_err(|e| redfish_error("is_bios_setup", e))?;
+
+            if !is_bios_setup {
+                // The HTTP-boot device was reverted (the boot NIC dropped off the
+                // BMC's Redfish inventory on a reboot), so re-assert it with
+                // `machine_setup` and reboot to apply it *before* setting the boot
+                // order -- the two BIOS writes never share one pass (they can't
+                // share one Dell config job). The next pass reads the device
+                // applied (`is_bios_setup` true) and continues to the order.
+                call_machine_setup_and_handle_no_dpu_error(
+                    redfish_client,
+                    Some(&boot_interface),
+                    mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
+                    &ctx.services.site_config,
+                )
+                .await
+                .map_err(|e| redfish_error("machine_setup", e))?;
+
+                let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
+                    handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
+                        .await?;
+                    RebootStatus {
+                        increase_retry_count: true,
+                        status: "Restarted host to apply re-asserted HTTP boot device".to_string(),
+                    }
+                } else {
+                    trigger_reboot_if_needed(
+                        &mh_snapshot.host_snapshot,
+                        mh_snapshot,
+                        None,
+                        reachability_params,
+                        ctx,
+                    )
+                    .await?
+                };
+                if reboot_status.increase_retry_count {
+                    log_host_config(redfish_client, mh_snapshot).await;
+                }
+                return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                    "HTTP boot device was reverted; re-asserted it and rebooting to apply before setting the boot order: {reboot_status:#?}"
+                )));
+            }
+
+            // HTTP-boot device is already set, so `machine_setup` was not re-run
+            // this pass -- no pending BIOS job for the boot-order set to collide
+            // with. If the boot order is already set too, there's nothing to
+            // re-apply: go straight to verification.
+            let is_boot_order_setup = boot_interface
+                .run(|bi| redfish_client.is_boot_order_setup(bi))
+                .await
+                .map_err(|e| redfish_error("is_boot_order_setup", e))?;
+
+            if is_boot_order_setup {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Boot config already in place at SetBootOrder; skipping re-apply and verifying",
+                );
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::CheckBootOrder,
+                    retry_count: set_boot_order_info.retry_count,
+                }));
+            }
 
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
