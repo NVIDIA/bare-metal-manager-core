@@ -20,8 +20,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;

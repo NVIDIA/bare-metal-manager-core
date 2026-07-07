@@ -62,11 +62,6 @@ use tracing::Instrument;
 /// Default NMX-M instance identifier for credentials and client lookup when none is specified.
 pub const DEFAULT_NMX_M_NAME: &str = "default";
 
-/// Multicast groups limit for new NMX-C partitions. Must be a multiple of 4. Assuming at most 2
-/// partitions per tray and 18 tray default partitions, this is floor(1024 / (36+18)) rounded down
-/// to the nearest multiple of 4.
-const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 16;
-
 fn rack_id_from_chassis_snapshots(
     chassis_snapshots: &[&ManagedHostStateSnapshot],
 ) -> Option<RackId> {
@@ -193,19 +188,9 @@ fn populate_machine_nvlink_info_if_needed(
     updates
 }
 
-fn nmx_c_partition_create_attr_with_multicast_groups_limit(
-    multicast_groups_limit: u32,
-) -> libnmxc::nmxc_model::PartitionAttr {
-    libnmxc::nmxc_model::PartitionAttr {
-        resiliency_mode: libnmxc::nmxc_model::ResiliencyMode::NmxResiliencyModeUndefined as i32,
-        multicast_groups_limit,
-    }
-}
-
 fn nmx_c_create_partition_request(
     name: String,
     gpu_uids: &[u64],
-    multicast_groups_limit: u32,
 ) -> libnmxc::nmxc_model::CreatePartitionRequest {
     libnmxc::nmxc_model::CreatePartitionRequest {
         context: None,
@@ -218,9 +203,7 @@ fn nmx_c_create_partition_request(
                 )),
             })
             .collect(),
-        attr: Some(nmx_c_partition_create_attr_with_multicast_groups_limit(
-            multicast_groups_limit,
-        )),
+        attr: None,
         partition_id: None,
         gateway_id: NMX_C_GATEWAY_ID.into(),
     }
@@ -1839,11 +1822,7 @@ impl NvlPartitionMonitor {
                                 .join(",")
                         );
                         let name: String = name.chars().take(240).collect();
-                        let request = nmx_c_create_partition_request(
-                            name,
-                            &operation.gpu_uids,
-                            NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT,
-                        );
+                        let request = nmx_c_create_partition_request(name, &operation.gpu_uids);
                         match nmxc_client.create_partition(request).await {
                             Ok(_) => true,
                             Err(e) => {
