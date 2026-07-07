@@ -60,8 +60,8 @@ use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
 use crate::{
-    FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
-    ethernet_virtualization, extension_services, get_non_empty_str, hbn, health,
+    FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, astra_weave,
+    command_line, ethernet_virtualization, extension_services, get_non_empty_str, hbn, health,
     instance_metadata_endpoint, lldp, machine_inventory_updater, managed_files, mtu, netlink, nvue,
     periodic_config_fetcher, pretty_cmd, sysfs, upgrade,
 };
@@ -916,18 +916,24 @@ impl MainLoop {
                         }
                     };
 
-                    let joined_result = match (update_result, dhcp_result) {
-                        (Ok(a), Ok(b)) => Ok(a | b),
-                        (Err(e1), Err(e2)) => Err(eyre::eyre!(
-                            "network update failed: update={e1:#}, dhcp={e2:#}"
+                    let astra_config_status =
+                        astra_weave::update_weave_ew_vpc_astra_config(conf.astra_config.as_ref())
+                            .await;
+
+                    let joined_result = match (update_result, dhcp_result, astra_config_status) {
+                        (Ok(a), Ok(b), Ok(spx_net_status)) => Ok((a | b, spx_net_status)),
+                        (Err(e1), Err(e2), Err(e3)) => Err(eyre::eyre!(
+                            "network update failed: update={e1:#}, dhcp={e2:#}, spx={e3:#}"
                         )),
-                        (Err(err), Ok(_)) => Err(err.wrap_err("network update failed (update)")),
-                        (Ok(_), Err(err)) => Err(err.wrap_err("network update failed (dhcp)")),
+                        (Err(err), _, _) => Err(err.wrap_err("network update failed (update)")),
+                        (_, Err(err), _) => Err(err.wrap_err("network update failed (dhcp)")),
+                        (_, _, Err(err)) => Err(err.wrap_err("network update failed (spx)")),
                     };
                     match joined_result {
-                        Ok(has_changed) => {
+                        Ok((has_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
+                            status_out.astra_config_status = Some(astra_config_status);
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
                             {
