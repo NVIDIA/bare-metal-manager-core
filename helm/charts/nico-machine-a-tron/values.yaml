@@ -2,21 +2,19 @@
 ## nico-machine-a-tron - Mock machine simulator for NICo testing
 ## =============================================================================
 ##
-## DEPLOYMENT MODES (mutually exclusive):
+## DEPLOYMENT MODES:
 ##
-## 1. OVERRIDE MODE (Development) - nginxBmcProxy.enabled: false
+## 1. OVERRIDE MODE (Development) - bmcServices.enabled: false
 ##    - NICo Site-Explorer redirects ALL Redfish calls to machine-a-tron
-##    - Simple setup, no MetalLB required
-##    - INCOMPATIBLE with real hardware (all BMC traffic goes to mock)
-##    - Requires: NICo site config with override_target_host set
+##    - Simple setup, single pod
+##    - INCOMPATIBLE with real hardware
 ##
-## 2. METALLB MODE (Large-Scale Testing) - nginxBmcProxy.enabled: true
-##    - Each simulated BMC gets dedicated external IP via MetalLB
-##    - Compatible with real hardware (can run alongside real machines)
-##    - Requires: MetalLB with BGP for scale, dedicated IP range
-##    - Requires: NICo site config WITHOUT override_target_host
+## 2. CLUSTERIP MODE (Large-Scale Testing) - bmcServices.enabled: true
+##    - Each simulated BMC gets dedicated ClusterIP service
+##    - Supports multi-pod deployments via `pods` configuration
+##    - Compatible with real hardware
 ##
-## See README.md for detailed setup instructions for each mode.
+## See README.md for detailed setup instructions.
 ##
 ## =============================================================================
 
@@ -44,11 +42,9 @@ image:
 
 namespaceOverride: ""
 
-replicas: 1
 automountServiceAccountToken: true
 
 ## Graceful shutdown timeout (seconds)
-## Allows machine-a-tron to clean up resources when pod is deleted
 terminationGracePeriodSeconds: 60
 
 annotations:
@@ -77,7 +73,6 @@ certificate:
   identityNamespace: ""
   dnsNames: []
   uris: []
-  ## Extra DNS name for the bmc-mock service is added automatically in _helpers.tpl
   extraDnsNames: []
   extraUris: []
 
@@ -123,98 +118,138 @@ serviceMonitor:
   interval: 30s
   scrapeTimeout: 25s
 
-## Machine-a-tron specific configuration
+## =============================================================================
+## Machine-a-tron Core Settings (shared across all pods)
+## =============================================================================
 machineATron:
-  ## URL of the NICo API server
   nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
-
-  ## Network interface for BMC mock IP binding (not used in k8s single-mock mode)
   interface: "NOTUSED"
-
-  ## TUI is disabled in kubernetes - logs go to stdout
   tuiEnabled: false
-
-  ## Log file path (empty = stdout)
   logFile: ""
-
-  ## Use single BMC mock with header-based routing (required for k8s)
-  ## Port is configured via service.bmcMock.port
   useSingleBmcMock: true
-
-  ## Enable mock BMC SSH server
   mockBmcSshServer: true
   mockBmcSshPort: 2222
-
-  ## If set, machine-a-tron will configure NICo to use this as bmc_proxy host
-  ## Combined with service.bmcMock.port to form host:port
   configureBmcProxyHost: ""
-
-  ## Directory for persisting machine state between restarts
   persistDir: "/tmp/machine-a-tron-data"
-
-  ## Delete created machines from API on quit
   cleanupOnQuit: false
-
-  ## Auto-register mock hosts as expected machines
   registerExpectedMachines: true
-
-  ## Override BMC passwords (leave empty for factory defaults)
   hostBmcPassword: ""
   dpuBmcPassword: ""
-
-  ## API refresh interval
   apiRefreshInterval: "2s"
 
-## Machine configuration sections
-## Each named section defines a group of mock machines with specific settings
-## You can define multiple sections with different hardware types
-## Example:
-##   machines:
-##     dell-hosts:
-##       hwType: dell_poweredge_r750
-##       hostCount: 10
-##       dpuPerHostCount: 2
-##       ...
-##     dgx-hosts:
-##       hwType: nvidia_dgx_h100
-##       hostCount: 5
-##       dpuPerHostCount: 1
-##       ...
-machines:
-  ## Machine group section. The name "dell-hosts" is arbitrary - you can rename it
-  ## or add more sections (e.g., "dgx-hosts", "power-shelves") to simulate different
-  ## hardware types. Each section creates a separate group of mock machines.
-  dell-hosts:
-    ## Hardware type (serde names from HostHardwareType enum):
-    ##   dell_poweredge_r750 (default), wiwynn_gb200_nvl, lenovo_gb300_nvl,
-    ##   nvidia_dgx_gb300, supermicro_gb300_nvl, liteon_power_shelf,
-    ##   nvidia_switch_nd5200_ld, nvidia_dgx_h100, generic_ami, generic_supermicro
-    hwType: dell_poweredge_r750
-    ## Number of host machines to create
-    hostCount: 10
-    ## Number of VPCs to create
-    vpcCount: 0
-    ## Number of subnets per VPC
-    subnetsPerVpc: 0
-    ## Number of DPUs per host
-    dpuPerHostCount: 2
-    ## Reboot delay in seconds (short for dev/test)
-    dpuRebootDelay: 1
-    hostRebootDelay: 1
-    ## State machine intervals (faster for dev)
-    scoutRunInterval: "60s"
-    runIntervalWorking: "1s"
-    runIntervalIdle: "10s"
-    networkStatusRunInterval: "20s"
-    ## Template directory for BMC mock data
-    templateDir: "/opt/machine-a-tron/templates"
-    ## DHCP relay addresses (must match site config)
-    oobDhcpRelayAddress: "192.168.192.1"
-    adminDhcpRelayAddress: "192.168.176.1"
-    ## Network virtualization type: etv, etv_nvue, or fnn
-    networkVirtualizationType: ""
-    ## DPUs run in NIC mode (no PXE boot)
-    dpusInNicMode: false
+## =============================================================================
+## Machine Defaults - Shared settings for all machine groups
+## =============================================================================
+## These defaults apply to all machine groups in all pods.
+## Override per-group by specifying the value in pods.*.machines.*.
+##
+machineDefaults:
+  vpcCount: 0
+  subnetsPerVpc: 0
+  dpuRebootDelay: 1
+  hostRebootDelay: 1
+  scoutRunInterval: "60s"
+  runIntervalWorking: "1s"
+  runIntervalIdle: "10s"
+  networkStatusRunInterval: "20s"
+  templateDir: "/opt/machine-a-tron/templates"
+  networkVirtualizationType: ""
+  dpusInNicMode: false
+
+## =============================================================================
+## Pod Configurations - One pod per config entry
+## =============================================================================
+## Each entry creates:
+##   - 1 Deployment (pod)
+##   - 1 ConfigMap with mat.toml
+##   - 1 Certificate
+##   - 1 internal Service
+##   - N ClusterIP BMC services (when bmcServices.enabled)
+##
+## SCALE: Use /22 CIDR per pod = 1021 usable IPs = ~14 racks worth of BMCs
+##
+## BMC count per GB200 NVL72 rack: 71
+##   - Compute trays: 18 × 3 = 54
+##   - NVLink switches: 9 × 1 = 9
+##   - Power shelves: 8 × 1 = 8
+##
+## Per-machine group, only these fields are typically needed:
+##   - hwType: Hardware type (required)
+##   - hostCount: Number of hosts (required)
+##   - dpuPerHostCount: DPUs per host (default: 0)
+##   - oobDhcpRelayAddress: OOB network gateway
+##   - adminDhcpRelayAddress: Admin network gateway
+##
+## All other settings inherit from machineDefaults above.
+##
+pods:
+  ## Single-pod configuration is used when bmcServices.enabled=false (by default)
+  ## For multi-pod deployments, add more entries below and enable bmcServices
+  default:
+    cidr: ""
+
+    ## Machine groups for this pod
+    machines:
+      rack-machines:
+        hwType: wiwynn_gb200_nvl
+        hostCount: 10
+        dpuPerHostCount: 2
+        oobDhcpRelayAddress: "192.168.192.1"
+        adminDhcpRelayAddress: "192.168.176.1"
+
+## =============================================================================
+## Multi-Pod Example (bmcServices.enabled is required)
+## =============================================================================
+## Uncomment and customize for large-scale deployments:
+##
+#  mat-0:
+#    cidr: "10.100.0.0/22"    # 1021 IPs for ~14 racks
+#    machines:
+#      compute:
+#        hwType: wiwynn_gb200_nvl
+#        hostCount: 252       # 18 trays × 14 racks
+#        dpuPerHostCount: 2   # 2 BF3 per tray
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      switches:
+#        hwType: nvidia_switch_nd5200_ld
+#        hostCount: 126       # 9 switches × 14 racks
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      power:
+#        hwType: liteon_power_shelf
+#        hostCount: 112       # 8 shelves × 14 racks
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#
+#  mat-1:
+#    cidr: "10.100.4.0/22"    # Next /22 block
+#    machines:
+#      compute:
+#        hwType: wiwynn_gb200_nvl
+#        hostCount: 252
+#        dpuPerHostCount: 2
+#        oobDhcpRelayAddress: "10.100.4.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      # ... same pattern
+
+## =============================================================================
+## BMC Services Configuration
+## =============================================================================
+bmcServices:
+  enabled: false
+
+  ## External port for BMC services (matches real BMC HTTPS port)
+  servicePort: 443
+
+  ## ServiceCIDR reserves the IP range (Kubernetes 1.29+)
+  serviceCIDR:
+    create: true
+    ## Name for the ServiceCIDR (cluster-scoped)
+    name: ""
+    ## Combined CIDR covering all pods (auto-calculated if empty for single pod)
+    ## Set manually if pods have non-contiguous CIDRs
+    cidr: ""
 
 ## Persistence volume for machine state
 persistence:
@@ -230,100 +265,38 @@ externalService:
   externalTrafficPolicy: Local
   annotations: {}
 
-## =============================================================================
-## BMC Proxy with MetalLB - Provides dedicated IPs for each simulated BMC
-## =============================================================================
-## This deploys an NGINX reverse proxy that adds the Forwarded header
-## so machine-a-tron can route requests to the correct mock BMC based on IP.
-##
-## Architecture (NICo Site-Explorer connects DIRECTLY to MetalLB IPs):
-##
-##   Site-Explorer ---> MetalLB LB Services ---> NGINX ---> Machine-A-Tron
-##   (Redfish calls)    (1 per BMC IP)          (adds Forwarded header)
-##
-## HOW IP ALLOCATION WORKS:
-##   NICo allocates IPs sequentially from the network prefix via gRPC API.
-##   If the subnet is empty, IPs are assigned in order: .2, .3, .4, ...
-##   MetalLB services are created with matching sequential IPs.
-##
-## Service count is AUTO-CALCULATED from machine configuration:
-##   totalBMCs = sum(hostCount + hostCount * dpuPerHostCount) for all groups
-##
-## SCALE RECOMMENDATIONS:
-##   - /21 (2048 IPs) - Default, suitable for most test scenarios
-##   - /20 (4096 IPs) - Medium scale testing
-##   - /19 (8192 IPs) - Large scale testing
-##   - /18 (16384 IPs) - Maximum supported, requires BGP mode
-##
-## Example: 500 hosts with 2 DPUs each = 500 + 1000 = 1500 services (fits in /21)
-##
-nginxBmcProxy:
-  ## Enable the NGINX BMC proxy with MetalLB LoadBalancer services
-  enabled: false
-
-  ## ==========================================================================
-  ## NGINX Reverse Proxy Settings
-  ## ==========================================================================
-  image: nginx:alpine
-  replicas: 1
-  resources:
-    limits:
-      cpu: 2
-      memory: 1Gi
-    requests:
-      cpu: 500m
-      memory: 256Mi
-
-  ## TLS certificate secret name (defaults to machine-a-tron certificate)
-  tlsSecretName: ""
-
-  ## Service port (external-facing)
-  servicePort: 443
-
-  ## ==========================================================================
-  ## MetalLB IP Pool Configuration
-  ## ==========================================================================
-  ## IP range for MetalLB pool. Services are created sequentially.
-  ## Number of services = total BMCs (auto-calculated from machine config)
-  ##
-  ## IMPORTANT: This IP range must match the NICo network configuration
-  ## so that IPs allocated by NICo match the MetalLB service IPs.
-  ##
-  ## NICo network config (nico-api-site-config.toml):
-  ##   [networks.simulated-oob]
-  ##   type = "underlay"
-  ##   prefix = "10.100.0.0/21"
-  ##   gateway = "10.100.0.1"
-  ##
-  ## Machine-a-tron config (values.yaml):
-  ##   machines.dell-hosts.oobDhcpRelayAddress: "10.100.0.1"
-  ##
-  ## Examples by scale:
-  ##   /21 (2048 IPs):   "10.100.0.2-10.100.7.254"
-  ##   /18 (16384 IPs):  "10.100.0.2-10.100.63.254" max supported
-  ipRange: ""
-
-  ipPool:
-    ## Create the MetalLB IPAddressPool resource
-    create: true
-    ## Namespace for MetalLB resources
-    namespace: metallb-system
-    ## Enable auto-assign from this pool
-    autoAssign: true
-    ## L2 Advertisement (only for small-scale testing)
-    l2Advertisement: false
-
-  ## ==========================================================================
-  ## BGP Configuration - REQUIRED for large scale deployments
-  ## ==========================================================================
-  ## BGP mode with route aggregation prevents overwhelming upstream routers
-  ## with thousands of individual /32 routes.
-  bgp:
-    enabled: false
-    ## Route aggregation length - announces summary route instead of /32s
-    ## /21 = 2048 IPs (default), /18 = 16384 IPs (max)
-    aggregationLength: 21
-
 configFiles:
-  ## Override the entire mat.toml config (leave empty to use generated config)
-  matConfig: ""
+  ## Override mat.toml per pod (optional)
+  ## Key = pod name, value = full config content
+  ## When set, this completely replaces the auto-generated config for that pod.
+  ##
+  ## Example - simple single-pod config:
+  # matConfigs:
+  #   default: |
+  #     carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+  #     interface = "NOTUSED"
+  #     tui_enabled = false
+  #     bmc_mock_port = 1266
+  #     use_single_bmc_mock = true
+  #     mock_bmc_ssh_server = true
+  #     mock_bmc_ssh_port = 2222
+  #     cleanup_on_quit = false
+  #     register_expected_machines = true
+  #     api_refresh_interval = "2s"
+  #
+  #     [machines.compute]
+  #     hw_type = "supermicro_gb300_nvl"
+  #     host_count = 10
+  #     dpu_per_host_count = 2
+  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     admin_dhcp_relay_address = "192.168.176.1"
+  #     template_dir = "/opt/machine-a-tron/templates"
+  #
+  #     [machines.switches]
+  #     hw_type = "nvidia_switch_nd5200_ld"
+  #     host_count = 5
+  #     dpu_per_host_count = 0
+  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     admin_dhcp_relay_address = "192.168.176.1"
+  #     template_dir = "/opt/machine-a-tron/templates"
+  matConfigs: {}
