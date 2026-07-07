@@ -24,8 +24,6 @@ use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Row};
 
 use super::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use crate::instance::config::InstanceConfig;
@@ -153,15 +151,6 @@ pub struct InstanceSnapshotPgJson {
     finished: Option<DateTime<Utc>>,
     deleted: Option<DateTime<Utc>>,
     update_network_config_request: Option<InstanceNetworkConfigUpdate>,
-}
-
-impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        InstanceSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
-    }
 }
 
 /// Builds an [`InstanceSnapshot`] from DB JSON and a pre-merged [`OperatingSystem`].

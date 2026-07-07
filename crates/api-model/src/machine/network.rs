@@ -209,6 +209,7 @@ mod tests {
     use config_version::ConfigVersion;
 
     use super::*;
+    use crate::test_support::machine_snapshot::config_version;
 
     // A stable MachineId for status observations; `any_observed_version_changed`
     // never inspects it, so any valid id does.
@@ -219,12 +220,6 @@ mod tests {
     // A fixed timestamp so observations built in tests compare deterministically.
     fn observed_at() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
-    }
-
-    // ConfigVersion built from its string form so the timestamp is deterministic
-    // (ConfigVersion::new() stamps `now()`, which makes two calls unequal).
-    fn config_version(version_nr: u64) -> ConfigVersion {
-        ConfigVersion::from_str(&format!("V{version_nr}-T1000000")).unwrap()
     }
 
     // A MachineNetworkStatusObservation carrying only the fields

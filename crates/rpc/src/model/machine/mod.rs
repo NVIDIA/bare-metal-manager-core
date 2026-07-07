@@ -21,6 +21,7 @@ use base64::prelude::*;
 use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use model::errors::{ModelError, ModelResult};
+use model::health::HealthReportSources;
 use model::machine::{
     Dpf, DpfState, DpuInfo, DpuInfoStatusObservation, DpuInitState, DpuOsOperationalState,
     DpuRepresentorStatus, FailureCause, InstanceState, Machine, MachineInterfaceSnapshot,
@@ -189,30 +190,41 @@ impl From<Dpf> for rpc::forge::DpfMachineState {
 
 impl From<Machine> for rpc::forge::Machine {
     fn from(mut machine: Machine) -> Self {
+        // The source origins only need each report's source name and apply
+        // mode; capture them up front so the DPU arm below can consume the
+        // reports themselves instead of deep-cloning them.
+        let health_sources: Vec<rpc::forge::HealthSourceOrigin> = machine
+            .health_reports
+            .iter()
+            .map(|(report, mode)| rpc::forge::HealthSourceOrigin {
+                mode: mode as i32,
+                source: report.source.clone(),
+            })
+            .collect();
+
         let health = match machine.is_dpu() {
             true => {
-                let mut health = machine
-                    .dpu_agent_health_report()
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        HealthReport::heartbeat_timeout(
-                            HealthReport::DPU_AGENT_SOURCE.to_string(),
-                            HealthReport::DPU_AGENT_SOURCE.to_string(),
-                            "No health data was received from DPU".to_string(),
-                            true,
-                            false,
-                        )
-                    });
-                match machine.health_reports.replace.as_ref() {
-                    Some(over) => over.clone(),
+                // Taking the reports moves the selected one into the RPC
+                // machine; hosts keep theirs for the maintenance fields below.
+                let HealthReportSources {
+                    replace,
+                    mut merges,
+                } = std::mem::take(&mut machine.health_reports);
+                match replace {
+                    Some(over) => over,
                     None => {
-                        for over in machine
-                            .health_reports
-                            .merges
-                            .iter()
-                            .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
-                            .map(|(_, over)| over)
-                        {
+                        let mut health = merges
+                            .remove(HealthReport::DPU_AGENT_SOURCE)
+                            .unwrap_or_else(|| {
+                                HealthReport::heartbeat_timeout(
+                                    HealthReport::DPU_AGENT_SOURCE.to_string(),
+                                    HealthReport::DPU_AGENT_SOURCE.to_string(),
+                                    "No health data was received from DPU".to_string(),
+                                    true,
+                                    false,
+                                )
+                            });
+                        for over in merges.values() {
                             health.merge(over);
                         }
                         health
@@ -241,22 +253,26 @@ impl From<Machine> for rpc::forge::Machine {
 
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
         let instance_network_restrictions = Some(machine_instance_network_restrictions(&machine));
+        // Computed before the struct literal so the literal holds no borrows
+        // of the whole `machine` and its fields can move into place.
+        let state = if machine.is_dpu() {
+            machine.state.value.dpu_state_string(&machine.id)
+        } else {
+            machine.state.value.to_string()
+        };
+        let capabilities = machine.to_capabilities().map(|mut c| {
+            c.sort();
+            c.into()
+        });
 
         rpc::Machine {
             id: Some(machine.id),
-            rack_id: machine.rack_id.clone(),
-            state: if machine.is_dpu() {
-                machine.state.value.dpu_state_string(&machine.id)
-            } else {
-                machine.state.value.to_string()
-            },
-            capabilities: machine.to_capabilities().map(|mut c| {
-                c.sort();
-                c.into()
-            }),
+            rack_id: machine.rack_id,
+            state,
+            capabilities,
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            // calculated at RPC handler, see ManagedHostStateSnapshot::rpc_machine_state
+            // calculated at RPC handler, see ManagedHostStateSnapshot::into_rpc_machine_state
             state_sla: None,
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
@@ -306,14 +322,7 @@ impl From<Machine> for rpc::forge::Machine {
             state_reason: machine.controller_state_outcome.map(|r| r.into()),
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
-            health_sources: machine
-                .health_reports
-                .into_iter()
-                .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
-                    mode: m as i32,
-                    source: hr.source,
-                })
-                .collect(),
+            health_sources,
             failure_details: if machine.failure_details.cause != FailureCause::NoError {
                 Some(machine.failure_details.to_string())
             } else {
@@ -483,56 +492,62 @@ impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
 }
 
 pub trait ManagedHostStateSnapshotRpc {
-    fn rpc_machine_state(
-        &self,
+    fn into_rpc_machine_state(
+        self,
         dpu_machine_id: Option<&MachineId>,
         sla_config: &slas::MachineSlaConfig,
     ) -> Option<rpc::forge::Machine>;
 }
 
 impl ManagedHostStateSnapshotRpc for ManagedHostStateSnapshot {
-    /// Creates an RPC Machine representation for either the Host or one of the DPUs
-    fn rpc_machine_state(
-        &self,
+    /// Creates an RPC Machine representation for either the Host or one of the DPUs.
+    ///
+    /// Consumes the snapshot so the selected `Machine` moves into the
+    /// conversion instead of being deep-cloned here; callers that hand over
+    /// an owned snapshot per machine (like `snapshot_map_to_rpc_machines`)
+    /// get a clone-free conversion. DPU-keyed loads still deep-clone the
+    /// snapshot one frame earlier (`managed_host::load_by_machine_ids`) —
+    /// the next candidate for this same move-instead-of-clone treatment.
+    fn into_rpc_machine_state(
+        self,
         dpu_machine_id: Option<&MachineId>,
         sla_config: &slas::MachineSlaConfig,
     ) -> Option<rpc::forge::Machine> {
+        let ManagedHostStateSnapshot {
+            host_snapshot,
+            dpu_snapshots,
+            aggregate_health,
+            ..
+        } = self;
         match dpu_machine_id {
             None => {
-                let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
-                let state = &self.host_snapshot.state.value;
-                let version = &self.host_snapshot.state.version;
-                rpc_machine.health = Some(self.aggregate_health.clone().into());
-                rpc_machine.state_sla = Some(
-                    state_sla(
-                        &self.host_snapshot.id,
-                        state,
-                        version,
-                        &self.aggregate_health,
-                        sla_config,
-                    )
-                    .into(),
+                let sla = state_sla(
+                    &host_snapshot.id,
+                    &host_snapshot.state.value,
+                    &host_snapshot.state.version,
+                    &aggregate_health,
+                    sla_config,
                 );
+                let mut rpc_machine: rpc::forge::Machine = host_snapshot.into();
+                rpc_machine.health = Some(aggregate_health.into());
+                rpc_machine.state_sla = Some(sla.into());
                 Some(rpc_machine)
             }
             Some(dpu_machine_id) => {
-                let dpu_snapshot = self
-                    .dpu_snapshots
-                    .iter()
+                let dpu_snapshot = dpu_snapshots
+                    .into_iter()
                     .find(|dpu| dpu.id == *dpu_machine_id)?;
-                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
-                // In case the DPU does not know the associated Host - we can backfill the data here
-                rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
-                rpc_machine.state_sla = Some(
-                    state_sla(
-                        &dpu_snapshot.id,
-                        &dpu_snapshot.state.value,
-                        &dpu_snapshot.state.version,
-                        &self.aggregate_health,
-                        sla_config,
-                    )
-                    .into(),
+                let sla = state_sla(
+                    &dpu_snapshot.id,
+                    &dpu_snapshot.state.value,
+                    &dpu_snapshot.state.version,
+                    &aggregate_health,
+                    sla_config,
                 );
+                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.into();
+                // In case the DPU does not know the associated Host - we can backfill the data here
+                rpc_machine.associated_host_machine_id = Some(host_snapshot.id);
+                rpc_machine.state_sla = Some(sla.into());
                 Some(rpc_machine)
             }
         }
@@ -576,10 +591,127 @@ fn machine_instance_network_restrictions(
 
 #[cfg(test)]
 mod test {
+    use model::machine::{ManagedHostStateSnapshot, slas, state_sla};
+    use model::test_support::machine_snapshot;
+
     use crate as rpc;
     use crate::model::machine::{
         DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
+        ManagedHostStateSnapshotRpc,
     };
+
+    /// The clone-based wrapper `into_rpc_machine_state` replaced: deep-copy
+    /// the selected machine out of a borrowed snapshot, then convert by
+    /// value.
+    ///
+    /// Both wrappers intentionally funnel through the same `From<Machine>`
+    /// impl, so the parity tests below pin the move-vs-clone wrapper
+    /// restructure — host/DPU selection, aggregate-health and SLA wiring,
+    /// and the associated-host id backfill — not the inner conversion, which
+    /// the capability exact-equality tests cover.
+    fn clone_based_rpc_machine_state(
+        snapshot: &ManagedHostStateSnapshot,
+        dpu_machine_id: Option<&carbide_uuid::machine::MachineId>,
+        sla_config: &slas::MachineSlaConfig,
+    ) -> Option<rpc::forge::Machine> {
+        match dpu_machine_id {
+            None => {
+                let mut rpc_machine: rpc::forge::Machine = snapshot.host_snapshot.clone().into();
+                rpc_machine.health = Some(snapshot.aggregate_health.clone().into());
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &snapshot.host_snapshot.id,
+                        &snapshot.host_snapshot.state.value,
+                        &snapshot.host_snapshot.state.version,
+                        &snapshot.aggregate_health,
+                        sla_config,
+                    )
+                    .into(),
+                );
+                Some(rpc_machine)
+            }
+            Some(dpu_machine_id) => {
+                let dpu_snapshot = snapshot
+                    .dpu_snapshots
+                    .iter()
+                    .find(|dpu| dpu.id == *dpu_machine_id)?;
+                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
+                rpc_machine.associated_host_machine_id = Some(snapshot.host_snapshot.id);
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &dpu_snapshot.id,
+                        &dpu_snapshot.state.value,
+                        &dpu_snapshot.state.version,
+                        &snapshot.aggregate_health,
+                        sla_config,
+                    )
+                    .into(),
+                );
+                Some(rpc_machine)
+            }
+        }
+    }
+
+    /// Sorts the set-derived proto fields whose order is not defined, so two
+    /// equivalent conversions compare equal.
+    fn normalized(mut machine: rpc::forge::Machine) -> rpc::forge::Machine {
+        if let Some(restrictions) = machine.instance_network_restrictions.as_mut() {
+            restrictions.network_segment_ids.sort();
+        }
+        machine
+    }
+
+    #[test]
+    fn moving_host_conversion_matches_clone_based_conversion() {
+        let sla_config = slas::MachineSlaConfig::default();
+        let snapshot = machine_snapshot::managed_host_state_snapshot();
+
+        let expected = clone_based_rpc_machine_state(&snapshot, None, &sla_config)
+            .expect("host conversion produces a machine");
+        let actual = snapshot
+            .into_rpc_machine_state(None, &sla_config)
+            .expect("host conversion produces a machine");
+
+        // The fixture populates every heavyweight field; make sure the parity
+        // check exercises them rather than comparing empty options.
+        assert!(actual.discovery_info.is_some());
+        assert!(actual.capabilities.is_some());
+        assert!(!actual.interfaces.is_empty());
+        assert!(!actual.events.is_empty());
+        assert_eq!(normalized(expected), normalized(actual));
+    }
+
+    #[test]
+    fn moving_dpu_conversion_matches_clone_based_conversion() {
+        let sla_config = slas::MachineSlaConfig::default();
+        let snapshot = machine_snapshot::managed_host_state_snapshot();
+        let dpu_id = snapshot.dpu_snapshots[1].id;
+
+        let expected = clone_based_rpc_machine_state(&snapshot, Some(&dpu_id), &sla_config)
+            .expect("DPU conversion produces a machine");
+        let actual = snapshot
+            .into_rpc_machine_state(Some(&dpu_id), &sla_config)
+            .expect("DPU conversion produces a machine");
+
+        assert_eq!(
+            actual.associated_host_machine_id,
+            Some(machine_snapshot::host_machine_id())
+        );
+        assert_eq!(normalized(expected), normalized(actual));
+    }
+
+    #[test]
+    fn unknown_dpu_id_converts_to_none() {
+        let sla_config = slas::MachineSlaConfig::default();
+        let snapshot = machine_snapshot::managed_host_state_snapshot();
+        let unknown = machine_snapshot::dpu_machine_id(9);
+
+        assert!(
+            snapshot
+                .into_rpc_machine_state(Some(&unknown), &sla_config)
+                .is_none()
+        );
+    }
 
     #[test]
     fn dpu_info_to_rpc() {

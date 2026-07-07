@@ -357,10 +357,10 @@ impl DpaInterface {
 
 impl<'r> FromRow<'r, PgRow> for DpaInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        DpaInterfaceSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
+        // Json<T> deserializes the row bytes straight into the snapshot
+        // struct, skipping the intermediate serde_json::Value DOM.
+        let json: sqlx::types::Json<DpaInterfaceSnapshotPgJson> = row.try_get(0)?;
+        json.0.try_into()
     }
 }
 

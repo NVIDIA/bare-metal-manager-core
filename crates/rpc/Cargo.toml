@@ -121,8 +121,15 @@ regex = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 
 [dev-dependencies]
+carbide-api-model = { path = "../api-model", features = ["test-support"] }
 carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "machine_convert"
+harness = false
+required-features = ["model"]
 
 [build-dependencies]
 tonic-prost-build = "0.14"
