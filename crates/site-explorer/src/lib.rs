@@ -54,7 +54,7 @@ use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
     PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
-    is_bf3_supernic_part_number, is_bluefield_part_number,
+    is_bf3_supernic_part_number, is_bluefield_part_number, is_bluefield_system_id,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -3574,7 +3574,7 @@ fn is_bf4_dpu_report(report: &EndpointExplorationReport) -> bool {
     let has_bluefield_system = report
         .systems
         .first()
-        .is_some_and(|system| system.id == "Bluefield");
+        .is_some_and(|system| is_bluefield_system_id(&system.id));
     if !has_bluefield_system {
         return false;
     }
@@ -3921,11 +3921,11 @@ mod tests {
         }
     }
 
-    fn bf4_report_with_zero_suffix_ids() -> EndpointExplorationReport {
+    fn bf4_report_with_zero_suffix_ids(system_id: &str) -> EndpointExplorationReport {
         use model::site_explorer::{Chassis, ComputerSystem, Manager, NetworkAdapter};
         EndpointExplorationReport {
             systems: vec![ComputerSystem {
-                id: "Bluefield".to_string(),
+                id: system_id.to_string(),
                 ..Default::default()
             }],
             chassis: vec![Chassis {
@@ -3947,8 +3947,13 @@ mod tests {
 
     #[test]
     fn is_bf4_dpu_report_detects_zero_suffix_ids_without_model_string() {
-        let report = bf4_report_with_zero_suffix_ids();
-        assert!(is_bf4_dpu_report(&report));
+        for system_id in ["Bluefield", "BlueField_0"] {
+            let report = bf4_report_with_zero_suffix_ids(system_id);
+            assert!(
+                is_bf4_dpu_report(&report),
+                "expected BF4 detection for system id {system_id}"
+            );
+        }
     }
 
     #[test]
