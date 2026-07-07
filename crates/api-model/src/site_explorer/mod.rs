@@ -626,12 +626,6 @@ impl ExploredDpu {
             .report
             .create_temporary_dmi_data(serial_number, vendor, model);
 
-        let chassis_map = self
-            .report
-            .chassis
-            .iter()
-            .map(|x| (x.id.as_str(), x))
-            .collect::<HashMap<_, _>>();
         let inventory_map = self.report.get_inventory_map();
 
         let dpu_data = DpuData {
@@ -639,28 +633,20 @@ impl ExploredDpu {
                 .host_pf_mac_address
                 .ok_or(ModelError::MissingArgument("Missing base mac"))?
                 .to_string(),
-            part_number: chassis_map
-                .get("Card1")
-                .and_then(|value| chassis_part_number(value))
-                .or_else(|| {
-                    self.report
-                        .chassis
-                        .iter()
-                        .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
-                        .find_map(chassis_part_number)
-                })
+            part_number: self
+                .report
+                .chassis
+                .iter()
+                .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                .find_map(chassis_part_number)
                 .unwrap_or("")
                 .to_string(),
-            part_description: chassis_map
-                .get("Card1")
-                .and_then(|value| chassis_model(value))
-                .or_else(|| {
-                    self.report
-                        .chassis
-                        .iter()
-                        .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
-                        .find_map(chassis_model)
-                })
+            part_description: self
+                .report
+                .chassis
+                .iter()
+                .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                .find_map(chassis_model)
                 .unwrap_or("")
                 .to_string(),
             firmware_version: inventory_map
@@ -1777,9 +1763,16 @@ pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
         || normalized_part_number.starts_with("900-9d4a4")
 }
 
-/// Whether a DPU BMC chassis member carries the card product identity (part/serial).
+/// Whether a DPU BMC chassis member carries the card product identity
+/// (part/model/serial).
+///
+/// Older Redfish reports publish this identity on `Card1`; newer BF4 firmware may
+/// instead publish it on the integrated BMC chassis (`Bluefield_BMC` or
+/// `BlueField_BMC_0`). These IDs are expected to be mutually exclusive as product
+/// identity sources in real reports, so callers can select the first matching
+/// chassis.
 fn is_dpu_product_chassis_id(id: &str) -> bool {
-    matches!(id, "Bluefield_BMC" | "BlueField_BMC_0")
+    matches!(id, "Card1" | "Bluefield_BMC" | "BlueField_BMC_0")
 }
 
 /// Whether a Redfish ComputerSystem id identifies a BlueField DPU system.
