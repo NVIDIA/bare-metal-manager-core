@@ -3301,14 +3301,14 @@ fn derive_base_mac_from_bmc_eth0(report: &EndpointExplorationReport) -> Option<M
 }
 
 /// MAC address as a 48-bit big-endian integer (top two bytes of the u64 are zero).
-fn mac_to_u64(mac: MacAddress) -> u64 {
+pub(crate) fn mac_to_u64(mac: MacAddress) -> u64 {
     mac.bytes()
         .iter()
         .fold(0u64, |acc, &byte| (acc << 8) | u64::from(byte))
 }
 
 /// Inverse of [`mac_to_u64`]; the high 16 bits are discarded.
-fn u64_to_mac(value: u64) -> MacAddress {
+pub(crate) fn u64_to_mac(value: u64) -> MacAddress {
     let b = value.to_be_bytes();
     MacAddress::new([b[2], b[3], b[4], b[5], b[6], b[7]])
 }

@@ -71,9 +71,18 @@ pub struct Config<'a, B: Bmc> {
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
+    let is_nvidia_vendor = root.vendor() == Some(Vendor::new("Nvidia"))
+        || root.vendor() == Some(Vendor::new("NVIDIA"));
+    let is_bf4_product = root.product() == Some(Product::new("B4240V"));
+    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product;
+
     chassis::Config {
         network_adapter: network_adapter::Config {
-            need_network_device_fns: root.vendor() == Some(Vendor::new("Dell")),
+            // Dell exploration needs NDF data for host-DPU pairing. BF4 needs
+            // NDF0 `PermanentMACAddress` to derive PF0 base MAC as (NDF0 - 0x10)
+            // while some BMC firmware does not expose ComputerSystem BaseMAC.
+            need_network_device_fns: root.vendor() == Some(Vendor::new("Dell"))
+                || need_bf4_network_device_fns,
         },
         need_assembly_sn: |id| {
             // For GB200s, use the Chassis_0 assembly serial number to match Nautobot.

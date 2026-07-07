@@ -44,6 +44,7 @@ use model::site_explorer::{
 use regex::Regex;
 
 const NOT_FOUND: u16 = 404;
+const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
@@ -830,7 +831,8 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
             // BF4 temporary patch:
             // BF4 BMC reports do not expose PF0 base MAC via the usual
             // ComputerSystem BaseMAC path, so we patch `systems[].base_mac` by
-            // reading NDF0 PermanentMACAddress from the BF4 NIC subtree.
+            // reading NDF0 PermanentMACAddress from the BF4 NIC subtree and
+            // deriving base MAC as (NDF0 - 0x10).
             //
             // Remove this fallback once BF4 BMC exposes PF0 base MAC directly in
             // the standard system/base_mac report path.
@@ -1167,7 +1169,8 @@ async fn get_base_mac_from_bf4_ndf0(client: &dyn Redfish) -> Option<MacAddress> 
             .and_then(serde_json::Value::as_str)
             && let Ok(parsed) = deserialize_input_mac_to_address(mac)
         {
-            return Some(parsed);
+            let derived = crate::mac_to_u64(parsed).checked_sub(BF4_NDF0_TO_BASE_MAC_OFFSET)?;
+            return Some(crate::u64_to_mac(derived));
         }
     }
     None
