@@ -109,7 +109,7 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     ) -> std::io::Result<()> {
         if self.config.enabled {
             tracing::info!(
-                interval_secs = self.config.interval.as_secs(),
+                interval_secs = self.config.publish_interval().as_secs(),
                 scope = ?self.config.scope,
                 healthy_republish_every = self.config.healthy_republish_every,
                 max_publishes_per_second = self.config.max_publishes_per_second.0,
@@ -130,7 +130,7 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
         // first tick fires immediately, so the first sweep runs at startup. If
         // a sweep overruns the interval, missed ticks are skipped rather than
         // bursting back-to-back sweeps.
-        let mut ticker = tokio::time::interval(self.config.interval);
+        let mut ticker = tokio::time::interval(self.config.publish_interval());
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut sweep: u64 = 0;
 

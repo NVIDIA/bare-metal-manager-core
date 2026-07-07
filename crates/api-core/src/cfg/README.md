@@ -494,7 +494,7 @@ events, so consumers handle them identically.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Enable periodic republishing (on by default whenever the DSX Exchange Event Bus is enabled). Change-driven publishing is unaffected by this setting. |
-| `interval` | `Duration` | `5m` | How often a republish sweep runs. |
+| `interval` | `Duration` | `5m` | How often a republish sweep runs, clamped to 1 second through 1 hour. |
 | `scope` | `RepublishScope` | `all` | Which managed hosts to publish each sweep (see [RepublishScope](#republishscope)). |
 | `healthy_republish_every` | `u32` | `1` | When `scope = all`, publish healthy hosts only every Nth sweep; hosts with an active health alert are always published every sweep. `0` is treated as `1`. Ignored when `scope = unhealthy_only`. |
 | `max_publishes_per_second` | `u32` | `0` | Upper bound on publishes per second within a sweep, to avoid bursting the broker on large sites. `0` disables pacing. |

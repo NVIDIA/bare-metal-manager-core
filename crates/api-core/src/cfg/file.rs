@@ -2385,6 +2385,9 @@ impl PublishRate {
     }
 }
 
+const PUBLISH_INTERVAL_MIN: std::time::Duration = std::time::Duration::from_secs(1);
+const PUBLISH_INTERVAL_MAX: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
 /// Periodic republishing of `ManagedHostState` on the DSX Exchange Event Bus.
 ///
 /// NICo publishes state on every transition, but integrators that cannot poll
@@ -2400,7 +2403,8 @@ pub struct PeriodicStateRepublishConfig {
     #[serde(default = "PeriodicStateRepublishConfig::default_enabled")]
     pub enabled: bool,
 
-    /// How often a republish sweep runs. Defaults to 5 minutes.
+    /// How often a republish sweep runs. Defaults to 5 minutes and is clamped
+    /// to the supported range of 1 second through 1 hour.
     #[serde(
         default = "PeriodicStateRepublishConfig::default_interval",
         deserialize_with = "deserialize_duration",
@@ -2450,6 +2454,11 @@ impl PeriodicStateRepublishConfig {
             ));
         }
         Ok(())
+    }
+
+    pub fn publish_interval(&self) -> std::time::Duration {
+        self.interval
+            .clamp(PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MAX)
     }
 
     pub const fn default_interval() -> std::time::Duration {
@@ -2823,6 +2832,30 @@ mod tests {
                 ),
                 "unexpected error: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn periodic_state_republish_clamps_interval() {
+        for (configured, expected) in [
+            (std::time::Duration::from_millis(500), PUBLISH_INTERVAL_MIN),
+            (PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MIN),
+            (
+                PeriodicStateRepublishConfig::default_interval(),
+                PeriodicStateRepublishConfig::default_interval(),
+            ),
+            (PUBLISH_INTERVAL_MAX, PUBLISH_INTERVAL_MAX),
+            (
+                std::time::Duration::from_secs(2 * 60 * 60),
+                PUBLISH_INTERVAL_MAX,
+            ),
+        ] {
+            let config = PeriodicStateRepublishConfig {
+                interval: configured,
+                ..Default::default()
+            };
+
+            assert_eq!(config.publish_interval(), expected);
         }
     }
 
