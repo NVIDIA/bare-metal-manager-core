@@ -179,8 +179,8 @@ verification expectations.
 - Tests run with `-p 1` (serial) and often with `-race`.
 - API handlers live in `api/pkg/api/handler/`, request/response models in
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
-- OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
-  endpoints are added or modified.
+- OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
+  published API surface are added or modified.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
@@ -237,14 +237,21 @@ main patterns:
   endpoints are security-sensitive because they are mounted before auth
   middleware.
 
-- `FromDBModel` (we want to transition from NewX to this receiver) and `ToDBModel` for converting between APi and DB models
-- All API model attributes should be structured, we don't allow schemaless JSON exposure. JSON tags must be camel Case. All constants should be in Pascal Case.
-- Implementor should seek observe all existing endpoint routes to make the best decision for a new route. Naming the route and attributes correctly is critical, once published in a release tag it must use deprecation to  In general we follow REST best practices:
-  - Creating new objects should be done using POST
-  - Updates should be done using PATCH
-  - PUT is used only if the endpoint supports both creation or update
-  - Unless the resource has no unique identifier, PATCH, GET and DELETE routes must end with resource ID
-  - GET requests that return multiple objects must return pagination information in designated pagination header in response
+- Use receiver methods named `FromDBModel` and `ToDBModel` for conversions
+  between API and DB models. Prefer `FromDBModel` over new `NewX` conversion
+  constructors as existing models are updated.
+- Give every API model attribute a structured schema; do not expose schemaless
+  JSON. JSON tags use camelCase, and API constants use PascalCase.
+- Review the existing endpoint routes before choosing a new route or attribute
+  name. Published names are compatibility commitments and require deprecation
+  before they can be replaced. Follow these REST conventions:
+  - Use POST to create resources.
+  - Use PATCH to update resources.
+  - Use PUT only when an endpoint supports both creation and update.
+  - End PATCH, GET, and DELETE routes with the resource ID unless the resource
+    has no unique identifier.
+  - Return pagination metadata in the `X-Pagination` response header for GET
+    requests that return multiple resources.
 
 Keep handlers thin and reuse the common surfaces already in the tree:
 
@@ -284,8 +291,10 @@ When registering a new route:
 - Update `api/pkg/api/routes_test.go`: increment the route family count, add an
   `assertRouteExists` check for any new route shape, and add `assertRouteBefore`
   when a static route could be shadowed by a parameterized route.
-- Update `openapi/spec.yaml` in the same change. Keep operation IDs, summaries,
-  handler constructors, handler godoc, and SDK-facing names aligned.
+- For routes published in the OpenAPI surface, update `openapi/spec.yaml` in the
+  same change. System and public discovery routes that are intentionally outside
+  that surface are exempt. Keep operation IDs, summaries, handler constructors,
+  handler godoc, and SDK-facing names aligned.
 
 Endpoint tests should follow the changed surface, not just compile it:
 
@@ -294,6 +303,8 @@ Endpoint tests should follow the changed surface, not just compile it:
 - Handler tests cover auth role, org membership, missing user, invalid IDs,
   ownership/site checks, request validation, status codes, and the response
   shape. For accepted deletes, reuse `assertDeletionAcceptedResponse`.
+- List handler tests cover paging inputs and assert the `X-Pagination` response
+  header.
 - Site/Core/Flow handlers should assert the workflow or proxy request arguments,
   workflow ID inputs, secret field names, timeout behavior where relevant, and
   that secrets are absent from responses and logs.
