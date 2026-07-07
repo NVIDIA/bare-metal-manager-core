@@ -3558,20 +3558,14 @@ async fn check_host_boot_config(
     // falls back to its predicted boot NIC, and only waits when even that is
     // unavailable.
     let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-        BootInterfaceResolution::Ready(target) => target,
-        BootInterfaceResolution::AwaitingNic => {
-            return Ok(HostBootConfigDecision::Wait(format!(
-                "Waiting for zero-DPU host {} to discover its boot NIC before configuring boot.",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
-        BootInterfaceResolution::Missing => {
-            return Err(StateHandlerError::GenericError(eyre::eyre!(
-                "Missing boot interface for host: {}",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
+    let boot_interface = match require_boot_interface(
+        mh_snapshot,
+        &predictions,
+        "configuring boot",
+        HostBootConfigDecision::Wait,
+    )? {
+        RequiredBootInterface::Ready(target) => target,
+        RequiredBootInterface::Wait(decision) => return Ok(decision),
     };
 
     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
@@ -4931,6 +4925,117 @@ enum HostBootConfigDpuFreshness {
     AlreadyValidated,
     CurrentHostState,
     SinceLastHostRebootRequest,
+}
+
+/// Outcome of [`require_boot_interface`]: the resolved boot NIC, or the
+/// caller's wait outcome for a zero-DPU host still discovering its boot NIC.
+#[derive(Debug)]
+enum RequiredBootInterface<W> {
+    Ready(BootInterfaceTarget),
+    Wait(W),
+}
+
+/// Resolve the boot NIC for a Redfish boot step, folding the not-ready cases
+/// every caller handles the same way: a zero-DPU host that has not discovered
+/// its boot NIC yet maps to the caller's wait outcome (`wait` wraps the shared
+/// message; `activity` names the blocked step), and a host with no resolvable
+/// interface is a hard error. Keeps the boot-order substates and host boot
+/// repair resolving the boot NIC identically.
+fn require_boot_interface<W>(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    predictions: &[PredictedMachineInterface],
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    map_boot_interface_resolution(
+        resolve_boot_interface(mh_snapshot, predictions),
+        &mh_snapshot.host_snapshot.id,
+        activity,
+        wait,
+    )
+}
+
+/// The mapping behind [`require_boot_interface`], split out from the snapshot
+/// lookup so it can be unit-tested directly.
+fn map_boot_interface_resolution<W>(
+    resolution: BootInterfaceResolution,
+    host_id: &MachineId,
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    match resolution {
+        BootInterfaceResolution::Ready(target) => Ok(RequiredBootInterface::Ready(target)),
+        BootInterfaceResolution::AwaitingNic => Ok(RequiredBootInterface::Wait(wait(format!(
+            "Waiting for zero-DPU host {host_id} to discover its boot NIC before {activity}."
+        )))),
+        BootInterfaceResolution::Missing => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "Missing boot interface for host: {host_id}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod require_boot_interface_tests {
+    use super::*;
+
+    fn host_id() -> MachineId {
+        "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+            .parse()
+            .unwrap()
+    }
+
+    // Ready passes the resolved target through untouched.
+    #[test]
+    fn ready_passes_the_target_through() {
+        let target = BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap());
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Ready(target.clone()),
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Ready(out) = resolved else {
+            panic!("expected Ready");
+        };
+        assert_eq!(out, target);
+    }
+
+    // AwaitingNic becomes the caller's wait outcome, built from the shared
+    // message with the caller's activity spliced in.
+    #[test]
+    fn awaiting_nic_maps_to_the_callers_wait_outcome() {
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::AwaitingNic,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Wait(msg) = resolved else {
+            panic!("expected Wait");
+        };
+        assert_eq!(
+            msg,
+            format!(
+                "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
+                host_id()
+            )
+        );
+    }
+
+    // Missing is a hard error, not a wait.
+    #[test]
+    fn missing_is_a_hard_error() {
+        let err = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Missing,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap_err();
+        assert!(matches!(err, StateHandlerError::GenericError(_)));
+    }
 }
 
 /// In case machine does not come up until a specified duration, this function tries to reboot
@@ -11204,20 +11309,14 @@ async fn set_host_boot_order(
             // HostInband lease creates a real row, a zero-DPU/NIC-mode host
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "setting boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             // Don't re-apply a boot config that's already in place. `SetBootOrder`
@@ -11366,20 +11465,14 @@ async fn set_host_boot_order(
             const HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES: i64 = 10;
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying the re-asserted HTTP boot device.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying the re-asserted HTTP boot device",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             let is_bios_setup = boot_interface
@@ -11646,20 +11739,14 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             let boot_order_configured = boot_interface
