@@ -75,17 +75,17 @@ mod tests {
         // BF2 and BF3 currently share BMC and UEFI payload versions.
         value_scenarios!(default_version:
             "bluefield 2" {
-                BlueFieldVersion::Bf2Nic => "24.47.2682",
-                BlueFieldVersion::Bf2Bmc => "BF-25.10-20",
+                BlueFieldVersion::Bf2Nic => "24.49.1014",
+                BlueFieldVersion::Bf2Bmc => "BF-26.04-8",
                 BlueFieldVersion::Bf2Cec => "4-15",
-                BlueFieldVersion::Bf2Uefi => "4.13.2-12-g943a91640d",
+                BlueFieldVersion::Bf2Uefi => "4.16.0-14-g6ff7666b64",
             }
 
             "bluefield 3" {
-                BlueFieldVersion::Bf3Nic => "32.47.2682",
-                BlueFieldVersion::Bf3Bmc => "BF-25.10-20",
+                BlueFieldVersion::Bf3Nic => "32.49.1014",
+                BlueFieldVersion::Bf3Bmc => "BF-26.04-8",
                 BlueFieldVersion::Bf3Cec => "00.02.0195.0000_n02",
-                BlueFieldVersion::Bf3Uefi => "4.13.2-12-g943a91640d",
+                BlueFieldVersion::Bf3Uefi => "4.16.0-14-g6ff7666b64",
             }
         );
     }
