@@ -2212,7 +2212,7 @@ FOR UPDATE"#;
 /// This intentionally locks more broadly than the specific host touches so reconciliation follows
 /// the same high-level lock order as address allocation: segment advisory lock first, then
 /// machine interface/address row locks.
-async fn load_and_lock_all_admin_segments(
+pub async fn load_and_lock_all_admin_segments(
     txn: &mut Transaction<'_>,
 ) -> DatabaseResult<Vec<NetworkSegment>> {
     let mut segment_ids =

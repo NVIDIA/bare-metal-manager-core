@@ -116,6 +116,12 @@ pub(crate) async fn discover_machine(
     };
 
     let mut txn = api.txn_begin().await?;
+    if hardware_info.is_dpu() {
+        // Discovery updates machine-interface rows before reconciliation. Take the segment locks
+        // first so the outer transaction preserves the allocator's advisory-lock-before-row-lock
+        // order instead of relying on reconciliation's inner savepoint to establish it later.
+        db::machine_interface::load_and_lock_all_admin_segments(&mut txn).await?;
+    }
     tracing::debug!(
         ?remote_ip,
         ?interface_id,
