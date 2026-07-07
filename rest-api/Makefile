@@ -268,20 +268,20 @@ core-proto:
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
-	rm -rf workflow-schema/core/proto/v1/*_nico.proto
-	rm -rf workflow-schema/core/protobuf/v1/*.pb.go
+	rm -rf proto/core/src/v1/*_nico.proto
+	rm -rf proto/core/gen/v1/*.pb.go
 
 core-proto-fetch:
 	@for file in ../crates/rpc/proto/*.proto; do \
-		cp "$$file" "workflow-schema/core/proto/v1/$$(basename "$$file" .proto)_nico.proto"; \
+		cp "$$file" "proto/core/src/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
-	mv workflow-schema/core/proto/v1/forge_nico.proto workflow-schema/core/proto/v1/nico_nico.proto
+	mv proto/core/src/v1/forge_nico.proto proto/core/src/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
 
 core-proto-fmt:
 	@echo "Formatting Core protobuf files"
-	cd workflow-schema/cmd/core-proto-fmt && go run main.go
+	cd proto/cmd/core-proto-fmt && go run main.go
 
 core-protogen:
 	if ! command -v buf >/dev/null 2>&1; then \
@@ -305,21 +305,29 @@ core-protogen:
 		exit 1; \
 	fi
 	echo "Generating protobuf for Core"
-	cd workflow-schema/core && buf generate
+	cd proto/core && buf generate
 	go fmt ./...
 
 flow-proto:
-	FLOW_DIR=flow; \
-	ls "$${FLOW_DIR}/proto/v1"; \
-	for file in "$${FLOW_DIR}"/proto/v1/*.proto; do \
-		cp "$$file" "workflow-schema/flow/proto/v1/"; \
+	$(MAKE) flow-proto-clean
+	$(MAKE) flow-proto-fetch
+	$(MAKE) flow-protogen
+
+flow-proto-clean:
+	@echo "Cleaning up Flow proto and protobuf files"
+	rm -rf proto/flow/src/v1/*_nico.proto
+	rm -rf proto/flow/gen/v1/*.pb.go
+
+flow-proto-fetch:
+	@for file in flow/proto/v1/*.proto; do \
+		cp "$$file" "proto/flow/src/v1/"; \
 		echo "Copied: $$file"; \
-		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow"; \
+		./proto/scripts/add-go-package-option.sh "proto/flow/src/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/proto/flow"; \
 	done
 
 flow-protogen:
 	echo "Generating protobuf for Flow"
-	cd workflow-schema/flow && buf generate
+	cd proto/flow && buf generate
 	go fmt ./...
 
 # =============================================================================
