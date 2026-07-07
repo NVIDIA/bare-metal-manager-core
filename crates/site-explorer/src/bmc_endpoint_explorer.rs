@@ -61,9 +61,11 @@ pub struct BmcEndpointExplorer {
 }
 
 impl BmcEndpointExplorer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+        max_concurrent_bmc_requests: usize,
         ipmi_tool: Arc<dyn IPMITool>,
         credential_manager: Arc<dyn CredentialManager>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
@@ -71,7 +73,11 @@ impl BmcEndpointExplorer {
         database_connection: Option<PgPool>,
     ) -> Self {
         Self {
-            redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
+            redfish_client: RedfishClient::new(
+                redfish_client_pool,
+                nv_redfish_client_pool,
+                max_concurrent_bmc_requests,
+            ),
             ipmi_tool,
             credential_client: CredentialClient::new(credential_manager),
             rotate_switch_nvos_credentials,

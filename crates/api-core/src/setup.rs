@@ -469,6 +469,7 @@ pub async fn start_api(
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         shared_redfish_pool.clone(),
         shared_nv_redfish_pool,
+        carbide_config.site_explorer.max_concurrent_bmc_requests,
         ipmi_tool.clone(),
         credential_manager.clone(),
         carbide_config

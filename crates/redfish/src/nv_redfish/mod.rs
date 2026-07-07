@@ -35,6 +35,18 @@ pub type RedfishBmc = HttpBmc<RedfishReqwestClient>;
 pub type ServiceRoot = NvServiceRoot<RedfishBmc>;
 pub type Error = NvError<RedfishBmc>;
 
+/// Idle connections the reqwest pool retains per BMC.
+///
+/// BMC exploration fetches independent Redfish subtrees concurrently, keeping
+/// up to `Config::max_concurrent_bmc_requests` (bmc-explorer) requests in
+/// flight against one endpoint. Retaining as many idle connections as that
+/// cap's default (`DEFAULT_MAX_CONCURRENT_BMC_REQUESTS`, also 4) lets the
+/// default fan-out reuse warm sockets instead of opening (and dropping) a
+/// fresh connection per concurrent request; the nv-redfish default retains
+/// only one. A site configured with a lower per-BMC cap simply leaves idle
+/// capacity unused.
+const POOL_MAX_IDLE_PER_HOST: usize = 4;
+
 pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedfishClientPool> {
     NvRedfishClientPool::new(proxy_address).into()
 }
@@ -171,7 +183,9 @@ impl NvRedfishClientPool {
         }
 
         let client = RedfishReqwestClient::with_params(
-            RedfishReqwestClientParams::new().accept_invalid_certs(true),
+            RedfishReqwestClientParams::new()
+                .accept_invalid_certs(true)
+                .pool_max_idle_per_host(POOL_MAX_IDLE_PER_HOST),
         )
         .map_err(|err| Error::Bmc(err.into()))?;
         Ok(Arc::new(RedfishBmc::with_custom_headers(

@@ -15,13 +15,15 @@
  * limitations under the License.
  */
 
+use futures::stream::{self, StreamExt, TryStreamExt};
 use mac_address::MacAddress;
 use model::site_explorer::NetworkAdapter as ModelNetworkAdapter;
 use nv_redfish::chassis::{Chassis, NetworkAdapter};
 use nv_redfish::network_device_function::NetworkDeviceFunction;
 use nv_redfish::{Bmc, Resource};
+use tokio::sync::Semaphore;
 
-use crate::Error;
+use crate::{DEFAULT_MAX_CONCURRENT_BMC_REQUESTS, Error, limited};
 
 pub struct Config {
     pub need_network_device_fns: bool,
@@ -32,13 +34,18 @@ pub struct ExploredNetworkAdapterCollection<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
-    pub async fn explore(chassis: &Chassis<B>, config: &Config) -> Result<Self, Error<B>> {
-        match chassis.network_adapters().await {
+    pub async fn explore(
+        chassis: &Chassis<B>,
+        config: &Config,
+        limiter: &Semaphore,
+    ) -> Result<Self, Error<B>> {
+        match limited(limiter, chassis.network_adapters()).await {
             Ok(Some(network_adapters)) => {
-                let mut members = Vec::new();
-                for na in network_adapters {
-                    members.push(ExploredNetworkAdapter::explore(na, config).await?);
-                }
+                let members = stream::iter(network_adapters)
+                    .map(|na| ExploredNetworkAdapter::explore(na, config, limiter))
+                    .buffered(DEFAULT_MAX_CONCURRENT_BMC_REQUESTS)
+                    .try_collect()
+                    .await?;
                 Ok(Self { members })
             }
             Ok(None) => Ok(Self { members: vec![] }),
@@ -75,22 +82,26 @@ pub struct ExploredNetworkAdapter<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredNetworkAdapter<B> {
-    pub async fn explore(adapter: NetworkAdapter<B>, config: &Config) -> Result<Self, Error<B>> {
-        let functions = if config.need_network_device_fns {
-            if let Some(collection) = adapter
-                .network_device_functions()
-                .await
-                .map_err(Error::nv_redfish("network device function collection"))?
-            {
-                Some(collection.members().await.map_err(Error::nv_redfish(
-                    "network device function collection members",
-                ))?)
+    pub async fn explore(
+        adapter: NetworkAdapter<B>,
+        config: &Config,
+        limiter: &Semaphore,
+    ) -> Result<Self, Error<B>> {
+        let functions =
+            if config.need_network_device_fns {
+                if let Some(collection) = limited(limiter, adapter.network_device_functions())
+                    .await
+                    .map_err(Error::nv_redfish("network device function collection"))?
+                {
+                    Some(limited(limiter, collection.members()).await.map_err(
+                        Error::nv_redfish("network device function collection members"),
+                    )?)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
         Ok(Self { adapter, functions })
     }
 

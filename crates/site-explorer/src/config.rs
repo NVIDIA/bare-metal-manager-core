@@ -73,6 +73,12 @@ pub struct SiteExplorerConfig {
     #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
     pub explorations_per_run: u64,
 
+    /// The maximum number of in-flight Redfish requests to a single BMC
+    /// during exploration. `1` explores one request at a time, for BMCs that
+    /// dislike concurrent access. Default is 4.
+    #[serde(default = "SiteExplorerConfig::default_max_concurrent_bmc_requests")]
+    pub max_concurrent_bmc_requests: usize,
+
     /// When false, SiteExplorer skips creating ManagedHost state machines; the DPU agent (scout) must self-register via DiscoverMachine gRPC endpoint with create_machine=true
     #[serde(
         default = "SiteExplorerConfig::default_create_machines",
@@ -203,6 +209,7 @@ impl Default for SiteExplorerConfig {
             run_interval: Self::default_run_interval(),
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),
+            max_concurrent_bmc_requests: Self::default_max_concurrent_bmc_requests(),
             create_machines: Arc::new(true.into()),
             machines_created_per_run: Self::default_machines_created_per_run(),
             override_target_ip: None,
@@ -230,6 +237,7 @@ impl PartialEq for SiteExplorerConfig {
             && self.run_interval == other.run_interval
             && self.concurrent_explorations == other.concurrent_explorations
             && self.explorations_per_run == other.explorations_per_run
+            && self.max_concurrent_bmc_requests == other.max_concurrent_bmc_requests
             && self.create_machines.load(AtomicOrdering::Relaxed)
                 == other.create_machines.load(AtomicOrdering::Relaxed)
             && self.override_target_ip == other.override_target_ip
@@ -256,6 +264,10 @@ impl SiteExplorerConfig {
 
     pub const fn default_explorations_per_run() -> u64 {
         90
+    }
+
+    pub const fn default_max_concurrent_bmc_requests() -> usize {
+        bmc_explorer::DEFAULT_MAX_CONCURRENT_BMC_REQUESTS
     }
 
     pub const fn default_machines_created_per_run() -> u64 {

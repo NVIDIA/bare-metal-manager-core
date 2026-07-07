@@ -38,5 +38,6 @@ pub fn explorer_config() -> bmc_explorer::Config<'static, TestBmc> {
         boot_interface_mac: None,
         error_classifier: &error_classifier,
         retry_timeout: Duration::from_millis(0),
+        max_concurrent_bmc_requests: bmc_explorer::DEFAULT_MAX_CONCURRENT_BMC_REQUESTS,
     }
 }

@@ -29,8 +29,9 @@ use nv_redfish::oem::dell::attributes::DellAttributes;
 use nv_redfish::oem::lenovo::security_service::LenovoSecurityService;
 use nv_redfish::oem::supermicro::{KcsInterface, SysLockdown};
 use nv_redfish::{Bmc, Resource};
+use tokio::sync::Semaphore;
 
-use crate::Error;
+use crate::{Error, limited};
 
 #[derive(Default)]
 pub struct Config {
@@ -54,87 +55,119 @@ pub struct ExploredManager<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredManager<B> {
-    pub async fn explore(manager: Manager<B>, config: &Config) -> Result<Self, Error<B>> {
-        let eth_interfaces = manager
-            .ethernet_interfaces()
-            .await
-            .map_err(Error::nv_redfish("manager ethernet interfaces"))?
-            .ok_or_else(Error::bmc_not_provided("manager ethernet interfaces"))?
-            .members()
-            .await
-            .map_err(Error::nv_redfish("manager ethernet interfaces members"))?;
-
-        let host_interfaces = if config.need_host_interfaces {
-            if let Some(collection) = manager
-                .host_interfaces()
+    pub async fn explore(
+        manager: Manager<B>,
+        config: &Config,
+        limiter: &Semaphore,
+    ) -> Result<Self, Error<B>> {
+        // The ethernet-interface, host-interface, and OEM subtrees of one
+        // manager are independent, so they proceed concurrently.
+        let eth_interfaces_branch = async {
+            let collection = limited(limiter, manager.ethernet_interfaces())
                 .await
-                .map_err(Error::nv_redfish("host interfaces collection"))?
-            {
-                Some(
-                    collection
-                        .members()
-                        .await
-                        .map_err(Error::nv_redfish("host interfaces collection members"))?,
-                )
+                .map_err(Error::nv_redfish("manager ethernet interfaces"))?
+                .ok_or_else(Error::bmc_not_provided("manager ethernet interfaces"))?;
+            limited(limiter, collection.members())
+                .await
+                .map_err(Error::nv_redfish("manager ethernet interfaces members"))
+        };
+
+        let host_interfaces_branch = async {
+            if config.need_host_interfaces {
+                if let Some(collection) = limited(limiter, manager.host_interfaces())
+                    .await
+                    .map_err(Error::nv_redfish("host interfaces collection"))?
+                {
+                    Ok(Some(limited(limiter, collection.members()).await.map_err(
+                        Error::nv_redfish("host interfaces collection members"),
+                    )?))
+                } else {
+                    Ok(None)
+                }
             } else {
-                None
+                Ok(None)
             }
-        } else {
-            None
         };
 
-        let oem_dell_attributes = if config.need_oem_dell_attributes {
-            manager
-                .oem_dell_attributes()
-                .await
-                .map_err(Error::nv_redfish("Dell OEM Attributes"))?
-        } else {
-            None
-        };
-
-        let oem_lenovo_security_service = if config.need_oem_lenovo_security_service
-            && let Some(oem_lenovo) = manager
-                .oem_lenovo()
-                .map_err(Error::nv_redfish("Lenovo manager OEM"))?
-        {
-            oem_lenovo
-                .security()
-                .await
-                .map_err(Error::nv_redfish("Lenovo OEM security service"))?
-        } else {
-            None
-        };
-
-        let mut oem_supermicro_kcs_interface = None;
-        let mut oem_supermicro_sys_lockdown = None;
-        if (config.need_oem_supermicro_kcs_interface || config.need_oem_supermicro_sys_lockdown)
-            && let Some(oem_supermicro) = manager
-                .oem_supermicro()
-                .map_err(Error::nv_redfish("Supermicro OEM"))?
-        {
-            if config.need_oem_supermicro_kcs_interface {
-                oem_supermicro_kcs_interface = oem_supermicro
-                    .kcs_interface()
+        let oem_dell_attributes_branch = async {
+            if config.need_oem_dell_attributes {
+                limited(limiter, manager.oem_dell_attributes())
                     .await
-                    .map_err(Error::nv_redfish("Supermicro KCS Interface"))?
-            };
-
-            if config.need_oem_supermicro_sys_lockdown {
-                oem_supermicro_sys_lockdown = oem_supermicro
-                    .sys_lockdown()
-                    .await
-                    .map_err(Error::nv_redfish("Supermicro SysLockdown"))?
+                    .map_err(Error::nv_redfish("Dell OEM Attributes"))
+            } else {
+                Ok(None)
             }
-        }
-
-        let oem_ami_config_bmc = if config.need_oem_ami_config_bmc {
-            manager
-                .oem_ami_config_bmc()
-                .await
-                .map_err(Error::nv_redfish("AMI manager ConfigBMC OEM"))?
-        } else {
-            None
         };
+
+        let oem_lenovo_security_service_branch = async {
+            if config.need_oem_lenovo_security_service
+                && let Some(oem_lenovo) = manager
+                    .oem_lenovo()
+                    .map_err(Error::nv_redfish("Lenovo manager OEM"))?
+            {
+                limited(limiter, oem_lenovo.security())
+                    .await
+                    .map_err(Error::nv_redfish("Lenovo OEM security service"))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let oem_supermicro_branch = async {
+            if (config.need_oem_supermicro_kcs_interface || config.need_oem_supermicro_sys_lockdown)
+                && let Some(oem_supermicro) = manager
+                    .oem_supermicro()
+                    .map_err(Error::nv_redfish("Supermicro OEM"))?
+            {
+                let kcs_interface_branch = async {
+                    if config.need_oem_supermicro_kcs_interface {
+                        limited(limiter, oem_supermicro.kcs_interface())
+                            .await
+                            .map_err(Error::nv_redfish("Supermicro KCS Interface"))
+                    } else {
+                        Ok(None)
+                    }
+                };
+                let sys_lockdown_branch = async {
+                    if config.need_oem_supermicro_sys_lockdown {
+                        limited(limiter, oem_supermicro.sys_lockdown())
+                            .await
+                            .map_err(Error::nv_redfish("Supermicro SysLockdown"))
+                    } else {
+                        Ok(None)
+                    }
+                };
+                tokio::try_join!(kcs_interface_branch, sys_lockdown_branch)
+            } else {
+                Ok((None, None))
+            }
+        };
+
+        let oem_ami_config_bmc_branch = async {
+            if config.need_oem_ami_config_bmc {
+                limited(limiter, manager.oem_ami_config_bmc())
+                    .await
+                    .map_err(Error::nv_redfish("AMI manager ConfigBMC OEM"))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let (
+            eth_interfaces,
+            host_interfaces,
+            oem_dell_attributes,
+            oem_lenovo_security_service,
+            (oem_supermicro_kcs_interface, oem_supermicro_sys_lockdown),
+            oem_ami_config_bmc,
+        ) = tokio::try_join!(
+            eth_interfaces_branch,
+            host_interfaces_branch,
+            oem_dell_attributes_branch,
+            oem_lenovo_security_service_branch,
+            oem_supermicro_branch,
+            oem_ami_config_bmc_branch,
+        )?;
 
         Ok(Self {
             manager,

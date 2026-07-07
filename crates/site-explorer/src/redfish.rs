@@ -51,16 +51,21 @@ const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 pub struct RedfishClient {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+    /// Cap on in-flight Redfish requests one exploration keeps against a
+    /// single BMC (`[site_explorer] max_concurrent_bmc_requests`).
+    max_concurrent_bmc_requests: usize,
 }
 
 impl RedfishClient {
     pub fn new(
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+        max_concurrent_bmc_requests: usize,
     ) -> Self {
         Self {
             redfish_client_pool,
             nv_redfish_client_pool,
+            max_concurrent_bmc_requests,
         }
     }
 
@@ -345,7 +350,7 @@ impl RedfishClient {
 
         bmc_explorer::nv_generate_exploration_report(
             service_root,
-            &nv_bmc_explore_config(boot_interface_mac),
+            &nv_bmc_explore_config(boot_interface_mac, self.max_concurrent_bmc_requests),
         )
         .await
         .map_err(map_nv_redfish_explore_error)
@@ -1365,6 +1370,7 @@ fn nv_error_classifier(
 
 fn nv_bmc_explore_config(
     boot_interface_mac: Option<MacAddress>,
+    max_concurrent_bmc_requests: usize,
 ) -> bmc_explorer::Config<'static, carbide_redfish::nv_redfish::RedfishBmc> {
     bmc_explorer::Config {
         boot_interface_mac,
@@ -1373,6 +1379,7 @@ fn nv_bmc_explore_config(
         // but not for too long relative to the total exploration
         // time.
         retry_timeout: Duration::from_millis(1000),
+        max_concurrent_bmc_requests,
     }
 }
 
@@ -1480,7 +1487,11 @@ mod tests {
     fn build_redfish_client(sim: Arc<RedfishSim>) -> RedfishClient {
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
         let nv_pool = Arc::new(NvRedfishClientPool::new(proxy_address));
-        RedfishClient::new(sim, nv_pool)
+        RedfishClient::new(
+            sim,
+            nv_pool,
+            bmc_explorer::DEFAULT_MAX_CONCURRENT_BMC_REQUESTS,
+        )
     }
 
     /// Rotate a BMC's root password against the sim and report the vendor

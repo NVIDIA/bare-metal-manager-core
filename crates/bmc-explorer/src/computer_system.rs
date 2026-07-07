@@ -36,9 +36,11 @@ use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::PowerState;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
 use regex::Regex;
+use tokio::sync::Semaphore;
 
 use crate::{
-    Config as ExploreConfig, Error, ErrorClass, ExploredChassisCollection, compare_boot_options, hw,
+    Config as ExploreConfig, Error, ErrorClass, ExploredChassisCollection, compare_boot_options,
+    hw, limited,
 };
 
 const UEFI_MAC_PATTERN_CAPTURE: &str = "mac";
@@ -74,40 +76,56 @@ impl<B: Bmc> ExploredComputerSystem<B> {
     pub async fn explore(
         system: ComputerSystem<B>,
         config: &Config<'_, B>,
+        limiter: &Semaphore,
     ) -> Result<Self, Error<B>> {
-        let boot_options = if config.need_boot_options
-            && let Some(collection) = system
-                .boot_options()
-                .await
-                .map_err(Error::nv_redfish("boot options"))?
-        {
-            collection
-                .members()
-                .await
-                .map_err(Error::nv_redfish("boot options members"))?
-        } else {
-            vec![]
+        // The boot-option, BIOS, ethernet-interface, OEM, and secure-boot
+        // subtrees of one computer system are independent, so they proceed
+        // concurrently.
+        let boot_options_branch = async {
+            if config.need_boot_options
+                && let Some(collection) = limited(limiter, system.boot_options())
+                    .await
+                    .map_err(Error::nv_redfish("boot options"))?
+            {
+                limited(limiter, collection.members())
+                    .await
+                    .map_err(Error::nv_redfish("boot options members"))
+            } else {
+                Ok(vec![])
+            }
         };
 
-        let bios = Self::fetch_bios(&system, config).await?;
+        let bios_branch = Self::fetch_bios(&system, config, limiter);
 
-        let ethernet_interfaces = Self::fetch_eth_interfaces(&system, config)
-            .await
-            .map_err(Error::nv_redfish("system ethernet interfaces"))?;
-
-        let oem_nvidia_bluefield = if config.need_oem_nvidia_bluefield {
-            system
-                .oem_nvidia_bluefield()
+        let eth_interfaces_branch = async {
+            Self::fetch_eth_interfaces(&system, config, limiter)
                 .await
-                .map_err(Error::nv_redfish("NVIDIA system Bluefield OEM"))?
-        } else {
-            None
+                .map_err(Error::nv_redfish("system ethernet interfaces"))
         };
 
-        let secure_boot = system
-            .secure_boot()
-            .await
-            .map_err(Error::nv_redfish("secure boot"))?;
+        let oem_nvidia_bluefield_branch = async {
+            if config.need_oem_nvidia_bluefield {
+                limited(limiter, system.oem_nvidia_bluefield())
+                    .await
+                    .map_err(Error::nv_redfish("NVIDIA system Bluefield OEM"))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let secure_boot_branch = async {
+            limited(limiter, system.secure_boot())
+                .await
+                .map_err(Error::nv_redfish("secure boot"))
+        };
+
+        let (boot_options, bios, ethernet_interfaces, oem_nvidia_bluefield, secure_boot) = tokio::try_join!(
+            boot_options_branch,
+            bios_branch,
+            eth_interfaces_branch,
+            oem_nvidia_bluefield_branch,
+            secure_boot_branch,
+        )?;
 
         Ok(Self {
             system,
@@ -122,8 +140,9 @@ impl<B: Bmc> ExploredComputerSystem<B> {
     async fn fetch_bios(
         system: &ComputerSystem<B>,
         config: &Config<'_, B>,
+        limiter: &Semaphore,
     ) -> Result<Option<Bios<B>>, Error<B>> {
-        match system.bios().await {
+        match limited(limiter, system.bios()).await {
             Ok(bios) => Ok(bios),
             Err(err) if config.ignore_500_on_bios_fetch => {
                 if let nv_redfish::Error::Bmc(bmc_error) = &err
@@ -144,15 +163,21 @@ impl<B: Bmc> ExploredComputerSystem<B> {
     async fn fetch_eth_interfaces(
         system: &ComputerSystem<B>,
         config: &Config<'_, B>,
+        limiter: &Semaphore,
     ) -> Result<Vec<EthernetInterface<B>>, nv_redfish::Error<B>> {
         // Total tries: 3 (initial + 2 retries).
         let mut retries_remaining = 2;
         loop {
-            let result = match system.ethernet_interfaces().await {
-                Ok(Some(ifaces)) => ifaces.members().await,
-                Ok(None) => Ok(vec![]),
-                Err(err) => Err(err),
-            };
+            // One permit spans the collection + members pair of one attempt;
+            // it is released before any retry sleep below.
+            let result = limited(limiter, async {
+                match system.ethernet_interfaces().await {
+                    Ok(Some(ifaces)) => ifaces.members().await,
+                    Ok(None) => Ok(vec![]),
+                    Err(err) => Err(err),
+                }
+            })
+            .await;
             match result {
                 Ok(v) => break Ok(v),
                 Err(err) if config.retry_404_on_eth_interfaces && retries_remaining != 0 => {

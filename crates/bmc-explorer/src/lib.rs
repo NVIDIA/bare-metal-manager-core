@@ -26,6 +26,7 @@ mod network_adapter;
 pub mod test_support;
 use std::collections::HashMap;
 use std::convert::identity;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,6 +54,38 @@ use nv_redfish::oem::supermicro::Privilege as SupermicroPrivilege;
 use nv_redfish::resource::ResourceNameRef;
 use nv_redfish::service_root::{Product, Vendor};
 use nv_redfish::{Bmc, Resource, ServiceRoot};
+use tokio::sync::Semaphore;
+
+/// Default cap on concurrent requests one exploration keeps in flight against
+/// a BMC (the default for [`Config::max_concurrent_bmc_requests`]).
+///
+/// Exploration fetches independent Redfish subtrees concurrently, but BMC
+/// firmware is fragile under request bursts, so every fetch in this crate
+/// takes a permit from one shared per-exploration semaphore (see [`limited`]).
+/// Nested concurrent constructs therefore never multiply the fan-out beyond
+/// the configured bound. The reqwest connection pool used against real BMCs
+/// retains this many idle connections (`crates/redfish`), so the default
+/// fan-out reuses warm sockets instead of reopening them.
+///
+/// Some BMC firmware dislikes concurrent access altogether — pre-iLO-7 HPE
+/// BMCs, for example, drop connections aggressively enough that
+/// `crates/redfish` forces `Connection: Close` on them — so operators may
+/// lower the cap for such a site, down to 1 to explore one request at a
+/// time. The cap is floored at 1: the limiter never starts without permits.
+pub const DEFAULT_MAX_CONCURRENT_BMC_REQUESTS: usize = 4;
+
+/// Runs one BMC fetch while holding a permit on the shared request limiter.
+///
+/// Permits are taken only around direct BMC fetches, never around composite
+/// explorations that themselves acquire, so the limiter is deadlock-free by
+/// construction.
+pub(crate) async fn limited<F: Future>(limiter: &Semaphore, fetch: F) -> F::Output {
+    let _permit = limiter
+        .acquire()
+        .await
+        .expect("BMC request limiter is never closed");
+    fetch.await
+}
 
 #[derive(PartialEq, Eq)]
 pub enum ErrorClass {
@@ -66,6 +99,11 @@ pub struct Config<'a, B: Bmc> {
     pub boot_interface_mac: Option<MacAddress>,
     pub error_classifier: ErrorClassifier<'a, B>,
     pub retry_timeout: Duration,
+    /// Cap on concurrent requests this exploration keeps in flight against
+    /// the BMC. [`DEFAULT_MAX_CONCURRENT_BMC_REQUESTS`] unless an operator
+    /// lowered it for BMCs that dislike concurrent access; floored at 1,
+    /// which explores one request at a time.
+    pub max_concurrent_bmc_requests: usize,
 }
 
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
@@ -103,54 +141,75 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     mut root: Arc<ServiceRoot<B>>,
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
+    let limiter = Semaphore::new(config.max_concurrent_bmc_requests.max(1));
     let chassis_explore_config = build_chassis_explore_config(&root);
-    let explored_chassis =
-        ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
-    let explored_inventories = ExploredInventories::explore(&root).await?;
+
+    // The chassis and firmware-inventory subtrees are independent reads of
+    // the (unrestricted) service root, so they proceed concurrently. The
+    // system/manager subtrees wait for the chassis result: a BlueField-2
+    // chassis restricts `$expand` for every fetch after this point.
+    let (explored_chassis, explored_inventories) = tokio::try_join!(
+        ExploredChassisCollection::explore(&root, &chassis_explore_config, &limiter),
+        ExploredInventories::explore(&root, &limiter),
+    )?;
 
     if explored_chassis.is_bluefield2() {
         root = root.as_ref().clone().restrict_expand().into();
     }
 
-    let mut systems_iter = root
-        .systems()
-        .await
-        .map_err(Error::nv_redfish("systems"))?
-        .ok_or_else(Error::bmc_not_provided("systems"))?
-        .members()
-        .await
-        .map_err(Error::nv_redfish("systems members"))?
+    // The computer-system subtree and the manager-collection fetch are
+    // independent. Exploring the manager itself waits for the system: its
+    // configuration is selected by the platform type, which is detected from
+    // the explored system and chassis.
+    let system_branch = async {
+        let mut systems_iter = limited(&limiter, async {
+            root.systems()
+                .await
+                .map_err(Error::nv_redfish("systems"))?
+                .ok_or_else(Error::bmc_not_provided("systems"))?
+                .members()
+                .await
+                .map_err(Error::nv_redfish("systems members"))
+        })
+        .await?
         .into_iter();
 
-    let first_system = systems_iter
-        .next()
-        .ok_or_else(Error::bmc_not_provided("at least one computer system"))?;
-    let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
-    let system = other_system_with_bios.unwrap_or(first_system);
+        let first_system = systems_iter
+            .next()
+            .ok_or_else(Error::bmc_not_provided("at least one computer system"))?;
+        let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
+        let system = other_system_with_bios.unwrap_or(first_system);
 
-    let manager = root
-        .managers()
-        .await
-        .map_err(Error::nv_redfish("managers"))?
-        .ok_or_else(Error::bmc_not_provided("managers"))?
-        .members()
-        .await
-        .map_err(Error::nv_redfish("managers members"))?
+        let is_bluefield_system = system.id().into_inner() == "Bluefield";
+        let system_explore_config = computer_system::Config {
+            need_oem_nvidia_bluefield: is_bluefield_system,
+            ignore_500_on_bios_fetch: is_bluefield_system,
+            retry_404_on_eth_interfaces: is_bluefield_system,
+            // BlueField-4 returns null in the Members field in
+            // BootOptions. This is a workaround for this bug.
+            need_boot_options: !explored_chassis.is_bluefield4(),
+            explore: config,
+        };
+        ExploredComputerSystem::explore(system, &system_explore_config, &limiter).await
+    };
+
+    let manager_branch = async {
+        limited(&limiter, async {
+            root.managers()
+                .await
+                .map_err(Error::nv_redfish("managers"))?
+                .ok_or_else(Error::bmc_not_provided("managers"))?
+                .members()
+                .await
+                .map_err(Error::nv_redfish("managers members"))
+        })
+        .await?
         .into_iter()
         .next()
-        .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
-
-    let is_bluefield_system = system.id().into_inner() == "Bluefield";
-    let system_explore_config = computer_system::Config {
-        need_oem_nvidia_bluefield: is_bluefield_system,
-        ignore_500_on_bios_fetch: is_bluefield_system,
-        retry_404_on_eth_interfaces: is_bluefield_system,
-        // BlueField-4 returns null in the Members field in
-        // BootOptions. This is a workaround for this bug.
-        need_boot_options: !explored_chassis.is_bluefield4(),
-        explore: config,
+        .ok_or_else(Error::bmc_not_provided("at least one manager"))
     };
-    let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
+
+    let (explored_system, manager) = tokio::try_join!(system_branch, manager_branch)?;
 
     let hw_type = hw_type(&root, &explored_system, &explored_chassis);
     let manager_explore_config = hw_type
@@ -185,40 +244,45 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         })
         .unwrap_or_default();
 
-    let explored_manager = ExploredManager::explore(manager, &manager_explore_config).await?;
-
-    let pcie_devices = explored_chassis
-        .pcie_devices(|chassis| match hw_type {
-            Some(hw::HwType::Viking) => {
-                let chassis_id = chassis.chassis.id().into_inner();
-                chassis_id.starts_with("HGX_GPU_SXM") || chassis_id.starts_with("HGX_NVSwitch")
-            }
-            // When needed Chassis Id is equal to System Id.
-            Some(
-                hw::HwType::Ami
-                | hw::HwType::Dell
-                | hw::HwType::Hpe
-                | hw::HwType::Lenovo
-                | hw::HwType::Supermicro,
-            ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
-            // Provides only one Chassis.
-            Some(hw::HwType::LenovoAmi) => true,
-            Some(
-                hw::HwType::LenovoGb300
-                | hw::HwType::DgxGb300
-                | hw::HwType::SupermicroGb300
-                | hw::HwType::VeraRubin,
-            ) => chassis.chassis.id().into_inner().starts_with("HGX_GPU_"),
-            // No meaningful PCIeDevices.
-            Some(
-                hw::HwType::Bluefield
-                | hw::HwType::Gb200
-                | hw::HwType::LiteonPowerShelf
-                | hw::HwType::NvSwitch,
-            ) => false,
-            None => false,
-        })
-        .await?;
+    // The manager exploration and the PCIe-device sweep both depend only on
+    // the platform type (and already-fetched chassis/system data), so they
+    // proceed concurrently.
+    let (explored_manager, pcie_devices) = tokio::try_join!(
+        ExploredManager::explore(manager, &manager_explore_config, &limiter),
+        explored_chassis.pcie_devices(
+            |chassis| match hw_type {
+                Some(hw::HwType::Viking) => {
+                    let chassis_id = chassis.chassis.id().into_inner();
+                    chassis_id.starts_with("HGX_GPU_SXM") || chassis_id.starts_with("HGX_NVSwitch")
+                }
+                // When needed Chassis Id is equal to System Id.
+                Some(
+                    hw::HwType::Ami
+                    | hw::HwType::Dell
+                    | hw::HwType::Hpe
+                    | hw::HwType::Lenovo
+                    | hw::HwType::Supermicro,
+                ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
+                // Provides only one Chassis.
+                Some(hw::HwType::LenovoAmi) => true,
+                Some(
+                    hw::HwType::LenovoGb300
+                    | hw::HwType::DgxGb300
+                    | hw::HwType::SupermicroGb300
+                    | hw::HwType::VeraRubin,
+                ) => chassis.chassis.id().into_inner().starts_with("HGX_GPU_"),
+                // No meaningful PCIeDevices.
+                Some(
+                    hw::HwType::Bluefield
+                    | hw::HwType::Gb200
+                    | hw::HwType::LiteonPowerShelf
+                    | hw::HwType::NvSwitch,
+                ) => false,
+                None => false,
+            },
+            &limiter,
+        ),
+    )?;
 
     let lockdown_status = hw_type
         .map(|hw_type| lockdown_status(&hw_type, &explored_system, &explored_manager))

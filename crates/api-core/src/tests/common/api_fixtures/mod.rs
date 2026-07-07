@@ -1710,6 +1710,7 @@ pub async fn create_test_env_with_overrides(
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,
             explorations_per_run: 100,
+            max_concurrent_bmc_requests: SiteExplorerConfig::default_max_concurrent_bmc_requests(),
             create_machines: Arc::new(true.into()),
             machines_created_per_run: 1,
             override_target_ip: None,

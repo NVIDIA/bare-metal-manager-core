@@ -19,6 +19,7 @@ use std::convert::identity;
 use std::fmt;
 
 use carbide_network::BaseMac;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::site_explorer::{Chassis, PowerState as ModelPowerState};
@@ -29,9 +30,10 @@ use nv_redfish::hardware_id::{Manufacturer, Model};
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::ResourceIdRef;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
+use tokio::sync::Semaphore;
 
 use crate::network_adapter::ExploredNetworkAdapterCollection;
-use crate::{Error, network_adapter};
+use crate::{DEFAULT_MAX_CONCURRENT_BMC_REQUESTS, Error, limited, network_adapter};
 
 type AssemblyModelFilterFn = fn(Option<AssemblyModel<&str>>) -> bool;
 const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
@@ -46,41 +48,44 @@ pub struct ExploredChassisCollection<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredChassisCollection<B> {
-    pub async fn explore(root: &ServiceRoot<B>, config: &Config) -> Result<Self, Error<B>> {
-        let mut members = Vec::new();
-        for m in Self::fetch_members(root, config).await? {
-            members.push(ExploredChassis::explore(m, config).await?);
-        }
+    pub async fn explore(
+        root: &ServiceRoot<B>,
+        config: &Config,
+        limiter: &Semaphore,
+    ) -> Result<Self, Error<B>> {
+        let members = stream::iter(Self::fetch_members(root, config, limiter).await?)
+            .map(|m| ExploredChassis::explore(m, config, limiter))
+            .buffered(DEFAULT_MAX_CONCURRENT_BMC_REQUESTS)
+            .try_collect()
+            .await?;
         Ok(Self { members })
     }
 
     async fn fetch_members(
         root: &ServiceRoot<B>,
         config: &Config,
+        limiter: &Semaphore,
     ) -> Result<Vec<NvChassis<B>>, Error<B>> {
         if let Some(filter) = config.lazy_fetch {
-            let links = root
-                .chassis_links()
+            let links = limited(limiter, root.chassis_links())
                 .await
                 .map_err(Error::nv_redfish("chassis collection"))?
                 .ok_or_else(Error::bmc_not_provided("chassis collection"))?;
-            let mut result = Vec::with_capacity(links.len());
-            for l in links {
-                if filter(l.odata_id()) {
-                    result.push(
-                        l.upgrade()
-                            .await
-                            .map_err(Error::nv_redfish("chassis collection member"))?,
-                    )
-                }
-            }
-            Ok(result)
+            stream::iter(links.into_iter().filter(|l| filter(l.odata_id())))
+                .map(|l| async move {
+                    limited(limiter, l.upgrade())
+                        .await
+                        .map_err(Error::nv_redfish("chassis collection member"))
+                })
+                .buffered(DEFAULT_MAX_CONCURRENT_BMC_REQUESTS)
+                .try_collect()
+                .await
         } else {
-            root.chassis()
+            let collection = limited(limiter, root.chassis())
                 .await
                 .map_err(Error::nv_redfish("chassis collection"))?
-                .ok_or_else(Error::bmc_not_provided("chassis collection"))?
-                .members()
+                .ok_or_else(Error::bmc_not_provided("chassis collection"))?;
+            limited(limiter, collection.members())
                 .await
                 .map_err(Error::nv_redfish("chassis collection members"))
         }
@@ -198,24 +203,33 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     pub async fn pcie_devices(
         &self,
         chassis_filter: impl Fn(&ExploredChassis<B>) -> bool,
+        limiter: &Semaphore,
     ) -> Result<Vec<PcieDevice<B>>, Error<B>> {
-        let mut pcie_devices = Vec::new();
-        for c in &self.members {
-            if chassis_filter(c)
-                && let Some(collection) = c
-                    .chassis
-                    .pcie_devices()
+        // The per-chassis fetch futures are collected eagerly instead of
+        // streamed through a `buffered` adapter: adapters over borrowed items
+        // embed their closure types in the awaited future, which defeats
+        // rustc's `Send` proof for the whole exploration ("implementation of
+        // `FnOnce` is not general enough"). The shared limiter bounds the
+        // real request fan-out either way.
+        let fetches: Vec<_> = self
+            .members
+            .iter()
+            .filter(|c| chassis_filter(c))
+            .map(|c| async move {
+                if let Some(collection) = limited(limiter, c.chassis.pcie_devices())
                     .await
                     .map_err(Error::nv_redfish("chassis pcie devices"))?
-            {
-                let mut chassis_pcie_devices = collection
-                    .members()
-                    .await
-                    .map_err(Error::nv_redfish("chassis pcie devices members"))?;
-                pcie_devices.append(&mut chassis_pcie_devices);
-            }
-        }
-        Ok(pcie_devices)
+                {
+                    limited(limiter, collection.members())
+                        .await
+                        .map_err(Error::nv_redfish("chassis pcie devices members"))
+                } else {
+                    Ok(Vec::new())
+                }
+            })
+            .collect();
+        let per_chassis: Vec<Vec<PcieDevice<B>>> = futures::future::try_join_all(fetches).await?;
+        Ok(per_chassis.into_iter().flatten().collect())
     }
 }
 
@@ -238,57 +252,73 @@ pub struct ExploredChassis<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredChassis<B> {
-    async fn explore(chassis: NvChassis<B>, config: &Config) -> Result<Self, Error<B>> {
-        let network_adapters =
-            ExploredNetworkAdapterCollection::explore(&chassis, &config.network_adapter).await?;
-        let assembly_sn = if let Some(model_check_fn) = (config.need_assembly_sn)(chassis.id()) {
-            match chassis.assembly().await {
-                Ok(Some(assembly)) => {
-                    let assembly_data = assembly
-                        .assemblies()
-                        .await
-                        .map_err(Error::nv_redfish("chassis assemblies"))?;
-                    assembly_data
-                        .iter()
-                        .find(|asm| model_check_fn(asm.hardware_id().model))
-                        .and_then(|asm| asm.hardware_id().serial_number)
-                        .map(|v| v.to_string())
-                }
-                Ok(None) => None,
-                Err(err) => {
-                    return Err(Error::NvRedfish {
+    async fn explore(
+        chassis: NvChassis<B>,
+        config: &Config,
+        limiter: &Semaphore,
+    ) -> Result<Self, Error<B>> {
+        // The network-adapter, assembly, and LiteOn power-supply subtrees of
+        // one chassis are independent, so they proceed concurrently.
+        let network_adapters_branch =
+            ExploredNetworkAdapterCollection::explore(&chassis, &config.network_adapter, limiter);
+
+        let assembly_branch = async {
+            if let Some(model_check_fn) = (config.need_assembly_sn)(chassis.id()) {
+                match limited(limiter, chassis.assembly()).await {
+                    Ok(Some(assembly)) => {
+                        let assembly_data = limited(limiter, assembly.assemblies())
+                            .await
+                            .map_err(Error::nv_redfish("chassis assemblies"))?;
+                        Ok(assembly_data
+                            .iter()
+                            .find(|asm| model_check_fn(asm.hardware_id().model))
+                            .and_then(|asm| asm.hardware_id().serial_number)
+                            .map(|v| v.to_string()))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(err) => Err(Error::NvRedfish {
                         context: "chassis assembly",
                         err,
-                    });
+                    }),
                 }
+            } else {
+                Ok(None)
             }
-        } else {
-            None
         };
+
         // Here we rely on the fact that
         // Chassis::oem_liteon_power_supply_links returns None
         // immediately if chassis is not LiteOn.
-        let oem_liteon_power_supplies = if let Some(ps_links) = chassis
-            .oem_liteon_power_supply_links()
-            .await
-            .map_err(Error::nv_redfish("LiteOn power supply links"))?
-        {
-            let mut power_supplies = Vec::new();
-            for l in ps_links {
-                let ps = l
-                    .fetch()
-                    .await
-                    .map_err(Error::nv_redfish("LiteOn power supply"))?;
-                power_supplies.push(LiteOnPowerSupply {
-                    id: ps.base.id.clone(),
-                    serial_number: ps.serial_number.clone().and_then(std::convert::identity),
-                    power_state: ps.power_state,
-                });
+        let liteon_branch = async {
+            if let Some(ps_links) = limited(limiter, chassis.oem_liteon_power_supply_links())
+                .await
+                .map_err(Error::nv_redfish("LiteOn power supply links"))?
+            {
+                let power_supplies = stream::iter(ps_links)
+                    .map(|l| async move {
+                        let ps = limited(limiter, l.fetch())
+                            .await
+                            .map_err(Error::nv_redfish("LiteOn power supply"))?;
+                        Ok(LiteOnPowerSupply {
+                            id: ps.base.id.clone(),
+                            serial_number: ps
+                                .serial_number
+                                .clone()
+                                .and_then(std::convert::identity),
+                            power_state: ps.power_state,
+                        })
+                    })
+                    .buffered(DEFAULT_MAX_CONCURRENT_BMC_REQUESTS)
+                    .try_collect()
+                    .await?;
+                Ok(Some(power_supplies))
+            } else {
+                Ok(None)
             }
-            Some(power_supplies)
-        } else {
-            None
         };
+
+        let (network_adapters, assembly_sn, oem_liteon_power_supplies) =
+            tokio::try_join!(network_adapters_branch, assembly_branch, liteon_branch)?;
 
         Ok(Self {
             chassis,

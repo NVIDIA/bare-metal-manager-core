@@ -24,7 +24,7 @@ use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::Credentials;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_site_explorer::BmcEndpointExplorer;
-use carbide_site_explorer::config::SiteExplorerExploreMode;
+use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use clap::Parser;
 use mac_address::MacAddress;
 use tracing_subscriber::fmt;
@@ -106,6 +106,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let explorer = BmcEndpointExplorer::new(
         redfish_client_pool,
         Arc::new(NvRedfishClientPool::new(proxy_address)),
+        // Standalone debug tool: no site config, so it explores with the
+        // default per-BMC request cap.
+        SiteExplorerConfig::default_max_concurrent_bmc_requests(),
         carbide_ipmi::test_support(),
         credential_provider.clone(),
         rotate_switch_nvos_credentials,

@@ -1628,6 +1628,7 @@ async fn test_site_explorer_audit_exploration_results(
         retained_boot_interface_window: None,
         explorations_per_run: 7,
         concurrent_explorations: 1,
+        max_concurrent_bmc_requests: SiteExplorerConfig::default_max_concurrent_bmc_requests(),
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         machines_created_per_run: 1,

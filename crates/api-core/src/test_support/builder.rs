@@ -229,6 +229,7 @@ impl TestApiBuilder {
         let real_endpoint_explorer = carbide_site_explorer::new_bmc_explorer(
             redfish_pool.clone(),
             nv_redfish_pool,
+            runtime_config.site_explorer.max_concurrent_bmc_requests,
             carbide_ipmi::test_support(),
             credential_manager.clone(),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),

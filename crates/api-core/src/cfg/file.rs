@@ -2968,6 +2968,10 @@ mod tests {
                 .load(AtomicOrdering::Relaxed)
         );
         assert_eq!(
+            config.site_explorer.max_concurrent_bmc_requests,
+            SiteExplorerConfig::default_max_concurrent_bmc_requests()
+        );
+        assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig::default()
         );
@@ -3064,6 +3068,8 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
+                max_concurrent_bmc_requests:
+                    SiteExplorerConfig::default_max_concurrent_bmc_requests(),
                 create_machines: Arc::new(false.into()),
                 machines_created_per_run: 1,
                 override_target_ip: None,
@@ -3261,6 +3267,8 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
+                max_concurrent_bmc_requests:
+                    SiteExplorerConfig::default_max_concurrent_bmc_requests(),
                 create_machines: Arc::new(true.into()),
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
@@ -3605,6 +3613,8 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
+                max_concurrent_bmc_requests:
+                    SiteExplorerConfig::default_max_concurrent_bmc_requests(),
                 create_machines: Arc::new(false.into()),
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),

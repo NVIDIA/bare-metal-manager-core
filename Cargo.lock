@@ -848,6 +848,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-api-model",
  "carbide-network",
+ "futures",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
@@ -856,6 +857,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

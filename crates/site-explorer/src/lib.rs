@@ -103,9 +103,11 @@ use self::metrics::{DpuMigrationSignal, PairingBlockerReason, exploration_error_
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 
+#[allow(clippy::too_many_arguments)]
 pub fn new_bmc_explorer(
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+    max_concurrent_bmc_requests: usize,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_manager: Arc<dyn CredentialManager>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
@@ -115,6 +117,7 @@ pub fn new_bmc_explorer(
     BmcEndpointExplorer::new(
         redfish_client_pool,
         nv_redfish_client_pool,
+        max_concurrent_bmc_requests,
         ipmi_tool,
         credential_manager,
         rotate_switch_nvos_credentials,

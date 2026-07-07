@@ -21,6 +21,7 @@
 use std::sync::Arc;
 
 use nv_redfish::{Bmc, Resource, ServiceRoot};
+use tokio::sync::Semaphore;
 
 use crate::chassis::ExploredChassisCollection;
 use crate::computer_system::{self, ExploredComputerSystem};
@@ -43,9 +44,10 @@ pub async fn detect_hw_type<B: Bmc>(
     mut root: Arc<ServiceRoot<B>>,
     config: &Config<'_, B>,
 ) -> Result<Option<hw::HwType>, Error<B>> {
+    let limiter = Semaphore::new(config.max_concurrent_bmc_requests.max(1));
     let chassis_explore_config = build_chassis_explore_config(&root);
     let explored_chassis =
-        ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
+        ExploredChassisCollection::explore(&root, &chassis_explore_config, &limiter).await?;
 
     if explored_chassis.is_bluefield2() {
         root = root.as_ref().clone().restrict_expand().into();
@@ -75,7 +77,8 @@ pub async fn detect_hw_type<B: Bmc>(
         need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
-    let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
+    let explored_system =
+        ExploredComputerSystem::explore(system, &system_explore_config, &limiter).await?;
 
     Ok(hw_type(&root, &explored_system, &explored_chassis))
 }

@@ -18,22 +18,22 @@
 use model::site_explorer::{Inventory as ModelInventory, Service as ModelService};
 use nv_redfish::update_service::SoftwareInventory;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
+use tokio::sync::Semaphore;
 
-use crate::{Error, hw};
+use crate::{Error, hw, limited};
 
 pub struct ExploredInventories<B: Bmc> {
     members: Vec<SoftwareInventory<B>>,
 }
 
 impl<B: Bmc> ExploredInventories<B> {
-    pub async fn explore(root: &ServiceRoot<B>) -> Result<Self, Error<B>> {
+    pub async fn explore(root: &ServiceRoot<B>, limiter: &Semaphore) -> Result<Self, Error<B>> {
+        let update_service = limited(limiter, root.update_service())
+            .await
+            .map_err(Error::nv_redfish("update service"))?
+            .ok_or_else(Error::bmc_not_provided("update service"))?;
         Ok(Self {
-            members: root
-                .update_service()
-                .await
-                .map_err(Error::nv_redfish("update service"))?
-                .ok_or_else(Error::bmc_not_provided("update service"))?
-                .firmware_inventories()
+            members: limited(limiter, update_service.firmware_inventories())
                 .await
                 .map_err(Error::nv_redfish("firmware inventories"))?
                 .unwrap_or_default(),
