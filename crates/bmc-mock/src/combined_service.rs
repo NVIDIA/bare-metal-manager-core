@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
+use axum::http::header::{FORWARDED, HOST};
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use hyper::body::Incoming;
@@ -59,31 +60,41 @@ impl Service<axum::http::Request<Incoming>> for CombinedService {
     }
 
     fn call(&mut self, request: Request<Incoming>) -> Self::Future {
-        let forwarded_header = request
-            .headers()
-            .get("forwarded")
-            .map(|v| v.to_str().unwrap())
-            .unwrap_or("");
-
-        // https://datatracker.ietf.org/doc/html/rfc7239#section-5.3
-        let forwarded_host = forwarded_header
-            .split(';')
-            .find(|substr| substr.starts_with("host="))
-            .map(|substr| substr.replace("host=", ""))
-            .unwrap_or_default();
-
         let routers = self.routers.clone();
         Box::pin(async move {
-            let Some(mut router) = routers.read().await.get(&forwarded_host).cloned() else {
-                let err = format!("no router configured for host: {forwarded_host}");
+            // https://datatracker.ietf.org/doc/html/rfc7239#section-5.3
+            let forwarded_host = request
+                .headers()
+                .get(FORWARDED)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|fh| {
+                    fh.split(';')
+                        .find(|substr| substr.starts_with("host="))
+                        .map(|substr| substr.replace("host=", ""))
+                });
+            let host = request.headers().get(HOST).and_then(|v| v.to_str().ok());
+            let authority = request.uri().authority().map(|v| v.as_str());
+            let routers = routers.read().await;
+            let router = forwarded_host
+                .as_ref()
+                .and_then(|forwarded_host| routers.get(forwarded_host).cloned())
+                .or_else(|| host.and_then(|host| routers.get(host).cloned()))
+                .or_else(|| authority.and_then(|authority| routers.get(authority).cloned()))
+                .or_else(|| routers.get("").cloned());
+            drop(routers);
+
+            if let Some(mut router) = router {
+                router.call(request).await
+            } else {
+                let err = format!(
+                    "no router configured for forwarded_host/host/authority: {forwarded_host:?}/{host:?}/{authority:?}"
+                );
                 tracing::info!("{err}");
-                return Ok(Response::builder()
+                Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(err.into())
-                    .unwrap());
-            };
-
-            router.call(request).await
+                    .unwrap())
+            }
         })
     }
 }
