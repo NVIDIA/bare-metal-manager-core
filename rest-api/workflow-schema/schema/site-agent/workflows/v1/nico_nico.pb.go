@@ -22749,17 +22749,9 @@ type DhcpRecord struct {
 	// The last time any underlay or admin DHCP record managed by NICo got invalidated
 	LastInvalidationTime *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=last_invalidation_time,json=lastInvalidationTime,proto3,oneof" json:"last_invalidation_time,omitempty"`
 	// Per site NTP server IPs
-	NtpServers []string `protobuf:"bytes,13,rep,name=ntp_servers,json=ntpServers,proto3" json:"ntp_servers,omitempty"`
-	// DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
-	// When present, dhcpv6_valid_lifetime_secs must also be present and must be
-	// greater than or equal to this value.
-	Dhcpv6PreferredLifetimeSecs *uint32 `protobuf:"varint,14,opt,name=dhcpv6_preferred_lifetime_secs,json=dhcpv6PreferredLifetimeSecs,proto3,oneof" json:"dhcpv6_preferred_lifetime_secs,omitempty"`
-	// DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
-	// When both DHCPv6 lifetime fields are present, this value must be greater
-	// than or equal to dhcpv6_preferred_lifetime_secs.
-	Dhcpv6ValidLifetimeSecs *uint32 `protobuf:"varint,15,opt,name=dhcpv6_valid_lifetime_secs,json=dhcpv6ValidLifetimeSecs,proto3,oneof" json:"dhcpv6_valid_lifetime_secs,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	NtpServers    []string `protobuf:"bytes,13,rep,name=ntp_servers,json=ntpServers,proto3" json:"ntp_servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DhcpRecord) Reset() {
@@ -22881,20 +22873,6 @@ func (x *DhcpRecord) GetNtpServers() []string {
 		return x.NtpServers
 	}
 	return nil
-}
-
-func (x *DhcpRecord) GetDhcpv6PreferredLifetimeSecs() uint32 {
-	if x != nil && x.Dhcpv6PreferredLifetimeSecs != nil {
-		return *x.Dhcpv6PreferredLifetimeSecs
-	}
-	return 0
-}
-
-func (x *DhcpRecord) GetDhcpv6ValidLifetimeSecs() uint32 {
-	if x != nil && x.Dhcpv6ValidLifetimeSecs != nil {
-		return *x.Dhcpv6ValidLifetimeSecs
-	}
-	return 0
 }
 
 type NetworkSegmentList struct {
@@ -62038,7 +62016,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x17ExpireDhcpLeaseResponse\x12\x1d\n" +
 	"\n" +
 	"ip_address\x18\x01 \x01(\tR\tipAddress\x124\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x1c.forge.ExpireDhcpLeaseStatusR\x06status\"\xaa\x06\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1c.forge.ExpireDhcpLeaseStatusR\x06status\"\xa4\x05\n" +
 	"\n" +
 	"DhcpRecord\x120\n" +
 	"\n" +
@@ -62058,16 +62036,12 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\abooturl\x18\v \x01(\tH\x01R\abooturl\x88\x01\x01\x12U\n" +
 	"\x16last_invalidation_time\x18\f \x01(\v2\x1a.google.protobuf.TimestampH\x02R\x14lastInvalidationTime\x88\x01\x01\x12\x1f\n" +
 	"\vntp_servers\x18\r \x03(\tR\n" +
-	"ntpServers\x12H\n" +
-	"\x1edhcpv6_preferred_lifetime_secs\x18\x0e \x01(\rH\x03R\x1bdhcpv6PreferredLifetimeSecs\x88\x01\x01\x12@\n" +
-	"\x1adhcpv6_valid_lifetime_secs\x18\x0f \x01(\rH\x04R\x17dhcpv6ValidLifetimeSecs\x88\x01\x01B\n" +
+	"ntpServersB\n" +
 	"\n" +
 	"\b_gatewayB\n" +
 	"\n" +
 	"\b_booturlB\x19\n" +
-	"\x17_last_invalidation_timeB!\n" +
-	"\x1f_dhcpv6_preferred_lifetime_secsB\x1d\n" +
-	"\x1b_dhcpv6_valid_lifetime_secs\"V\n" +
+	"\x17_last_invalidation_timeJ\x04\b\x0e\x10\x0fJ\x04\b\x0f\x10\x10R\x1edhcpv6_preferred_lifetime_secsR\x1adhcpv6_valid_lifetime_secs\"V\n" +
 	"\x12NetworkSegmentList\x12@\n" +
 	"\x10network_segments\x18\x01 \x03(\v2\x15.forge.NetworkSegmentR\x0fnetworkSegments\"E\n" +
 	"\x17SSHKeyValidationRequest\x12\x12\n" +

@@ -1036,34 +1036,4 @@ mod tests {
         assert_eq!(decoded.message_kind, Some(2));
         assert_eq!(decoded.duid, Some(vec![0, 1, 0, 1, 0xaa, 0xbb]));
     }
-
-    /// Verifies the additive DHCP record IPv6 fields survive protobuf encoding.
-    #[test]
-    fn dhcp_record_round_trips_with_ipv6_fields() {
-        let record = forge::DhcpRecord {
-            machine_id: None,
-            machine_interface_id: None,
-            segment_id: None,
-            subdomain_id: None,
-            fqdn: "host.example.com".to_string(),
-            mac_address: "00:11:22:33:44:55".to_string(),
-            address: "2001:db8::10".to_string(),
-            mtu: 9000,
-            prefix: "2001:db8::/64".to_string(),
-            gateway: None,
-            booturl: None,
-            last_invalidation_time: None,
-            ntp_servers: vec![],
-            dhcpv6_preferred_lifetime_secs: Some(3600),
-            dhcpv6_valid_lifetime_secs: Some(7200),
-        };
-
-        // Encode then decode so prost field numbering is exercised directly.
-        let encoded = record.encode_to_vec();
-        let decoded = forge::DhcpRecord::decode(&encoded[..]).unwrap();
-
-        // Verify the newly-added IPv6 fields survive the protobuf round trip.
-        assert_eq!(decoded.dhcpv6_preferred_lifetime_secs, Some(3600));
-        assert_eq!(decoded.dhcpv6_valid_lifetime_secs, Some(7200));
-    }
 }

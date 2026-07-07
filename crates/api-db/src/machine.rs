@@ -158,21 +158,46 @@ pub async fn find_existing_machine(
     macaddr: MacAddress,
     relay: IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
+    // Exact DHCPv6 link-address matches are authoritative. Prefix containment
+    // is only valid when no segment claims the relay by exact link-address.
     let query = "
+    -- Start from machines already associated with the observed MAC.
     SELECT m.id FROM
     machines m
     INNER JOIN machine_interfaces mi
         ON m.id = mi.machine_id
     INNER JOIN network_segments ns
         ON mi.segment_id = ns.id
-    INNER JOIN network_prefixes np
-        ON np.segment_id = ns.id
     WHERE
         mi.mac_address = $1::macaddr
         AND
+        -- BMC interfaces are not host identity for DHCP discovery.
         mi.interface_type != 'Bmc'
         AND
-        $2::inet <<= np.prefix";
+        -- Keep segments that own the relay address.
+        EXISTS (
+            SELECT 1
+            FROM network_prefixes np
+            WHERE np.segment_id = ns.id
+            AND (
+                -- Accept this candidate segment when one of its own prefixes
+                -- has the exact DHCPv6 relay link-address.
+                np.dhcpv6_link_address = $2::inet
+                OR (
+                    -- This check is intentionally global, not redundant:
+                    -- prefix fallback is allowed only when no segment anywhere
+                    -- has an exact DHCPv6 link-address claim for this relay.
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM network_prefixes exact_np
+                        WHERE exact_np.dhcpv6_link_address = $2::inet
+                    )
+                    -- With no exact claim, IPv4/v6 prefix containment can match
+                    -- the segment that owns the relay address.
+                    AND $2::inet <<= np.prefix
+                )
+            )
+        )";
 
     let id: Option<MachineId> = sqlx::query_as(query)
         .bind(macaddr)
