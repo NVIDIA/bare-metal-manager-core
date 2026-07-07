@@ -1099,7 +1099,7 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 category = "iPXE Kernel"
 description = "Add the HBN scripts to the BFB"
 command = "mv"
-args = ["temp/configs/${DOCA_VERSION}/", "configs"]
+args = ["temp/configs/${DOCA_HBN_VERSION}/", "configs"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.cleanup-hbn-scripts]
