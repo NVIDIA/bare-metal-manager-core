@@ -159,7 +159,7 @@ pub async fn assert_connection_works(
             _ = tokio::time::sleep_until(assertion_timeout.into()) => {
                 match test_state {
                     ConnectionTestState::TryingCtrlBackslash => {
-                        tracing::info!("Succesfully prevented ctrl+\\ from triggering escape, now simulating dropping to BMC prompt from other means");
+                        tracing::info!("Successfully prevented ctrl+\\ from triggering escape, now simulating dropping to BMC prompt from other means");
                         test_state = ConnectionTestState::TryingBackdoorEscape;
                         assertion_timeout = Instant::now().add(Duration::from_secs(3));
                     }

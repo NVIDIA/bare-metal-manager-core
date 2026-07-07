@@ -27,6 +27,8 @@ mod machine_bmc_metadata;
 mod machine_boot_interfaces;
 mod network_device;
 mod nvlink_domain_health;
+mod operating_system;
+mod power_options;
 mod power_shelf_find;
 mod rack_find;
 mod route_servers;

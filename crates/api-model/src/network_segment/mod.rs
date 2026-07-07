@@ -207,6 +207,31 @@ impl NetworkSegment {
     pub fn is_marked_as_deleted(&self) -> bool {
         self.deleted.is_some()
     }
+
+    /// Returns the segment's SLAAC-eligible IPv6 /64 prefix, if any.
+    ///
+    /// This is a segment-only predicate: relay context, requested addresses, and
+    /// client identity must not influence it. Per-interface address ownership is
+    /// checked at the DHCP call site.
+    pub fn slaac_eligible(&self) -> Option<&IpNetwork> {
+        if self.config.allocation_strategy == AllocationStrategy::Reserved {
+            return None;
+        }
+
+        // The DB currently enforces one prefix per family per segment; keep this
+        // defensive guard so non-DB callers or future schema changes cannot persist
+        // SLAAC when v6 prefix selection is ambiguous.
+        let mut v6_prefixes = self
+            .prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv6());
+        let prefix = &v6_prefixes.next()?.prefix;
+        if v6_prefixes.next().is_some() || prefix.prefix() != 64 {
+            return None;
+        }
+
+        Some(prefix)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -429,6 +454,7 @@ impl NewNetworkSegment {
 mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_uuid::network::NetworkPrefixId;
 
     use super::*;
 
@@ -443,6 +469,86 @@ mod tests {
         NetworkSegmentControllerState::Deleting {
             deletion_state: NetworkSegmentDeletionState::DBDelete,
         }
+    }
+
+    /// Builds a minimal network segment fixture for segment-level predicate tests.
+    fn test_segment(allocation_strategy: AllocationStrategy, prefixes: &[&str]) -> NetworkSegment {
+        let segment_id = NetworkSegmentId::new();
+        let now = Utc::now();
+
+        NetworkSegment {
+            id: segment_id,
+            version: ConfigVersion::initial(),
+            config: NetworkSegmentConfig {
+                name: "test-segment".to_string(),
+                subdomain_id: None,
+                mtu: 1500,
+                segment_type: NetworkSegmentType::Admin,
+                allocation_strategy,
+                vpc_id: None,
+            },
+            status: NetworkSegmentStatus {
+                controller_state: Versioned::new(
+                    NetworkSegmentControllerState::Ready,
+                    ConfigVersion::initial(),
+                ),
+                controller_state_outcome: None,
+                history: Vec::new(),
+                vlan_id: None,
+                vni: None,
+                can_stretch: None,
+            },
+            prefixes: prefixes
+                .iter()
+                .map(|prefix| NetworkPrefix {
+                    id: NetworkPrefixId::new(),
+                    segment_id,
+                    prefix: prefix.parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 0,
+                    vpc_prefix_id: None,
+                    vpc_prefix: None,
+                    svi_ip: None,
+                    num_free_ips: 0,
+                })
+                .collect(),
+            created: now,
+            updated: now,
+            deleted: None,
+        }
+    }
+
+    #[test]
+    fn slaac_eligible_returns_only_the_single_dynamic_v6_64_prefix() {
+        // Exercise the segment-only SLAAC chokepoint across the prefix and
+        // allocation-strategy cases the DHCP handler must not reimplement.
+        value_scenarios!(
+            run = |segment: NetworkSegment| segment.slaac_eligible().copied();
+            "dynamic segment with one v6 /64" {
+                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
+            }
+
+            "dynamic dual-stack segment with one v6 /64" {
+                test_segment(AllocationStrategy::Dynamic, &["192.0.2.0/24", "2001:db8::/64"]) => Some("2001:db8::/64".parse().unwrap()),
+            }
+
+            "reserved segment with one v6 /64" {
+                test_segment(AllocationStrategy::Reserved, &["2001:db8::/64"]) => None,
+            }
+
+            "dynamic segment with no v6 prefix" {
+                test_segment(AllocationStrategy::Dynamic, &["192.0.2.0/24"]) => None,
+            }
+
+            "dynamic segment with non-64 v6 prefix" {
+                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/80"]) => None,
+            }
+
+            "dynamic segment with ambiguous v6 prefixes" {
+                test_segment(AllocationStrategy::Dynamic, &["2001:db8::/64", "2001:db8:1::/80"]) => None,
+            }
+        );
     }
 
     #[test]

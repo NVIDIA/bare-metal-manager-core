@@ -66,15 +66,15 @@ func (r ApiGetAllSkuRequest) Execute() ([]Sku, *http.Response, error) {
 /*
 GetAllSku Retrieve all SKUs
 
-Retrieve all SKUs (Stock Keeping Units) for the Infrastructure Provider or privileged Tenant.
+Retrieve all SKUs (Stock Keeping Units) for a Site.
 
 SKUs represent unique hardware configurations discovered at sites. They are automatically derived from machine characteristics.
 
 A `siteId` query parameter is required for all requests.
 
-For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have authorization role with `TENANT_ADMIN` suffix. The Tenant must have an account with the Site's Infrastructure Provider.
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

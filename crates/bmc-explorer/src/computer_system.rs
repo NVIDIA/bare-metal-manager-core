@@ -205,6 +205,20 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                 });
                 nic_mode = Self::dpu_mode(&self.system, self.bios.as_ref(), oem_bf);
             }
+            let is_bf4_shape = chassis
+                .members
+                .iter()
+                .any(|c| c.chassis.id().into_inner() == "BlueField_0");
+            if base_mac.is_none() && is_bf4_shape {
+                // BF4 temporary patch: some BMC firmware misses ComputerSystem
+                // BaseMAC; patch from NDF0-derived base MAC (NDF0 - 0x10) if available.
+                base_mac = chassis.dpu_bf4_ndf0_permanent_mac();
+                if base_mac.is_none() {
+                    tracing::warn!(
+                        "BF4 NDF0 fallback did not provide PF0 base MAC (NIC inventory unavailable/uninitialized?)"
+                    );
+                }
+            }
         }
 
         let boot_order = self.system.boot_order().map(|order| ModelBootOrder {

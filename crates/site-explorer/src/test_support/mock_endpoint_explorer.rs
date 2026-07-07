@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
+use libredfish::model::service_root::RedfishVendor;
 use libredfish::{PowerState, RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
@@ -328,6 +329,23 @@ impl EndpointExplorer for MockEndpointExplorer {
         _username: &str,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
+    }
+
+    async fn set_bmc_root_password(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _new_password: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn probe_bmc_vendor(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
+        Ok(RedfishVendor::Unknown)
     }
 
     async fn enable_infinite_boot(

@@ -26,7 +26,7 @@ var _ MappedNullable = &MachinePowerControlRequest{}
 type MachinePowerControlRequest struct {
 	// Power control action to apply.
 	Action string `json:"action"`
-	// Acknowledges that an Instance is currently attached to the Machine.
+	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
 	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
 }
 

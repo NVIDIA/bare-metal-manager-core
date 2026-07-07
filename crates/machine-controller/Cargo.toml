@@ -81,6 +81,7 @@ regex = { workspace = true }
 lazy_static = { workspace = true }
 tempfile = { workspace = true }
 tokio-util = { workspace = true }
+tonic = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

@@ -30,11 +30,11 @@ type ApiResetMachineBmcRequest struct {
 	ApiService      *BMCResetAPIService
 	org             string
 	machineId       string
-	bmcResetRequest *BmcResetRequest
+	bMCResetRequest *BMCResetRequest
 }
 
-func (r ApiResetMachineBmcRequest) BmcResetRequest(bmcResetRequest BmcResetRequest) ApiResetMachineBmcRequest {
-	r.bmcResetRequest = &bmcResetRequest
+func (r ApiResetMachineBmcRequest) BMCResetRequest(bMCResetRequest BMCResetRequest) ApiResetMachineBmcRequest {
+	r.bMCResetRequest = &bMCResetRequest
 	return r
 }
 
@@ -47,7 +47,9 @@ ResetMachineBmc Reset Machine BMC
 
 Reset BMC of a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -68,7 +70,7 @@ func (a *BMCResetAPIService) ResetMachineBmc(ctx context.Context, org string, ma
 //	@return MessageResponse
 func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
+		localVarHTTPMethod  = http.MethodPatch
 		localVarPostBody    interface{}
 		formFiles           []formFile
 		localVarReturnValue *MessageResponse
@@ -79,15 +81,15 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/bmc-reset"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/machine/{machineId}/bmc/reset"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"machineId"+"}", url.PathEscape(parameterValueToString(r.machineId, "machineId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.bmcResetRequest == nil {
-		return localVarReturnValue, nil, reportError("bmcResetRequest is required and must be specified")
+	if r.bMCResetRequest == nil {
+		return localVarReturnValue, nil, reportError("bMCResetRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -108,7 +110,7 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.bmcResetRequest
+	localVarPostBody = r.bMCResetRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

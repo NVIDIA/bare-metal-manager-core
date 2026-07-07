@@ -1976,10 +1976,10 @@ async fn handle_restart_verification(
         {
             Ok(client) => client,
             Err(err) => {
-                tracing::warn!(
-                    "Failed to create Redfish client for host {} during force-restart verification: {}",
-                    mh_snapshot.host_snapshot.id,
-                    err
+                tracing::debug!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    error = %err,
+                    "Failed to create Redfish client for host during force-restart verification",
                 );
                 ctx.pending_db_writes
                     .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -1992,29 +1992,25 @@ async fn handle_restart_verification(
             }
         };
 
-        let restart_found = match check_restart_in_logs(
-            host_redfish_client.as_ref(),
-            last_reboot.time,
-        )
-        .await
-        {
-            Ok(found) => found,
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to fetch BMC logs for host {} during force-restart verification: {}",
-                    mh_snapshot.host_snapshot.id,
-                    err
-                );
-                ctx.pending_db_writes
-                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                        machine_id: mh_snapshot.host_snapshot.id,
-                        current_reboot: *last_reboot,
-                        verified: None,
-                        attempts: 0,
-                    });
-                return Ok(None); // Skip verification, continue with state transition
-            }
-        };
+        let restart_found =
+            match check_restart_in_logs(host_redfish_client.as_ref(), last_reboot.time).await {
+                Ok(found) => found,
+                Err(err) => {
+                    tracing::debug!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %err,
+                        "Failed to fetch BMC logs for host during force-restart verification",
+                    );
+                    ctx.pending_db_writes
+                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                            machine_id: mh_snapshot.host_snapshot.id,
+                            current_reboot: *last_reboot,
+                            verified: None,
+                            attempts: 0,
+                        });
+                    return Ok(None); // Skip verification, continue with state transition
+                }
+            };
 
         if restart_found {
             ctx.pending_db_writes
@@ -2082,10 +2078,10 @@ async fn handle_restart_verification(
             {
                 Ok(client) => client,
                 Err(err) => {
-                    tracing::warn!(
-                        "Failed to create Redfish client for DPU {} during force-restart verification: {}",
-                        dpu.id,
-                        err
+                    tracing::debug!(
+                        machine_id = %dpu.id,
+                        error = %err,
+                        "Failed to create Redfish client for DPU during force-restart verification",
                     );
                     ctx.pending_db_writes
                         .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -2098,31 +2094,28 @@ async fn handle_restart_verification(
                 }
             };
 
-            let restart_found = match check_restart_in_logs(
-                dpu_redfish_client.as_ref(),
-                last_reboot.time,
-            )
-            .await
-            {
-                Ok(found) => found,
-                Err(err) => {
-                    tracing::warn!(
-                        "Failed to fetch BMC logs for DPU {} during force-restart verification: {}",
-                        dpu.id,
-                        err
-                    );
+            let restart_found =
+                match check_restart_in_logs(dpu_redfish_client.as_ref(), last_reboot.time).await {
+                    Ok(found) => found,
+                    Err(err) => {
+                        tracing::debug!(
+                            machine_id = %dpu.id,
+                            error = %err,
+                            "Failed to fetch BMC logs for DPU during force-restart verification",
+                        );
 
-                    ctx.pending_db_writes
-                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                            machine_id: dpu.id,
-                            current_reboot: last_reboot,
-                            verified: None,
-                            attempts: 0,
-                        });
+                        ctx.pending_db_writes.push(
+                            MachineWriteOp::UpdateRestartVerificationStatus {
+                                machine_id: dpu.id,
+                                current_reboot: last_reboot,
+                                verified: None,
+                                attempts: 0,
+                            },
+                        );
 
-                    continue; // Skip verification, continue with state transition
-                }
-            };
+                        continue; // Skip verification, continue with state transition
+                    }
+                };
 
             if restart_found {
                 ctx.pending_db_writes
@@ -3565,20 +3558,14 @@ async fn check_host_boot_config(
     // falls back to its predicted boot NIC, and only waits when even that is
     // unavailable.
     let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-        BootInterfaceResolution::Ready(target) => target,
-        BootInterfaceResolution::AwaitingNic => {
-            return Ok(HostBootConfigDecision::Wait(format!(
-                "Waiting for zero-DPU host {} to discover its boot NIC before configuring boot.",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
-        BootInterfaceResolution::Missing => {
-            return Err(StateHandlerError::GenericError(eyre::eyre!(
-                "Missing boot interface for host: {}",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
+    let boot_interface = match require_boot_interface(
+        mh_snapshot,
+        &predictions,
+        "configuring boot",
+        HostBootConfigDecision::Wait,
+    )? {
+        RequiredBootInterface::Ready(target) => target,
+        RequiredBootInterface::Wait(decision) => return Ok(decision),
     };
 
     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
@@ -3827,9 +3814,9 @@ async fn check_fw_component_version(
                 return Ok(None);
             }
 
-            tracing::warn!(
+            tracing::debug!(
                 machine_id=%dpu_snapshot.id,
-                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
+                "{:#?} FW not yet at the expected version. Expected: {}, Current: {}",
                 component,
                 expected_version,
                 cur_version,
@@ -3839,14 +3826,14 @@ async fn check_fw_component_version(
             // This will cause continuous reboot of machine after first failure_retry_time is
             // passed.
             return Ok(Some(StateHandlerOutcome::wait(format!(
-                "{:#?} FW didn't update succesfully. Expected version: {}, Current version: {}",
+                "{:#?} FW not yet at the expected version. Expected: {}, Current: {}",
                 component, expected_version, cur_version,
             ))));
         }
 
         tracing::info!(
             machine_id=%dpu_snapshot.id,
-            "{:#?} FW updated succesfully to {}",
+            "{:#?} FW updated successfully to {}",
             component,
             expected_version,
         );
@@ -4938,6 +4925,117 @@ enum HostBootConfigDpuFreshness {
     AlreadyValidated,
     CurrentHostState,
     SinceLastHostRebootRequest,
+}
+
+/// Outcome of [`require_boot_interface`]: the resolved boot NIC, or the
+/// caller's wait outcome for a zero-DPU host still discovering its boot NIC.
+#[derive(Debug)]
+enum RequiredBootInterface<W> {
+    Ready(BootInterfaceTarget),
+    Wait(W),
+}
+
+/// Resolve the boot NIC for a Redfish boot step, folding the not-ready cases
+/// every caller handles the same way: a zero-DPU host that has not discovered
+/// its boot NIC yet maps to the caller's wait outcome (`wait` wraps the shared
+/// message; `activity` names the blocked step), and a host with no resolvable
+/// interface is a hard error. Keeps the boot-order substates and host boot
+/// repair resolving the boot NIC identically.
+fn require_boot_interface<W>(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    predictions: &[PredictedMachineInterface],
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    map_boot_interface_resolution(
+        resolve_boot_interface(mh_snapshot, predictions),
+        &mh_snapshot.host_snapshot.id,
+        activity,
+        wait,
+    )
+}
+
+/// The mapping behind [`require_boot_interface`], split out from the snapshot
+/// lookup so it can be unit-tested directly.
+fn map_boot_interface_resolution<W>(
+    resolution: BootInterfaceResolution,
+    host_id: &MachineId,
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    match resolution {
+        BootInterfaceResolution::Ready(target) => Ok(RequiredBootInterface::Ready(target)),
+        BootInterfaceResolution::AwaitingNic => Ok(RequiredBootInterface::Wait(wait(format!(
+            "Waiting for zero-DPU host {host_id} to discover its boot NIC before {activity}."
+        )))),
+        BootInterfaceResolution::Missing => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "Missing boot interface for host: {host_id}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod require_boot_interface_tests {
+    use super::*;
+
+    fn host_id() -> MachineId {
+        "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+            .parse()
+            .unwrap()
+    }
+
+    // Ready passes the resolved target through untouched.
+    #[test]
+    fn ready_passes_the_target_through() {
+        let target = BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap());
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Ready(target.clone()),
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Ready(out) = resolved else {
+            panic!("expected Ready");
+        };
+        assert_eq!(out, target);
+    }
+
+    // AwaitingNic becomes the caller's wait outcome, built from the shared
+    // message with the caller's activity spliced in.
+    #[test]
+    fn awaiting_nic_maps_to_the_callers_wait_outcome() {
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::AwaitingNic,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Wait(msg) = resolved else {
+            panic!("expected Wait");
+        };
+        assert_eq!(
+            msg,
+            format!(
+                "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
+                host_id()
+            )
+        );
+    }
+
+    // Missing is a hard error, not a wait.
+    #[test]
+    fn missing_is_a_hard_error() {
+        let err = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Missing,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap_err();
+        assert!(matches!(err, StateHandlerError::GenericError(_)));
+    }
 }
 
 /// In case machine does not come up until a specified duration, this function tries to reboot
@@ -11211,20 +11309,14 @@ async fn set_host_boot_order(
             // HostInband lease creates a real row, a zero-DPU/NIC-mode host
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "setting boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             // Don't re-apply a boot config that's already in place. `SetBootOrder`
@@ -11247,10 +11339,13 @@ async fn set_host_boot_order(
             if !is_bios_setup {
                 // The HTTP-boot device was reverted (the boot NIC dropped off the
                 // BMC's Redfish inventory on a reboot), so re-assert it with
-                // `machine_setup` and reboot to apply it *before* setting the boot
-                // order -- the two BIOS writes never share one pass (they can't
-                // share one Dell config job). The next pass reads the device
-                // applied (`is_bios_setup` true) and continues to the order.
+                // `machine_setup` and restart the host to apply it *before*
+                // setting the boot order -- the two BIOS writes never share one
+                // pass (they can't share one Dell config job). The re-assert
+                // commits once: `WaitForHttpBootDeviceApplied` polls the device
+                // across the reboot instead of this arm re-writing the staged
+                // settings and re-creating the config job every pass while the
+                // reboot lands.
                 call_machine_setup_and_handle_no_dpu_error(
                     redfish_client,
                     Some(&boot_interface),
@@ -11260,29 +11355,15 @@ async fn set_host_boot_order(
                 .await
                 .map_err(|e| redfish_error("machine_setup", e))?;
 
-                let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
-                    handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
-                        .await?;
-                    RebootStatus {
-                        increase_retry_count: true,
-                        status: "Restarted host to apply re-asserted HTTP boot device".to_string(),
-                    }
-                } else {
-                    trigger_reboot_if_needed(
-                        &mh_snapshot.host_snapshot,
-                        mh_snapshot,
-                        None,
-                        reachability_params,
-                        ctx,
-                    )
-                    .await?
-                };
-                if reboot_status.increase_retry_count {
-                    log_host_config(redfish_client, mh_snapshot).await;
-                }
-                return Ok(SetBootOrderOutcome::WaitingForReboot(format!(
-                    "HTTP boot device was reverted; re-asserted it and rebooting to apply before setting the boot order: {reboot_status:#?}"
-                )));
+                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
+                    .await?;
+                log_host_config(redfish_client, mh_snapshot).await;
+
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                    retry_count: set_boot_order_info.retry_count,
+                }));
             }
 
             // HTTP-boot device is already set, so `machine_setup` was not re-run
@@ -11371,6 +11452,81 @@ async fn set_host_boot_order(
                 set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
                 retry_count: set_boot_order_info.retry_count,
             }))
+        }
+        SetBootOrderState::WaitForHttpBootDeviceApplied => {
+            // The SetBootOrder substate re-asserted the reverted HTTP-boot device
+            // and restarted the host; the staged BIOS settings apply across that
+            // reboot. Poll until the device verifies, then return to SetBootOrder
+            // to set the boot order. If it still hasn't applied once the reboot
+            // has had time to land (the boot NIC can drop off the BMC's Redfish
+            // inventory again on the apply reboot itself), return to SetBootOrder
+            // for a fresh re-assert -- re-commits stay bounded to one per wait
+            // window instead of one per pass.
+            const HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES: i64 = 10;
+            const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
+
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying the re-asserted HTTP boot device",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
+            };
+
+            let is_bios_setup = boot_interface
+                .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                .await
+                .map_err(|e| redfish_error("is_bios_setup", e))?;
+
+            if is_bios_setup {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Re-asserted HTTP boot device applied; returning to SetBootOrder to set the boot order",
+                );
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: set_boot_order_info.retry_count,
+                }));
+            }
+
+            let minutes_waiting = mh_snapshot
+                .host_snapshot
+                .state
+                .version
+                .since_state_change()
+                .num_minutes();
+
+            if minutes_waiting >= HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES {
+                // Each expired window spends one retry from the SetBootOrder
+                // state machine's shared budget. Once it's exhausted the device
+                // is not coming back on its own -- stop re-asserting and surface
+                // the host for an operator, the same terminal escalation the
+                // reboot pacer applies to a host that never comes up.
+                if set_boot_order_info.retry_count >= MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES {
+                    return Err(StateHandlerError::ManualInterventionRequired(format!(
+                        "HTTP boot device on host {} still not applied after {} re-asserts; manual intervention required",
+                        mh_snapshot.host_snapshot.id, MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES
+                    )));
+                }
+                tracing::warn!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    minutes_waiting,
+                    "Re-asserted HTTP boot device still not applied after the wait window; returning to SetBootOrder to re-assert",
+                );
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: set_boot_order_info.retry_count + 1,
+                }));
+            }
+
+            Ok(SetBootOrderOutcome::WaitingForReboot(format!(
+                "Waiting for the re-asserted HTTP boot device to apply on host {} ({minutes_waiting}m of {HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES}m)",
+                mh_snapshot.host_snapshot.id
+            )))
         }
         SetBootOrderState::WaitForSetBootOrderJobScheduled => {
             if let Some(job_id) = &set_boot_order_info.set_boot_order_jid {
@@ -11583,20 +11739,14 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             let boot_order_configured = boot_interface

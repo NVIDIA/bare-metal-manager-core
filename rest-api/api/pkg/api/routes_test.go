@@ -114,7 +114,7 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPut, bmcCredentialPath)
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
-			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/bmc-reset")
+			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/dpu/reprovision")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/health-report")
 			assertRouteExists(t, got, http.MethodPut, machineAdminPath+"/health-report")

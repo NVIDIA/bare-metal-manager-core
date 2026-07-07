@@ -2877,6 +2877,61 @@ async fn test_set_boot_order_reasserts_http_boot_device_when_reverted(pool: sqlx
         "the boot order must not be set in the same pass as the re-assert (shared BIOS job), got: {first_pass:?}"
     );
 
+    // The re-assert is committed once. While the device is still reverted (the
+    // apply reboot hasn't landed yet), the host polls in
+    // WaitForHttpBootDeviceApplied without re-running machine_setup.
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "after the re-assert the host should wait for the device to apply, got: {:?}",
+            host.current_state()
+        );
+    }
+    let after_reassert = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let second_pass = env.redfish_sim.actions_since(&after_reassert).all_hosts();
+    assert!(
+        !second_pass
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "machine_setup must not re-run while waiting for the re-asserted device to apply, got: {second_pass:?}"
+    );
+
+    // Within the wait window the host stays parked in
+    // WaitForHttpBootDeviceApplied -- it neither advances nor bounces back to
+    // SetBootOrder for another re-assert.
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the host should keep waiting for the device to apply within the wait window, got: {:?}",
+            host.current_state()
+        );
+    }
+
     // Model the reboot applying the re-asserted config: the device now verifies.
     env.redfish_sim.set_is_bios_setup(true);
 
@@ -2893,6 +2948,103 @@ async fn test_set_boot_order_reasserts_http_boot_device_when_reverted(pool: sqlx
         .actions_since(&redfish_timepoint)
         .all_hosts();
     assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
+}
+
+/// When the re-asserted HTTP-boot device does not verify within the wait
+/// window (the boot NIC can drop off the BMC's Redfish inventory again on the
+/// apply reboot itself), the host returns to `SetBootOrder` for a fresh
+/// re-assert -- one `machine_setup` per window, not per pass. Once the state
+/// machine's retry budget is exhausted it stops re-asserting and surfaces the
+/// host for manual intervention.
+#[crate::sqlx_test]
+async fn test_set_boot_order_reassert_window_expiry_bounds_reapplies(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+
+    // The device stays reverted throughout: every verify reads false.
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+
+    let stuck_waiting = |retry_count: u32| ManagedHostState::HostInit {
+        machine_state: MachineState::SetBootOrder {
+            set_boot_order_info: Some(SetBootOrderInfo {
+                set_boot_order_jid: None,
+                set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                retry_count,
+            }),
+        },
+    };
+
+    // Plant the host mid-wait with the window already expired (backdated past
+    // the 10-minute apply window). Pass 1 returns it to SetBootOrder; pass 2
+    // re-asserts once and parks it back in the wait substate.
+    set_host_controller_state_stuck_in(&env, host_id, &stuck_waiting(0), 11).await;
+    let checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|a| matches!(a, RedfishSimAction::MachineSetup { .. }))
+            .count(),
+        1,
+        "an expired wait window should produce exactly one fresh re-assert, got: {actions:?}"
+    );
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            retry_count: 1,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the fresh re-assert should park the host back in the wait substate with the retry spent, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    // Budget exhausted: the same expired window with the retry budget spent
+    // must not re-assert again -- the host stays parked for an operator.
+    set_host_controller_state_stuck_in(&env, host_id, &stuck_waiting(3), 11).await;
+    let checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "an exhausted retry budget must not re-assert the device again, got: {actions:?}"
+    );
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the capped host should stay parked awaiting manual intervention, got: {:?}",
+            host.current_state()
+        );
+    }
 }
 
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.

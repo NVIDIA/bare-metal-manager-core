@@ -16,6 +16,7 @@
  */
 
 mod attach_vpc;
+mod create;
 mod delete;
 mod show;
 
@@ -38,4 +39,6 @@ pub enum Cmd {
     AttachVpc(attach_vpc::Args),
     #[clap(about = "Delete Network Segment")]
     Delete(delete::Args),
+    #[clap(about = "Create Network Segment")]
+    Create(create::Args),
 }

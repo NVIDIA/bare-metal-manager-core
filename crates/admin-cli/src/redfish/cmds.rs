@@ -511,12 +511,12 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             );
             if let Some(job_id) = redfish.set_boot_order_dpu_first(boot_interface).await? {
                 tracing::info!(
-                    "succesfully configured BIOS job {job_id} to set {} first in the server's boot order",
+                    "successfully configured BIOS job {job_id} to set {} first in the server's boot order",
                     args.boot_interface_mac
                 )
             } else {
                 tracing::info!(
-                    "succesfully set {} first in the server's boot order",
+                    "successfully set {} first in the server's boot order",
                     args.boot_interface_mac
                 )
             }

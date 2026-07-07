@@ -1401,7 +1401,7 @@ func TestNewManageMachine(t *testing.T) {
 	}
 }
 
-func TestGetForgeMachineStatus(t *testing.T) {
+func TestGetNICoMachineStatus(t *testing.T) {
 	type args struct {
 		controllerMachine *cwssaws.Machine
 	}
@@ -1414,7 +1414,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 		wantMachineAllocatable bool
 	}{
 		{
-			name: "test get forge machine status - with prefix",
+			name: "test get NICo machine status - with prefix",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1427,7 +1427,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: true, // Rule 1: InUse status without Prevent alerts
 		},
 		{
-			name: "test get forge machine status - without prefix",
+			name: "test get NICo machine status - without prefix",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1440,7 +1440,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: true,
 		},
 		{
-			name: "test get forge machine status - maintenance mode",
+			name: "test get NICo machine status - maintenance mode",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:         &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1456,7 +1456,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - missing",
+			name: "test get NICo machine status - missing",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStateMissing,
@@ -1466,7 +1466,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with health probe alerts prevent classification",
+			name: "test get NICo machine status - with health probe alerts prevent classification",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,
@@ -1485,7 +1485,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with automatic DPU firmware update alert",
+			name: "test get NICo machine status - with automatic DPU firmware update alert",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,
@@ -1508,7 +1508,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with non-automatic DPU firmware update alert",
+			name: "test get NICo machine status - with non-automatic DPU firmware update alert",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixAssigned,
@@ -1531,7 +1531,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - non-DPU firmware prevent alert remains error",
+			name: "test get NICo machine status - non-DPU firmware prevent alert remains error",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,

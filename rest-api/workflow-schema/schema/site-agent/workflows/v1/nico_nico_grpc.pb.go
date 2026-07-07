@@ -339,6 +339,8 @@ const (
 	Forge_SetDpuFirstBootOrder_FullMethodName                               = "/forge.Forge/SetDpuFirstBootOrder"
 	Forge_CreateBmcUser_FullMethodName                                      = "/forge.Forge/CreateBmcUser"
 	Forge_DeleteBmcUser_FullMethodName                                      = "/forge.Forge/DeleteBmcUser"
+	Forge_SetBmcRootPassword_FullMethodName                                 = "/forge.Forge/SetBmcRootPassword"
+	Forge_ProbeBmcVendor_FullMethodName                                     = "/forge.Forge/ProbeBmcVendor"
 	Forge_EnableInfiniteBoot_FullMethodName                                 = "/forge.Forge/EnableInfiniteBoot"
 	Forge_IsInfiniteBootEnabled_FullMethodName                              = "/forge.Forge/IsInfiniteBootEnabled"
 	Forge_OnDemandMachineValidation_FullMethodName                          = "/forge.Forge/OnDemandMachineValidation"
@@ -1028,6 +1030,12 @@ type ForgeClient interface {
 	CreateBmcUser(ctx context.Context, in *CreateBmcUserRequest, opts ...grpc.CallOption) (*CreateBmcUserResponse, error)
 	// Delete BMC User
 	DeleteBmcUser(ctx context.Context, in *DeleteBmcUserRequest, opts ...grpc.CallOption) (*DeleteBmcUserResponse, error)
+	// Set (rotate) a BMC's root password directly on the device. This is an
+	// out-of-band set: the credential-rotation engine will reassert the
+	// site-wide password on its next pass. For fleet rotation use RotateCredential.
+	SetBmcRootPassword(ctx context.Context, in *SetBmcRootPasswordRequest, opts ...grpc.CallOption) (*SetBmcRootPasswordResponse, error)
+	// Resolve a BMC's Redfish vendor.
+	ProbeBmcVendor(ctx context.Context, in *ProbeBmcVendorRequest, opts ...grpc.CallOption) (*ProbeBmcVendorResponse, error)
 	// Enable Infinite Boot
 	EnableInfiniteBoot(ctx context.Context, in *EnableInfiniteBootRequest, opts ...grpc.CallOption) (*EnableInfiniteBootResponse, error)
 	// Check Infinite Boot Status
@@ -4463,6 +4471,26 @@ func (c *forgeClient) DeleteBmcUser(ctx context.Context, in *DeleteBmcUserReques
 	return out, nil
 }
 
+func (c *forgeClient) SetBmcRootPassword(ctx context.Context, in *SetBmcRootPasswordRequest, opts ...grpc.CallOption) (*SetBmcRootPasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetBmcRootPasswordResponse)
+	err := c.cc.Invoke(ctx, Forge_SetBmcRootPassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ProbeBmcVendor(ctx context.Context, in *ProbeBmcVendorRequest, opts ...grpc.CallOption) (*ProbeBmcVendorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProbeBmcVendorResponse)
+	err := c.cc.Invoke(ctx, Forge_ProbeBmcVendor_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) EnableInfiniteBoot(ctx context.Context, in *EnableInfiniteBootRequest, opts ...grpc.CallOption) (*EnableInfiniteBootResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EnableInfiniteBootResponse)
@@ -6458,6 +6486,12 @@ type ForgeServer interface {
 	CreateBmcUser(context.Context, *CreateBmcUserRequest) (*CreateBmcUserResponse, error)
 	// Delete BMC User
 	DeleteBmcUser(context.Context, *DeleteBmcUserRequest) (*DeleteBmcUserResponse, error)
+	// Set (rotate) a BMC's root password directly on the device. This is an
+	// out-of-band set: the credential-rotation engine will reassert the
+	// site-wide password on its next pass. For fleet rotation use RotateCredential.
+	SetBmcRootPassword(context.Context, *SetBmcRootPasswordRequest) (*SetBmcRootPasswordResponse, error)
+	// Resolve a BMC's Redfish vendor.
+	ProbeBmcVendor(context.Context, *ProbeBmcVendorRequest) (*ProbeBmcVendorResponse, error)
 	// Enable Infinite Boot
 	EnableInfiniteBoot(context.Context, *EnableInfiniteBootRequest) (*EnableInfiniteBootResponse, error)
 	// Check Infinite Boot Status
@@ -7672,6 +7706,12 @@ func (UnimplementedForgeServer) CreateBmcUser(context.Context, *CreateBmcUserReq
 }
 func (UnimplementedForgeServer) DeleteBmcUser(context.Context, *DeleteBmcUserRequest) (*DeleteBmcUserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteBmcUser not implemented")
+}
+func (UnimplementedForgeServer) SetBmcRootPassword(context.Context, *SetBmcRootPasswordRequest) (*SetBmcRootPasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetBmcRootPassword not implemented")
+}
+func (UnimplementedForgeServer) ProbeBmcVendor(context.Context, *ProbeBmcVendorRequest) (*ProbeBmcVendorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProbeBmcVendor not implemented")
 }
 func (UnimplementedForgeServer) EnableInfiniteBoot(context.Context, *EnableInfiniteBootRequest) (*EnableInfiniteBootResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EnableInfiniteBoot not implemented")
@@ -13816,6 +13856,42 @@ func _Forge_DeleteBmcUser_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_SetBmcRootPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetBmcRootPasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetBmcRootPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetBmcRootPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetBmcRootPassword(ctx, req.(*SetBmcRootPasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ProbeBmcVendor_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProbeBmcVendorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ProbeBmcVendor(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ProbeBmcVendor_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ProbeBmcVendor(ctx, req.(*ProbeBmcVendorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_EnableInfiniteBoot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EnableInfiniteBootRequest)
 	if err := dec(in); err != nil {
@@ -17685,6 +17761,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteBmcUser",
 			Handler:    _Forge_DeleteBmcUser_Handler,
+		},
+		{
+			MethodName: "SetBmcRootPassword",
+			Handler:    _Forge_SetBmcRootPassword_Handler,
+		},
+		{
+			MethodName: "ProbeBmcVendor",
+			Handler:    _Forge_ProbeBmcVendor_Handler,
 		},
 		{
 			MethodName: "EnableInfiniteBoot",

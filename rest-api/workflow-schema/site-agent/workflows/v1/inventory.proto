@@ -216,6 +216,34 @@ message OsImageInventory {
   InventoryPage inventory_page = 5;
 }
 
+// OperatingSystemInventory - inventory info for all OS definitions periodically collected from carbide-core
+message OperatingSystemInventory {
+  // List of Operating Systems (active records only; deletions are detected by absence)
+  repeated forge.OperatingSystem operating_systems = 1;
+  // Reported timestamp of inventory
+  google.protobuf.Timestamp timestamp = 2;
+  // Status of Inventory
+  InventoryStatus inventory_status = 3;
+  // Message for status
+  string status_msg = 4;
+  // Inventory page information
+  InventoryPage inventory_page = 5;
+}
+
+// IpxeTemplateInventory - inventory info of all iPXE templates periodically collected from site
+message IpxeTemplateInventory {
+  // List of iPXE templates
+  repeated forge.IpxeTemplate templates = 1;
+  // Reported timestamp of iPXE template inventory
+  google.protobuf.Timestamp timestamp = 2;
+  // Status of Inventory
+  InventoryStatus inventory_status = 3;
+  // Status message
+  string status_msg = 4;
+  // Inventory page information
+  InventoryPage inventory_page = 5;
+}
+
 // SkuInventory - inventory info of all SKUs on Site, collected periodically
 message SkuInventory {
   // Status of Inventory

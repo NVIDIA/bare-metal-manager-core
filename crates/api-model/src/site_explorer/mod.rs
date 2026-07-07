@@ -877,7 +877,7 @@ impl EndpointExplorationReport {
         if !self
             .systems
             .first()
-            .map(|system| system.id == "Bluefield")
+            .map(|system| is_bluefield_system_id(&system.id))
             .unwrap_or(false)
         {
             return None;
@@ -1467,7 +1467,7 @@ pub enum PowerState {
 }
 
 /// `Manager` definition. Matches redfish definition
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1755,6 +1755,15 @@ pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
 /// Whether a DPU BMC chassis member carries the card product identity (part/serial).
 fn is_dpu_product_chassis_id(id: &str) -> bool {
     matches!(id, "Bluefield_BMC" | "BlueField_BMC_0")
+}
+
+/// Whether a Redfish ComputerSystem id identifies a BlueField DPU system.
+///
+/// Firmware is inconsistent: older dumps expose `/redfish/v1/Systems/Bluefield`
+/// while newer BF4 firmware exposes `/redfish/v1/Systems/BlueField_0`. Accept
+/// both so DPU detection is not silently skipped.
+pub fn is_bluefield_system_id(id: &str) -> bool {
+    matches!(id, "Bluefield" | "BlueField_0")
 }
 
 fn chassis_part_number(chassis: &Chassis) -> Option<&str> {

@@ -559,7 +559,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
 /// addresses outside managed prefixes must still land on the durable
 /// static-assignment topology.
 #[sqlx_test]
-async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
+async fn test_assign_external_ipv6_matching_link_address_moves_to_dual_stack_static_assignments(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let StaticAddressTestEnv {
@@ -580,8 +580,18 @@ async fn test_assign_external_ipv6_moves_to_dual_stack_static_assignments(
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
     txn.commit().await?;
 
-    // Assign an external IPv6 address that is outside managed network prefixes.
+    // Mark the external address as DHCPv6 relay context on a managed segment.
+    // Static ownership must still use prefix containment only.
     let requested_ipv6_address: IpAddr = "2001:db8:ffff::100".parse().unwrap();
+    let mut txn = env.db_txn().await;
+    sqlx::query("UPDATE network_prefixes SET dhcpv6_link_address = $2::inet WHERE segment_id = $1")
+        .bind(admin_segment.id)
+        .bind(requested_ipv6_address)
+        .execute(&mut *txn)
+        .await?;
+    txn.commit().await?;
+
+    // Assign an external IPv6 address that is outside managed network prefixes.
     env.api()
         .assign_static_address(Request::new(AssignStaticAddressRequest {
             interface_id: Some(interface.id),

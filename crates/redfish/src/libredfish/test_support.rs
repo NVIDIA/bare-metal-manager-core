@@ -66,6 +66,19 @@ struct RedfishSimState {
     /// Records every call to `RedfishClientPool::create_client` so tests can
     /// assert what vendor was passed at each call site.
     create_client_calls: Vec<CreateClientCall>,
+    /// When set, `change_password` fails with
+    /// [`RedfishError::PasswordChangeRequired`] to model a factory BMC (e.g.
+    /// Viking) that refuses the by-username change until the initial
+    /// change-on-first-use has been done -- the case the `AMI`/`LenovoGB300`
+    /// rotation path handles by retrying `change_password_by_id("2")`.
+    password_change_required: bool,
+    /// When set, overrides the `Vendor` field returned by `get_service_root`.
+    /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
+    /// the Chassis `Manufacturer` fallback path.
+    service_root_vendor: Option<String>,
+    /// When set, overrides the `Manufacturer` returned by `get_chassis`, so
+    /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
+    chassis_manufacturer: Option<String>,
 }
 
 /// Snapshot of a single `RedfishClientPool::create_client` invocation.
@@ -247,6 +260,27 @@ impl RedfishSim {
             .unwrap()
             .users
             .insert(username.to_string(), password.to_string());
+    }
+
+    /// Make `change_password` (the by-username path) fail with
+    /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
+    /// blocks it until change-on-first-use. `change_password_by_id` still
+    /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
+    pub fn set_password_change_required(&self, required: bool) {
+        self.state.lock().unwrap().password_change_required = required;
+    }
+
+    /// Override the `Vendor` reported by `get_service_root`. Set it to an
+    /// unrecognized value to force `probe_bmc_vendor` past the anonymous
+    /// service-root probe and into the Chassis `Manufacturer` fallback.
+    pub fn set_service_root_vendor(&self, vendor: Option<String>) {
+        self.state.lock().unwrap().service_root_vendor = vendor;
+    }
+
+    /// Override the `Manufacturer` reported by `get_chassis`, so tests can
+    /// drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
+    pub fn set_chassis_manufacturer(&self, manufacturer: Option<String>) {
+        self.state.lock().unwrap().chassis_manufacturer = manufacturer;
     }
 
     /// Seed a credential into the sim's credential store -- the same store
@@ -568,6 +602,9 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move {
             let s_user = user.to_string();
             let mut state = self.state.lock().unwrap();
+            if state.password_change_required {
+                return Err(RedfishError::PasswordChangeRequired);
+            }
             if !state.users.contains_key(&s_user) {
                 return Err(RedfishError::UserNotFound(s_user));
             }
@@ -742,8 +779,15 @@ impl Redfish for RedfishSimClient {
         _id: &'a str,
     ) -> libredfish::RedfishFuture<'a, Result<Chassis, RedfishError>> {
         Box::pin(async move {
+            let manufacturer = self
+                .state
+                .lock()
+                .unwrap()
+                .chassis_manufacturer
+                .clone()
+                .unwrap_or_else(|| "Nvidia".to_string());
             Ok(Chassis {
-                manufacturer: Some("Nvidia".to_string()),
+                manufacturer: Some(manufacturer),
                 model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
                 name: Some("Card1".to_string()),
                 ..Default::default()
@@ -1030,8 +1074,15 @@ impl Redfish for RedfishSimClient {
         Result<libredfish::model::service_root::ServiceRoot, RedfishError>,
     > {
         Box::pin(async move {
+            let vendor = self
+                .state
+                .lock()
+                .unwrap()
+                .service_root_vendor
+                .clone()
+                .unwrap_or_else(|| "Nvidia".to_string());
             Ok(ServiceRoot {
-                vendor: Some("Nvidia".to_string()),
+                vendor: Some(vendor),
                 product: Some("GB200 NVL".to_string()),
                 component_integrity: Some(ODataId {
                     odata_id: "Valid Data".to_string(),

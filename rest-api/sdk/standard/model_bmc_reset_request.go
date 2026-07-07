@@ -17,38 +17,40 @@ import (
 	"encoding/json"
 )
 
-// checks if the BmcResetRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &BmcResetRequest{}
+// checks if the BMCResetRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &BMCResetRequest{}
 
-// BmcResetRequest Request to reset a Machine BMC
-type BmcResetRequest struct {
+// BMCResetRequest Request to reset a Machine BMC
+type BMCResetRequest struct {
 	// Reset the BMC via ipmitool instead of Redfish.
 	UseIpmiTool *bool `json:"useIpmiTool,omitempty"`
+	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
 }
 
-// NewBmcResetRequest instantiates a new BmcResetRequest object
+// NewBMCResetRequest instantiates a new BMCResetRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewBmcResetRequest() *BmcResetRequest {
-	this := BmcResetRequest{}
+func NewBMCResetRequest() *BMCResetRequest {
+	this := BMCResetRequest{}
 	var useIpmiTool bool = false
 	this.UseIpmiTool = &useIpmiTool
 	return &this
 }
 
-// NewBmcResetRequestWithDefaults instantiates a new BmcResetRequest object
+// NewBMCResetRequestWithDefaults instantiates a new BMCResetRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewBmcResetRequestWithDefaults() *BmcResetRequest {
-	this := BmcResetRequest{}
+func NewBMCResetRequestWithDefaults() *BMCResetRequest {
+	this := BMCResetRequest{}
 	var useIpmiTool bool = false
 	this.UseIpmiTool = &useIpmiTool
 	return &this
 }
 
 // GetUseIpmiTool returns the UseIpmiTool field value if set, zero value otherwise.
-func (o *BmcResetRequest) GetUseIpmiTool() bool {
+func (o *BMCResetRequest) GetUseIpmiTool() bool {
 	if o == nil || IsNil(o.UseIpmiTool) {
 		var ret bool
 		return ret
@@ -58,7 +60,7 @@ func (o *BmcResetRequest) GetUseIpmiTool() bool {
 
 // GetUseIpmiToolOk returns a tuple with the UseIpmiTool field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *BmcResetRequest) GetUseIpmiToolOk() (*bool, bool) {
+func (o *BMCResetRequest) GetUseIpmiToolOk() (*bool, bool) {
 	if o == nil || IsNil(o.UseIpmiTool) {
 		return nil, false
 	}
@@ -66,7 +68,7 @@ func (o *BmcResetRequest) GetUseIpmiToolOk() (*bool, bool) {
 }
 
 // HasUseIpmiTool returns a boolean if a field has been set.
-func (o *BmcResetRequest) HasUseIpmiTool() bool {
+func (o *BMCResetRequest) HasUseIpmiTool() bool {
 	if o != nil && !IsNil(o.UseIpmiTool) {
 		return true
 	}
@@ -75,11 +77,43 @@ func (o *BmcResetRequest) HasUseIpmiTool() bool {
 }
 
 // SetUseIpmiTool gets a reference to the given bool and assigns it to the UseIpmiTool field.
-func (o *BmcResetRequest) SetUseIpmiTool(v bool) {
+func (o *BMCResetRequest) SetUseIpmiTool(v bool) {
 	o.UseIpmiTool = &v
 }
 
-func (o BmcResetRequest) MarshalJSON() ([]byte, error) {
+// GetAcknowledgeAttachedInstance returns the AcknowledgeAttachedInstance field value if set, zero value otherwise.
+func (o *BMCResetRequest) GetAcknowledgeAttachedInstance() bool {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		var ret bool
+		return ret
+	}
+	return *o.AcknowledgeAttachedInstance
+}
+
+// GetAcknowledgeAttachedInstanceOk returns a tuple with the AcknowledgeAttachedInstance field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BMCResetRequest) GetAcknowledgeAttachedInstanceOk() (*bool, bool) {
+	if o == nil || IsNil(o.AcknowledgeAttachedInstance) {
+		return nil, false
+	}
+	return o.AcknowledgeAttachedInstance, true
+}
+
+// HasAcknowledgeAttachedInstance returns a boolean if a field has been set.
+func (o *BMCResetRequest) HasAcknowledgeAttachedInstance() bool {
+	if o != nil && !IsNil(o.AcknowledgeAttachedInstance) {
+		return true
+	}
+
+	return false
+}
+
+// SetAcknowledgeAttachedInstance gets a reference to the given bool and assigns it to the AcknowledgeAttachedInstance field.
+func (o *BMCResetRequest) SetAcknowledgeAttachedInstance(v bool) {
+	o.AcknowledgeAttachedInstance = &v
+}
+
+func (o BMCResetRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -87,46 +121,49 @@ func (o BmcResetRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o BmcResetRequest) ToMap() (map[string]interface{}, error) {
+func (o BMCResetRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.UseIpmiTool) {
 		toSerialize["useIpmiTool"] = o.UseIpmiTool
 	}
+	if !IsNil(o.AcknowledgeAttachedInstance) {
+		toSerialize["acknowledgeAttachedInstance"] = o.AcknowledgeAttachedInstance
+	}
 	return toSerialize, nil
 }
 
-type NullableBmcResetRequest struct {
-	value *BmcResetRequest
+type NullableBMCResetRequest struct {
+	value *BMCResetRequest
 	isSet bool
 }
 
-func (v NullableBmcResetRequest) Get() *BmcResetRequest {
+func (v NullableBMCResetRequest) Get() *BMCResetRequest {
 	return v.value
 }
 
-func (v *NullableBmcResetRequest) Set(val *BmcResetRequest) {
+func (v *NullableBMCResetRequest) Set(val *BMCResetRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableBmcResetRequest) IsSet() bool {
+func (v NullableBMCResetRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableBmcResetRequest) Unset() {
+func (v *NullableBMCResetRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableBmcResetRequest(val *BmcResetRequest) *NullableBmcResetRequest {
-	return &NullableBmcResetRequest{value: val, isSet: true}
+func NewNullableBMCResetRequest(val *BMCResetRequest) *NullableBMCResetRequest {
+	return &NullableBMCResetRequest{value: val, isSet: true}
 }
 
-func (v NullableBmcResetRequest) MarshalJSON() ([]byte, error) {
+func (v NullableBMCResetRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableBmcResetRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableBMCResetRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

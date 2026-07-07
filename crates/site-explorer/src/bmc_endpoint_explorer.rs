@@ -1194,6 +1194,71 @@ impl EndpointExplorer for BmcEndpointExplorer {
             }
         }
     }
+
+    async fn set_bmc_root_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        new_password: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        let current_credentials =
+            self.get_bmc_root_credentials(bmc_mac_address).await.inspect_err(|_| {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support set_bmc_root_password for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+            })?;
+
+        // Resolve the dispatch vendor `set_bmc_root_password` branches on using
+        // the current credentials, then set the new password on the device.
+        let vendor = self
+            .redfish_client
+            .probe_bmc_vendor(bmc_ip_address, current_credentials.clone())
+            .await?;
+        let new_credentials = self
+            .set_bmc_root_password(
+                bmc_ip_address,
+                vendor,
+                current_credentials,
+                new_password.to_string(),
+            )
+            .await?;
+
+        // Persist the new per-device credential so NICo can still reach the BMC.
+        // Deliberately does NOT record rotation convergence (unlike
+        // `set_bmc_root_credentials`): this is an out-of-band set, so the
+        // credential-rotation engine will reassert the site-wide password on
+        // its next pass rather than treating this device as converged.
+        self.credential_client
+            .set_bmc_root_credentials(bmc_mac_address, &new_credentials)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn probe_bmc_vendor(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
+        let bmc_mac_address = interface.mac_address;
+
+        let credentials =
+            self.get_bmc_root_credentials(bmc_mac_address).await.inspect_err(|_| {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "BMC endpoint explorer does not support probe_bmc_vendor for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    bmc_mac_address,
+                );
+            })?;
+
+        self.redfish_client
+            .probe_bmc_vendor(bmc_ip_address, credentials)
+            .await
+    }
 }
 
 // This report is temporary. For transition period when we check that

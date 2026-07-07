@@ -997,6 +997,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.DeviceCredentialRotationStatus",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute(
+            ".forge.NetworkSegmentType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.VpcVirtualizationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

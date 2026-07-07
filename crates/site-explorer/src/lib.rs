@@ -54,7 +54,7 @@ use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
     PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
-    is_bf3_supernic_part_number, is_bluefield_part_number,
+    is_bf3_supernic_part_number, is_bluefield_part_number, is_bluefield_system_id,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
@@ -3531,19 +3531,22 @@ fn get_base_mac_from_sys_image_version(sys_image_version: &String) -> Result<Str
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
     // Base-MAC derivation has three paths, tried in order of trust:
-    //   1. Primary  : the explored ComputerSystem base_mac (OEM Redfish BaseMAC).
-    //   2. Legacy    : derived from UpdateService/FirmwareInventory/DPU_SYS_IMAGE.Version.
-    //   3. BMC offset: derived from the BMC manager eth0 MAC minus a per-platform
-    //                  offset (fallback-only; see derive_base_mac_from_bmc_eth0).
-    // We only hard-fail if all three paths fail.
+    //   1. Primary  : any explored ComputerSystem base_mac (OEM Redfish BaseMAC).
+    //   2. Legacy   : derived from UpdateService/FirmwareInventory/DPU_SYS_IMAGE.Version.
+    //   3. BMC offset: derived from manager eth0 MAC minus per-platform offset.
+    //
+    // BF4 explicitly skips path 3. Its PF0 base MAC should be populated in
+    // `systems[].base_mac` at exploration time from the NDF0 Redfish path.
+    // BF3 keeps path 3 unchanged.
 
     // Path 1: explored computer-system base_mac.
     if let Some(system_mac) = dpu_ep.report.systems.first().and_then(|s| s.base_mac) {
         return Ok(system_mac.to_mac());
     }
 
-    // Path 2: legacy DPU_SYS_IMAGE derivation. Soft-fail so we can try path 3.
-    tracing::warn!("ComputerSystem doesn't have base_mac, falling back to DPU_SYS_IMAGE method");
+    // Path 2: legacy DPU_SYS_IMAGE derivation. Soft-fail so BF3 can still try
+    // path 3 (BMC offset). BF4 should never use path 3.
+    tracing::warn!("ComputerSystem doesn't have base_mac, trying DPU_SYS_IMAGE method");
     let legacy_err = match get_sys_image_version(dpu_ep.report.service.as_ref())
         .and_then(get_base_mac_from_sys_image_version)
         .and_then(|legacy_mac| {
@@ -3552,15 +3555,46 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
             })
         }) {
         Ok(mac) => return Ok(mac),
-        Err(e) => {
-            tracing::warn!("DPU_SYS_IMAGE derivation failed, falling back to BMC eth0 offset: {e}");
-            e
-        }
+        Err(e) => e,
     };
 
-    // Path 3: BMC manager eth0 MAC minus a per-platform offset. If this path is
-    // also unavailable, surface the legacy error so we still fail the old way.
+    // BF4 should not use eth0 offset fallback.
+    if is_bf4_dpu_report(&dpu_ep.report) {
+        tracing::warn!(
+            "DPU_SYS_IMAGE derivation failed for BF4; expected PF0 base MAC from NDF0-patched systems[].base_mac, skipping BMC eth0 offset fallback"
+        );
+        return Err(legacy_err);
+    }
+
+    // Path 3: BMC manager eth0 MAC minus a per-platform offset.
     derive_base_mac_from_bmc_eth0(&dpu_ep.report).ok_or(legacy_err)
+}
+
+fn is_bf4_dpu_report(report: &EndpointExplorationReport) -> bool {
+    let has_bluefield_system = report
+        .systems
+        .first()
+        .is_some_and(|system| is_bluefield_system_id(&system.id));
+    if !has_bluefield_system {
+        return false;
+    }
+
+    // Use BF4-specific topology IDs instead of free-form model strings.
+    // This is intentionally strict to avoid matching BF2/BF3 reports that may
+    // also carry some *_0 naming in newer firmware.
+    let has_bf4_chassis_and_nic = report.chassis.iter().any(|chassis| {
+        chassis.id == "BlueField_0"
+            && chassis
+                .network_adapters
+                .iter()
+                .any(|adapter| adapter.id == "BlueField_NIC_0")
+    });
+    let has_bf4_bmc_manager_id = report
+        .managers
+        .iter()
+        .any(|manager| manager.id == "BlueField_BMC_0");
+
+    has_bf4_chassis_and_nic && has_bf4_bmc_manager_id
 }
 
 // The PF0 base MAC sits a fixed offset below the DPU BMC's eth0 MAC, within the
@@ -3632,14 +3666,14 @@ fn derive_base_mac_from_bmc_eth0(report: &EndpointExplorationReport) -> Option<M
 }
 
 /// MAC address as a 48-bit big-endian integer (top two bytes of the u64 are zero).
-fn mac_to_u64(mac: MacAddress) -> u64 {
+pub(crate) fn mac_to_u64(mac: MacAddress) -> u64 {
     mac.bytes()
         .iter()
         .fold(0u64, |acc, &byte| (acc << 8) | u64::from(byte))
 }
 
 /// Inverse of [`mac_to_u64`]; the high 16 bits are discarded.
-fn u64_to_mac(value: u64) -> MacAddress {
+pub(crate) fn u64_to_mac(value: u64) -> MacAddress {
     let b = value.to_be_bytes();
     MacAddress::new([b[2], b[3], b[4], b[5], b[6], b[7]])
 }
@@ -3887,6 +3921,69 @@ mod tests {
         }
     }
 
+    fn bf4_report_with_zero_suffix_ids(system_id: &str) -> EndpointExplorationReport {
+        use model::site_explorer::{Chassis, ComputerSystem, Manager, NetworkAdapter};
+        EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: system_id.to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "BlueField_0".to_string(),
+                network_adapters: vec![NetworkAdapter {
+                    id: "BlueField_NIC_0".to_string(),
+                    ..Default::default()
+                }],
+                model: None,
+                ..Default::default()
+            }],
+            managers: vec![Manager {
+                id: "BlueField_BMC_0".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_detects_zero_suffix_ids_without_model_string() {
+        for system_id in ["Bluefield", "BlueField_0"] {
+            let report = bf4_report_with_zero_suffix_ids(system_id);
+            assert!(
+                is_bf4_dpu_report(&report),
+                "expected BF4 detection for system id {system_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_rejects_zero_suffix_ids_without_bf4_nic_topology() {
+        use model::site_explorer::{Chassis, ComputerSystem, Manager};
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                id: "Bluefield".to_string(),
+                ..Default::default()
+            }],
+            chassis: vec![Chassis {
+                id: "BlueField_0".to_string(),
+                // Missing BlueField_NIC_0 adapter.
+                ..Default::default()
+            }],
+            managers: vec![Manager {
+                id: "BlueField_BMC_0".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!is_bf4_dpu_report(&report));
+    }
+
+    #[test]
+    fn is_bf4_dpu_report_does_not_match_bf3_shape() {
+        let report = bf3_report_with_eth0("5c:25:73:9e:ac:eb");
+        assert!(!is_bf4_dpu_report(&report));
+    }
+
     #[test]
     fn bmc_eth0_offset_skips_locally_administered_mac() {
         // Transient pre-sync MAC (locally-administered bit set) must not derive
@@ -4098,6 +4195,16 @@ mod tests {
 
         check_cases(
             [
+                Case {
+                    scenario: "report base_mac wins before legacy DPU_SYS_IMAGE path",
+                    input: {
+                        let mut ep = without_firmware_inventory();
+                        ep.report.systems[0].base_mac =
+                            Some("f4:20:4d:49:53:b4".parse::<MacAddress>().unwrap().into());
+                        ep
+                    },
+                    expect: Yields("f4:20:4d:49:53:b4".parse().unwrap()),
+                },
                 Case {
                     scenario: "legacy sys-image MAC, sanitized",
                     input: endpoint(),
