@@ -179,7 +179,15 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
         let host_ids = db::managed_host::load_host_ids(&self.db_pool).await?;
         let total = host_ids.len();
 
-        let pacing = self.config.max_publishes_per_second.pacing_delay();
+        let mut pacing = self
+            .config
+            .max_publishes_per_second
+            .pacing_delay()
+            .map(|period| {
+                let mut ticker = tokio::time::interval_at(Instant::now() + period, period);
+                ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                ticker
+            });
         let mut reader: db::db_read::PgPoolReader = self.db_pool.clone().into();
         let mut published = 0usize;
         let mut skipped_healthy = 0usize;
@@ -224,9 +232,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
             .await;
             published += 1;
 
-            if let Some(delay) = pacing {
+            if let Some(ticker) = &mut pacing {
                 tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = ticker.tick() => {}
                     _ = cancel_token.cancelled() => break 'sweep,
                 }
             }
