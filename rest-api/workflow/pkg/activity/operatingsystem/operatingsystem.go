@@ -176,7 +176,7 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 			if ossaStatus != ossa.Status {
 				serr := mos.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cutil.GetPtr(ossaStatus), ossaStatusMessage)
 				if serr != nil {
-					slogger.Error().Err(err).Msg("failed to update OS Image Site Association status detail in DB")
+					slogger.Error().Err(serr).Msg("failed to update OS Image Site Association status detail in DB")
 				}
 				updatedOperatingSystemMap[ossa.OperatingSystemID] = true
 			}
@@ -213,7 +213,7 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 			// Trigger re-evaluation of Operating System status (delete if no association exists)
 			serr = mos.UpdateOperatingSystemStatusInDB(ctx, ossa.OperatingSystemID)
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to trigger Operating System status update in DB")
+				slogger.Error().Err(serr).Msg("failed to trigger Operating System status update in DB")
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
@@ -237,7 +237,7 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 
 			serr = mos.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusError), cutil.GetPtr("Operating System is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update Operating System Site Association status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update Operating System Site Association status detail in DB")
 			}
 
 			updatedOperatingSystemMap[ossa.OperatingSystemID] = true
@@ -520,9 +520,14 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 
 		existingOS, found := existingOSByID[reportedOSID]
 		if !found {
-			// Templated iPXE OS: verify the referenced template is available at this site
-			// before creating the OS record. Skip silently if not available.
-			if osType == cdbm.OperatingSystemTypeTemplatedIPXE && reportedOS.IpxeTemplateId != nil {
+			// Templated iPXE OS: require a non-empty template reference that is
+			// available at this site before creating the OS record. Skip silently
+			// if it is missing, invalid, or not associated with the Site.
+			if osType == cdbm.OperatingSystemTypeTemplatedIPXE {
+				if reportedOS.IpxeTemplateId.GetValue() == "" {
+					slogger.Warn().Msg("Templated iPXE Operating System has no iPXE template reference, skipping")
+					continue
+				}
 				ipxeTemplateID, serr := uuid.Parse(reportedOS.IpxeTemplateId.GetValue())
 				if serr != nil {
 					slogger.Error().Err(serr).Str("IpxeTemplateID", reportedOS.IpxeTemplateId.GetValue()).Msg("Invalid iPXE template UUID in Operating System, skipping")
@@ -551,40 +556,11 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				status = cdbm.OperatingSystemStatusSyncing
 			}
 
-			_, serr := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
-				ID:                       reportedOSID,
-				Name:                     reportedOS.Name,
-				Org:                      site.Org,
-				TenantID:                 nil,
-				InfrastructureProviderID: &site.InfrastructureProviderID,
-				OsType:                   osType,
-				Description:              reportedOS.Description,
-				UserData:                 reportedOS.UserData,
-				IpxeScript:               reportedOS.IpxeScript,
-				AllowOverride:            reportedOS.AllowOverride,
-				PhoneHomeEnabled:         reportedOS.PhoneHomeEnabled,
-				IpxeTemplateId:           cutil.GetPtr(reportedOS.IpxeTemplateId.GetValue()),
-				IpxeTemplateParameters:   ipxeTemplateParams,
-				IpxeTemplateArtifacts:    ipxeTemplateArtifacts,
-				IpxeOSHash:               reportedOS.IpxeTemplateDefinitionHash,
-				IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
-				Status:                   status,
-			})
-			if serr != nil {
-				slogger.Error().Err(serr).Msg("Failed to create Operating System, DB error")
-				continue
-			}
-
-			if !reportedOS.IsActive {
-				// TODO: Allow creation of inactive OSes
-				_, serr := osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{
-					OperatingSystemId: reportedOSID,
-					IsActive:          cutil.GetPtr(false),
-				})
-				if serr != nil {
-					slogger.Error().Err(serr).Msg("Failed to set Operating System to inactive on creation")
-					continue
-				}
+			// Only persist a template reference when non-empty (validated above for
+			// Templated iPXE). Other OS types carry no template.
+			var ipxeTemplateIDPtr *string
+			if v := reportedOS.IpxeTemplateId.GetValue(); v != "" {
+				ipxeTemplateIDPtr = cutil.GetPtr(v)
 			}
 
 			// Create site association linking the OS to the reporting site.
@@ -594,13 +570,56 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusSyncing
 			}
 
-			_, ossaErr := ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
-				OperatingSystemID: reportedOSID,
-				SiteID:            siteID,
-				Status:            ossaStatus,
+			// The OS definition, the (optional) inactive correction, and the per-site
+			// association are dependent writes: commit them together so a later
+			// failure cannot leave a partially-created OS.
+			txErr := cdb.WithTx(ctx, mos.dbSession, func(tx *cdb.Tx) error {
+				if _, serr := osDAO.Create(ctx, tx, cdbm.OperatingSystemCreateInput{
+					ID:                       reportedOSID,
+					Name:                     reportedOS.Name,
+					Org:                      site.Org,
+					TenantID:                 nil,
+					InfrastructureProviderID: &site.InfrastructureProviderID,
+					OsType:                   osType,
+					Description:              reportedOS.Description,
+					UserData:                 reportedOS.UserData,
+					IpxeScript:               reportedOS.IpxeScript,
+					AllowOverride:            reportedOS.AllowOverride,
+					PhoneHomeEnabled:         reportedOS.PhoneHomeEnabled,
+					IpxeTemplateId:           ipxeTemplateIDPtr,
+					IpxeTemplateParameters:   ipxeTemplateParams,
+					IpxeTemplateArtifacts:    ipxeTemplateArtifacts,
+					IpxeOSHash:               reportedOS.IpxeTemplateDefinitionHash,
+					IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+					Status:                   status,
+				}); serr != nil {
+					slogger.Error().Err(serr).Msg("Failed to create Operating System, DB error")
+					return serr
+				}
+
+				if !reportedOS.IsActive {
+					// TODO: Allow creation of inactive OSes
+					if _, serr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{
+						OperatingSystemId: reportedOSID,
+						IsActive:          cutil.GetPtr(false),
+					}); serr != nil {
+						slogger.Error().Err(serr).Msg("Failed to set Operating System to inactive on creation")
+						return serr
+					}
+				}
+
+				if _, serr := ossaDAO.Create(ctx, tx, cdbm.OperatingSystemSiteAssociationCreateInput{
+					OperatingSystemID: reportedOSID,
+					SiteID:            siteID,
+					Status:            ossaStatus,
+				}); serr != nil {
+					slogger.Error().Err(serr).Msg("Failed to create site association for new OS")
+					return serr
+				}
+
+				return nil
 			})
-			if ossaErr != nil {
-				slogger.Error().Err(ossaErr).Msg("Failed to create site association for new OS")
+			if txErr != nil {
 				continue
 			}
 
@@ -690,8 +709,29 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				controllerState = cdbm.OperatingSystemStatusSyncing
 			}
 
+			// Templated iPXE OS: require a non-empty template reference that is
+			// available at this site before overwriting the OS record. Skip the
+			// update if it is missing, invalid, or not associated with the Site.
+			// Other OS types carry no template reference.
 			var ipxeTemplateID *string
-			if reportedOS.IpxeTemplateId != nil {
+			if osType == cdbm.OperatingSystemTypeTemplatedIPXE {
+				if reportedOS.IpxeTemplateId.GetValue() == "" {
+					slogger.Warn().Msg("Templated iPXE Operating System has no iPXE template reference, skipping update")
+					continue
+				}
+				parsedTemplateID, serr := uuid.Parse(reportedOS.IpxeTemplateId.GetValue())
+				if serr != nil {
+					slogger.Error().Err(serr).Str("IpxeTemplateID", reportedOS.IpxeTemplateId.GetValue()).Msg("Invalid iPXE template UUID in Operating System, skipping update")
+					continue
+				}
+				if _, serr = itsaDAO.GetByIpxeTemplateIDAndSiteID(ctx, nil, parsedTemplateID, siteID, nil); serr != nil {
+					if errors.Is(serr, cdb.ErrDoesNotExist) {
+						slogger.Warn().Str("IpxeTemplateID", parsedTemplateID.String()).Msg("iPXE Template Association does not exist for Site, skipping update")
+						continue
+					}
+					slogger.Error().Err(serr).Msg("Failed to retrieve IpxeTemplateSiteAssociation, DB error")
+					continue
+				}
 				ipxeTemplateID = cutil.GetPtr(reportedOS.IpxeTemplateId.GetValue())
 			}
 
@@ -747,8 +787,28 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		return err
 	}
 
+	// Scope deletion to the reporting Site: only OSes associated with this Site
+	// are candidates, so a provider's OSes that live at a different Site are not
+	// soft-deleted just because they are absent from this Site's inventory.
+	siteOssas, _, err := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
+		SiteIDs: []uuid.UUID{siteID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to fetch Operating System Site Associations for deletion reconciliation")
+		return err
+	}
+	siteOSIDs := make(map[uuid.UUID]struct{}, len(siteOssas))
+	for _, ossa := range siteOssas {
+		siteOSIDs[ossa.OperatingSystemID] = struct{}{}
+	}
+
 	for _, ipxeOS := range allIpxeOSes {
 		if ipxeOS.IpxeOsScope != nil && *ipxeOS.IpxeOsScope != cdbm.OperatingSystemScopeLocal {
+			continue
+		}
+
+		// Only OSes associated with the reporting Site are deletion candidates.
+		if _, associatedWithSite := siteOSIDs[ipxeOS.ID]; !associatedWithSite {
 			continue
 		}
 

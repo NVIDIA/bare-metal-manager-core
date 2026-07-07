@@ -54,7 +54,7 @@ func (mii *ManageIpxeTemplateInventory) DiscoverIpxeTemplateInventory(ctx contex
 			StatusMsg:       err.Error(),
 			Timestamp:       timestamppb.Now(),
 		}
-		if _, execErr := mii.config.TemporalPublishClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, mii.config.SiteID, inventory); execErr != nil {
+		if _, execErr := mii.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, mii.config.SiteID, inventory); execErr != nil {
 			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
 			return execErr
 		}
@@ -76,7 +76,7 @@ func (mii *ManageIpxeTemplateInventory) DiscoverIpxeTemplateInventory(ctx contex
 		Templates:       publicTemplates,
 	}
 
-	if _, err = mii.config.TemporalPublishClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, mii.config.SiteID, inventory); err != nil {
+	if _, err = mii.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, mii.config.SiteID, inventory); err != nil {
 		logger.Error().Err(err).Msg("Failed to publish iPXE template inventory to Cloud")
 		return err
 	}

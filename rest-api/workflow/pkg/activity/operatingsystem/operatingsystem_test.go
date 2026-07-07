@@ -453,6 +453,7 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 		})
 	}
 }
+
 // TestManageOsImage_UpdateOperatingSystemsInDB exercises the Operating System
 // inventory reconciliation performed for iPXE / Templated iPXE Operating Systems
 // pushed from nico-core: creation of provider-owned Local records, skipping of
@@ -571,6 +572,72 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		assert.ErrorIs(t, err, cdb.ErrDoesNotExist, "OS should not be created when its template is not available at the Site")
 	})
 
+	t.Run("does not overwrite existing Local Templated iPXE OS when reported template is unavailable at Site", func(t *testing.T) {
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-noverwrite", "provider-noverwrite-org", ipu)
+		st := util.TestBuildSite(t, dbSession, ip, "site-noverwrite", cdbm.SiteStatusRegistered, nil, ipu)
+
+		// Template associated with the Site (the current, valid reference).
+		tmplA, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
+			ID: uuid.New(), Name: "tmpl-noverwrite-a", Template: "#!ipxe\n", Scope: "Public",
+		})
+		require.NoError(t, err)
+		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmplA.ID, SiteID: st.ID})
+		require.NoError(t, err)
+
+		// Template NOT associated with the Site (an unavailable reference).
+		tmplB, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
+			ID: uuid.New(), Name: "tmpl-noverwrite-b", Template: "#!ipxe\n", Scope: "Public",
+		})
+		require.NoError(t, err)
+
+		osID := uuid.New()
+		_, err = osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
+			ID:                       osID,
+			Name:                     "existing-templated-os",
+			Org:                      st.Org,
+			InfrastructureProviderID: &ip.ID,
+			OsType:                   cdbm.OperatingSystemTypeTemplatedIPXE,
+			IpxeTemplateId:           cutil.GetPtr(tmplA.ID.String()),
+			IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+			Status:                   cdbm.OperatingSystemStatusReady,
+			CreatedBy:                ipu.ID,
+		})
+		require.NoError(t, err)
+		_, err = ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: osID, SiteID: st.ID, Status: cdbm.OperatingSystemSiteAssociationStatusSynced, CreatedBy: ipu.ID,
+		})
+		require.NoError(t, err)
+
+		// Site reports the OS with a newer timestamp but referencing a template
+		// that is not associated with the Site. The definition update must be
+		// skipped so the existing (valid) template reference is preserved.
+		inventory := &cwssaws.OperatingSystemInventory{
+			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*cwssaws.OperatingSystem{
+				{
+					Id:             &cwssaws.OperatingSystemId{Value: osID.String()},
+					Name:           "renamed-should-not-apply",
+					Type:           cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:         cwssaws.TenantState_READY,
+					IsActive:       true,
+					IpxeTemplateId: &cwssaws.IpxeTemplateId{Value: tmplB.ID.String()},
+					Updated:        time.Now().Add(time.Hour).Format(time.RFC3339),
+				},
+			},
+			Timestamp: timestamppb.Now(),
+		}
+
+		err = newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, inventory)
+		require.NoError(t, err)
+
+		unchanged, err := osDAO.GetByID(ctx, nil, osID, nil)
+		require.NoError(t, err)
+		require.NotNil(t, unchanged)
+		assert.Equal(t, "existing-templated-os", unchanged.Name, "definition must not be overwritten with an unavailable template")
+		require.NotNil(t, unchanged.IpxeTemplateId)
+		assert.Equal(t, tmplA.ID.String(), *unchanged.IpxeTemplateId, "template reference must be preserved")
+	})
+
 	t.Run("soft-deletes Local iPXE OS absent from Site inventory", func(t *testing.T) {
 		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-delete", "provider-delete-org", ipu)
 		st := util.TestBuildSite(t, dbSession, ip, "site-delete", cdbm.SiteStatusRegistered, nil, ipu)
@@ -608,6 +675,49 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		_, err = osDAO.GetByID(ctx, nil, osID, nil)
 		assert.ErrorIs(t, err, cdb.ErrDoesNotExist, "Local OS absent from Site inventory should be soft-deleted")
+	})
+
+	t.Run("does not soft-delete a provider's Local OS associated with a different Site", func(t *testing.T) {
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-multisite", "provider-multisite-org", ipu)
+		stReporting := util.TestBuildSite(t, dbSession, ip, "site-reporting", cdbm.SiteStatusRegistered, nil, ipu)
+		stOther := util.TestBuildSite(t, dbSession, ip, "site-other", cdbm.SiteStatusRegistered, nil, ipu)
+
+		// A Local OS that lives at stOther (same provider), associated only with stOther.
+		otherOSID := uuid.New()
+		_, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
+			ID:                       otherOSID,
+			Name:                     "other-site-local-os",
+			Org:                      stOther.Org,
+			InfrastructureProviderID: &ip.ID,
+			OsType:                   cdbm.OperatingSystemTypeIPXE,
+			IpxeScript:               cutil.GetPtr("#!ipxe\n"),
+			IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+			Status:                   cdbm.OperatingSystemStatusReady,
+			CreatedBy:                ipu.ID,
+		})
+		require.NoError(t, err)
+		_, err = ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: otherOSID,
+			SiteID:            stOther.ID,
+			Status:            cdbm.OperatingSystemSiteAssociationStatusSynced,
+			CreatedBy:         ipu.ID,
+		})
+		require.NoError(t, err)
+
+		// stReporting reports an empty inventory. Deletion reconciliation must be
+		// scoped to stReporting and leave the OS that belongs to stOther intact.
+		inventory := &cwssaws.OperatingSystemInventory{
+			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*cwssaws.OperatingSystem{},
+			Timestamp:        timestamppb.Now(),
+		}
+
+		err = newManageOsImage().UpdateOperatingSystemsInDB(ctx, stReporting.ID, inventory)
+		require.NoError(t, err)
+
+		survivor, err := osDAO.GetByID(ctx, nil, otherOSID, nil)
+		require.NoError(t, err, "OS associated with a different Site must not be soft-deleted")
+		require.NotNil(t, survivor)
 	})
 
 	t.Run("returns error for nil inventory", func(t *testing.T) {

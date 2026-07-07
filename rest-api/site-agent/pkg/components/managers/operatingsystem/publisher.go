@@ -59,6 +59,5 @@ func (api *API) RegisterPublisher() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ipxeTemplateInventoryManager.DiscoverIpxeTemplateInventory)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered DiscoverIpxeTemplateInventory activity")
 
-	api.RegisterCron()
-	return nil
+	return api.RegisterCron()
 }

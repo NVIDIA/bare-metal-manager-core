@@ -109,19 +109,11 @@ func UpdateOperatingSystemInventory(ctx workflow.Context, siteID string, invento
 
 	var osManager osActivity.ManageOsImage
 
-	var osIDs []uuid.UUID
-
-	// TODO: Return IDs for Operating Systems that were updated/needs processing
-	err = workflow.ExecuteActivity(ctx, osManager.UpdateOperatingSystemsInDB, parsedSiteID, inventory).Get(ctx, &osIDs)
+	// UpdateOperatingSystemsInDB reconciles the inventory and returns only an
+	// error (no IDs), so decode into a nil result target.
+	err = workflow.ExecuteActivity(ctx, osManager.UpdateOperatingSystemsInDB, parsedSiteID, inventory).Get(ctx, nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to execute activity: UpdateOperatingSystemsInDB")
-	} else {
-		for _, osID := range osIDs {
-			serr := workflow.ExecuteActivity(ctx, osManager.UpdateOperatingSystemStatusInDB, osID).Get(ctx, nil)
-			if serr != nil {
-				logger.Warn().Err(serr).Msg("failed to execute activity: UpdateOperatingSystemStatusInDB")
-			}
-		}
 	}
 
 	logger.Info().Msg("Completing workflow")
