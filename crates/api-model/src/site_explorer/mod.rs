@@ -1467,7 +1467,7 @@ pub enum PowerState {
 }
 
 /// `Manager` definition. Matches redfish definition
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
