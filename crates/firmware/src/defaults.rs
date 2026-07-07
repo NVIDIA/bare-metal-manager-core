@@ -16,28 +16,28 @@
  */
 
 /// Default BlueField-2 NIC firmware version.
-pub const BF2_NIC_VERSION: &str = "24.47.2682";
+pub const BF2_NIC_VERSION: &str = "24.49.1014";
 
 /// Default BlueField-2 BMC firmware version.
-pub const BF2_BMC_VERSION: &str = "BF-25.10-20";
+pub const BF2_BMC_VERSION: &str = "BF-26.04-8";
 
 /// Default BlueField-2 CEC firmware version.
 pub const BF2_CEC_VERSION: &str = "4-15";
 
 /// Default BlueField-2 UEFI firmware version.
-pub const BF2_UEFI_VERSION: &str = "4.13.2-12-g943a91640d";
+pub const BF2_UEFI_VERSION: &str = "4.16.0-14-g6ff7666b64";
 
 /// Default BlueField-3 NIC firmware version.
-pub const BF3_NIC_VERSION: &str = "32.47.2682";
+pub const BF3_NIC_VERSION: &str = "32.49.1014";
 
 /// Default BlueField-3 BMC firmware version.
-pub const BF3_BMC_VERSION: &str = "BF-25.10-20";
+pub const BF3_BMC_VERSION: &str = "BF-26.04-8";
 
 /// Default BlueField-3 CEC firmware version.
 pub const BF3_CEC_VERSION: &str = "00.02.0195.0000_n02";
 
 /// Default BlueField-3 UEFI firmware version.
-pub const BF3_UEFI_VERSION: &str = "4.13.2-12-g943a91640d";
+pub const BF3_UEFI_VERSION: &str = "4.16.0-14-g6ff7666b64";
 
 #[cfg(test)]
 mod tests {
