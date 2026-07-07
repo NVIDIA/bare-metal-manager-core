@@ -1896,6 +1896,10 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
+    /// A reverted HTTP-boot device was re-asserted (`machine_setup`) and the
+    /// host restarted to apply it; polls the device across that reboot, then
+    /// returns to `SetBootOrder` to set the boot order.
+    WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,
