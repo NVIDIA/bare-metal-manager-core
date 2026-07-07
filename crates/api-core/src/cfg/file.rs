@@ -114,6 +114,38 @@ pub struct CarbideConfig {
     #[serde(default = "default_max_database_connections")]
     pub max_database_connections: u32,
 
+    /// How long a caller may wait for a connection from the pool before the
+    /// attempt fails (sqlx's own default). It trips on a stalled database or
+    /// a saturated pool alike. Default is 30s.
+    #[serde(
+        default = "default_database_pool_acquire_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub database_pool_acquire_timeout: std::time::Duration,
+
+    /// How long a pooled database connection may sit unused before the
+    /// pool closes it. Pins sqlx's implicit default explicitly, keeping the
+    /// pool's idle reaping well inside the Postgres server's sixty-minute
+    /// idle-session reaper. Default is 10m.
+    #[serde(
+        default = "default_database_pool_idle_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub database_pool_idle_timeout: std::time::Duration,
+
+    /// Maximum age of a pooled database connection before it is closed and
+    /// replaced, so the pool keeps re-balancing onto the current primary
+    /// after a database failover. Pins sqlx's implicit default explicitly.
+    /// Default is 30m.
+    #[serde(
+        default = "default_database_pool_max_lifetime",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub database_pool_max_lifetime: std::time::Duration,
+
     /// InfiniBand fabric configuration, used by the IB
     /// fabric manager for partition and UFM management.
     pub ib_config: Option<IBFabricConfig>,
@@ -2123,6 +2155,19 @@ fn default_max_database_connections() -> u32 {
     1000
 }
 
+pub const fn default_database_pool_acquire_timeout() -> std::time::Duration {
+    // sqlx's own default; exposing the setting changes no behavior.
+    std::time::Duration::from_secs(30)
+}
+
+pub const fn default_database_pool_idle_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(10 * 60)
+}
+
+pub const fn default_database_pool_max_lifetime() -> std::time::Duration {
+    std::time::Duration::from_secs(30 * 60)
+}
+
 pub const fn default_bmc_session_lockout_threshold() -> u32 {
     3
 }
@@ -3269,6 +3314,21 @@ mod tests {
             config.max_database_connections,
             default_max_database_connections()
         );
+        // Literals on purpose: these pin the documented defaults (30s/10m/30m
+        // -- sqlx's own), so silently changing a default fn fails here rather
+        // than passing self-referentially.
+        assert_eq!(
+            config.database_pool_acquire_timeout,
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            config.database_pool_idle_timeout,
+            std::time::Duration::from_secs(10 * 60)
+        );
+        assert_eq!(
+            config.database_pool_max_lifetime,
+            std::time::Duration::from_secs(30 * 60)
+        );
         assert!(config.dhcp_servers.is_empty());
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
@@ -3495,6 +3555,18 @@ mod tests {
         assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1222);
+        assert_eq!(
+            config.database_pool_acquire_timeout,
+            std::time::Duration::from_secs(15)
+        );
+        assert_eq!(
+            config.database_pool_idle_timeout,
+            std::time::Duration::from_secs(20 * 60)
+        );
+        assert_eq!(
+            config.database_pool_max_lifetime,
+            std::time::Duration::from_secs(45 * 60)
+        );
         assert_eq!(config.asn, 123);
         assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(

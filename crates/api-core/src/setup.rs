@@ -273,6 +273,25 @@ pub fn create_ipmi_tool(
 pub(crate) async fn create_and_connect_postgres_pool(
     config: &CarbideConfig,
 ) -> eyre::Result<PgPool> {
+    for (name, value) in [
+        (
+            "database_pool_acquire_timeout",
+            config.database_pool_acquire_timeout,
+        ),
+        (
+            "database_pool_idle_timeout",
+            config.database_pool_idle_timeout,
+        ),
+        (
+            "database_pool_max_lifetime",
+            config.database_pool_max_lifetime,
+        ),
+    ] {
+        if value.is_zero() {
+            eyre::bail!("{name} must be greater than zero");
+        }
+    }
+
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -291,6 +310,12 @@ pub(crate) async fn create_and_connect_postgres_pool(
     }
     Ok(sqlx::pool::PoolOptions::new()
         .max_connections(config.max_database_connections)
+        // Lifecycle settings are operator-configurable; each `database_pool_*`
+        // config field documents what it bounds. The defaults are sqlx's own,
+        // so exposing them changes no behavior -- tuning belongs to the site.
+        .acquire_timeout(config.database_pool_acquire_timeout)
+        .idle_timeout(Some(config.database_pool_idle_timeout))
+        .max_lifetime(Some(config.database_pool_max_lifetime))
         .connect_with(database_connect_options)
         .await?)
 }
@@ -2241,5 +2266,34 @@ mod tests {
 
         assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
         assert!(msg.contains("beta"), "expected `beta` in {msg}");
+    }
+
+    /// The pool builder rejects zero-valued lifecycle settings before it
+    /// touches the database, naming the offending field.
+    #[tokio::test]
+    async fn zero_database_pool_durations_are_rejected_at_startup() {
+        type ZeroOut = fn(&mut CarbideConfig);
+        let cases: [(&str, ZeroOut); 3] = [
+            ("database_pool_acquire_timeout", |config| {
+                config.database_pool_acquire_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_idle_timeout", |config| {
+                config.database_pool_idle_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_max_lifetime", |config| {
+                config.database_pool_max_lifetime = std::time::Duration::ZERO
+            }),
+        ];
+        for (field, zero_out) in cases {
+            let mut config = crate::test_support::default_config::get();
+            zero_out(&mut config);
+            let err = create_and_connect_postgres_pool(&config)
+                .await
+                .expect_err("a zero-valued pool duration must be rejected");
+            assert!(
+                err.to_string().contains(field),
+                "error must name `{field}`, got: {err}"
+            );
+        }
     }
 }
