@@ -79,8 +79,8 @@ Review this entire step **before** running `setup.sh` and complete every item th
 ```bash
 # export KUBECONFIG=/path/to/kubeconfig        # optional if the current kubectl context is correct
 export NICO_IMAGE_REGISTRY=my-registry.example.com/nico  # base registry for all NICo images
-export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>  # e.g. v2025.12.30-rc1
-export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # e.g. v1.0.4
+export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>  # e.g. v2.0.0
+export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # e.g. v2.0.0
 # Optional for authenticated registries:
 # export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>
 # export REGISTRY_PULL_USERNAME='$oauthtoken'  # default for NGC API-key auth
@@ -95,8 +95,8 @@ For authenticated NGC pulls, obtain an API key at [ngc.nvidia.com](https://ngc.n
 | `REGISTRY_PULL_SECRET` | No | Raw registry password or API key used to create image pull secrets. |
 | `REGISTRY_PULL_USERNAME` | No | Username for generated pull secrets. Defaults to `$oauthtoken`. |
 | `NICO_IMAGE_REGISTRY` | Unless `--skip-core --skip-rest` | Base image registry for all NICo images (e.g. `my-registry.example.com/nico`). Used for NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). |
-| `NICO_CORE_IMAGE_TAG` | Unless `--skip-core` | NICo Core image tag (e.g. `v2025.12.30`). |
-| `NICO_REST_IMAGE_TAG` | Unless `--skip-rest` | NICo REST image tag (e.g. `v1.0.4`). |
+| `NICO_CORE_IMAGE_TAG` | Unless `--skip-core` | NICo Core image tag (e.g. `v2.0.0`). |
+| `NICO_REST_IMAGE_TAG` | Unless `--skip-rest` | NICo REST image tag (e.g. `v2.0.0`). |
 | `KUBECONFIG` | No | Path to the target cluster kubeconfig. Omit it when the current `kubectl` context is already correct. |
 | `NICO_SITE_UUID` | No | Stable UUID for this site. If unset, `setup.sh` generates a random UUID each run. |
 
