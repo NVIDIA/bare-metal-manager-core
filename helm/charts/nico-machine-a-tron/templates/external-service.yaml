@@ -1,4 +1,9 @@
-{{- if .Values.externalService.enabled }}
+{{/*
+External LoadBalancer service for Override Mode (development).
+Only used when bmcServices is disabled - provides a single external endpoint.
+When bmcServices.enabled, use ClusterIP services instead for per-BMC routing.
+*/}}
+{{- if and .Values.externalService.enabled (not .Values.bmcServices.enabled) }}
 apiVersion: v1
 kind: Service
 metadata:

@@ -19,3 +19,24 @@ tests:
     asserts:
       - isKind:
           of: Certificate
+
+  - it: should create per-pod certificates in multi-pod mode
+    set:
+      bmcServices:
+        enabled: true
+      pods:
+        mat-0:
+          cidr: "10.100.0.0/22"
+          machines:
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 5
+        mat-1:
+          cidr: "10.100.4.0/22"
+          machines:
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 5
+    asserts:
+      - hasDocuments:
+          count: 2
