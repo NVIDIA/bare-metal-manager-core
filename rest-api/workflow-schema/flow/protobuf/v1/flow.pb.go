@@ -914,11 +914,14 @@ type OperationRunTargetPhaseScope int32
 
 const (
 	OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_UNKNOWN OperationRunTargetPhaseScope = 0
-	// Default. Targets in the latest materialized phase.
+	// Default. Targets in the first materialized phase with non-terminal
+	// targets.
 	OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE OperationRunTargetPhaseScope = 1
-	// Targets in materialized phases before the current phase.
+	// Targets in materialized phases before the current phase. If no current
+	// phase exists, every materialized phase is completed.
 	OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES OperationRunTargetPhaseScope = 2
-	// All materialized targets through the current phase.
+	// All materialized targets through the current phase. If no current phase
+	// exists, this includes every materialized phase.
 	OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_AND_COMPLETED_PHASES OperationRunTargetPhaseScope = 3
 )
 
@@ -1017,13 +1020,14 @@ func (OperationRunSafetyGateScope) EnumDescriptor() ([]byte, []int) {
 type OperationRunStatus int32
 
 const (
-	OperationRunStatus_OPERATION_RUN_STATUS_UNKNOWN   OperationRunStatus = 0
-	OperationRunStatus_OPERATION_RUN_STATUS_PENDING   OperationRunStatus = 1
-	OperationRunStatus_OPERATION_RUN_STATUS_RUNNING   OperationRunStatus = 2
-	OperationRunStatus_OPERATION_RUN_STATUS_PAUSED    OperationRunStatus = 3
-	OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED OperationRunStatus = 4
-	OperationRunStatus_OPERATION_RUN_STATUS_CANCELLED OperationRunStatus = 5
-	OperationRunStatus_OPERATION_RUN_STATUS_FAILED    OperationRunStatus = 6
+	OperationRunStatus_OPERATION_RUN_STATUS_UNKNOWN                 OperationRunStatus = 0
+	OperationRunStatus_OPERATION_RUN_STATUS_PENDING                 OperationRunStatus = 1
+	OperationRunStatus_OPERATION_RUN_STATUS_RUNNING                 OperationRunStatus = 2
+	OperationRunStatus_OPERATION_RUN_STATUS_PAUSED                  OperationRunStatus = 3
+	OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED               OperationRunStatus = 4
+	OperationRunStatus_OPERATION_RUN_STATUS_CANCELLED               OperationRunStatus = 5
+	OperationRunStatus_OPERATION_RUN_STATUS_FAILED                  OperationRunStatus = 6
+	OperationRunStatus_OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES OperationRunStatus = 7
 )
 
 // Enum value maps for OperationRunStatus.
@@ -1036,15 +1040,17 @@ var (
 		4: "OPERATION_RUN_STATUS_COMPLETED",
 		5: "OPERATION_RUN_STATUS_CANCELLED",
 		6: "OPERATION_RUN_STATUS_FAILED",
+		7: "OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES",
 	}
 	OperationRunStatus_value = map[string]int32{
-		"OPERATION_RUN_STATUS_UNKNOWN":   0,
-		"OPERATION_RUN_STATUS_PENDING":   1,
-		"OPERATION_RUN_STATUS_RUNNING":   2,
-		"OPERATION_RUN_STATUS_PAUSED":    3,
-		"OPERATION_RUN_STATUS_COMPLETED": 4,
-		"OPERATION_RUN_STATUS_CANCELLED": 5,
-		"OPERATION_RUN_STATUS_FAILED":    6,
+		"OPERATION_RUN_STATUS_UNKNOWN":                 0,
+		"OPERATION_RUN_STATUS_PENDING":                 1,
+		"OPERATION_RUN_STATUS_RUNNING":                 2,
+		"OPERATION_RUN_STATUS_PAUSED":                  3,
+		"OPERATION_RUN_STATUS_COMPLETED":               4,
+		"OPERATION_RUN_STATUS_CANCELLED":               5,
+		"OPERATION_RUN_STATUS_FAILED":                  6,
+		"OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES": 7,
 	}
 )
 
@@ -1144,6 +1150,7 @@ const (
 	OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_FAILED     OperationRunTargetStatus = 5
 	OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_TERMINATED OperationRunTargetStatus = 6
 	OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_SKIPPED    OperationRunTargetStatus = 7
+	OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_CLAIMED    OperationRunTargetStatus = 8
 )
 
 // Enum value maps for OperationRunTargetStatus.
@@ -1157,6 +1164,7 @@ var (
 		5: "OPERATION_RUN_TARGET_STATUS_FAILED",
 		6: "OPERATION_RUN_TARGET_STATUS_TERMINATED",
 		7: "OPERATION_RUN_TARGET_STATUS_SKIPPED",
+		8: "OPERATION_RUN_TARGET_STATUS_CLAIMED",
 	}
 	OperationRunTargetStatus_value = map[string]int32{
 		"OPERATION_RUN_TARGET_STATUS_UNKNOWN":    0,
@@ -1167,6 +1175,7 @@ var (
 		"OPERATION_RUN_TARGET_STATUS_FAILED":     5,
 		"OPERATION_RUN_TARGET_STATUS_TERMINATED": 6,
 		"OPERATION_RUN_TARGET_STATUS_SKIPPED":    7,
+		"OPERATION_RUN_TARGET_STATUS_CLAIMED":    8,
 	}
 )
 
@@ -11972,7 +11981,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x1bOperationRunSafetyGateScope\x12+\n" +
 	"'OPERATION_RUN_SAFETY_GATE_SCOPE_UNKNOWN\x10\x00\x121\n" +
 	"-OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE\x10\x01\x122\n" +
-	".OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN\x10\x02*\x84\x02\n" +
+	".OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN\x10\x02*\xb6\x02\n" +
 	"\x12OperationRunStatus\x12 \n" +
 	"\x1cOPERATION_RUN_STATUS_UNKNOWN\x10\x00\x12 \n" +
 	"\x1cOPERATION_RUN_STATUS_PENDING\x10\x01\x12 \n" +
@@ -11980,14 +11989,15 @@ const file_flow_proto_rawDesc = "" +
 	"\x1bOPERATION_RUN_STATUS_PAUSED\x10\x03\x12\"\n" +
 	"\x1eOPERATION_RUN_STATUS_COMPLETED\x10\x04\x12\"\n" +
 	"\x1eOPERATION_RUN_STATUS_CANCELLED\x10\x05\x12\x1f\n" +
-	"\x1bOPERATION_RUN_STATUS_FAILED\x10\x06*\xab\x02\n" +
+	"\x1bOPERATION_RUN_STATUS_FAILED\x10\x06\x120\n" +
+	",OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES\x10\a*\xab\x02\n" +
 	"\x18OperationRunStatusReason\x12'\n" +
 	"#OPERATION_RUN_STATUS_REASON_UNKNOWN\x10\x00\x12$\n" +
 	" OPERATION_RUN_STATUS_REASON_NONE\x10\x01\x12/\n" +
 	"+OPERATION_RUN_STATUS_REASON_OPERATOR_PAUSED\x10\x02\x12*\n" +
 	"&OPERATION_RUN_STATUS_REASON_PHASE_GATE\x10\x03\x12+\n" +
 	"'OPERATION_RUN_STATUS_REASON_SAFETY_GATE\x10\x04\x126\n" +
-	"2OPERATION_RUN_STATUS_REASON_CONFLICT_RETRY_TIMEOUT\x10\x05*\xe8\x02\n" +
+	"2OPERATION_RUN_STATUS_REASON_CONFLICT_RETRY_TIMEOUT\x10\x05*\x91\x03\n" +
 	"\x18OperationRunTargetStatus\x12'\n" +
 	"#OPERATION_RUN_TARGET_STATUS_UNKNOWN\x10\x00\x12'\n" +
 	"#OPERATION_RUN_TARGET_STATUS_PENDING\x10\x01\x12'\n" +
@@ -11996,7 +12006,8 @@ const file_flow_proto_rawDesc = "" +
 	"%OPERATION_RUN_TARGET_STATUS_COMPLETED\x10\x04\x12&\n" +
 	"\"OPERATION_RUN_TARGET_STATUS_FAILED\x10\x05\x12*\n" +
 	"&OPERATION_RUN_TARGET_STATUS_TERMINATED\x10\x06\x12'\n" +
-	"#OPERATION_RUN_TARGET_STATUS_SKIPPED\x10\a2\x96$\n" +
+	"#OPERATION_RUN_TARGET_STATUS_SKIPPED\x10\a\x12'\n" +
+	"#OPERATION_RUN_TARGET_STATUS_CLAIMED\x10\b2\x96$\n" +
 	"\x04Flow\x12,\n" +
 	"\aVersion\x12\x12.v1.VersionRequest\x1a\r.v1.BuildInfo\x12E\n" +
 	"\x12CreateTaskSchedule\x12\x1d.v1.CreateTaskScheduleRequest\x1a\x10.v1.TaskSchedule\x12?\n" +
