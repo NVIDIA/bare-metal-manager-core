@@ -174,6 +174,21 @@ jobs:
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Using Git describe to extract version as VERSION and HELM_VERSION"
           VERSION=$(git describe --tags --first-parent --always --long)
+
+          # check for tag trigger (ex v2.0.0-rc.1)
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            RELEASE_TAG="${REF_NAME}"
+          else
+            RELEASE_TAG=""
+          fi
+
+          # for tags, always prefer the tag for uploading
+          REF="${{ github.ref }}"
+          if [[ "${REF}" =~ ^refs/tags/ ]]; then
+            VERSION="${RELEASE_TAG}"
+          fi
+
           # HELM_VERSION strips leading 'v' for strict SemVer and replaces the last '-' with '.'
           HELM_VERSION_BASE="${VERSION#v}"
           HELM_VERSION=$(echo "$HELM_VERSION_BASE" | sed 's/\(.*\)-/\1./')
