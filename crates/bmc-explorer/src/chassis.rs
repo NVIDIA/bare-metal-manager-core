@@ -159,20 +159,13 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     // derive PF0 base MAC as (NDF0 - 0x10).
     // Remove callers once BF4 BMC exposes PF0 base MAC in ComputerSystem BaseMAC.
     pub fn dpu_bf4_ndf0_permanent_mac(&self) -> Option<BaseMac> {
-        const BF4_NDF0_PATHS: [&str; 2] = [
-            "/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0",
-            "/redfish/v1/Chassis/Card1/NetworkAdapters/Bluefield_NIC/NetworkDeviceFunctions/0",
+        const BF4_NDF0_PATHS: [(&str, &str, &str); 2] = [
+            // /redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0
+            ("BlueField_0", "BlueField_NIC_0", "0"),
+            // /redfish/v1/Chassis/Card1/NetworkAdapters/Bluefield_NIC/NetworkDeviceFunctions/0
+            ("Card1", "Bluefield_NIC", "0"),
         ];
-        for path in BF4_NDF0_PATHS {
-            let parts: Vec<&str> = path.split('/').collect();
-            let (chassis_id, adapter_id, function_id) =
-                match (parts.get(4), parts.get(6), parts.get(8)) {
-                    (Some(chassis_id), Some(adapter_id), Some(function_id)) => {
-                        (*chassis_id, *adapter_id, *function_id)
-                    }
-                    _ => continue,
-                };
-
+        for (chassis_id, adapter_id, function_id) in BF4_NDF0_PATHS {
             let mac = self
                 .members
                 .iter()
