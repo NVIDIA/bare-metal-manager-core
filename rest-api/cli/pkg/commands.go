@@ -412,7 +412,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 	if subResource != "" {
 		usageText += " " + subResource
 	}
-	usageText += " " + ro.action
+	usageText += " " + ro.action + " [command options]"
 	for _, ap := range argParams {
 		usageText += " <" + ap + ">"
 	}
@@ -535,23 +535,11 @@ func detectMisorderedFlagsInArgs(args, argParams []string, usageText string) err
 		return nil
 	}
 
-	// Rewrite the usage line so the hint shows exactly where flags belong.
-	hint := usageText
-	if len(argParams) > 0 {
-		tail := ""
-		for _, ap := range argParams {
-			tail += " <" + ap + ">"
-		}
-		if idx := strings.Index(usageText, tail); idx >= 0 {
-			hint = usageText[:idx] + " [flags...]" + tail
-		}
-	}
-
 	var msg strings.Builder
 	if len(misplacedFlags) > 0 {
 		fmt.Fprintf(&msg, "flag(s) %s placed after a positional argument; urfave/cli (stdlib flag) stops parsing flags at the first positional, so these flags are being ignored.\n",
 			strings.Join(misplacedFlags, ", "))
-		fmt.Fprintf(&msg, "Move all flags before positionals, e.g.\n  %s\n", hint)
+		fmt.Fprintf(&msg, "Move all flags before positionals, e.g.\n  %s\n", usageText)
 	}
 	if len(extraPositionals) > 0 {
 		if msg.Len() > 0 {
@@ -742,7 +730,10 @@ func coerceValue(v string, schemaType SchemaType) (interface{}, error) {
 }
 
 func clientFromContext(c *cli.Context) (*Client, error) {
-	cfg, _ := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
 	ApplyEnvOverrides(cfg)
 
 	tokenCommand := c.String("token-command")

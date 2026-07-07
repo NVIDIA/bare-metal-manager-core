@@ -161,6 +161,18 @@ func TestSaveOIDCTokenErrorsWhenAccessTokenMissing(t *testing.T) {
 	require.Equal(t, "2026-01-01T00:00:00Z", oidc.ExpiresAt)
 }
 
+func TestLoginCommandReturnsConfigReadError(t *testing.T) {
+	configPath := t.TempDir()
+	SetConfigPath(configPath)
+	defer SetConfigPath("")
+
+	ctx := cli.NewContext(cli.NewApp(), flag.NewFlagSet("login", flag.ContinueOnError), nil)
+	err := LoginCommand().Action(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "loading config:")
+	require.Contains(t, err.Error(), configPath)
+}
+
 func TestLoginCommandExplicitAPIKeyWinsOverOIDCFlags(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "ApiKey explicit-key", r.Header.Get("Authorization"))

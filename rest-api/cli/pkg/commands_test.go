@@ -4,7 +4,9 @@
 package cli
 
 import (
+	"bytes"
 	"flag"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,6 +90,25 @@ func TestClientFromContextExplicitTokenCommandOverridesCachedConfigToken(t *test
 	client, err := clientFromContext(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "explicit-token", client.Token)
+}
+
+func TestClientFromContextReturnsMalformedConfigError(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("auth:\n  token:missing-space\n  token_command: echo token\n"), 0600))
+	SetConfigPath(configPath)
+	defer SetConfigPath("")
+
+	flags := flag.NewFlagSet("test", flag.ContinueOnError)
+	flags.String("token", "", "")
+	flags.String("token-command", "", "")
+	flags.String("base-url", "", "")
+	flags.String("org", "", "")
+	flags.Bool("debug", false, "")
+
+	ctx := cli.NewContext(cli.NewApp(), flags, nil)
+	_, err := clientFromContext(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "loading config: parsing config "+configPath)
 }
 
 func TestOperationAction(t *testing.T) {
@@ -493,9 +514,21 @@ func TestBuildActionCommand_UsageTextUsesBinaryName(t *testing.T) {
 	}
 
 	cmd := buildActionCommand(spec, ro, "")
-	assert.Equal(t, "nicocli site get <siteId>", cmd.UsageText)
+	assert.Equal(t, "nicocli site get [command options] <siteId>", cmd.UsageText)
 	assert.False(t, strings.HasPrefix(cmd.UsageText, "cli "),
 		"UsageText must not start with the literal word 'cli '; got %q", cmd.UsageText)
+}
+
+func TestNewApp_RackGetUsageShowsOptionsBeforeID(t *testing.T) {
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err)
+
+	var output bytes.Buffer
+	app.Writer = &output
+	require.NoError(t, app.Run([]string{"nicocli", "rack", "get", "--help"}))
+
+	assert.Contains(t, output.String(), "USAGE:\n   nicocli rack get [command options] <id>")
+	assert.NotContains(t, output.String(), "nicocli rack get <id>")
 }
 
 // TestBuildCommands_AllUsageTextStartsWithBinaryName walks every dynamically
@@ -527,7 +560,7 @@ func TestBuildCommands_AllUsageTextStartsWithBinaryName(t *testing.T) {
 }
 
 func TestDetectMisorderedFlags(t *testing.T) {
-	usage := "nicocli machine update <machineId>"
+	usage := "nicocli machine update [command options] <machineId>"
 	tests := []struct {
 		name         string
 		args         []string
@@ -552,7 +585,7 @@ func TestDetectMisorderedFlags(t *testing.T) {
 			args:         []string{"fm100htq", "--data", "{}"},
 			argParams:    []string{"machineId"},
 			wantErr:      true,
-			wantContains: []string{"--data", "placed after a positional", "Move all flags before positionals", "[flags...] <machineId>"},
+			wantContains: []string{"--data", "placed after a positional", "Move all flags before positionals", "[command options] <machineId>"},
 		},
 		{
 			name:         "flag=value form after positional",
